@@ -5,7 +5,7 @@ No I/O, no external dependencies. Tests run in < 1 second.
 
 import pytest
 
-from domain.models import Event, Impression, MessageRef, Persona
+from core.domain.models import Event, Impression, MessageRef, Persona
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -8,8 +8,8 @@ import math
 
 import pytest
 
-from domain.models import Event, Impression, MessageRef, Persona
-from repository.memory import (
+from core.domain.models import Event, Impression, MessageRef, Persona
+from core.repository.memory import (
     InMemoryEventRepository,
     InMemoryImpressionRepository,
     InMemoryPersonaRepository,
