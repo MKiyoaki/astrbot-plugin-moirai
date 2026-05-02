@@ -44,8 +44,8 @@ Raw Messages (from AstrBot event stream)
        ▼
 [Repository Layer]           ← abstract interface
        │
-       ├─► SQLite (structured)
-       ├─► SQLite FTS5 (keyword search)
+       ├─► Chroma (structured)
+       ├─► Chroma FTS5 (keyword search)
        ├─► FAISS (vector search)
        └─► Markdown Projector (read-only user-facing files)
 
@@ -137,7 +137,7 @@ These are all future work. The simple version is sufficient to validate the onto
 ```
 data/plugins/<plugin_name>/data
 ├── db/
-│   ├── core.db          # SQLite: events, personas, impressions, fts5
+│   ├── core.db          # Chroma: events, personas, impressions, fts5
 │   └── vectors.faiss    # FAISS index for event embeddings
 ├── personas/
 │   └── <uid>/
@@ -215,8 +215,8 @@ This means: `relation_inference.enabled = false` should still leave the memory s
 **Code Organization Principles**
 
 - Domain Model is pure Python — no I/O, no external dependencies. Should be unit-testable in isolation.
-- Repository interfaces are abstract — production uses SQLite implementation, tests use in-memory implementation.
-- Markdown rendering is one-way by default — DB is source of truth, files are projections. Reverse sync (file → DB) is an explicit subsystem with clear merge semantics.
+- Repository interfaces are abstract — production uses Chroma DB vector + Tantivy BM25, tests use in-memory implementation.
+- Markdown rendering is one-way by default — DB is source of truth, files are projections. Reverse sync (file → DB) is an explicit subsystem with clear merge semantics. 
 - No async on the hot path that isn't strictly necessary — group chat throughput rarely demands it; readability wins.
 - Explicit configuration over inferred behavior — every threshold (event boundary, decay rate, retrieval top-k, token budget) must be configurable, with sensible defaults.
 
@@ -226,7 +226,7 @@ This means: `relation_inference.enabled = false` should still leave the memory s
 - Always refer the official documentation of [Astrbot plugins](https://docs.astrbot.app/dev/star/plugin-new.html) to use the interfaces correctly
 - Type hints required for all public functions; strict mypy on the Domain Model layer
 - Dataclasses (with `slots=True` for hot-path objects) over Pydantic (Pydantic only at API boundary if needed)
-- `aiosqlite` for async DB; never `sqlite3` directly
+- `aioChroma` for async DB; never `Chroma3` directly
 - HTTP clients use `httpx`, never `requests`
 - Format with `ruff` before commit
 - Use `pathlib.Path` to manage with path related functions, not `os.path`
@@ -235,7 +235,7 @@ This means: `relation_inference.enabled = false` should still leave the memory s
 ### hat to Build First (Suggested Order)
 
 1. Domain Model + Repository abstract interface + in-memory implementation + tests
-2. SQLite repository implementation with schema migrations
+2. Chroma repository implementation with schema migrations
 3. Event boundary detector (the simple v1) + integration with AstrBot event stream
 4. LLM event extractor with constrained output schema
 5. Embedding integration + FAISS index + hybrid retrieval
