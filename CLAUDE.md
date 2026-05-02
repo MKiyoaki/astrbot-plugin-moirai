@@ -135,7 +135,7 @@ These are all future work. The simple version is sufficient to validate the onto
 
 ## Storage Layout
 ```
-data/plugins/<plugin_name>/
+data/plugins/<plugin_name>/data
 ├── db/
 │   ├── core.db          # SQLite: events, personas, impressions, fts5
 │   └── vectors.faiss    # FAISS index for event embeddings
@@ -229,6 +229,7 @@ This means: `relation_inference.enabled = false` should still leave the memory s
 - `aiosqlite` for async DB; never `sqlite3` directly
 - HTTP clients use `httpx`, never `requests`
 - Format with `ruff` before commit
+- Use `pathlib.Path` to manage with path related functions, not `os.path`
 - All persistent data lives under AstrBot's `data/` directory, not the plugin directory itself
 
 ### hat to Build First (Suggested Order)

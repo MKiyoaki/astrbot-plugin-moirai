@@ -1,0 +1,3 @@
+# WebUI of the plugin
+
+## TODO: Consider how to make this UI extendable in the future...
