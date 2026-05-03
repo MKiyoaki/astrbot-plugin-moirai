@@ -291,6 +291,7 @@ This means: `relation_inference.enabled = false` should still leave the memory s
 - Markdown rendering is one-way by default — DB is source of truth, files are projections. Reverse sync (file → DB) is an explicit subsystem with clear merge semantics. 
 - No async on the hot path that isn't strictly necessary — group chat throughput rarely demands it; readability wins.
 - Explicit configuration over inferred behavior — every threshold (event boundary, decay rate, retrieval top-k, token budget) must be configurable, with sensible defaults.
+- Add changes into CHANGELOG.md for every modification. 
 
 ### Coding Conventions
 
