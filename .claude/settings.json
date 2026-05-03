@@ -23,7 +23,8 @@
       "Bash(python3)",
       "Bash(python3 -m py_compile core/**/*.py)",
       "Bash(Test-Path \"d:\\\\Program Files\\\\Git Lib\\\\astrbot-plugin-enhanced-memory\\\\web\\\\README.md\")",
-      "Bash(python -c \"from web.server import WebuiServer, _DEMO_SUMMARY_1, _DEMO_SUMMARY_2; print\\('server OK'\\)\")"
+      "Bash(python -c \"from web.server import WebuiServer, _DEMO_SUMMARY_1, _DEMO_SUMMARY_2; print\\('server OK'\\)\")",
+      "PowerShell(cd \"d:\\\\Program Files\\\\Git Lib\\\\astrbot-plugin-enhanced-memory\"; git show e5929cf --name-status | Select-String \"^A|^D\" | Select-String \"web/\" | Where-Object { $_ -notmatch \"\\\\.agents\"} | Select-Object -First 30)"
     ],
     "additionalDirectories": [
       "d:\\Program Files\\Git Lib\\astrbot-plugin-enhanced-memory\\web\\static"
