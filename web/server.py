@@ -1,52 +1,52 @@
-"""aiohttp WebUI 服务器 — 三轴记忆面板 + 统一管理 + 第三方面板挂载点。
+"""aiohttp WebUI Server — Three-axis Memory Panel + Unified Management + Third-party Panel Mount.
 
-路由权限分级：
-  - public：无需登录（/login、/api/auth/setup、/api/auth/status）
-  - auth：需要会话（GET 类只读接口）
-  - sudo：需要二级密码验证（POST 写操作、敏感配置）
+Route permission levels:
+  - public: No login required (/login, /api/auth/setup, /api/auth/status)
+  - auth: Session required (GET read-only interfaces)
+  - sudo: Secondary password verification required (POST write operations, sensitive configurations)
 
-数据构建逻辑（events_data / graph_data / summaries_data）保持纯异步，
-不依赖 HTTP 上下文，方便测试直接调用。
-
-静态资源目录解析顺序：
-  1. web/static/       — 优先（存放 Next.js 构建产物或迁移后的新前端）
-  2. web-legacy/static/ — 回退（当前多文件 HTML/CSS/JS 前端）
+Data construction logic (events_data / graph_data / summaries_data) is kept purely asynchronous
+and independent of the HTTP context for easier direct testing.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import subprocess
+import sys
 import time
 import uuid
-from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
 from core.domain.models import Event, Impression, Persona
-from core.repository.base import EventRepository, ImpressionRepository, PersonaRepository
+from core.repository.memory import (
+    InMemoryEventRepository,
+    InMemoryImpressionRepository,
+    InMemoryPersonaRepository,
+)
 
 from .auth import AuthManager, AuthState, PermLevel
 from .registry import PanelRegistry
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+    from core.repository.base import EventRepository, ImpressionRepository, PersonaRepository
+
+    TaskRunner = Callable[[str], Awaitable[bool]]
+
 logger = logging.getLogger(__name__)
 
-# 静态资源目录：优先使用 web/static/，否则回退到 web-legacy/static/
-_WEB_DIR = Path(__file__).parent
-_STATIC_DIR_PRIMARY = _WEB_DIR / "static"
-_STATIC_DIR_LEGACY = _WEB_DIR.parent / "web-legacy" / "static"
-_STATIC_DIR = _STATIC_DIR_PRIMARY if _STATIC_DIR_PRIMARY.is_dir() else _STATIC_DIR_LEGACY
-
+_STATIC_DIR = Path(__file__).parent / "output"
 _DEFAULT_PORT = 2653
 _SESSION_COOKIE = "em_session"
 
 
-# ---------------------------------------------------------------------------
-# 序列化辅助函数（纯函数，可单独测试）
-# ---------------------------------------------------------------------------
-
+# Serialization helper functions (pure functions, independently testable)
 def _ts_to_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
@@ -111,9 +111,7 @@ def impression_to_edge(imp: Impression) -> dict[str, Any]:
     }
 
 
-# ---------------------------------------------------------------------------
-# 演示数据摘要（模块级常量，由 _handle_demo 使用）
-# ---------------------------------------------------------------------------
+# Demo data summaries (module-level constants, used by _handle_demo)
 
 _DEMO_SUMMARY_1 = """\
 # 群组 demo_group_001 · 2026-05-01
@@ -154,18 +152,11 @@ _DEMO_SUMMARY_2 = """\
 - Alice → Charlie：建立了轻松的游戏同好关系
 """
 
-# ---------------------------------------------------------------------------
-# WebuiServer
-# ---------------------------------------------------------------------------
-
-# 任务执行器协议：传入任务名，返回是否成功（实际由 main.py 注入 TaskScheduler.run_now）
-TaskRunner = Callable[[str], Awaitable[bool]]
-
 
 class WebuiServer:
-    """三面板 WebUI + 统一管理 + 面板注册中心。
+    """Three-panel WebUI + Unified Management + Panel Registry.
 
-    所有写操作（密码修改、任务触发、配置更新）都需要 sudo 模式。
+    All write operations (password modification, task triggering, config updates) require sudo mode.
     """
 
     def __init__(
@@ -190,71 +181,169 @@ class WebuiServer:
         self.registry = registry or PanelRegistry()
         self._task_runner = task_runner
         self._plugin_version = plugin_version
-        self._recycle_bin: list[dict] = []  # In-memory recycle bin (session-scoped)
+        
+        # In-memory recycle bin (session-scoped)
+        self._recycle_bin: list[dict] = []
         self._app = self._build_app()
         self._runner: web.AppRunner | None = None
 
-    # ------------------------------------------------------------------
-    # 应用构建
-    # ------------------------------------------------------------------
+    def _ensure_frontend_build(self) -> None:
+        """Automated build logic: Triggers static build only in dev environment when the static folder is missing."""
+        frontend_src = Path(__file__).parent / "web"
+        
+        # If the static folder exists and is not empty, proceed directly (user-side execution logic)
+        if _STATIC_DIR.exists() and any(_STATIC_DIR.iterdir()):
+            logger.info("[WebUI] Static resources are ready, loading directly.")
+            return
+            
+        # If frontend source code exists, it indicates a dev environment, execute the build process
+        if (frontend_src / "package.json").exists():
+            logger.info("[WebUI] First run or missing static assets, automating frontend build, please wait...")
+            try:
+                # Use shell=True to inherit system NVM environment
+                logger.info("[WebUI] Installing frontend dependencies (npm install)...")
+                subprocess.run("npm install", cwd=frontend_src, shell=True, check=True)
+                
+                logger.info("[WebUI] Executing static compilation (npm run build)...")
+                subprocess.run("npm run build", cwd=frontend_src, shell=True, check=True)
+                
+                logger.info("[WebUI] Frontend static compilation completed! Resources saved to: %s", _STATIC_DIR)
+            except subprocess.CalledProcessError as e:
+                logger.error("[WebUI] Automated build failed. Please check your Node.js environment or manually run build in the web/web directory. Error: %s", e)
+        else:
+            logger.warning("[WebUI] Cannot start frontend: Static assets folder 'static' not found and source directory is missing.")
 
+    # Application construction
     def _build_app(self) -> web.Application:
         app = web.Application()
-        # 静态/HTML
-        app.router.add_get("/", self._handle_index)
-        if _STATIC_DIR.is_dir():
-            app.router.add_static("/static", _STATIC_DIR)
-        # 认证
-        app.router.add_get("/api/auth/status", self._wrap("public", self._handle_auth_status))
-        app.router.add_post("/api/auth/setup", self._wrap("public", self._handle_auth_setup))
-        app.router.add_post("/api/auth/login", self._wrap("public", self._handle_auth_login))
-        app.router.add_post("/api/auth/logout", self._wrap("auth", self._handle_auth_logout))
-        app.router.add_post("/api/auth/sudo", self._wrap("auth", self._handle_auth_sudo))
-        app.router.add_post("/api/auth/sudo/exit", self._wrap("auth", self._handle_auth_sudo_exit))
+        
+        # Authentication
+        app.router.add_get("/api/auth/status",
+                           self._wrap("public", self._handle_auth_status))
+        app.router.add_post("/api/auth/setup",
+                            self._wrap("public", self._handle_auth_setup))
+        app.router.add_post("/api/auth/login",
+                            self._wrap("public", self._handle_auth_login))
+        app.router.add_post("/api/auth/logout",
+                            self._wrap("auth", self._handle_auth_logout))
+        app.router.add_post(
+            "/api/auth/sudo", self._wrap("auth", self._handle_auth_sudo))
+        app.router.add_post("/api/auth/sudo/exit",
+                            self._wrap("auth", self._handle_auth_sudo_exit))
         app.router.add_post(
             "/api/auth/password",
             self._wrap("sudo", self._handle_change_password),
         )
-        # 数据查询
-        app.router.add_get("/api/events", self._wrap("auth", self._handle_events))
-        app.router.add_get("/api/graph", self._wrap("auth", self._handle_graph))
-        app.router.add_get("/api/summaries", self._wrap("auth", self._handle_summaries))
-        app.router.add_get("/api/summary", self._wrap("auth", self._handle_summary))
-        app.router.add_get("/api/stats", self._wrap("auth", self._handle_stats))
-        # 管理操作（sudo）
-        app.router.add_post("/api/admin/run_task", self._wrap("sudo", self._handle_run_task))
-        app.router.add_put("/api/summary", self._wrap("auth", self._handle_update_summary))
-        app.router.add_post("/api/admin/demo", self._wrap("sudo", self._handle_demo))
-        # 记忆召回测试
-        app.router.add_get("/api/recall", self._wrap("auth", self._handle_recall))
-        # 事件 CRUD
-        app.router.add_post("/api/events", self._wrap("sudo", self._handle_create_event))
-        app.router.add_put("/api/events/{event_id}", self._wrap("sudo", self._handle_update_event))
-        app.router.add_delete("/api/events/{event_id}", self._wrap("sudo", self._handle_delete_event))
-        app.router.add_delete("/api/events", self._wrap("sudo", self._handle_clear_events))
-        # 回收站
-        app.router.add_get("/api/recycle_bin", self._wrap("auth", self._handle_recycle_bin_list))
-        app.router.add_post("/api/recycle_bin/restore", self._wrap("sudo", self._handle_recycle_bin_restore))
-        app.router.add_delete("/api/recycle_bin", self._wrap("sudo", self._handle_recycle_bin_clear))
-        # 人格 CRUD
-        app.router.add_post("/api/personas", self._wrap("sudo", self._handle_create_persona))
-        app.router.add_put("/api/personas/{uid}", self._wrap("sudo", self._handle_update_persona))
-        app.router.add_delete("/api/personas/{uid}", self._wrap("sudo", self._handle_delete_persona))
-        # 印象更新
+        
+        # Data queries
+        app.router.add_get(
+            "/api/events", self._wrap("auth", self._handle_events))
+        app.router.add_get(
+            "/api/graph", self._wrap("auth", self._handle_graph))
+        app.router.add_get(
+            "/api/summaries", self._wrap("auth", self._handle_summaries))
+        app.router.add_get(
+            "/api/summary", self._wrap("auth", self._handle_summary))
+        app.router.add_get(
+            "/api/stats", self._wrap("auth", self._handle_stats))
+            
+        # Admin operations (sudo)
+        app.router.add_post("/api/admin/run_task",
+                            self._wrap("sudo", self._handle_run_task))
+        app.router.add_put(
+            "/api/summary", self._wrap("auth", self._handle_update_summary))
+        app.router.add_post("/api/admin/demo",
+                            self._wrap("sudo", self._handle_demo))
+                            
+        # Memory recall testing
+        app.router.add_get(
+            "/api/recall", self._wrap("auth", self._handle_recall))
+            
+        # Event CRUD
+        app.router.add_post(
+            "/api/events", self._wrap("sudo", self._handle_create_event))
+        app.router.add_put(
+            "/api/events/{event_id}", self._wrap("sudo", self._handle_update_event))
+        app.router.add_delete(
+            "/api/events/{event_id}", self._wrap("sudo", self._handle_delete_event))
+        app.router.add_delete(
+            "/api/events", self._wrap("sudo", self._handle_clear_events))
+            
+        # Recycle bin
+        app.router.add_get("/api/recycle_bin",
+                           self._wrap("auth", self._handle_recycle_bin_list))
+        app.router.add_post("/api/recycle_bin/restore",
+                            self._wrap("sudo", self._handle_recycle_bin_restore))
+        app.router.add_delete(
+            "/api/recycle_bin", self._wrap("sudo", self._handle_recycle_bin_clear))
+            
+        # Persona CRUD
+        app.router.add_post(
+            "/api/personas", self._wrap("sudo", self._handle_create_persona))
+        app.router.add_put(
+            "/api/personas/{uid}", self._wrap("sudo", self._handle_update_persona))
+        app.router.add_delete(
+            "/api/personas/{uid}", self._wrap("sudo", self._handle_delete_persona))
+            
+        # Impression updates
         app.router.add_put(
             "/api/impressions/{observer}/{subject}/{scope}",
             self._wrap("sudo", self._handle_update_impression),
         )
-        # 第三方面板注册
-        app.router.add_get("/api/panels", self._wrap("auth", self._handle_panels_list))
-        # 注入第三方插件已注册的路由
+        
+        # Third-party panel registration
+        app.router.add_get(
+            "/api/panels", self._wrap("auth", self._handle_panels_list))
+            
+        # Inject routes registered by third-party plugins
         for route in self.registry.all_routes():
             app.router.add_route(
                 route.method,
                 route.path,
-                self._wrap(route.permission, lambda req, h=route.handler: h(req)),
+                self._wrap(route.permission, lambda req,
+                           h=route.handler: h(req)),
             )
+
+        # Static files and SPA route fallback (must be placed last)
+        app.router.add_get("/", self._handle_spa_fallback)
+        app.router.add_get("/{tail:.*}", self._handle_spa_fallback)
+        
         return app
+
+    async def _handle_spa_fallback(self, request: web.Request) -> web.Response:
+        """Handle Next.js static export SPA routing and fallback mechanism."""
+        # Prevent accidental interception of API requests
+        if request.path.startswith("/api/"):
+            return web.Response(status=404, text="API Endpoint Not Found")
+            
+        path = request.match_info.get("tail", "").strip("/")
+        if not path:
+            path = "index.html"
+            
+        target_file = _STATIC_DIR / path
+        
+        # Security check: Prevent path traversal attacks
+        try:
+            target_file.resolve().relative_to(_STATIC_DIR.resolve())
+        except ValueError:
+            return web.Response(status=403, text="Forbidden")
+
+        # 1. Serve static resources directly (CSS, JS, images)
+        if target_file.is_file():
+            return web.FileResponse(target_file)
+
+        # 2. Next.js trailingSlash adaptation: /login -> /login.html
+        html_file = _STATIC_DIR / f"{path}.html"
+        if html_file.is_file():
+            return web.FileResponse(html_file)
+
+        # 3. Final fallback: hand over SPA routing to index.html internally
+        index_file = _STATIC_DIR / "index.html"
+        if index_file.is_file():
+            return web.FileResponse(index_file)
+
+        # Case where files are completely missing
+        return web.Response(status=404, text="Frontend static files not found. Please ensure the frontend is built.")
 
     @property
     def app(self) -> web.Application:
@@ -265,11 +354,14 @@ class WebuiServer:
         return self._auth
 
     async def start(self) -> None:
+        # Ensure static resources are ready
+        self._ensure_frontend_build()
+        
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, "0.0.0.0", self._port)
         await site.start()
-        logger.info("[WebUI] listening on http://localhost:%d (static: %s)", self._port, _STATIC_DIR)
+        logger.info("[WebUI] listening on http://localhost:%d", self._port)
 
     async def stop(self) -> None:
         if self._runner is not None:
@@ -277,9 +369,7 @@ class WebuiServer:
             self._runner = None
         logger.info("[WebUI] stopped")
 
-    # ------------------------------------------------------------------
-    # 中间件（包装 handler 实现权限校验）
-    # ------------------------------------------------------------------
+    # Middleware (wraps handler to implement permission validation)
 
     def _wrap(self, level: PermLevel, handler: Callable) -> Callable:
         async def wrapped(request: web.Request) -> web.StreamResponse:
@@ -295,9 +385,7 @@ class WebuiServer:
             return await handler(request)
         return wrapped
 
-    # ------------------------------------------------------------------
-    # 数据构建（async，可独立测试）
-    # ------------------------------------------------------------------
+    # Data construction (async, independently testable)
 
     async def events_data(self, group_id: str | None, limit: int) -> dict[str, Any]:
         if group_id is not None:
@@ -331,18 +419,21 @@ class WebuiServer:
                     continue
                 sub = gid_dir / "summaries"
                 for f in sorted(sub.glob("*.md"), reverse=True) if sub.exists() else []:
-                    result.append({"group_id": gid_dir.name, "date": f.stem, "label": gid_dir.name})
+                    result.append({"group_id": gid_dir.name,
+                                  "date": f.stem, "label": gid_dir.name})
         global_dir = self._data_dir / "global" / "summaries"
         if global_dir.exists():
             for f in sorted(global_dir.glob("*.md"), reverse=True):
-                result.append({"group_id": None, "date": f.stem, "label": "私聊"})
+                result.append(
+                    {"group_id": None, "date": f.stem, "label": "私聊"})
         return result
 
     def summary_content(self, group_id: str | None, date: str) -> str | None:
         if not date:
             return None
         if group_id:
-            path = self._data_dir / "groups" / group_id / "summaries" / f"{date}.md"
+            path = self._data_dir / "groups" / \
+                group_id / "summaries" / f"{date}.md"
         else:
             path = self._data_dir / "global" / "summaries" / f"{date}.md"
         return path.read_text(encoding="utf-8") if path.exists() else None
@@ -366,30 +457,19 @@ class WebuiServer:
             "version": self._plugin_version,
         }
 
-    # ------------------------------------------------------------------
-    # 路由处理器：静态页
-    # ------------------------------------------------------------------
+    # Route handlers: Static pages
 
     async def _handle_index(self, _: web.Request) -> web.Response:
-        index_html = _STATIC_DIR / "index.html"
-        if not index_html.exists():
-            return web.Response(
-                text="<h1>Enhanced Memory WebUI</h1><p>Frontend not found. Run <code>npm run build</code> in <code>web/</code>.</p>",
-                content_type="text/html",
-                status=503,
-            )
-        return web.Response(
-            text=index_html.read_text(encoding="utf-8"),
-            content_type="text/html",
-        )
+        return web.json_response({
+            "message": "WebUI backend is running"
+        })
 
-    # ------------------------------------------------------------------
-    # 路由处理器：认证
-    # ------------------------------------------------------------------
+    # Route handlers: Authentication
 
     async def _handle_auth_status(self, request: web.Request) -> web.Response:
         token = request.cookies.get(_SESSION_COOKIE)
-        state = self._auth.check(token) if self._auth_enabled else AuthState(True, True)
+        state = self._auth.check(
+            token) if self._auth_enabled else AuthState(True, True)
         return _json({
             "auth_enabled": self._auth_enabled,
             "password_set": self._auth.is_password_set(),
@@ -410,7 +490,8 @@ class WebuiServer:
         token = self._auth.login(password)
         resp = _json({"ok": True})
         if token:
-            resp.set_cookie(_SESSION_COOKIE, token, httponly=True, samesite="Lax", path="/")
+            resp.set_cookie(_SESSION_COOKIE, token,
+                            httponly=True, samesite="Lax", path="/")
         return resp
 
     async def _handle_auth_login(self, request: web.Request) -> web.Response:
@@ -419,7 +500,8 @@ class WebuiServer:
         if token is None:
             return _json({"error": "invalid password"}, status=401)
         resp = _json({"ok": True})
-        resp.set_cookie(_SESSION_COOKIE, token, httponly=True, samesite="Lax", path="/")
+        resp.set_cookie(_SESSION_COOKIE, token, httponly=True,
+                        samesite="Lax", path="/")
         return resp
 
     async def _handle_auth_logout(self, request: web.Request) -> web.Response:
@@ -431,6 +513,7 @@ class WebuiServer:
     async def _handle_auth_sudo(self, request: web.Request) -> web.Response:
         body = await request.json()
         token = request.cookies.get(_SESSION_COOKIE)
+        # Distinguish session expiration from incorrect password for easier troubleshooting
         if not token or not self._auth.check(token).is_authenticated:
             return _json({"error": "session expired, please login again"}, status=401)
         if not self._auth.verify_password(body.get("password", "")):
@@ -446,14 +529,13 @@ class WebuiServer:
 
     async def _handle_change_password(self, request: web.Request) -> web.Response:
         body = await request.json()
-        ok = self._auth.change_password(body.get("old_password", ""), body.get("new_password", ""))
+        ok = self._auth.change_password(
+            body.get("old_password", ""), body.get("new_password", ""))
         if not ok:
             return _json({"error": "old password incorrect or weak new password"}, status=400)
         return _json({"ok": True})
 
-    # ------------------------------------------------------------------
-    # 路由处理器：数据查询
-    # ------------------------------------------------------------------
+    # Route handlers: Data queries
 
     async def _handle_events(self, request: web.Request) -> web.Response:
         group_id = request.rel_url.query.get("group_id") or None
@@ -479,9 +561,7 @@ class WebuiServer:
     async def _handle_stats(self, _: web.Request) -> web.Response:
         return _json(await self.stats_data())
 
-    # ------------------------------------------------------------------
-    # 路由处理器：管理操作（sudo）
-    # ------------------------------------------------------------------
+    # Route handlers: Admin operations (sudo)
 
     async def _handle_run_task(self, request: web.Request) -> web.Response:
         if self._task_runner is None:
@@ -504,7 +584,8 @@ class WebuiServer:
         if not date:
             return _json({"error": "date required"}, status=400)
         if group_id:
-            path = self._data_dir / "groups" / group_id / "summaries" / f"{date}.md"
+            path = self._data_dir / "groups" / \
+                group_id / "summaries" / f"{date}.md"
         else:
             path = self._data_dir / "global" / "summaries" / f"{date}.md"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -520,7 +601,8 @@ class WebuiServer:
                 uid="demo_uid_alice",
                 bound_identities=[("qq", "demo_10001")],
                 primary_name="Alice",
-                persona_attrs={"description": "热情开朗，喜爱音乐与游戏", "affect_type": "积极", "content_tags": ["音乐", "游戏", "聊天"]},
+                persona_attrs={"description": "热情开朗，喜爱音乐与游戏",
+                               "affect_type": "积极", "content_tags": ["音乐", "游戏", "聊天"]},
                 confidence=0.88,
                 created_at=now - 30 * DAY,
                 last_active_at=now - DAY,
@@ -529,7 +611,8 @@ class WebuiServer:
                 uid="demo_uid_bob",
                 bound_identities=[("qq", "demo_10002")],
                 primary_name="Bob",
-                persona_attrs={"description": "理性谨慎，热衷技术讨论", "affect_type": "中性", "content_tags": ["技术", "编程"]},
+                persona_attrs={"description": "理性谨慎，热衷技术讨论",
+                               "affect_type": "中性", "content_tags": ["技术", "编程"]},
                 confidence=0.82,
                 created_at=now - 25 * DAY,
                 last_active_at=now - 2 * DAY,
@@ -538,7 +621,8 @@ class WebuiServer:
                 uid="demo_uid_charlie",
                 bound_identities=[("telegram", "demo_tg_charlie")],
                 primary_name="Charlie",
-                persona_attrs={"description": "神秘低调，偶尔参与讨论", "affect_type": "消极", "content_tags": ["旅行", "摄影"]},
+                persona_attrs={"description": "神秘低调，偶尔参与讨论",
+                               "affect_type": "消极", "content_tags": ["旅行", "摄影"]},
                 confidence=0.65,
                 created_at=now - 15 * DAY,
                 last_active_at=now - 5 * DAY,
@@ -547,7 +631,8 @@ class WebuiServer:
                 uid="demo_uid_bot",
                 bound_identities=[("internal", "bot")],
                 primary_name="BOT",
-                persona_attrs={"description": "AI 助手", "affect_type": "中性", "content_tags": []},
+                persona_attrs={"description": "AI 助手",
+                               "affect_type": "中性", "content_tags": []},
                 confidence=1.0,
                 created_at=now - 60 * DAY,
                 last_active_at=now,
@@ -560,7 +645,8 @@ class WebuiServer:
                 group_id="demo_group_001",
                 start_time=now - 7 * DAY,
                 end_time=now - 7 * DAY + 1800,
-                participants=["demo_uid_alice", "demo_uid_bob", "demo_uid_bot"],
+                participants=["demo_uid_alice",
+                              "demo_uid_bob", "demo_uid_bot"],
                 interaction_flow=[],
                 topic="早安问候",
                 chat_content_tags=["日常", "问候"],
@@ -574,7 +660,8 @@ class WebuiServer:
                 group_id="demo_group_001",
                 start_time=now - 6 * DAY,
                 end_time=now - 6 * DAY + 3600,
-                participants=["demo_uid_alice", "demo_uid_bob", "demo_uid_bot"],
+                participants=["demo_uid_alice",
+                              "demo_uid_bob", "demo_uid_bot"],
                 interaction_flow=[],
                 topic="音乐推荐",
                 chat_content_tags=["音乐", "推荐", "文化"],
@@ -588,7 +675,8 @@ class WebuiServer:
                 group_id="demo_group_001",
                 start_time=now - 5 * DAY,
                 end_time=now - 5 * DAY + 2700,
-                participants=["demo_uid_alice", "demo_uid_charlie", "demo_uid_bot"],
+                participants=["demo_uid_alice",
+                              "demo_uid_charlie", "demo_uid_bot"],
                 interaction_flow=[],
                 topic="游戏约定",
                 chat_content_tags=["游戏", "约定", "娱乐"],
@@ -602,7 +690,8 @@ class WebuiServer:
                 group_id="demo_group_001",
                 start_time=now - 3 * DAY,
                 end_time=now - 3 * DAY + 4200,
-                participants=["demo_uid_bob", "demo_uid_charlie", "demo_uid_bot"],
+                participants=["demo_uid_bob",
+                              "demo_uid_charlie", "demo_uid_bot"],
                 interaction_flow=[],
                 topic="技术交流",
                 chat_content_tags=["技术", "编程", "讨论"],
@@ -632,7 +721,8 @@ class WebuiServer:
                 observer_uid="demo_uid_bot", subject_uid="demo_uid_alice",
                 relation_type="friend", affect=0.7, intensity=0.6, confidence=0.85,
                 scope="global",
-                evidence_event_ids=["demo_evt_001", "demo_evt_002", "demo_evt_005"],
+                evidence_event_ids=["demo_evt_001",
+                                    "demo_evt_002", "demo_evt_005"],
                 last_reinforced_at=now - DAY,
             ),
             Impression(
@@ -673,7 +763,8 @@ class WebuiServer:
             await self._impression_repo.upsert(imp)
 
         for date, content in [("2026-05-01", _DEMO_SUMMARY_1), ("2026-05-02", _DEMO_SUMMARY_2)]:
-            path = self._data_dir / "groups" / "demo_group_001" / "summaries" / f"{date}.md"
+            path = self._data_dir / "groups" / \
+                "demo_group_001" / "summaries" / f"{date}.md"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
 
@@ -684,9 +775,7 @@ class WebuiServer:
             "summaries": 2,
         }})
 
-    # ------------------------------------------------------------------
-    # 路由处理器：记忆召回测试
-    # ------------------------------------------------------------------
+    # Route handlers: Memory recall testing
 
     async def _handle_recall(self, request: web.Request) -> web.Response:
         q = request.rel_url.query.get("q", "").strip()
@@ -704,9 +793,7 @@ class WebuiServer:
             "count": len(fts_results),
         })
 
-    # ------------------------------------------------------------------
-    # 路由处理器：事件 CRUD
-    # ------------------------------------------------------------------
+    # Route handlers: Event CRUD
 
     async def _handle_create_event(self, request: web.Request) -> web.Response:
         body = await request.json()
@@ -747,7 +834,8 @@ class WebuiServer:
                 participants=body.get("participants", existing.participants),
                 interaction_flow=existing.interaction_flow,
                 topic=body.get("topic", existing.topic),
-                chat_content_tags=body.get("chat_content_tags", existing.chat_content_tags),
+                chat_content_tags=body.get(
+                    "chat_content_tags", existing.chat_content_tags),
                 salience=float(body.get("salience", existing.salience)),
                 confidence=float(body.get("confidence", existing.confidence)),
                 inherit_from=body.get("inherit_from", existing.inherit_from),
@@ -784,9 +872,7 @@ class WebuiServer:
                 deleted += 1
         return _json({"ok": True, "deleted": deleted})
 
-    # ------------------------------------------------------------------
-    # 路由处理器：回收站
-    # ------------------------------------------------------------------
+    # Route handlers: Recycle bin
 
     async def _handle_recycle_bin_list(self, _: web.Request) -> web.Response:
         return _json({"items": list(reversed(self._recycle_bin))})
@@ -796,7 +882,8 @@ class WebuiServer:
         event_id = body.get("event_id", "")
         if not event_id:
             return _json({"error": "event_id required"}, status=400)
-        item = next((x for x in self._recycle_bin if x["id"] == event_id), None)
+        item = next(
+            (x for x in self._recycle_bin if x["id"] == event_id), None)
         if item is None:
             return _json({"error": "not found in recycle bin"}, status=404)
         now = time.time()
@@ -818,7 +905,8 @@ class WebuiServer:
         except (ValueError, TypeError) as exc:
             return _json({"error": str(exc)}, status=400)
         await self._event_repo.upsert(event)
-        self._recycle_bin = [x for x in self._recycle_bin if x["id"] != event_id]
+        self._recycle_bin = [
+            x for x in self._recycle_bin if x["id"] != event_id]
         return _json({"ok": True, "event": event_to_dict(event)})
 
     async def _handle_recycle_bin_clear(self, _: web.Request) -> web.Response:
@@ -826,9 +914,7 @@ class WebuiServer:
         self._recycle_bin.clear()
         return _json({"ok": True, "cleared": count})
 
-    # ------------------------------------------------------------------
-    # 路由处理器：人格 CRUD
-    # ------------------------------------------------------------------
+    # Route handlers: Persona CRUD
 
     async def _handle_create_persona(self, request: web.Request) -> web.Response:
         body = await request.json()
@@ -901,9 +987,7 @@ class WebuiServer:
             return _json({"error": "not found"}, status=404)
         return _json({"ok": True})
 
-    # ------------------------------------------------------------------
-    # 路由处理器：印象更新
-    # ------------------------------------------------------------------
+    # Route handlers: Impression updates
 
     async def _handle_update_impression(self, request: web.Request) -> web.Response:
         observer = request.match_info["observer"]
@@ -917,16 +1001,16 @@ class WebuiServer:
                 observer_uid=observer,
                 subject_uid=subject,
                 relation_type=body.get("relation_type",
-                    existing.relation_type if existing else "stranger"),
+                                       existing.relation_type if existing else "stranger"),
                 affect=float(body.get("affect",
-                    existing.affect if existing else 0.0)),
+                                      existing.affect if existing else 0.0)),
                 intensity=float(body.get("intensity",
-                    existing.intensity if existing else 0.5)),
+                                         existing.intensity if existing else 0.5)),
                 confidence=float(body.get("confidence",
-                    existing.confidence if existing else 0.7)),
+                                          existing.confidence if existing else 0.7)),
                 scope=scope,
                 evidence_event_ids=body.get("evidence_event_ids",
-                    existing.evidence_event_ids if existing else []),
+                                            existing.evidence_event_ids if existing else []),
                 last_reinforced_at=now,
             )
         except (ValueError, TypeError) as exc:
@@ -934,9 +1018,233 @@ class WebuiServer:
         await self._impression_repo.upsert(impression)
         return _json({"ok": True, "impression": impression_to_edge(impression)["data"]})
 
-    # ------------------------------------------------------------------
-    # 路由处理器：面板注册
-    # ------------------------------------------------------------------
+    # Route handlers: Third-party panel registration
 
     async def _handle_panels_list(self, _: web.Request) -> web.Response:
         return _json({"panels": self.registry.list()})
+
+
+"""Local WebUI debugging startup script.
+
+- Uses in-memory repository, no database files required
+- Authentication disabled (no password required)
+- Auto-injects demo data (personas, events, impressions, summaries)
+- Data directory is .dev_data/ under project root
+- Default port 2654, does not conflict with production port 2653
+
+Usage:
+    python run_webui_dev.py
+    python run_webui_dev.py --port 9000
+"""
+
+# Ensure project root is in sys.path
+_ROOT = Path(__file__).parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+_PORT = 2654
+_DATA_DIR = _ROOT / ".dev_data"
+
+
+def _parse_port() -> int:
+    args = sys.argv[1:]
+    if "--port" in args:
+        idx = args.index("--port")
+        try:
+            return int(args[idx + 1])
+        except (IndexError, ValueError):
+            pass
+    return _PORT
+
+
+async def _seed(
+    persona_repo: InMemoryPersonaRepository,
+    event_repo: InMemoryEventRepository,
+    impression_repo: InMemoryImpressionRepository,
+    data_dir: Path,
+) -> None:
+    now = time.time()
+    DAY = 86_400
+
+    for p in [
+        Persona(
+            uid="demo_uid_alice",
+            bound_identities=[("qq", "demo_10001")],
+            primary_name="Alice",
+            persona_attrs={"description": "热情开朗，喜爱音乐与游戏", "affect_type": "积极", "content_tags": ["音乐", "游戏", "聊天"]},
+            confidence=0.88,
+            created_at=now - 30 * DAY,
+            last_active_at=now - DAY,
+        ),
+        Persona(
+            uid="demo_uid_bob",
+            bound_identities=[("qq", "demo_10002")],
+            primary_name="Bob",
+            persona_attrs={"description": "理性谨慎，热衷技术讨论", "affect_type": "中性", "content_tags": ["技术", "编程"]},
+            confidence=0.82,
+            created_at=now - 25 * DAY,
+            last_active_at=now - 2 * DAY,
+        ),
+        Persona(
+            uid="demo_uid_charlie",
+            bound_identities=[("telegram", "demo_tg_charlie")],
+            primary_name="Charlie",
+            persona_attrs={"description": "神秘低调，偶尔参与讨论", "affect_type": "消极", "content_tags": ["旅行", "摄影"]},
+            confidence=0.65,
+            created_at=now - 15 * DAY,
+            last_active_at=now - 5 * DAY,
+        ),
+        Persona(
+            uid="demo_uid_bot",
+            bound_identities=[("internal", "bot")],
+            primary_name="BOT",
+            persona_attrs={"description": "AI 助手", "affect_type": "中性", "content_tags": []},
+            confidence=1.0,
+            created_at=now - 60 * DAY,
+            last_active_at=now,
+        ),
+    ]:
+        await persona_repo.upsert(p)
+
+    for e in [
+        Event(
+            event_id="demo_evt_001", group_id="demo_group_001",
+            start_time=now - 7 * DAY, end_time=now - 7 * DAY + 1800,
+            participants=["demo_uid_alice", "demo_uid_bob", "demo_uid_bot"],
+            interaction_flow=[], topic="早安问候",
+            chat_content_tags=["日常", "问候"],
+            salience=0.45, confidence=0.82, inherit_from=[],
+            last_accessed_at=now - DAY,
+        ),
+        Event(
+            event_id="demo_evt_002", group_id="demo_group_001",
+            start_time=now - 6 * DAY, end_time=now - 6 * DAY + 3600,
+            participants=["demo_uid_alice", "demo_uid_bob", "demo_uid_bot"],
+            interaction_flow=[], topic="音乐推荐",
+            chat_content_tags=["音乐", "推荐", "文化"],
+            salience=0.72, confidence=0.88, inherit_from=["demo_evt_001"],
+            last_accessed_at=now - 12 * 3600,
+        ),
+        Event(
+            event_id="demo_evt_003", group_id="demo_group_001",
+            start_time=now - 5 * DAY, end_time=now - 5 * DAY + 2700,
+            participants=["demo_uid_alice", "demo_uid_charlie", "demo_uid_bot"],
+            interaction_flow=[], topic="游戏约定",
+            chat_content_tags=["游戏", "约定", "娱乐"],
+            salience=0.68, confidence=0.79, inherit_from=["demo_evt_002"],
+            last_accessed_at=now - 8 * 3600,
+        ),
+        Event(
+            event_id="demo_evt_004", group_id="demo_group_001",
+            start_time=now - 3 * DAY, end_time=now - 3 * DAY + 4200,
+            participants=["demo_uid_bob", "demo_uid_charlie", "demo_uid_bot"],
+            interaction_flow=[], topic="技术交流",
+            chat_content_tags=["技术", "编程", "讨论"],
+            salience=0.85, confidence=0.91, inherit_from=["demo_evt_001"],
+            last_accessed_at=now - 4 * 3600,
+        ),
+        Event(
+            event_id="demo_evt_005", group_id=None,
+            start_time=now - DAY, end_time=now - DAY + 900,
+            participants=["demo_uid_alice", "demo_uid_bot"],
+            interaction_flow=[], topic="私聊请教",
+            chat_content_tags=["私聊", "帮助"],
+            salience=0.55, confidence=0.77, inherit_from=[],
+            last_accessed_at=now - 3600,
+        ),
+    ]:
+        await event_repo.upsert(e)
+
+    for imp in [
+        Impression(
+            observer_uid="demo_uid_bot", subject_uid="demo_uid_alice",
+            relation_type="friend", affect=0.7, intensity=0.6, confidence=0.85,
+            scope="global",
+            evidence_event_ids=["demo_evt_001", "demo_evt_002", "demo_evt_005"],
+            last_reinforced_at=now - DAY,
+        ),
+        Impression(
+            observer_uid="demo_uid_bot", subject_uid="demo_uid_bob",
+            relation_type="colleague", affect=0.2, intensity=0.4, confidence=0.78,
+            scope="global",
+            evidence_event_ids=["demo_evt_001", "demo_evt_004"],
+            last_reinforced_at=now - 2 * DAY,
+        ),
+        Impression(
+            observer_uid="demo_uid_alice", subject_uid="demo_uid_bot",
+            relation_type="friend", affect=0.8, intensity=0.7, confidence=0.80,
+            scope="global",
+            evidence_event_ids=["demo_evt_001", "demo_evt_002"],
+            last_reinforced_at=now - DAY,
+        ),
+        Impression(
+            observer_uid="demo_uid_bob", subject_uid="demo_uid_alice",
+            relation_type="friend", affect=0.5, intensity=0.5, confidence=0.72,
+            scope="demo_group_001",
+            evidence_event_ids=["demo_evt_002"],
+            last_reinforced_at=now - 6 * DAY,
+        ),
+        Impression(
+            observer_uid="demo_uid_charlie", subject_uid="demo_uid_bob",
+            relation_type="stranger", affect=-0.2, intensity=0.3, confidence=0.60,
+            scope="demo_group_001",
+            evidence_event_ids=["demo_evt_004"],
+            last_reinforced_at=now - 3 * DAY,
+        ),
+    ]:
+        await impression_repo.upsert(imp)
+
+    for date, content in [
+        ("2026-05-01", _DEMO_SUMMARY_1),
+        ("2026-05-02", _DEMO_SUMMARY_2),
+    ]:
+        path = data_dir / "groups" / "demo_group_001" / "summaries" / f"{date}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+
+async def main() -> None:
+    port = _parse_port()
+    data_dir = _DATA_DIR
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    persona_repo    = InMemoryPersonaRepository()
+    event_repo      = InMemoryEventRepository()
+    impression_repo = InMemoryImpressionRepository()
+
+    await _seed(persona_repo, event_repo, impression_repo, data_dir)
+
+    srv = WebuiServer(
+        persona_repo=persona_repo,
+        event_repo=event_repo,
+        impression_repo=impression_repo,
+        data_dir=data_dir,
+        port=port,
+        auth_enabled=False,      # No password required for local debugging
+        plugin_version="dev",
+    )
+    await srv.start()
+
+    print(f"\n  Enhanced Memory — Debugging interface started")
+    print(f"  http://localhost:{port}")
+    print(f"  Data directory: {data_dir}")
+    print(f"  Authentication: Disabled (local debugging mode)")
+    print(f"  Demo data: Injected (4 personas / 5 events / 5 impressions / 2 summaries)")
+    print(f"\n  Press Ctrl+C to stop\n")
+
+    stop_event = asyncio.Event()
+    try:
+        await stop_event.wait()   # Wait indefinitely until Ctrl+C
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await srv.stop()
+        print("Stopped.")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+    
