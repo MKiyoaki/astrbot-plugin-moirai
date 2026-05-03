@@ -110,6 +110,81 @@ The data model is designed to expose three independent panels sharing `event_id`
 
 Click navigation: clicking an impression edge highlights its evidence_event_ids in the Event Flow panel; clicking an event jumps to its containing period in Summarised Memory.
 
+## WebUI Module (lives in `web/`, not `core/`)
+
+The WebUI is intentionally outside `core/` because it is a **presentation/admin layer** with a different lifecycle than the data engine: it can be disabled, replaced, or extended by other plugins without touching the memory pipeline.
+
+### Layout
+
+```
+web/
+├── __init__.py
+├── server.py        # WebuiServer: aiohttp app + auth middleware + route registration
+├── auth.py          # AuthManager: bcrypt password + session/sudo state
+├── registry.py      # PanelRegistry: PanelManifest + PanelRoute for cross-plugin extension
+├── static/
+│   └── index.html   # Single-page front-end (vis-timeline + Cytoscape + marked, glassmorphic)
+└── README.md        # User-facing docs
+```
+
+`web/server.py` imports `core.domain.models` and `core.repository.base` (absolute imports) — `web/` depends on `core/`, never the reverse.
+
+### Two-tier Authentication
+
+- **Login** — password (bcrypt, stored at `data_dir/.webui_password`) → opaque session cookie (default 24 h). Borrowed from Scriptor.
+- **Sudo** — same password re-entered to elevate session for ~30 min. Required for write operations: change password, run scheduled task on demand, future config edits. Scopes are enforced server-side via `_wrap("sudo", ...)`.
+- **Disable** — `webui_auth_enabled: false` in plugin config skips both checks (only safe for purely-local deployments).
+
+`bcrypt` is a soft import: missing `bcrypt` package degrades to sha256 with a warning (dev only — production should `pip install bcrypt`).
+
+### Plugin Composition via PanelRegistry
+
+This plugin acts as a **WebUI host** for the memory ecosystem. Other AstrBot plugins (B, C, …) that depend on this one can mount their own panels and routes without running their own HTTP server:
+
+```python
+# In plugin B that lists this plugin as a dependency
+em = self.context.get_registered_star("astrbot_plugin_enhanced_memory")
+if em and em.webui_registry:
+    em.webui_registry.register(
+        PanelManifest(
+            plugin_id="astrbot_plugin_xxx",
+            panel_id="my_panel",
+            title="我的面板",
+            icon="🔮",
+            api_prefix="/api/ext/xxx",
+            permission="auth",       # public | auth | sudo
+        ),
+        routes=[
+            PanelRoute("GET", "/api/ext/xxx/data", my_handler, permission="auth"),
+        ],
+    )
+```
+
+Front-end fetches `/api/panels` and dynamically mounts third-party panels alongside the three built-in ones. Permission enforcement happens in `WebuiServer._wrap`, so registered routes inherit the same auth model.
+
+### Visual Design (Memorix-inspired)
+
+- **Glassmorphic floating side-panels** for entity detail (`backdrop-filter: blur(20px)` + semi-transparent backgrounds).
+- **Neighborhood highlighting** in Relation Graph: clicking a node fades all elements except its closed neighborhood; clicking an edge does the same and propagates `evidence_event_ids` to the timeline panel.
+- **Density slider** on Event Flow: client-side filter that keeps top-N events by salience (Memorix's saliency-density pattern).
+- **LOD on zoom**: Cytoscape node labels are hidden below `zoom < 0.6` to keep large graphs legible.
+- **Dark/light theme toggle** via CSS variables.
+- **Toast + dock**: bottom dock for quick actions (refresh, clear highlight, panels), center-bottom toast for non-blocking feedback.
+
+The front-end is a single HTML file with CDN-loaded libs — no build step. If a future panel needs richer interactivity, build artefacts can be dropped into `web/static/` without touching `server.py`.
+
+### Configurable Items (in `_conf_schema.json`)
+
+| Key | Default | Note |
+|-----|---------|------|
+| `webui_enabled` | `true` | Master switch |
+| `webui_port` | `2653` | Bind port |
+| `webui_auth_enabled` | `true` | Toggle auth middleware |
+| `webui_session_hours` | `24` | Login session TTL |
+| `webui_sudo_minutes` | `30` | Sudo elevation TTL |
+
+Password is **never** stored in `_conf_schema.json` (sensitive); it's set via the WebUI's first-run flow and persisted to `data_dir/.webui_password`.
+
 ## Event Boundary Detection (v1 — Intentionally Simple)
 
 Do not over-engineer this. v1 uses three signals only:

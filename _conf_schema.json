@@ -1,3 +1,116 @@
 {
-    
+    "webui_enabled": {
+        "description": "启用 WebUI 记忆可视化面板",
+        "type": "bool",
+        "hint": "开启后可在浏览器访问三轴记忆面板（事件流 / 关系图 / 摘要）",
+        "default": true
+    },
+    "webui_port": {
+        "description": "WebUI 端口号",
+        "type": "int",
+        "hint": "WebUI HTTP 服务绑定的本机端口，默认 2653，修改后需重启",
+        "default": 2653
+    },
+    "webui_auth_enabled": {
+        "description": "启用 WebUI 密码认证",
+        "type": "bool",
+        "hint": "开启后首次访问需设置管理密码；关闭则任何人可访问 WebUI（仅本机部署且无外网映射时建议关闭）",
+        "default": true
+    },
+    "webui_session_hours": {
+        "description": "WebUI 登录会话时长（小时）",
+        "type": "int",
+        "hint": "登录后多少小时无操作自动失效",
+        "default": 24
+    },
+    "webui_sudo_minutes": {
+        "description": "WebUI Sudo 模式时长（分钟）",
+        "type": "int",
+        "hint": "进入 Sudo 后多少分钟自动退出，超时后写操作需重新输密码",
+        "default": 30
+    },
+    "embedding_enabled": {
+        "description": "启用向量语义检索",
+        "type": "bool",
+        "hint": "需要本地 Sentence Transformer 模型（约 100 MB），禁用后退回纯 BM25 关键词检索",
+        "default": true
+    },
+    "embedding_model": {
+        "description": "向量嵌入模型名称",
+        "type": "string",
+        "hint": "HuggingFace 模型 ID，首次运行时自动下载；推荐中文模型 BAAI/bge-small-zh-v1.5",
+        "default": "BAAI/bge-small-zh-v1.5"
+    },
+    "retrieval_top_k": {
+        "description": "检索注入的最大事件数",
+        "type": "int",
+        "hint": "注入 Prompt 前最终保留的事件数量，值越大 context 越丰富但消耗 token 越多",
+        "default": 10
+    },
+    "retrieval_token_budget": {
+        "description": "记忆注入的 Token 上限",
+        "type": "int",
+        "hint": "超出上限时按「重要度 × 新鲜度 × 相关度」贪心截断",
+        "default": 800
+    },
+    "boundary_time_gap_minutes": {
+        "description": "事件边界：空闲时间阈值（分钟）",
+        "type": "int",
+        "hint": "消息间隔超过此值时自动关闭当前事件窗口，开始新事件",
+        "default": 30
+    },
+    "boundary_max_messages": {
+        "description": "事件边界：最大消息数（硬上限）",
+        "type": "int",
+        "hint": "单个事件窗口内消息数量达到上限时强制关闭，防止事件过大",
+        "default": 50
+    },
+    "boundary_max_duration_minutes": {
+        "description": "事件边界：最大持续时长（分钟）",
+        "type": "int",
+        "hint": "单个事件窗口超过此时长时强制关闭",
+        "default": 60
+    },
+    "boundary_topic_drift_threshold": {
+        "description": "事件边界：话题漂移阈值",
+        "type": "float",
+        "hint": "0–1 之间的余弦距离值，超过此值且消息数 ≥ 20 时触发话题切换检测（需启用向量检索）",
+        "default": 0.6
+    },
+    "relation_enabled": {
+        "description": "启用社会关系推断",
+        "type": "bool",
+        "hint": "禁用后仅保留情节记忆（Event Flow），不执行 Impression 推断和关系图构建",
+        "default": true
+    },
+    "decay_interval_hours": {
+        "description": "重要度衰减任务间隔（小时）",
+        "type": "int",
+        "hint": "每隔多少小时对所有事件执行一次 salience 时间衰减，默认每天一次",
+        "default": 24
+    },
+    "summary_interval_hours": {
+        "description": "群组摘要生成间隔（小时）",
+        "type": "int",
+        "hint": "每隔多少小时为每个活跃群组生成一次叙事摘要 Markdown，默认每天一次",
+        "default": 24
+    },
+    "persona_synthesis_interval_hours": {
+        "description": "人设合成间隔（小时）",
+        "type": "int",
+        "hint": "每隔多少小时通过 LLM 合成一次用户人设档案（PROFILE.md），默认每周一次",
+        "default": 168
+    },
+    "impression_aggregation_interval_hours": {
+        "description": "印象聚合间隔（小时）",
+        "type": "int",
+        "hint": "每隔多少小时通过 LLM 聚合一次人物印象（Impression），默认每周一次",
+        "default": 168
+    },
+    "file_watcher_poll_seconds": {
+        "description": "Markdown 文件监听轮询间隔（秒）",
+        "type": "int",
+        "hint": "检测用户编辑 IMPRESSIONS.md 的轮询频率，值越小响应越快但 I/O 开销越高",
+        "default": 30
+    }
 }

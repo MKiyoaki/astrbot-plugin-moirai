@@ -9,6 +9,8 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star, StarTools, register
 
+from web.server import WebuiServer
+
 from core.adapters.astrbot import MessageRouter
 from core.adapters.identity import IdentityResolver
 from core.boundary.detector import BoundaryConfig, EventBoundaryDetector
@@ -20,7 +22,6 @@ from core.projector.projector import MarkdownProjector
 from core.retrieval.formatter import format_events_for_prompt
 from core.sync.syncer import ReverseSyncer
 from core.sync.watcher import FileWatcher
-from core.webui.server import WebuiServer
 from core.tasks.decay import run_salience_decay
 from core.tasks.scheduler import TaskScheduler
 from core.tasks.summary import run_group_summary
@@ -35,13 +36,14 @@ from core.repository.sqlite import (
 
 _EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
 _VEC_DIM = 512
+_PLUGIN_VERSION = "0.1.0"
 
 
 @register(
     "astrbot_plugin_enhanced_memory",
     "DrGariton",
     "三轴长期记忆插件：情节轴 × 社会关系轴 × 叙事轴",
-    "0.1.0",
+    _PLUGIN_VERSION,
     "https://github.com/DrGariton/astrbot-plugin-enhanced-memory",
 )
 class EnhancedMemoryPlugin(Star):
@@ -56,8 +58,20 @@ class EnhancedMemoryPlugin(Star):
         self._watcher: FileWatcher | None = None
         self._syncer: ReverseSyncer | None = None
 
+    @property
+    def webui_registry(self):
+        """对外暴露面板注册表，供其他插件挂载新面板。
+
+        用法（在依赖本插件的插件 B 中）::
+
+            em = context.get_registered_star("astrbot_plugin_enhanced_memory")
+            em.webui_registry.register(PanelManifest(...), routes=[...])
+        """
+        return self._webui.registry if self._webui else None
+
     async def initialize(self) -> None:
-        data_dir: Path = StarTools.get_data_dir("astrbot_plugin_enhanced_memory")
+        data_dir: Path = StarTools.get_data_dir(
+            "astrbot_plugin_enhanced_memory")
         db_path = data_dir / "db" / "core.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -82,10 +96,12 @@ class EnhancedMemoryPlugin(Star):
             encoder = SentenceTransformerEncoder(_EMBEDDING_MODEL)
             _ = encoder.dim  # trigger lazy load to catch missing model early
         except Exception as exc:
-            logger.warning("[EnhancedMemory] embedding model unavailable (%s), vector search disabled", exc)
+            logger.warning(
+                "[EnhancedMemory] embedding model unavailable (%s), vector search disabled", exc)
             encoder = NullEncoder()
 
-        self.retriever = HybridRetriever(event_repo=event_repo, encoder=encoder)
+        self.retriever = HybridRetriever(
+            event_repo=event_repo, encoder=encoder)
 
         extractor = EventExtractor(
             event_repo=event_repo,
@@ -104,7 +120,7 @@ class EnhancedMemoryPlugin(Star):
             detector=detector,
             on_event_close=on_event_close,
         )
-        provider_getter = lambda: self.context.get_using_provider()  # noqa: E731
+        def provider_getter(): return self.context.get_using_provider()  # noqa: E731
 
         self._scheduler = TaskScheduler()
         self._scheduler.register(
@@ -112,6 +128,7 @@ class EnhancedMemoryPlugin(Star):
             interval=86_400,
             fn=lambda: run_salience_decay(event_repo),
         )
+
         async def _projection_and_register() -> None:
             if self.projector:
                 await self.projector.render_all_personas()
@@ -126,7 +143,8 @@ class EnhancedMemoryPlugin(Star):
         self._scheduler.register(
             "persona_synthesis",
             interval=604_800,
-            fn=lambda: run_persona_synthesis(persona_repo, event_repo, provider_getter),
+            fn=lambda: run_persona_synthesis(
+                persona_repo, event_repo, provider_getter),
         )
         self._scheduler.register(
             "impression_aggregation",
@@ -138,17 +156,26 @@ class EnhancedMemoryPlugin(Star):
         self._scheduler.register(
             "group_summary",
             interval=86_400,
-            fn=lambda: run_group_summary(event_repo, data_dir, provider_getter),
+            fn=lambda: run_group_summary(
+                event_repo, data_dir, provider_getter),
         )
         await self._scheduler.start()
 
+        cfg = self.config if hasattr(self, "config") and self.config else {}
         self._webui = WebuiServer(
             persona_repo=persona_repo,
             event_repo=event_repo,
             impression_repo=impression_repo,
             data_dir=data_dir,
+            port=int(cfg.get("webui_port", 2653)),
+            auth_enabled=bool(cfg.get("webui_auth_enabled", True)),
+            task_runner=self._scheduler.run_now,
+            plugin_version=_PLUGIN_VERSION,
         )
-        await self._webui.start()
+        if cfg.get("webui_enabled", True):
+            await self._webui.start()
+        else:
+            logger.info("[EnhancedMemory] WebUI disabled by config")
 
         self._watcher = FileWatcher()
         self._syncer = ReverseSyncer(

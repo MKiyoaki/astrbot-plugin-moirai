@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enhanced Memory — 三轴记忆面板</title>
+<link rel="stylesheet" href="https://unpkg.com/vis-timeline@7.7.3/styles/vis-timeline-graph2d.min.css">
+<style>
+:root {
+  --bg: #0f172a;
+  --bg-2: #1e293b;
+  --panel: rgba(30, 41, 59, 0.7);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --text: #f1f5f9;
+  --text-dim: #94a3b8;
+  --accent: #38bdf8;
+  --accent-hover: #0ea5e9;
+  --positive: #22c55e;
+  --negative: #ef4444;
+  --warn: #f59e0b;
+}
+[data-theme="light"] {
+  --bg: #f1f5f9;
+  --bg-2: #e2e8f0;
+  --panel: rgba(255, 255, 255, 0.85);
+  --panel-border: rgba(0, 0, 0, 0.08);
+  --text: #0f172a;
+  --text-dim: #64748b;
+  --accent: #0ea5e9;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: -apple-system, "Outfit", BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* ============================================================
+   登录覆盖层
+   ============================================================ */
+#login-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
+}
+.login-card {
+  width: 360px;
+  padding: 32px;
+  background: var(--panel);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+.login-card h2 { font-size: 18px; margin-bottom: 4px; }
+.login-card .sub { font-size: 12px; color: var(--text-dim); margin-bottom: 20px; }
+.login-card input {
+  width: 100%; padding: 10px 12px; margin-bottom: 12px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  color: var(--text); font-size: 13px;
+}
+.login-card input:focus { outline: none; border-color: var(--accent); }
+.login-card button {
+  width: 100%; padding: 10px;
+  background: var(--accent); color: #fff; border: none; border-radius: 8px;
+  font-weight: 600; cursor: pointer; transition: background 0.15s;
+}
+.login-card button:hover { background: var(--accent-hover); }
+.login-card .err { color: var(--negative); font-size: 12px; margin-top: 8px; min-height: 16px; }
+
+/* ============================================================
+   主布局
+   ============================================================ */
+#app { display: none; height: 100vh; flex-direction: column; }
+#app.ready { display: flex; }
+
+header {
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--panel-border);
+  padding: 8px 18px;
+  display: flex; align-items: center; gap: 12px;
+  flex-shrink: 0;
+}
+header h1 { font-size: 15px; font-weight: 600; }
+header .badge {
+  font-size: 10px; background: var(--accent); color: #fff;
+  padding: 2px 7px; border-radius: 10px;
+}
+header .spacer { flex: 1; }
+header .stat-pill {
+  font-size: 11px; color: var(--text-dim);
+  background: rgba(255,255,255,0.05);
+  padding: 3px 9px; border-radius: 10px;
+}
+header button {
+  font-size: 12px; padding: 4px 10px;
+  background: rgba(255,255,255,0.08); color: var(--text);
+  border: 1px solid var(--panel-border); border-radius: 6px;
+  cursor: pointer; transition: background 0.15s;
+}
+header button:hover { background: rgba(255,255,255,0.15); }
+header button.sudo-active { background: var(--warn); color: #000; border-color: var(--warn); }
+
+/* 面板容器 */
+.panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 8px;
+  flex: 1; min-height: 0;
+}
+.panel {
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.panel-header {
+  padding: 8px 14px;
+  background: rgba(0,0,0,0.15);
+  border-bottom: 1px solid var(--panel-border);
+  font-weight: 600; font-size: 12px;
+  display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0;
+}
+.panel-header .ph-title { flex: 1; }
+.panel-header .ctl { display: flex; gap: 6px; align-items: center; }
+.panel-header input[type="range"] { width: 70px; }
+.panel-header .small { font-size: 10px; color: var(--text-dim); }
+.panel-body { flex: 1; overflow: hidden; position: relative; }
+
+/* vis-timeline 暗色适配 */
+#timeline { height: 100%; }
+.vis-item {
+  border-radius: 3px; font-size: 11px;
+  background: rgba(56, 189, 248, 0.4); border-color: var(--accent); color: var(--text);
+}
+.vis-item.highlighted {
+  background: rgba(245, 158, 11, 0.6) !important;
+  border-color: var(--warn) !important;
+  color: #fff !important;
+}
+.vis-time-axis .vis-text, .vis-labelset .vis-label { color: var(--text-dim); }
+.vis-panel.vis-center, .vis-panel.vis-left, .vis-panel.vis-top, .vis-panel.vis-bottom {
+  border-color: var(--panel-border) !important;
+}
+
+/* Cytoscape 容器 */
+#cy { width: 100%; height: 100%; }
+
+/* 摘要面板布局 */
+.summary-layout { display: flex; height: 100%; }
+#summary-list {
+  width: 150px; flex-shrink: 0; overflow-y: auto;
+  border-right: 1px solid var(--panel-border);
+}
+#summary-list .s-item {
+  padding: 7px 11px; cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.1s;
+}
+#summary-list .s-item:hover { background: rgba(56, 189, 248, 0.1); }
+#summary-list .s-item.active {
+  background: rgba(56, 189, 248, 0.15);
+  border-left-color: var(--accent);
+}
+#summary-list .s-group { font-size: 12px; font-weight: 600; }
+#summary-list .s-date { font-size: 10px; color: var(--text-dim); margin-top: 1px; }
+#summary-content {
+  flex: 1; overflow-y: auto;
+  padding: 14px 16px;
+  font-size: 12px; line-height: 1.6;
+}
+#summary-content h1 { font-size: 15px; margin: 12px 0 5px; }
+#summary-content h2 { font-size: 13px; margin: 10px 0 4px; }
+#summary-content h3 { font-size: 12px; margin: 8px 0 3px; }
+#summary-content ul, #summary-content ol { padding-left: 18px; margin: 4px 0; }
+#summary-content p { margin: 4px 0; }
+#summary-content code {
+  background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px;
+  font-size: 11px;
+}
+
+.placeholder {
+  color: var(--text-dim); text-align: center;
+  padding: 36px 14px; font-size: 12px;
+}
+.error { color: var(--negative); }
+
+/* 详情侧栏（玻璃拟态浮动） */
+#detail-panel {
+  position: fixed;
+  top: 60px; right: 14px;
+  width: 320px; max-height: calc(100vh - 80px);
+  background: var(--panel); backdrop-filter: blur(20px);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  overflow-y: auto;
+  display: none;
+  z-index: 100;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+  animation: slideIn 0.2s ease-out;
+}
+@keyframes slideIn {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+#detail-panel.show { display: block; }
+#detail-panel h3 { font-size: 13px; margin-bottom: 8px; }
+#detail-panel .close {
+  position: absolute; top: 8px; right: 12px;
+  background: none; border: none; color: var(--text-dim);
+  font-size: 18px; cursor: pointer;
+}
+#detail-panel .field {
+  font-size: 11px; margin: 6px 0;
+  display: flex; justify-content: space-between; gap: 10px;
+}
+#detail-panel .field .k { color: var(--text-dim); }
+#detail-panel .field .v { font-family: ui-monospace, monospace; word-break: break-all; }
+#detail-panel .tag {
+  display: inline-block; font-size: 10px;
+  background: rgba(56, 189, 248, 0.2); color: var(--accent);
+  padding: 1px 6px; border-radius: 8px; margin: 1px 2px;
+}
+
+/* Toast */
+#toast {
+  position: fixed; bottom: 70px; left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-2); color: var(--text);
+  padding: 10px 18px; border-radius: 6px;
+  border: 1px solid var(--panel-border);
+  font-size: 13px; display: none; z-index: 200;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+}
+
+/* 底部 dock */
+.dock {
+  position: fixed; bottom: 12px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; gap: 4px; padding: 6px;
+  background: var(--panel); backdrop-filter: blur(20px);
+  border: 1px solid var(--panel-border);
+  border-radius: 28px;
+  z-index: 50;
+}
+.dock button {
+  background: none; border: none; color: var(--text);
+  padding: 6px 12px; border-radius: 18px;
+  font-size: 12px; cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+  transition: background 0.15s;
+}
+.dock button:hover { background: rgba(255,255,255,0.1); }
+
+/* 设置面板（modal） */
+#settings-modal {
+  position: fixed; inset: 0; z-index: 500;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.5);
+}
+#settings-modal.show { display: flex; }
+#settings-modal .card {
+  width: 480px; max-height: 80vh; overflow-y: auto;
+  background: var(--bg-2);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 20px;
+}
+#settings-modal h3 { font-size: 15px; margin-bottom: 12px; }
+#settings-modal section { margin-bottom: 18px; }
+#settings-modal section h4 { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+#settings-modal .row { display: flex; gap: 8px; align-items: center; margin: 6px 0; font-size: 12px; }
+#settings-modal .row label { flex: 1; }
+#settings-modal input[type="password"], #settings-modal input[type="text"] {
+  background: rgba(0,0,0,0.3); border: 1px solid var(--panel-border);
+  border-radius: 4px; padding: 5px 8px; color: var(--text); font-size: 12px;
+  flex: 0 0 160px;
+}
+#settings-modal button {
+  background: var(--accent); color: #fff; border: none;
+  padding: 5px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;
+}
+#settings-modal .task-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 0; font-size: 12px;
+}
+#settings-modal .close-modal {
+  float: right; background: none !important; color: var(--text-dim) !important;
+  font-size: 18px; padding: 0 6px !important;
+}
+</style>
+</head>
+<body>
+
+<!-- 登录 / 首次设置覆盖层 -->
+<div id="login-overlay">
+  <div class="login-card">
+    <h2 id="login-title">Enhanced Memory</h2>
+    <div class="sub" id="login-sub">三轴记忆面板</div>
+    <input type="password" id="login-pw" placeholder="管理密码" autocomplete="current-password">
+    <input type="password" id="login-pw2" placeholder="再次输入" autocomplete="new-password" style="display:none">
+    <button id="login-btn">登录</button>
+    <div class="err" id="login-err"></div>
+  </div>
+</div>
+
+<!-- 主应用 -->
+<div id="app">
+  <header>
+    <h1>Enhanced Memory</h1>
+    <span class="badge">v<span id="app-version">…</span></span>
+    <span class="spacer"></span>
+    <span class="stat-pill" id="stat-personas">人格 0</span>
+    <span class="stat-pill" id="stat-events">事件 0</span>
+    <span class="stat-pill" id="stat-impressions">印象 0</span>
+    <button id="btn-sudo">🔐 进入 Sudo</button>
+    <button id="btn-theme">🌗</button>
+    <button id="btn-settings">⚙️</button>
+    <button id="btn-logout">退出</button>
+  </header>
+
+  <div class="panels">
+    <!-- ① Event Flow -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="ph-title">🕐 事件流（Event Flow）</span>
+        <span class="ctl">
+          <span class="small">密度</span>
+          <input type="range" id="event-density" min="20" max="500" value="200" step="10">
+          <span class="small" id="event-density-label">200</span>
+        </span>
+      </div>
+      <div class="panel-body"><div id="timeline"></div></div>
+    </div>
+
+    <!-- ② Relation Graph -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="ph-title">🔗 关系图（Relation Graph）</span>
+        <span class="ctl">
+          <button id="btn-fit" style="background:transparent;border:1px solid var(--panel-border);color:var(--text);padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer">适配</button>
+          <button id="btn-refresh-graph" style="background:transparent;border:1px solid var(--panel-border);color:var(--text);padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer">刷新</button>
+        </span>
+      </div>
+      <div class="panel-body"><div id="cy"></div></div>
+    </div>
+
+    <!-- ③ Summarised Memory -->
+    <div class="panel">
+      <div class="panel-header"><span class="ph-title">📝 摘要记忆（Summarised Memory）</span></div>
+      <div class="panel-body">
+        <div class="summary-layout">
+          <div id="summary-list"><div class="placeholder">加载中…</div></div>
+          <div id="summary-content"><div class="placeholder">← 从列表选择</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 详情侧栏 -->
+  <div id="detail-panel">
+    <button class="close" onclick="hideDetail()">×</button>
+    <div id="detail-content"></div>
+  </div>
+
+  <!-- 底部 dock -->
+  <div class="dock">
+    <button onclick="reloadAll()" title="刷新全部">🔄 刷新</button>
+    <button onclick="clearHighlight()" title="清除高亮">✨ 清空高亮</button>
+    <button id="dock-panels-btn" title="第三方面板">🧩 面板</button>
+  </div>
+
+  <!-- 设置 modal -->
+  <div id="settings-modal">
+    <div class="card">
+      <button class="close-modal" onclick="hideSettings()">×</button>
+      <h3>⚙️ 设置与管理</h3>
+
+      <section>
+        <h4>认证</h4>
+        <div class="row">
+          <label>当前会话</label>
+          <span id="auth-status-line" style="font-size:11px;color:var(--text-dim)">…</span>
+        </div>
+        <div class="row">
+          <label>修改密码（旧 / 新）</label>
+          <input type="password" id="pw-old" placeholder="旧密码">
+          <input type="password" id="pw-new" placeholder="新密码">
+          <button onclick="changePassword()">保存</button>
+        </div>
+      </section>
+
+      <section>
+        <h4>触发后台任务（需 Sudo）</h4>
+        <div class="task-row"><span>显著度衰减</span><button onclick="runTask('salience_decay')">运行</button></div>
+        <div class="task-row"><span>Markdown 投影</span><button onclick="runTask('projection')">运行</button></div>
+        <div class="task-row"><span>人格画像合成</span><button onclick="runTask('persona_synthesis')">运行</button></div>
+        <div class="task-row"><span>印象聚合</span><button onclick="runTask('impression_aggregation')">运行</button></div>
+        <div class="task-row"><span>群组摘要</span><button onclick="runTask('group_summary')">运行</button></div>
+      </section>
+
+      <section>
+        <h4>已注册第三方面板</h4>
+        <div id="ext-panels-list" style="font-size:11px;color:var(--text-dim)">加载中…</div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://unpkg.com/vis-timeline@7.7.3/standalone/umd/vis-timeline-graph2d.min.js"></script>
+<script src="https://unpkg.com/cytoscape@3.29.2/dist/cytoscape.min.js"></script>
+<script src="https://unpkg.com/marked@9.1.6/marked.min.js"></script>
+
+<script>
+'use strict';
+
+// ============================================================================
+// State
+// ============================================================================
+const State = {
+  authEnabled: true,
+  authenticated: false,
+  sudo: false,
+  passwordSet: false,
+  timeline: null,
+  tlItems: null,
+  cy: null,
+  rawGraph: { nodes: [], edges: [] },
+  rawEvents: [],
+};
+
+const $ = sel => document.querySelector(sel);
+const fetchJson = async (url, opts = {}) => {
+  const res = await fetch(url, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
+  if (!res.ok) throw { status: res.status, body: await res.text() };
+  return res.json();
+};
+
+// ============================================================================
+// Toast
+// ============================================================================
+function toast(msg, ms = 2500) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => (t.style.display = 'none'), ms);
+}
+
+// ============================================================================
+// 主题
+// ============================================================================
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute('data-theme');
+  const next = cur === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('em_theme', next);
+}
+const savedTheme = localStorage.getItem('em_theme');
+if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+
+// ============================================================================
+// 认证流
+// ============================================================================
+async function refreshAuthStatus() {
+  const s = await fetchJson('/api/auth/status');
+  State.authEnabled = s.auth_enabled;
+  State.authenticated = s.authenticated;
+  State.sudo = s.sudo;
+  State.passwordSet = s.password_set;
+  return s;
+}
+
+function showLogin(setupMode) {
+  $('#login-overlay').style.display = 'flex';
+  $('#app').classList.remove('ready');
+  $('#login-title').textContent = setupMode ? '首次设置密码' : 'Enhanced Memory';
+  $('#login-sub').textContent = setupMode ? '请为 WebUI 设置一个管理密码（≥4 字符）' : '三轴记忆面板';
+  $('#login-pw').placeholder = setupMode ? '新密码' : '管理密码';
+  $('#login-pw2').style.display = setupMode ? 'block' : 'none';
+  $('#login-btn').textContent = setupMode ? '设置并登录' : '登录';
+  $('#login-pw').value = '';
+  $('#login-pw2').value = '';
+  $('#login-err').textContent = '';
+  $('#login-pw').focus();
+}
+
+function hideLogin() {
+  $('#login-overlay').style.display = 'none';
+  $('#app').classList.add('ready');
+}
+
+async function handleLoginSubmit() {
+  const pw = $('#login-pw').value;
+  const pw2 = $('#login-pw2').value;
+  $('#login-err').textContent = '';
+  try {
+    if (!State.passwordSet) {
+      if (pw !== pw2) throw { body: '两次输入不一致' };
+      if (pw.length < 4) throw { body: '密码至少 4 字符' };
+      await fetchJson('/api/auth/setup', { method: 'POST', body: JSON.stringify({ password: pw }) });
+    } else {
+      await fetchJson('/api/auth/login', { method: 'POST', body: JSON.stringify({ password: pw }) });
+    }
+    await boot();
+  } catch (e) {
+    $('#login-err').textContent = e.body || '登录失败';
+  }
+}
+
+async function logout() {
+  await fetchJson('/api/auth/logout', { method: 'POST' }).catch(() => {});
+  await refreshAuthStatus();
+  showLogin(!State.passwordSet);
+}
+
+async function enterSudo() {
+  const pw = prompt('再次输入密码以进入 Sudo 模式：');
+  if (!pw) return;
+  try {
+    const r = await fetchJson('/api/auth/sudo', { method: 'POST', body: JSON.stringify({ password: pw }) });
+    State.sudo = true;
+    updateSudoUI(r.sudo_remaining_seconds || 1800);
+    toast('已进入 Sudo 模式');
+  } catch {
+    toast('密码错误');
+  }
+}
+
+async function exitSudo() {
+  await fetchJson('/api/auth/sudo/exit', { method: 'POST' });
+  State.sudo = false;
+  updateSudoUI(0);
+  toast('已退出 Sudo');
+}
+
+function updateSudoUI(remaining) {
+  const btn = $('#btn-sudo');
+  if (State.sudo && remaining > 0) {
+    btn.classList.add('sudo-active');
+    btn.textContent = `🔓 Sudo (${Math.floor(remaining / 60)}m)`;
+    btn.onclick = exitSudo;
+  } else {
+    btn.classList.remove('sudo-active');
+    btn.textContent = '🔐 进入 Sudo';
+    btn.onclick = enterSudo;
+  }
+}
+
+// 每 30s 刷新一次 sudo 状态
+setInterval(async () => {
+  if (!State.authenticated) return;
+  const s = await refreshAuthStatus().catch(() => null);
+  if (s) updateSudoUI(s.sudo_remaining_seconds);
+}, 30_000);
+
+// ============================================================================
+// ① Event Flow
+// ============================================================================
+async function initEventFlow() {
+  let data;
+  try {
+    data = await fetchJson('/api/events?limit=500');
+  } catch (e) {
+    $('#timeline').innerHTML = '<div class="placeholder error">事件流加载失败</div>';
+    return;
+  }
+  State.rawEvents = data.items;
+  renderEvents(parseInt($('#event-density').value));
+}
+
+function renderEvents(maxCount) {
+  // 按 salience 降序保留 top-N，模拟 Memorix 的密度滑块
+  const sorted = [...State.rawEvents].sort((a, b) => b.salience - a.salience).slice(0, maxCount);
+  const items = sorted.map(ev => ({
+    id: ev.id,
+    content: `<span title="${(ev.tags || []).join(', ')}">${ev.content}</span>`,
+    start: ev.start,
+    end: ev.end !== ev.start ? ev.end : undefined,
+    title: [
+      `话题：${ev.content}`,
+      `重要度：${(ev.salience * 100).toFixed(0)}%`,
+      (ev.tags || []).length ? `标签：${ev.tags.join('、')}` : '',
+      (ev.participants || []).length ? `参与者：${ev.participants.join(', ')}` : '',
+    ].filter(Boolean).join('\n'),
+    _raw: ev,
+  }));
+
+  if (!State.timeline) {
+    State.tlItems = new vis.DataSet(items);
+    State.timeline = new vis.Timeline($('#timeline'), State.tlItems, {
+      stack: true, selectable: true, zoomable: true, moveable: true,
+      tooltip: { followMouse: true },
+    });
+    State.timeline.on('select', evt => {
+      if (evt.items.length) showEventDetail(evt.items[0]);
+    });
+  } else {
+    State.tlItems.clear();
+    State.tlItems.add(items);
+  }
+}
+
+function highlightEvents(eventIds) {
+  if (!State.tlItems) return;
+  const idSet = new Set(eventIds);
+  State.tlItems.forEach(item => {
+    State.tlItems.update({ id: item.id, className: idSet.has(item.id) ? 'highlighted' : '' });
+  });
+  if (eventIds.length && State.timeline) {
+    State.timeline.focus(eventIds, { animation: { duration: 400 } });
+  }
+}
+
+function showEventDetail(eventId) {
+  const ev = State.rawEvents.find(e => e.id === eventId);
+  if (!ev) return;
+  const html = `
+    <h3>📅 事件详情</h3>
+    <div class="field"><span class="k">话题</span><span class="v">${ev.content}</span></div>
+    <div class="field"><span class="k">ID</span><span class="v">${ev.id.slice(0, 12)}…</span></div>
+    <div class="field"><span class="k">群组</span><span class="v">${ev.group || '私聊'}</span></div>
+    <div class="field"><span class="k">起始</span><span class="v">${new Date(ev.start).toLocaleString()}</span></div>
+    <div class="field"><span class="k">重要度</span><span class="v">${(ev.salience * 100).toFixed(0)}%</span></div>
+    <div class="field"><span class="k">参与者</span><span class="v">${(ev.participants || []).map(p => p.slice(0, 8)).join(', ') || '—'}</span></div>
+    <div style="margin-top:8px">${(ev.tags || []).map(t => `<span class="tag">${t}</span>`).join('')}</div>
+  `;
+  showDetail(html);
+}
+
+// ============================================================================
+// ② Relation Graph
+// ============================================================================
+async function initRelationGraph() {
+  let data;
+  try {
+    data = await fetchJson('/api/graph');
+  } catch (e) {
+    $('#cy').innerHTML = '<div class="placeholder error">关系图加载失败</div>';
+    return;
+  }
+  State.rawGraph = data;
+  renderGraph();
+}
+
+function renderGraph() {
+  const { nodes, edges } = State.rawGraph;
+  const elements = [...nodes, ...edges];
+
+  if (State.cy) State.cy.destroy();
+  State.cy = cytoscape({
+    container: $('#cy'),
+    elements,
+    style: [
+      {
+        selector: 'node',
+        style: {
+          label: 'data(label)',
+          'background-color': 'var(--accent)',
+          color: 'var(--text)',
+          'text-valign': 'center', 'text-halign': 'center',
+          'font-size': '11px',
+          width: 46, height: 46,
+          'text-wrap': 'wrap', 'text-max-width': 44,
+          'border-width': 1, 'border-color': 'rgba(255,255,255,0.3)',
+        },
+      },
+      { selector: 'node[?is_bot]', style: { 'background-color': '#e91e63', 'border-width': 2 } },
+      {
+        selector: 'edge',
+        style: {
+          label: 'data(label)',
+          'curve-style': 'bezier',
+          'target-arrow-shape': 'triangle',
+          'font-size': '9px', color: 'var(--text-dim)',
+          width: 'mapData(intensity, 0, 1, 1, 5)',
+          'line-color': 'mapData(affect, -1, 1, #ef4444, #22c55e)',
+          'target-arrow-color': 'mapData(affect, -1, 1, #ef4444, #22c55e)',
+          opacity: 0.85,
+        },
+      },
+      { selector: '.dim', style: { opacity: 0.15 } },
+      { selector: '.focused', style: { opacity: 1, 'border-width': 3, 'border-color': 'var(--warn)' } },
+      { selector: 'edge.focused', style: { width: 4, opacity: 1 } },
+    ],
+    layout: { name: 'cose', animate: false, randomize: false, idealEdgeLength: 100 },
+  });
+
+  // 邻域高亮：点击节点 → 一跳邻居 + 自身高亮，其他变暗
+  State.cy.on('tap', 'node', evt => {
+    const node = evt.target;
+    const neighborhood = node.closedNeighborhood();
+    State.cy.elements().addClass('dim');
+    neighborhood.removeClass('dim').addClass('focused');
+    showPersonaDetail(node.data());
+  });
+
+  // 点击边：显示证据事件并高亮事件流
+  State.cy.on('tap', 'edge', evt => {
+    const data = evt.target.data();
+    State.cy.elements().addClass('dim');
+    evt.target.removeClass('dim').addClass('focused');
+    evt.target.connectedNodes().removeClass('dim');
+    showImpressionDetail(data);
+    if (data.evidence_event_ids?.length) highlightEvents(data.evidence_event_ids);
+  });
+
+  // 空白处：清除
+  State.cy.on('tap', evt => {
+    if (evt.target === State.cy) clearHighlight();
+  });
+
+  // LOD: 缩放控制标签可见性
+  State.cy.on('zoom', () => {
+    const z = State.cy.zoom();
+    State.cy.style().selector('node').style('font-size', z < 0.6 ? 0 : 11).update();
+  });
+}
+
+function clearHighlight() {
+  if (State.cy) State.cy.elements().removeClass('dim focused');
+  highlightEvents([]);
+  hideDetail();
+}
+
+function showPersonaDetail(data) {
+  const attrs = data.attrs || {};
+  const html = `
+    <h3>👤 ${data.label}</h3>
+    <div class="field"><span class="k">UID</span><span class="v">${data.id.slice(0, 12)}…</span></div>
+    <div class="field"><span class="k">置信度</span><span class="v">${(data.confidence * 100).toFixed(0)}%</span></div>
+    ${attrs.description ? `<div class="field"><span class="k">描述</span><span class="v">${attrs.description}</span></div>` : ''}
+    ${attrs.affect_type ? `<div class="field"><span class="k">情感类型</span><span class="v">${attrs.affect_type}</span></div>` : ''}
+    ${(attrs.content_tags || []).length ? `<div style="margin-top:6px">${attrs.content_tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>` : ''}
+  `;
+  showDetail(html);
+}
+
+function showImpressionDetail(data) {
+  const affectColor = data.affect > 0 ? 'var(--positive)' : (data.affect < 0 ? 'var(--negative)' : 'var(--text-dim)');
+  const html = `
+    <h3>🔗 印象详情</h3>
+    <div class="field"><span class="k">关系类型</span><span class="v">${data.label}</span></div>
+    <div class="field"><span class="k">情感</span><span class="v" style="color:${affectColor}">${data.affect.toFixed(2)}</span></div>
+    <div class="field"><span class="k">强度</span><span class="v">${(data.intensity * 100).toFixed(0)}%</span></div>
+    <div class="field"><span class="k">置信度</span><span class="v">${(data.confidence * 100).toFixed(0)}%</span></div>
+    <div class="field"><span class="k">范围</span><span class="v">${data.scope}</span></div>
+    <div class="field"><span class="k">证据事件</span><span class="v">${(data.evidence_event_ids || []).length} 条</span></div>
+  `;
+  showDetail(html);
+}
+
+function showDetail(html) {
+  $('#detail-content').innerHTML = html;
+  $('#detail-panel').classList.add('show');
+}
+function hideDetail() { $('#detail-panel').classList.remove('show'); }
+
+// ============================================================================
+// ③ Summarised Memory
+// ============================================================================
+async function initSummaryPanel() {
+  let summaries;
+  try {
+    summaries = await fetchJson('/api/summaries');
+  } catch (e) {
+    $('#summary-list').innerHTML = '<div class="placeholder error">加载失败</div>';
+    return;
+  }
+  const listEl = $('#summary-list');
+  if (!summaries.length) {
+    listEl.innerHTML = '<div class="placeholder">暂无摘要</div>';
+    $('#summary-content').innerHTML = '<div class="placeholder">运行群组摘要任务后会出现</div>';
+    return;
+  }
+  listEl.innerHTML = summaries.map((s, i) => `
+    <div class="s-item" data-i="${i}"
+         onclick='loadSummary(${JSON.stringify(s.group_id)},${JSON.stringify(s.date)},this)'>
+      <div class="s-group">${s.label}</div>
+      <div class="s-date">${s.date}</div>
+    </div>
+  `).join('');
+  const first = listEl.querySelector('.s-item');
+  if (first) loadSummary(summaries[0].group_id, summaries[0].date, first);
+}
+
+async function loadSummary(groupId, date, el) {
+  document.querySelectorAll('#summary-list .s-item').forEach(i => i.classList.remove('active'));
+  if (el) el.classList.add('active');
+  const qs = groupId
+    ? `group_id=${encodeURIComponent(groupId)}&date=${encodeURIComponent(date)}`
+    : `date=${encodeURIComponent(date)}`;
+  try {
+    const { content } = await fetchJson(`/api/summary?${qs}`);
+    $('#summary-content').innerHTML = marked.parse(content);
+  } catch {
+    $('#summary-content').innerHTML = '<div class="placeholder error">摘要加载失败</div>';
+  }
+}
+
+// ============================================================================
+// 统计 + 设置
+// ============================================================================
+async function refreshStats() {
+  try {
+    const s = await fetchJson('/api/stats');
+    $('#stat-personas').textContent = `人格 ${s.personas}`;
+    $('#stat-events').textContent = `事件 ${s.events}`;
+    $('#stat-impressions').textContent = `印象 ${s.impressions}`;
+    $('#app-version').textContent = s.version;
+  } catch {}
+}
+
+function showSettings() {
+  $('#settings-modal').classList.add('show');
+  $('#auth-status-line').textContent =
+    State.sudo ? `已登录 + Sudo` : (State.authenticated ? '已登录（普通模式）' : '未登录');
+  loadExtPanels();
+}
+function hideSettings() { $('#settings-modal').classList.remove('show'); }
+
+async function loadExtPanels() {
+  try {
+    const { panels } = await fetchJson('/api/panels');
+    const el = $('#ext-panels-list');
+    if (!panels.length) {
+      el.innerHTML = '暂无第三方插件注册面板';
+    } else {
+      el.innerHTML = panels.map(p =>
+        `<div style="padding:4px 0">${p.icon} <b>${p.title}</b> <span style="color:var(--text-dim)">— ${p.plugin_id}</span></div>`
+      ).join('');
+    }
+  } catch {}
+}
+
+async function changePassword() {
+  if (!State.sudo) { toast('请先进入 Sudo 模式'); return; }
+  const oldP = $('#pw-old').value, newP = $('#pw-new').value;
+  if (!oldP || !newP) { toast('请填写两个字段'); return; }
+  try {
+    await fetchJson('/api/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({ old_password: oldP, new_password: newP }),
+    });
+    toast('密码已更新，请重新登录');
+    setTimeout(() => location.reload(), 1500);
+  } catch (e) {
+    toast(e.body || '修改失败');
+  }
+}
+
+async function runTask(name) {
+  if (!State.sudo) { toast('需要 Sudo 模式'); return; }
+  toast(`触发 ${name}…`);
+  try {
+    const r = await fetchJson('/api/admin/run_task', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+    toast(r.ok ? `${name} 已完成` : `${name} 失败`);
+    setTimeout(refreshStats, 1500);
+  } catch (e) {
+    toast(`${name} 错误：${e.body || e.status}`);
+  }
+}
+
+// ============================================================================
+// Boot
+// ============================================================================
+async function boot() {
+  await refreshAuthStatus();
+  if (State.authEnabled && !State.authenticated) {
+    showLogin(!State.passwordSet);
+    return;
+  }
+  hideLogin();
+  await Promise.all([
+    initEventFlow().catch(e => console.error('[EventFlow]', e)),
+    initRelationGraph().catch(e => console.error('[RelationGraph]', e)),
+    initSummaryPanel().catch(e => console.error('[SummaryPanel]', e)),
+    refreshStats(),
+  ]);
+  updateSudoUI(0);
+}
+
+async function reloadAll() {
+  await Promise.all([initEventFlow(), initRelationGraph(), initSummaryPanel(), refreshStats()]);
+  toast('已刷新');
+}
+
+// ============================================================================
+// 事件绑定
+// ============================================================================
+$('#login-btn').addEventListener('click', handleLoginSubmit);
+$('#login-pw').addEventListener('keypress', e => e.key === 'Enter' && handleLoginSubmit());
+$('#login-pw2').addEventListener('keypress', e => e.key === 'Enter' && handleLoginSubmit());
+$('#btn-logout').addEventListener('click', logout);
+$('#btn-theme').addEventListener('click', toggleTheme);
+$('#btn-settings').addEventListener('click', showSettings);
+$('#btn-fit').addEventListener('click', () => State.cy && State.cy.fit());
+$('#btn-refresh-graph').addEventListener('click', initRelationGraph);
+$('#dock-panels-btn').addEventListener('click', showSettings);
+$('#event-density').addEventListener('input', e => {
+  $('#event-density-label').textContent = e.target.value;
+  renderEvents(parseInt(e.target.value));
+});
+
+boot();
+</script>
+</body>
+</html>

@@ -1,9 +1,18 @@
-# Runtime dependencies (grow as phases progress)
-# Phase 2+: aiosqlite>=0.19
-# Phase 5+: faiss-cpu>=1.7; sentence-transformers>=2.6
-# Phase 7+: jinja2>=3.1
-# Phase 9+: aiohttp>=3.9 (already a transitive dep of AstrBot)
+# ── Runtime ──────────────────────────────────────────────────────────────────
+# Core storage (Phase 2+)
+aiosqlite>=0.19
+# Jinja2 templates for Markdown projector (Phase 7+)
+jinja2>=3.1
+# WebUI HTTP server (Phase 9+); aiohttp is also a transitive dep of AstrBot
+aiohttp>=3.9
+# WebUI auth; 未安装时降级为 sha256（仅开发期可接受）
+bcrypt>=4.0
 
-# Development / test
+# ── Optional runtime (install for full feature set) ───────────────────────────
+# Vector semantic search — ~100 MB download on first use (Phase 5+)
+# sentence-transformers>=2.6
+# faiss-cpu>=1.7
+
+# ── Development / test ────────────────────────────────────────────────────────
 pytest>=7.4
 pytest-asyncio>=0.23
