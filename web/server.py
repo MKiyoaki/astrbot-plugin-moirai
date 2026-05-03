@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -90,6 +91,49 @@ def impression_to_edge(imp: Impression) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# 演示数据摘要（模块级常量，由 _handle_demo 使用）
+# ---------------------------------------------------------------------------
+
+_DEMO_SUMMARY_1 = """\
+# 群组 demo_group_001 · 2026-05-01
+
+## 主要话题
+- Alice 和 Bob 进行了愉快的早安问候，话题延伸至音乐推荐
+- Alice 分享了几首新歌，引发了关于独立音乐的讨论
+
+## 情感动态
+- 群体氛围积极，用户间互动友好
+- Alice 表现出较高的参与热情（重要度 72%）
+
+## 关键事件
+1. **早安问候**（重要度 45%）— 日常对话开启当日交流
+2. **音乐推荐**（重要度 72%）— 话题丰富，连接昨日对话
+
+## 行动项
+- [ ] 跟进 Alice 推荐的音乐播放列表
+"""
+
+_DEMO_SUMMARY_2 = """\
+# 群组 demo_group_001 · 2026-05-02
+
+## 主要话题
+- Alice 和 Charlie 讨论了周末游戏约定
+- Bob 和 Charlie 进行了深入的技术交流
+
+## 情感动态
+- Charlie 参与度增加，但整体互动相对保守
+- Bob 的技术讨论获得较高参与度（重要度 85%）
+
+## 关键事件
+1. **游戏约定**（重要度 68%）— Alice 与 Charlie 确定周末安排
+2. **技术交流**（重要度 85%）— Bob 主导的编程讨论，内容丰富
+
+## 关系变化
+- Bob ↔ Charlie：从陌生人升级为技术话题上的讨论伙伴
+- Alice → Charlie：建立了轻松的游戏同好关系
+"""
+
+# ---------------------------------------------------------------------------
 # WebuiServer
 # ---------------------------------------------------------------------------
 
@@ -156,6 +200,8 @@ class WebuiServer:
         app.router.add_get("/api/stats", self._wrap("auth", self._handle_stats))
         # 管理操作（sudo）
         app.router.add_post("/api/admin/run_task", self._wrap("sudo", self._handle_run_task))
+        app.router.add_put("/api/summary", self._wrap("sudo", self._handle_update_summary))
+        app.router.add_post("/api/admin/demo", self._wrap("sudo", self._handle_demo))
         # 第三方面板注册
         app.router.add_get("/api/panels", self._wrap("auth", self._handle_panels_list))
         # 注入第三方插件已注册的路由
@@ -395,6 +441,194 @@ class WebuiServer:
         except Exception as exc:
             return _json({"error": str(exc)}, status=500)
         return _json({"ok": ok})
+
+    async def _handle_update_summary(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        group_id = body.get("group_id") or None
+        date = body.get("date", "")
+        content = body.get("content", "")
+        if not date:
+            return _json({"error": "date required"}, status=400)
+        if group_id:
+            path = self._data_dir / "groups" / group_id / "summaries" / f"{date}.md"
+        else:
+            path = self._data_dir / "global" / "summaries" / f"{date}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return _json({"ok": True})
+
+    async def _handle_demo(self, _: web.Request) -> web.Response:
+        now = time.time()
+        DAY = 86_400
+
+        personas = [
+            Persona(
+                uid="demo_uid_alice",
+                bound_identities=[("qq", "demo_10001")],
+                primary_name="Alice",
+                persona_attrs={"description": "热情开朗，喜爱音乐与游戏", "affect_type": "积极", "content_tags": ["音乐", "游戏", "聊天"]},
+                confidence=0.88,
+                created_at=now - 30 * DAY,
+                last_active_at=now - DAY,
+            ),
+            Persona(
+                uid="demo_uid_bob",
+                bound_identities=[("qq", "demo_10002")],
+                primary_name="Bob",
+                persona_attrs={"description": "理性谨慎，热衷技术讨论", "affect_type": "中性", "content_tags": ["技术", "编程"]},
+                confidence=0.82,
+                created_at=now - 25 * DAY,
+                last_active_at=now - 2 * DAY,
+            ),
+            Persona(
+                uid="demo_uid_charlie",
+                bound_identities=[("telegram", "demo_tg_charlie")],
+                primary_name="Charlie",
+                persona_attrs={"description": "神秘低调，偶尔参与讨论", "affect_type": "消极", "content_tags": ["旅行", "摄影"]},
+                confidence=0.65,
+                created_at=now - 15 * DAY,
+                last_active_at=now - 5 * DAY,
+            ),
+            Persona(
+                uid="demo_uid_bot",
+                bound_identities=[("internal", "bot")],
+                primary_name="BOT",
+                persona_attrs={"description": "AI 助手", "affect_type": "中性", "content_tags": []},
+                confidence=1.0,
+                created_at=now - 60 * DAY,
+                last_active_at=now,
+            ),
+        ]
+
+        events = [
+            Event(
+                event_id="demo_evt_001",
+                group_id="demo_group_001",
+                start_time=now - 7 * DAY,
+                end_time=now - 7 * DAY + 1800,
+                participants=["demo_uid_alice", "demo_uid_bob", "demo_uid_bot"],
+                interaction_flow=[],
+                topic="早安问候",
+                chat_content_tags=["日常", "问候"],
+                salience=0.45,
+                confidence=0.82,
+                inherit_from=[],
+                last_accessed_at=now - DAY,
+            ),
+            Event(
+                event_id="demo_evt_002",
+                group_id="demo_group_001",
+                start_time=now - 6 * DAY,
+                end_time=now - 6 * DAY + 3600,
+                participants=["demo_uid_alice", "demo_uid_bob", "demo_uid_bot"],
+                interaction_flow=[],
+                topic="音乐推荐",
+                chat_content_tags=["音乐", "推荐", "文化"],
+                salience=0.72,
+                confidence=0.88,
+                inherit_from=["demo_evt_001"],
+                last_accessed_at=now - 12 * 3600,
+            ),
+            Event(
+                event_id="demo_evt_003",
+                group_id="demo_group_001",
+                start_time=now - 5 * DAY,
+                end_time=now - 5 * DAY + 2700,
+                participants=["demo_uid_alice", "demo_uid_charlie", "demo_uid_bot"],
+                interaction_flow=[],
+                topic="游戏约定",
+                chat_content_tags=["游戏", "约定", "娱乐"],
+                salience=0.68,
+                confidence=0.79,
+                inherit_from=["demo_evt_002"],
+                last_accessed_at=now - 8 * 3600,
+            ),
+            Event(
+                event_id="demo_evt_004",
+                group_id="demo_group_001",
+                start_time=now - 3 * DAY,
+                end_time=now - 3 * DAY + 4200,
+                participants=["demo_uid_bob", "demo_uid_charlie", "demo_uid_bot"],
+                interaction_flow=[],
+                topic="技术交流",
+                chat_content_tags=["技术", "编程", "讨论"],
+                salience=0.85,
+                confidence=0.91,
+                inherit_from=["demo_evt_001"],
+                last_accessed_at=now - 4 * 3600,
+            ),
+            Event(
+                event_id="demo_evt_005",
+                group_id=None,
+                start_time=now - DAY,
+                end_time=now - DAY + 900,
+                participants=["demo_uid_alice", "demo_uid_bot"],
+                interaction_flow=[],
+                topic="私聊请教",
+                chat_content_tags=["私聊", "帮助"],
+                salience=0.55,
+                confidence=0.77,
+                inherit_from=[],
+                last_accessed_at=now - 3600,
+            ),
+        ]
+
+        impressions = [
+            Impression(
+                observer_uid="demo_uid_bot", subject_uid="demo_uid_alice",
+                relation_type="friend", affect=0.7, intensity=0.6, confidence=0.85,
+                scope="global",
+                evidence_event_ids=["demo_evt_001", "demo_evt_002", "demo_evt_005"],
+                last_reinforced_at=now - DAY,
+            ),
+            Impression(
+                observer_uid="demo_uid_bot", subject_uid="demo_uid_bob",
+                relation_type="colleague", affect=0.2, intensity=0.4, confidence=0.78,
+                scope="global",
+                evidence_event_ids=["demo_evt_001", "demo_evt_004"],
+                last_reinforced_at=now - 2 * DAY,
+            ),
+            Impression(
+                observer_uid="demo_uid_alice", subject_uid="demo_uid_bot",
+                relation_type="friend", affect=0.8, intensity=0.7, confidence=0.80,
+                scope="global",
+                evidence_event_ids=["demo_evt_001", "demo_evt_002"],
+                last_reinforced_at=now - DAY,
+            ),
+            Impression(
+                observer_uid="demo_uid_bob", subject_uid="demo_uid_alice",
+                relation_type="friend", affect=0.5, intensity=0.5, confidence=0.72,
+                scope="demo_group_001",
+                evidence_event_ids=["demo_evt_002"],
+                last_reinforced_at=now - 6 * DAY,
+            ),
+            Impression(
+                observer_uid="demo_uid_charlie", subject_uid="demo_uid_bob",
+                relation_type="stranger", affect=-0.2, intensity=0.3, confidence=0.60,
+                scope="demo_group_001",
+                evidence_event_ids=["demo_evt_004"],
+                last_reinforced_at=now - 3 * DAY,
+            ),
+        ]
+
+        for p in personas:
+            await self._persona_repo.upsert(p)
+        for e in events:
+            await self._event_repo.upsert(e)
+        for imp in impressions:
+            await self._impression_repo.upsert(imp)
+
+        for date, content in [("2026-05-01", _DEMO_SUMMARY_1), ("2026-05-02", _DEMO_SUMMARY_2)]:
+            path = self._data_dir / "groups" / "demo_group_001" / "summaries" / f"{date}.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+
+        return _json({"ok": True, "seeded": {
+            "personas": len(personas),
+            "events": len(events),
+            "impressions": len(impressions),
+            "summaries": 2,
+        }})
 
     # ------------------------------------------------------------------
     # 路由处理器：面板注册

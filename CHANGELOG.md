@@ -4,6 +4,74 @@
 
 ---
 
+## WebUI 重设计 v1 — 侧边栏 + 自定义时间线 + 摘要编辑 + 演示数据
+
+**完成日期：** 2026-05-03  
+**涉及文件：** `web/server.py` · `web/static/index.html` · `run_webui_dev.py`
+
+### 交付内容
+
+#### web/server.py
+
+| 新增 | 说明 |
+|------|------|
+| `PUT /api/summary`（sudo） | 将编辑后的 Markdown 内容写回磁盘（`groups/<gid>/summaries/<date>.md` 或 `global/summaries/`） |
+| `POST /api/admin/demo`（sudo） | 注入演示数据：4 Persona / 5 Event（含承接链）/ 5 Impression / 2 摘要文件 |
+| `_DEMO_SUMMARY_1/2` | 模块级摘要常量，供 `_handle_demo` 和 `run_webui_dev.py` 共用 |
+
+#### web/static/index.html（924 → 1254 行，完全重写）
+
+**布局**：将原 3 列 grid 替换为 `220px 固定侧边栏 + flex-1 主内容区`，点击侧边栏导航项全屏切换面板（`.panel-view.active`）。
+
+**侧边栏**：Logo + 版本徽章、三个导航按钮（◎ 事件流 / ⬡ 关系图 / ◧ 摘要记忆）、底部统计 + Sudo/主题/设置/退出操作。
+
+**自定义时间线**（替换 vis-timeline）：
+- 纵向红色中心线（`#tl-container::before`，`position: absolute`）
+- 事件交替左右排布（`.tl-item.left` / `.tl-item.right`，`padding` 推离中线）
+- 橙色点表示有承接关系的事件（`.tl-dot.has-parent`）
+- 承接桥接线（`.tl-bridge`）：`position: absolute` 连接父子事件点，hover 显示橙色虚线，`title` 属性展示关系；位置通过 `offsetTop` 计算，`ResizeObserver` 触发重绘
+- 引入 `--tl-accent` CSS 变量（默认 `#ef4444`），卡片渐变色通过 `color-mix()` 派生，为后续颜色自定义预留接口
+
+**摘要编辑器**：编辑按钮需 sudo；点击切换为 monospace textarea；保存调用 `PUT /api/summary`；取消还原渲染视图。
+
+**设置 Modal 新增**：演示数据注入按钮（`POST /api/admin/demo`，需 sudo），注入后自动刷新全部面板。
+
+**移除**：vis-timeline CDN 及相关 JS（`vis.Timeline`、`vis.DataSet`）。
+
+#### run_webui_dev.py（重写）
+
+- 内存仓储，关闭认证（`auth_enabled=False`），无需数据库
+- 默认端口 2654（不与生产 2653 冲突）
+- 启动时自动注入演示数据，共用 `_DEMO_SUMMARY_1/2` 常量
+- `--port` 命令行参数，`asyncio.Event` 优雅退出，Windows 兼容
+- 数据目录写入项目根 `.dev_data/`
+
+### 演示数据说明
+
+```
+人格：Alice（QQ）/ Bob（QQ）/ Charlie（Telegram）/ BOT（internal）
+事件：早安问候 → 音乐推荐 → 游戏约定（链 A）
+              → 技术交流（链 B，从早安问候分叉）
+      私聊请教（独立，group_id=None）
+印象：BOT→Alice friend +0.7 / BOT→Bob colleague +0.2 /
+      Alice→BOT friend +0.8 / Bob→Alice friend +0.5 /
+      Charlie→Bob stranger -0.2
+摘要：groups/demo_group_001/summaries/2026-05-01.md
+     groups/demo_group_001/summaries/2026-05-02.md
+```
+
+---
+
+### TODO — 待续功能（下一 session 继续）
+
+> 以下为上条命令中途中断、尚未完成的内容，优先级从高到低：
+
+- [ ] **承接线点击弹窗**：点击 `.tl-bridge` 弹出浮窗（`#bridge-popup`），展示父事件 → 子事件的关联信息（话题、时间、salience），可点 × 关闭；当前只有 hover 虚线效果，无点击行为
+- [ ] **时间轴颜色自定义**：`--tl-accent` 变量已在 CSS 中就位，需在设置 Modal 增加 `<input type="color">` 并通过 JS `document.documentElement.style.setProperty('--tl-accent', value)` 应用，`localStorage` 持久化
+- [ ] **背景色自定义**：设置 Modal 增加若干深色预设色块（Slate / Noir / Deep Purple / Deep Blue）+ 自定义色板，修改 `--bg` / `--bg-2` 变量，`localStorage` 持久化；需注意与 `[data-theme="light"]` 的优先级冲突（用 `element.style.setProperty` inline 覆盖即可）
+
+---
+
 ## Phase 1 — 领域模型 + 仓储抽象接口 + 内存实现
 
 **完成日期：** 2026-05-03  

@@ -3,13 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Enhanced Memory — 三轴记忆面板</title>
-<link rel="stylesheet" href="https://unpkg.com/vis-timeline@7.7.3/styles/vis-timeline-graph2d.min.css">
+<title>Enhanced Memory</title>
 <style>
 :root {
   --bg: #0f172a;
   --bg-2: #1e293b;
-  --panel: rgba(30, 41, 59, 0.7);
+  --panel: rgba(30, 41, 59, 0.92);
   --panel-border: rgba(255, 255, 255, 0.08);
   --text: #f1f5f9;
   --text-dim: #94a3b8;
@@ -18,11 +17,13 @@
   --positive: #22c55e;
   --negative: #ef4444;
   --warn: #f59e0b;
+  --tl-accent: #ef4444;
+  --sidebar-w: 220px;
 }
 [data-theme="light"] {
   --bg: #f1f5f9;
   --bg-2: #e2e8f0;
-  --panel: rgba(255, 255, 255, 0.85);
+  --panel: rgba(255, 255, 255, 0.92);
   --panel-border: rgba(0, 0, 0, 0.08);
   --text: #0f172a;
   --text-dim: #64748b;
@@ -30,12 +31,11 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; }
+html, body { height: 100%; overflow: hidden; }
 body {
   font-family: -apple-system, "Outfit", BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
   background: var(--bg);
   color: var(--text);
-  overflow: hidden;
 }
 
 /* ============================================================
@@ -47,22 +47,17 @@ body {
   background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
 }
 .login-card {
-  width: 360px;
-  padding: 32px;
-  background: var(--panel);
-  backdrop-filter: blur(20px);
-  border: 1px solid var(--panel-border);
-  border-radius: 14px;
+  width: 360px; padding: 32px;
+  background: var(--panel); backdrop-filter: blur(20px);
+  border: 1px solid var(--panel-border); border-radius: 14px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.4);
 }
 .login-card h2 { font-size: 18px; margin-bottom: 4px; }
 .login-card .sub { font-size: 12px; color: var(--text-dim); margin-bottom: 20px; }
 .login-card input {
   width: 100%; padding: 10px 12px; margin-bottom: 12px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  color: var(--text); font-size: 13px;
+  background: rgba(255,255,255,0.05); border: 1px solid var(--panel-border);
+  border-radius: 8px; color: var(--text); font-size: 13px;
 }
 .login-card input:focus { outline: none; border-color: var(--accent); }
 .login-card button {
@@ -76,233 +71,389 @@ body {
 /* ============================================================
    主布局
    ============================================================ */
-#app { display: none; height: 100vh; flex-direction: column; }
+#app { display: none; height: 100vh; }
 #app.ready { display: flex; }
 
-header {
-  background: var(--bg-2);
+/* ============================================================
+   侧边栏
+   ============================================================ */
+#sidebar {
+  width: var(--sidebar-w); flex-shrink: 0;
+  background: var(--bg-2); border-right: 1px solid var(--panel-border);
+  display: flex; flex-direction: column;
+  height: 100vh;
+}
+.sb-logo {
+  padding: 16px 14px 12px;
   border-bottom: 1px solid var(--panel-border);
-  padding: 8px 18px;
-  display: flex; align-items: center; gap: 12px;
-  flex-shrink: 0;
 }
-header h1 { font-size: 15px; font-weight: 600; }
-header .badge {
-  font-size: 10px; background: var(--accent); color: #fff;
-  padding: 2px 7px; border-radius: 10px;
+.sb-logo-title { font-size: 13px; font-weight: 700; letter-spacing: 0.2px; }
+.sb-logo-title .badge {
+  display: inline-block; font-size: 9px;
+  background: var(--accent); color: #fff;
+  padding: 1px 5px; border-radius: 6px; margin-left: 5px;
 }
-header .spacer { flex: 1; }
-header .stat-pill {
-  font-size: 11px; color: var(--text-dim);
-  background: rgba(255,255,255,0.05);
-  padding: 3px 9px; border-radius: 10px;
+.sb-logo-sub { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+
+.sb-nav {
+  flex: 1; padding: 10px 8px;
+  display: flex; flex-direction: column; gap: 2px;
+  overflow-y: auto;
 }
-header button {
-  font-size: 12px; padding: 4px 10px;
-  background: rgba(255,255,255,0.08); color: var(--text);
+.nav-item {
+  width: 100%; padding: 9px 12px;
+  background: transparent; border: none; color: var(--text-dim);
+  border-radius: 8px; text-align: left; font-size: 13px;
+  cursor: pointer; transition: background 0.15s, color 0.15s;
+  display: flex; align-items: center; gap: 8px;
+}
+.nav-item:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+.nav-item.active { background: rgba(56,189,248,0.15); color: var(--accent); font-weight: 600; }
+.nav-icon { font-size: 15px; width: 20px; text-align: center; flex-shrink: 0; }
+
+.sb-footer {
+  padding: 10px 10px 12px;
+  border-top: 1px solid var(--panel-border);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.sb-stats { display: flex; flex-direction: column; gap: 2px; }
+.sb-stat { font-size: 11px; color: var(--text-dim); padding: 1px 4px; }
+.sb-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.sb-actions button {
+  font-size: 11px; padding: 4px 7px;
+  background: rgba(255,255,255,0.06); color: var(--text);
   border: 1px solid var(--panel-border); border-radius: 6px;
   cursor: pointer; transition: background 0.15s;
 }
-header button:hover { background: rgba(255,255,255,0.15); }
-header button.sudo-active { background: var(--warn); color: #000; border-color: var(--warn); }
+.sb-actions button:hover { background: rgba(255,255,255,0.13); }
+.sb-actions button.sudo-active { background: var(--warn); color: #000; border-color: var(--warn); }
+.sb-version { font-size: 10px; color: var(--text-dim); padding: 0 4px; }
 
-/* 面板容器 */
-.panels {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 8px;
-  padding: 8px;
-  flex: 1; min-height: 0;
-}
-.panel {
-  background: var(--panel);
-  backdrop-filter: blur(14px);
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  display: flex; flex-direction: column;
-  overflow: hidden;
-}
-.panel-header {
-  padding: 8px 14px;
-  background: rgba(0,0,0,0.15);
+/* ============================================================
+   主内容区
+   ============================================================ */
+#main-content { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+.panel-view { display: none; flex: 1; flex-direction: column; min-height: 0; }
+.panel-view.active { display: flex; }
+
+.pv-header {
+  padding: 10px 18px;
+  background: var(--bg-2);
   border-bottom: 1px solid var(--panel-border);
-  font-weight: 600; font-size: 12px;
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 12px;
   flex-shrink: 0;
 }
-.panel-header .ph-title { flex: 1; }
-.panel-header .ctl { display: flex; gap: 6px; align-items: center; }
-.panel-header input[type="range"] { width: 70px; }
-.panel-header .small { font-size: 10px; color: var(--text-dim); }
-.panel-body { flex: 1; overflow: hidden; position: relative; }
-
-/* vis-timeline 暗色适配 */
-#timeline { height: 100%; }
-.vis-item {
-  border-radius: 3px; font-size: 11px;
-  background: rgba(56, 189, 248, 0.4); border-color: var(--accent); color: var(--text);
+.pv-title { font-size: 14px; font-weight: 600; flex: 1; }
+.pv-controls { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); }
+.pv-controls input[type="range"] { width: 80px; accent-color: var(--accent); }
+.pv-controls button {
+  font-size: 11px; padding: 3px 9px;
+  background: rgba(255,255,255,0.07); color: var(--text);
+  border: 1px solid var(--panel-border); border-radius: 5px;
+  cursor: pointer; transition: background 0.15s;
 }
-.vis-item.highlighted {
-  background: rgba(245, 158, 11, 0.6) !important;
-  border-color: var(--warn) !important;
-  color: #fff !important;
+.pv-controls button:hover { background: rgba(255,255,255,0.14); }
+
+.pv-body { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+
+/* ============================================================
+   自定义时间线
+   ============================================================ */
+#tl-scroll {
+  position: absolute; inset: 0;
+  overflow-y: auto; overflow-x: hidden;
 }
-.vis-time-axis .vis-text, .vis-labelset .vis-label { color: var(--text-dim); }
-.vis-panel.vis-center, .vis-panel.vis-left, .vis-panel.vis-top, .vis-panel.vis-bottom {
-  border-color: var(--panel-border) !important;
+#tl-container {
+  position: relative;
+  padding: 36px 0 64px;
+  min-height: 100%;
 }
 
-/* Cytoscape 容器 */
-#cy { width: 100%; height: 100%; }
+/* 中心红线 */
+#tl-container::before {
+  content: '';
+  position: absolute;
+  left: 50%; top: 0; bottom: 0;
+  width: 2px;
+  background: var(--tl-accent);
+  transform: translateX(-50%);
+  opacity: 0.65;
+}
 
-/* 摘要面板布局 */
-.summary-layout { display: flex; height: 100%; }
+.tl-item {
+  display: flex;
+  width: 100%;
+  padding-bottom: 28px;
+  position: relative;
+  align-items: flex-start;
+}
+.tl-item.left {
+  padding-right: calc(50% + 34px);
+  padding-left: 20px;
+  justify-content: flex-end;
+}
+.tl-item.right {
+  padding-left: calc(50% + 34px);
+  padding-right: 20px;
+  justify-content: flex-start;
+}
+
+.tl-dot {
+  position: absolute;
+  left: calc(50% - 8px);
+  top: 14px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--tl-accent);
+  border: 2px solid var(--bg);
+  z-index: 4;
+  cursor: pointer;
+  transition: transform 0.18s, box-shadow 0.18s;
+}
+.tl-dot:hover, .tl-dot.highlighted {
+  transform: scale(1.5);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--tl-accent) 30%, transparent);
+}
+.tl-dot.has-parent { background: #f97316; border-color: var(--bg); }
+.tl-dot.has-parent.highlighted { box-shadow: 0 0 0 4px rgba(249,115,22,0.35); }
+
+.tl-card {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  width: 100%;
+  transition: box-shadow 0.18s, border-color 0.18s;
+}
+.tl-card:hover {
+  box-shadow: 0 4px 20px color-mix(in srgb, var(--tl-accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--tl-accent) 30%, transparent);
+}
+.tl-card.highlighted { border-color: var(--warn); box-shadow: 0 4px 20px rgba(245,158,11,0.28); }
+
+.tl-card-header {
+  padding: 9px 13px;
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--tl-accent) 22%, transparent) 0%,
+    color-mix(in srgb, var(--tl-accent) 6%, transparent) 100%);
+  border-bottom: 1px solid color-mix(in srgb, var(--tl-accent) 14%, transparent);
+}
+.tl-card-title { font-size: 13px; font-weight: 600; }
+.tl-card-time { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+.tl-card-body {
+  padding: 7px 13px;
+  display: flex; gap: 5px; flex-wrap: wrap; align-items: center;
+}
+.tl-badge {
+  display: inline-flex; align-items: center;
+  font-size: 10px; padding: 2px 7px; border-radius: 8px;
+}
+.tl-badge.salience { background: rgba(56,189,248,0.14); color: var(--accent); }
+.tl-badge.group { background: rgba(255,255,255,0.07); color: var(--text-dim); }
+.tl-badge.tag { background: rgba(34,197,94,0.12); color: var(--positive); }
+.tl-badge.participants { background: rgba(168,85,247,0.12); color: #a855f7; }
+
+/* 继承关系桥接线 */
+.tl-bridge {
+  position: absolute;
+  left: calc(50% - 1px);
+  width: 2px; z-index: 3;
+  cursor: pointer;
+}
+/* wider hit area */
+.tl-bridge::before {
+  content: ''; position: absolute;
+  left: -8px; right: -8px; top: 0; bottom: 0;
+}
+.tl-bridge::after {
+  content: ''; position: absolute; inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px, transparent 4px,
+    #f97316 4px, #f97316 8px
+  );
+  opacity: 0; transition: opacity 0.2s;
+}
+.tl-bridge:hover::after { opacity: 1; }
+
+.tl-empty {
+  text-align: center; color: var(--text-dim);
+  padding: 80px 20px; font-size: 13px; line-height: 1.7;
+}
+
+/* Cytoscape */
+#cy { position: absolute; inset: 0; }
+
+/* ============================================================
+   摘要面板
+   ============================================================ */
+.summary-layout { position: absolute; inset: 0; display: flex; }
 #summary-list {
-  width: 150px; flex-shrink: 0; overflow-y: auto;
+  width: 196px; flex-shrink: 0; overflow-y: auto;
   border-right: 1px solid var(--panel-border);
 }
-#summary-list .s-item {
-  padding: 7px 11px; cursor: pointer;
+.s-item {
+  padding: 9px 13px; cursor: pointer;
   border-left: 3px solid transparent;
   transition: background 0.1s;
 }
-#summary-list .s-item:hover { background: rgba(56, 189, 248, 0.1); }
-#summary-list .s-item.active {
-  background: rgba(56, 189, 248, 0.15);
-  border-left-color: var(--accent);
+.s-item:hover { background: rgba(56,189,248,0.08); }
+.s-item.active { background: rgba(56,189,248,0.13); border-left-color: var(--accent); }
+.s-group { font-size: 12px; font-weight: 600; }
+.s-date { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+
+#summary-area {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
 }
-#summary-list .s-group { font-size: 12px; font-weight: 600; }
-#summary-list .s-date { font-size: 10px; color: var(--text-dim); margin-top: 1px; }
 #summary-content {
   flex: 1; overflow-y: auto;
-  padding: 14px 16px;
-  font-size: 12px; line-height: 1.6;
+  padding: 18px 22px;
+  font-size: 13px; line-height: 1.75;
 }
-#summary-content h1 { font-size: 15px; margin: 12px 0 5px; }
-#summary-content h2 { font-size: 13px; margin: 10px 0 4px; }
-#summary-content h3 { font-size: 12px; margin: 8px 0 3px; }
-#summary-content ul, #summary-content ol { padding-left: 18px; margin: 4px 0; }
-#summary-content p { margin: 4px 0; }
+#summary-content h1 { font-size: 16px; margin: 14px 0 6px; }
+#summary-content h2 { font-size: 14px; margin: 12px 0 4px; }
+#summary-content h3 { font-size: 13px; margin: 10px 0 3px; }
+#summary-content ul, #summary-content ol { padding-left: 20px; margin: 5px 0; }
+#summary-content p { margin: 5px 0; }
 #summary-content code {
-  background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px;
-  font-size: 11px;
+  background: rgba(0,0,0,0.22); padding: 1px 5px; border-radius: 3px;
+  font-family: ui-monospace, monospace; font-size: 11px;
+}
+#summary-content blockquote {
+  border-left: 3px solid var(--accent); padding-left: 12px;
+  color: var(--text-dim); margin: 8px 0;
+}
+#summary-editor {
+  flex: 1; min-height: 0; display: none; flex-direction: column; padding: 12px; gap: 8px;
+}
+#summary-textarea {
+  flex: 1; min-height: 0;
+  background: rgba(0,0,0,0.18); border: 1px solid var(--panel-border);
+  border-radius: 8px; color: var(--text); font-size: 13px; line-height: 1.6;
+  padding: 12px; resize: none;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+}
+#summary-textarea:focus { outline: none; border-color: var(--accent); }
+.editor-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.editor-actions button {
+  padding: 6px 16px; border-radius: 6px; font-size: 12px;
+  cursor: pointer; border: none;
+}
+.btn-save { background: var(--accent); color: #fff; }
+.btn-save:hover { background: var(--accent-hover); }
+.btn-cancel {
+  background: rgba(255,255,255,0.08); color: var(--text);
+  border: 1px solid var(--panel-border) !important;
 }
 
-.placeholder {
-  color: var(--text-dim); text-align: center;
-  padding: 36px 14px; font-size: 12px;
-}
-.error { color: var(--negative); }
-
-/* 详情侧栏（玻璃拟态浮动） */
+/* ============================================================
+   详情浮层
+   ============================================================ */
 #detail-panel {
-  position: fixed;
-  top: 60px; right: 14px;
-  width: 320px; max-height: calc(100vh - 80px);
+  position: fixed; top: 56px; right: 14px;
+  width: 296px; max-height: calc(100vh - 76px);
   background: var(--panel); backdrop-filter: blur(20px);
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  padding: 14px 16px;
-  overflow-y: auto;
-  display: none;
-  z-index: 100;
+  border: 1px solid var(--panel-border); border-radius: 10px;
+  padding: 14px 16px; overflow-y: auto;
+  display: none; z-index: 100;
   box-shadow: 0 12px 40px rgba(0,0,0,0.4);
-  animation: slideIn 0.2s ease-out;
+  animation: slideIn 0.18s ease-out;
 }
 @keyframes slideIn {
-  from { transform: translateX(20px); opacity: 0; }
+  from { transform: translateX(16px); opacity: 0; }
   to   { transform: translateX(0);    opacity: 1; }
 }
 #detail-panel.show { display: block; }
 #detail-panel h3 { font-size: 13px; margin-bottom: 8px; }
-#detail-panel .close {
-  position: absolute; top: 8px; right: 12px;
+.detail-close {
+  position: absolute; top: 8px; right: 11px;
   background: none; border: none; color: var(--text-dim);
   font-size: 18px; cursor: pointer;
 }
-#detail-panel .field {
+.detail-field {
   font-size: 11px; margin: 6px 0;
   display: flex; justify-content: space-between; gap: 10px;
 }
-#detail-panel .field .k { color: var(--text-dim); }
-#detail-panel .field .v { font-family: ui-monospace, monospace; word-break: break-all; }
-#detail-panel .tag {
+.detail-field .k { color: var(--text-dim); flex-shrink: 0; }
+.detail-field .v { font-family: ui-monospace, monospace; word-break: break-all; text-align: right; }
+.detail-tag {
   display: inline-block; font-size: 10px;
-  background: rgba(56, 189, 248, 0.2); color: var(--accent);
+  background: rgba(56,189,248,0.18); color: var(--accent);
   padding: 1px 6px; border-radius: 8px; margin: 1px 2px;
 }
 
-/* Toast */
+/* ============================================================
+   Toast
+   ============================================================ */
 #toast {
-  position: fixed; bottom: 70px; left: 50%;
+  position: fixed; bottom: 22px; left: 50%;
   transform: translateX(-50%);
   background: var(--bg-2); color: var(--text);
-  padding: 10px 18px; border-radius: 6px;
+  padding: 10px 18px; border-radius: 8px;
   border: 1px solid var(--panel-border);
-  font-size: 13px; display: none; z-index: 200;
+  font-size: 13px; display: none; z-index: 500;
   box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+  white-space: nowrap;
 }
 
-/* 底部 dock */
-.dock {
-  position: fixed; bottom: 12px; left: 50%;
-  transform: translateX(-50%);
-  display: flex; gap: 4px; padding: 6px;
-  background: var(--panel); backdrop-filter: blur(20px);
-  border: 1px solid var(--panel-border);
-  border-radius: 28px;
-  z-index: 50;
-}
-.dock button {
-  background: none; border: none; color: var(--text);
-  padding: 6px 12px; border-radius: 18px;
-  font-size: 12px; cursor: pointer;
-  display: flex; align-items: center; gap: 4px;
-  transition: background 0.15s;
-}
-.dock button:hover { background: rgba(255,255,255,0.1); }
-
-/* 设置面板（modal） */
+/* ============================================================
+   设置 Modal
+   ============================================================ */
 #settings-modal {
-  position: fixed; inset: 0; z-index: 500;
+  position: fixed; inset: 0; z-index: 600;
   display: none; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0,0,0,0.52);
 }
 #settings-modal.show { display: flex; }
-#settings-modal .card {
-  width: 480px; max-height: 80vh; overflow-y: auto;
+.modal-card {
+  width: 500px; max-height: 86vh; overflow-y: auto;
   background: var(--bg-2);
   border: 1px solid var(--panel-border);
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: 12px; padding: 22px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
 }
-#settings-modal h3 { font-size: 15px; margin-bottom: 12px; }
-#settings-modal section { margin-bottom: 18px; }
-#settings-modal section h4 { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
-#settings-modal .row { display: flex; gap: 8px; align-items: center; margin: 6px 0; font-size: 12px; }
-#settings-modal .row label { flex: 1; }
-#settings-modal input[type="password"], #settings-modal input[type="text"] {
-  background: rgba(0,0,0,0.3); border: 1px solid var(--panel-border);
+.modal-card > h3 { font-size: 15px; margin-bottom: 16px; }
+.modal-close {
+  float: right; background: none; border: none; color: var(--text-dim);
+  font-size: 18px; cursor: pointer; padding: 0 4px;
+}
+.modal-section { margin-bottom: 20px; }
+.modal-section h4 {
+  font-size: 10px; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.6px;
+  margin-bottom: 9px;
+}
+.modal-row { display: flex; gap: 8px; align-items: center; margin: 6px 0; font-size: 12px; }
+.modal-row label { flex: 1; }
+.modal-row input[type="password"], .modal-row input[type="text"] {
+  background: rgba(0,0,0,0.22); border: 1px solid var(--panel-border);
   border-radius: 4px; padding: 5px 8px; color: var(--text); font-size: 12px;
-  flex: 0 0 160px;
+  flex: 0 0 120px;
 }
-#settings-modal button {
+.modal-btn {
   background: var(--accent); color: #fff; border: none;
-  padding: 5px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;
+  padding: 5px 11px; border-radius: 5px; font-size: 12px; cursor: pointer;
 }
-#settings-modal .task-row {
+.modal-btn:hover { opacity: 0.88; }
+.task-row {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 4px 0; font-size: 12px;
+  padding: 5px 0; font-size: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
 }
-#settings-modal .close-modal {
-  float: right; background: none !important; color: var(--text-dim) !important;
-  font-size: 18px; padding: 0 6px !important;
+.task-row:last-child { border-bottom: none; }
+
+.placeholder {
+  color: var(--text-dim); text-align: center;
+  padding: 40px 14px; font-size: 12px; line-height: 1.6;
 }
+.error { color: var(--negative); }
 </style>
 </head>
 <body>
 
-<!-- 登录 / 首次设置覆盖层 -->
+<!-- 登录覆盖层 -->
 <div id="login-overlay">
   <div class="login-card">
     <h2 id="login-title">Enhanced Memory</h2>
@@ -316,110 +467,161 @@ header button.sudo-active { background: var(--warn); color: #000; border-color: 
 
 <!-- 主应用 -->
 <div id="app">
-  <header>
-    <h1>Enhanced Memory</h1>
-    <span class="badge">v<span id="app-version">…</span></span>
-    <span class="spacer"></span>
-    <span class="stat-pill" id="stat-personas">人格 0</span>
-    <span class="stat-pill" id="stat-events">事件 0</span>
-    <span class="stat-pill" id="stat-impressions">印象 0</span>
-    <button id="btn-sudo">🔐 进入 Sudo</button>
-    <button id="btn-theme">🌗</button>
-    <button id="btn-settings">⚙️</button>
-    <button id="btn-logout">退出</button>
-  </header>
 
-  <div class="panels">
-    <!-- ① Event Flow -->
-    <div class="panel">
-      <div class="panel-header">
-        <span class="ph-title">🕐 事件流（Event Flow）</span>
-        <span class="ctl">
-          <span class="small">密度</span>
+  <!-- 侧边栏 -->
+  <aside id="sidebar">
+    <div class="sb-logo">
+      <div class="sb-logo-title">
+        Enhanced Memory
+        <span class="badge">v<span id="app-version">…</span></span>
+      </div>
+      <div class="sb-logo-sub">三轴长期记忆面板</div>
+    </div>
+
+    <nav class="sb-nav">
+      <button class="nav-item active" data-panel="events" onclick="switchPanel('events',this)">
+        <span class="nav-icon">◎</span>事件流
+      </button>
+      <button class="nav-item" data-panel="graph" onclick="switchPanel('graph',this)">
+        <span class="nav-icon">⬡</span>关系图
+      </button>
+      <button class="nav-item" data-panel="summary" onclick="switchPanel('summary',this)">
+        <span class="nav-icon">◧</span>摘要记忆
+      </button>
+    </nav>
+
+    <div class="sb-footer">
+      <div class="sb-stats">
+        <span class="sb-stat" id="stat-personas">人格 0</span>
+        <span class="sb-stat" id="stat-events">事件 0</span>
+        <span class="sb-stat" id="stat-impressions">印象 0</span>
+      </div>
+      <div class="sb-actions">
+        <button id="btn-sudo" onclick="toggleSudo()">🔐 Sudo</button>
+        <button onclick="toggleTheme()">🌗</button>
+        <button onclick="showSettings()">⚙️</button>
+        <button onclick="logout()">退出</button>
+      </div>
+      <div class="sb-version">Enhanced Memory v<span id="app-version-sb">…</span></div>
+    </div>
+  </aside>
+
+  <!-- 主内容区 -->
+  <main id="main-content">
+
+    <!-- 面板：事件流 -->
+    <div class="panel-view active" id="panel-events">
+      <div class="pv-header">
+        <span class="pv-title">事件流（Event Flow）</span>
+        <span class="pv-controls">
+          <span>密度</span>
           <input type="range" id="event-density" min="20" max="500" value="200" step="10">
-          <span class="small" id="event-density-label">200</span>
+          <span id="event-density-label">200</span>
+          <button onclick="reloadEventFlow()">刷新</button>
         </span>
       </div>
-      <div class="panel-body"><div id="timeline"></div></div>
+      <div class="pv-body">
+        <div id="tl-scroll">
+          <div id="tl-container">
+            <div class="tl-empty">加载中…</div>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <!-- ② Relation Graph -->
-    <div class="panel">
-      <div class="panel-header">
-        <span class="ph-title">🔗 关系图（Relation Graph）</span>
-        <span class="ctl">
-          <button id="btn-fit" style="background:transparent;border:1px solid var(--panel-border);color:var(--text);padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer">适配</button>
-          <button id="btn-refresh-graph" style="background:transparent;border:1px solid var(--panel-border);color:var(--text);padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer">刷新</button>
+    <!-- 面板：关系图 -->
+    <div class="panel-view" id="panel-graph">
+      <div class="pv-header">
+        <span class="pv-title">关系图（Relation Graph）</span>
+        <span class="pv-controls">
+          <button id="btn-fit">适配</button>
+          <button id="btn-refresh-graph">刷新</button>
         </span>
       </div>
-      <div class="panel-body"><div id="cy"></div></div>
+      <div class="pv-body"><div id="cy"></div></div>
     </div>
 
-    <!-- ③ Summarised Memory -->
-    <div class="panel">
-      <div class="panel-header"><span class="ph-title">📝 摘要记忆（Summarised Memory）</span></div>
-      <div class="panel-body">
+    <!-- 面板：摘要记忆 -->
+    <div class="panel-view" id="panel-summary">
+      <div class="pv-header">
+        <span class="pv-title">摘要记忆（Summarised Memory）</span>
+        <span class="pv-controls">
+          <button id="btn-edit-summary" onclick="toggleSummaryEdit()">编辑</button>
+        </span>
+      </div>
+      <div class="pv-body">
         <div class="summary-layout">
           <div id="summary-list"><div class="placeholder">加载中…</div></div>
-          <div id="summary-content"><div class="placeholder">← 从列表选择</div></div>
+          <div id="summary-area">
+            <div id="summary-content"><div class="placeholder">← 从列表选择摘要</div></div>
+            <div id="summary-editor">
+              <textarea id="summary-textarea" placeholder="Markdown 内容…"></textarea>
+              <div class="editor-actions">
+                <button class="btn-cancel" onclick="cancelSummaryEdit()">取消</button>
+                <button class="btn-save" onclick="saveSummary()">保存</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- 详情侧栏 -->
-  <div id="detail-panel">
-    <button class="close" onclick="hideDetail()">×</button>
-    <div id="detail-content"></div>
-  </div>
+  </main>
+</div>
 
-  <!-- 底部 dock -->
-  <div class="dock">
-    <button onclick="reloadAll()" title="刷新全部">🔄 刷新</button>
-    <button onclick="clearHighlight()" title="清除高亮">✨ 清空高亮</button>
-    <button id="dock-panels-btn" title="第三方面板">🧩 面板</button>
-  </div>
+<!-- 详情浮层 -->
+<div id="detail-panel">
+  <button class="detail-close" onclick="hideDetail()">×</button>
+  <div id="detail-content"></div>
+</div>
 
-  <!-- 设置 modal -->
-  <div id="settings-modal">
-    <div class="card">
-      <button class="close-modal" onclick="hideSettings()">×</button>
-      <h3>⚙️ 设置与管理</h3>
+<!-- Toast -->
+<div id="toast"></div>
 
-      <section>
-        <h4>认证</h4>
-        <div class="row">
-          <label>当前会话</label>
-          <span id="auth-status-line" style="font-size:11px;color:var(--text-dim)">…</span>
-        </div>
-        <div class="row">
-          <label>修改密码（旧 / 新）</label>
-          <input type="password" id="pw-old" placeholder="旧密码">
-          <input type="password" id="pw-new" placeholder="新密码">
-          <button onclick="changePassword()">保存</button>
-        </div>
-      </section>
+<!-- 设置 Modal -->
+<div id="settings-modal" onclick="e => e.target===this && hideSettings()">
+  <div class="modal-card">
+    <button class="modal-close" onclick="hideSettings()">×</button>
+    <h3>⚙️ 设置与管理</h3>
 
-      <section>
-        <h4>触发后台任务（需 Sudo）</h4>
-        <div class="task-row"><span>显著度衰减</span><button onclick="runTask('salience_decay')">运行</button></div>
-        <div class="task-row"><span>Markdown 投影</span><button onclick="runTask('projection')">运行</button></div>
-        <div class="task-row"><span>人格画像合成</span><button onclick="runTask('persona_synthesis')">运行</button></div>
-        <div class="task-row"><span>印象聚合</span><button onclick="runTask('impression_aggregation')">运行</button></div>
-        <div class="task-row"><span>群组摘要</span><button onclick="runTask('group_summary')">运行</button></div>
-      </section>
+    <div class="modal-section">
+      <h4>认证</h4>
+      <div class="modal-row">
+        <label>当前会话</label>
+        <span id="auth-status-line" style="font-size:11px;color:var(--text-dim)">…</span>
+      </div>
+      <div class="modal-row">
+        <label>修改密码（旧 / 新）</label>
+        <input type="password" id="pw-old" placeholder="旧密码">
+        <input type="password" id="pw-new" placeholder="新密码">
+        <button class="modal-btn" onclick="changePassword()">保存</button>
+      </div>
+    </div>
 
-      <section>
-        <h4>已注册第三方面板</h4>
-        <div id="ext-panels-list" style="font-size:11px;color:var(--text-dim)">加载中…</div>
-      </section>
+    <div class="modal-section">
+      <h4>触发后台任务（需 Sudo）</h4>
+      <div class="task-row"><span>显著度衰减</span><button class="modal-btn" onclick="runTask('salience_decay')">运行</button></div>
+      <div class="task-row"><span>Markdown 投影</span><button class="modal-btn" onclick="runTask('projection')">运行</button></div>
+      <div class="task-row"><span>人格画像合成</span><button class="modal-btn" onclick="runTask('persona_synthesis')">运行</button></div>
+      <div class="task-row"><span>印象聚合</span><button class="modal-btn" onclick="runTask('impression_aggregation')">运行</button></div>
+      <div class="task-row"><span>群组摘要</span><button class="modal-btn" onclick="runTask('group_summary')">运行</button></div>
+    </div>
+
+    <div class="modal-section">
+      <h4>演示数据</h4>
+      <div class="modal-row">
+        <label>注入模拟数据以预览界面效果（需 Sudo）</label>
+        <button class="modal-btn" onclick="injectDemo()">注入</button>
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <h4>已注册第三方面板</h4>
+      <div id="ext-panels-list" style="font-size:11px;color:var(--text-dim)">加载中…</div>
     </div>
   </div>
 </div>
 
-<div id="toast"></div>
-
-<script src="https://unpkg.com/vis-timeline@7.7.3/standalone/umd/vis-timeline-graph2d.min.js"></script>
 <script src="https://unpkg.com/cytoscape@3.29.2/dist/cytoscape.min.js"></script>
 <script src="https://unpkg.com/marked@9.1.6/marked.min.js"></script>
 
@@ -434,24 +636,52 @@ const State = {
   authenticated: false,
   sudo: false,
   passwordSet: false,
-  timeline: null,
-  tlItems: null,
   cy: null,
   rawGraph: { nodes: [], edges: [] },
   rawEvents: [],
+  currentSummary: { groupId: null, date: null, content: '' },
+  summaryEditing: false,
+  currentPanel: 'events',
 };
 
 const $ = sel => document.querySelector(sel);
 const fetchJson = async (url, opts = {}) => {
-  const res = await fetch(url, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
-  if (!res.ok) throw { status: res.status, body: await res.text() };
+  const res = await fetch(url, {
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw { status: res.status, body };
+  }
   return res.json();
 };
 
 // ============================================================================
+// Panel switching
+// ============================================================================
+function switchPanel(name, btnEl) {
+  if (State.currentPanel === name) return;
+  State.currentPanel = name;
+
+  document.querySelectorAll('.panel-view').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+
+  const panel = document.getElementById('panel-' + name);
+  if (panel) panel.classList.add('active');
+
+  const btn = btnEl || document.querySelector(`.nav-item[data-panel="${name}"]`);
+  if (btn) btn.classList.add('active');
+
+  if (name === 'graph' && State.cy) setTimeout(() => State.cy.fit(), 50);
+  if (name === 'events') requestAnimationFrame(drawBridges);
+}
+
+// ============================================================================
 // Toast
 // ============================================================================
-function toast(msg, ms = 2500) {
+function toast(msg, ms = 2800) {
   const t = $('#toast');
   t.textContent = msg;
   t.style.display = 'block';
@@ -460,19 +690,24 @@ function toast(msg, ms = 2500) {
 }
 
 // ============================================================================
-// 主题
+// Theme
 // ============================================================================
 function toggleTheme() {
-  const cur = document.documentElement.getAttribute('data-theme');
-  const next = cur === 'light' ? 'dark' : 'light';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem('em_theme', next);
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  if (isLight) {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.setItem('em_theme', 'dark');
+  } else {
+    document.documentElement.setAttribute('data-theme', 'light');
+    localStorage.setItem('em_theme', 'light');
+  }
 }
-const savedTheme = localStorage.getItem('em_theme');
-if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+if (localStorage.getItem('em_theme') === 'light') {
+  document.documentElement.setAttribute('data-theme', 'light');
+}
 
 // ============================================================================
-// 认证流
+// Auth
 // ============================================================================
 async function refreshAuthStatus() {
   const s = await fetchJson('/api/auth/status');
@@ -487,14 +722,14 @@ function showLogin(setupMode) {
   $('#login-overlay').style.display = 'flex';
   $('#app').classList.remove('ready');
   $('#login-title').textContent = setupMode ? '首次设置密码' : 'Enhanced Memory';
-  $('#login-sub').textContent = setupMode ? '请为 WebUI 设置一个管理密码（≥4 字符）' : '三轴记忆面板';
+  $('#login-sub').textContent = setupMode ? '请为 WebUI 设置管理密码（≥4 字符）' : '三轴记忆面板';
   $('#login-pw').placeholder = setupMode ? '新密码' : '管理密码';
   $('#login-pw2').style.display = setupMode ? 'block' : 'none';
   $('#login-btn').textContent = setupMode ? '设置并登录' : '登录';
   $('#login-pw').value = '';
   $('#login-pw2').value = '';
   $('#login-err').textContent = '';
-  $('#login-pw').focus();
+  setTimeout(() => $('#login-pw').focus(), 50);
 }
 
 function hideLogin() {
@@ -526,7 +761,14 @@ async function logout() {
   showLogin(!State.passwordSet);
 }
 
-async function enterSudo() {
+async function toggleSudo() {
+  if (State.sudo) {
+    await fetchJson('/api/auth/sudo/exit', { method: 'POST' });
+    State.sudo = false;
+    updateSudoUI(0);
+    toast('已退出 Sudo');
+    return;
+  }
   const pw = prompt('再次输入密码以进入 Sudo 模式：');
   if (!pw) return;
   try {
@@ -539,88 +781,138 @@ async function enterSudo() {
   }
 }
 
-async function exitSudo() {
-  await fetchJson('/api/auth/sudo/exit', { method: 'POST' });
-  State.sudo = false;
-  updateSudoUI(0);
-  toast('已退出 Sudo');
-}
-
 function updateSudoUI(remaining) {
   const btn = $('#btn-sudo');
   if (State.sudo && remaining > 0) {
     btn.classList.add('sudo-active');
-    btn.textContent = `🔓 Sudo (${Math.floor(remaining / 60)}m)`;
-    btn.onclick = exitSudo;
+    btn.textContent = `🔓 ${Math.floor(remaining / 60)}m`;
   } else {
+    State.sudo = false;
     btn.classList.remove('sudo-active');
-    btn.textContent = '🔐 进入 Sudo';
-    btn.onclick = enterSudo;
+    btn.textContent = '🔐 Sudo';
   }
 }
 
-// 每 30s 刷新一次 sudo 状态
 setInterval(async () => {
   if (!State.authenticated) return;
   const s = await refreshAuthStatus().catch(() => null);
-  if (s) updateSudoUI(s.sudo_remaining_seconds);
+  if (s) updateSudoUI(s.sudo_remaining_seconds || 0);
 }, 30_000);
 
 // ============================================================================
-// ① Event Flow
+// ① Event Flow — Custom Timeline
 // ============================================================================
-async function initEventFlow() {
+async function reloadEventFlow() {
   let data;
   try {
     data = await fetchJson('/api/events?limit=500');
-  } catch (e) {
-    $('#timeline').innerHTML = '<div class="placeholder error">事件流加载失败</div>';
+  } catch {
+    $('#tl-container').innerHTML = '<div class="tl-empty error">事件流加载失败</div>';
     return;
   }
-  State.rawEvents = data.items;
-  renderEvents(parseInt($('#event-density').value));
+  State.rawEvents = data.items || [];
+  renderTimeline(parseInt($('#event-density').value));
 }
 
-function renderEvents(maxCount) {
-  // 按 salience 降序保留 top-N，模拟 Memorix 的密度滑块
-  const sorted = [...State.rawEvents].sort((a, b) => b.salience - a.salience).slice(0, maxCount);
-  const items = sorted.map(ev => ({
-    id: ev.id,
-    content: `<span title="${(ev.tags || []).join(', ')}">${ev.content}</span>`,
-    start: ev.start,
-    end: ev.end !== ev.start ? ev.end : undefined,
-    title: [
-      `话题：${ev.content}`,
-      `重要度：${(ev.salience * 100).toFixed(0)}%`,
-      (ev.tags || []).length ? `标签：${ev.tags.join('、')}` : '',
-      (ev.participants || []).length ? `参与者：${ev.participants.join(', ')}` : '',
-    ].filter(Boolean).join('\n'),
-    _raw: ev,
-  }));
+function renderTimeline(maxCount) {
+  const sorted = [...State.rawEvents]
+    .sort((a, b) => b.salience - a.salience)
+    .slice(0, maxCount)
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
 
-  if (!State.timeline) {
-    State.tlItems = new vis.DataSet(items);
-    State.timeline = new vis.Timeline($('#timeline'), State.tlItems, {
-      stack: true, selectable: true, zoomable: true, moveable: true,
-      tooltip: { followMouse: true },
-    });
-    State.timeline.on('select', evt => {
-      if (evt.items.length) showEventDetail(evt.items[0]);
-    });
-  } else {
-    State.tlItems.clear();
-    State.tlItems.add(items);
+  const container = $('#tl-container');
+  container.innerHTML = '';
+
+  if (!sorted.length) {
+    container.innerHTML = '<div class="tl-empty">暂无事件数据<br><small>在设置 → 演示数据 中注入模拟数据可预览效果</small></div>';
+    return;
   }
+
+  sorted.forEach((ev, i) => {
+    const side = i % 2 === 0 ? 'left' : 'right';
+    const hasParent = ev.inherit_from && ev.inherit_from.length > 0;
+    const startDate = new Date(ev.start);
+    const timeStr = startDate.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const tagsHtml = (ev.tags || []).slice(0, 3).map(t => `<span class="tl-badge tag">${t}</span>`).join('');
+
+    const item = document.createElement('div');
+    item.className = `tl-item ${side}`;
+    item.dataset.eventId = ev.id;
+    item.innerHTML = `
+      <div class="tl-dot${hasParent ? ' has-parent' : ''}" data-event-id="${ev.id}" onclick="showEventDetail('${ev.id}')"></div>
+      <div class="tl-card" onclick="showEventDetail('${ev.id}')">
+        <div class="tl-card-header">
+          <div class="tl-card-title">${ev.content}</div>
+          <div class="tl-card-time">${timeStr}</div>
+        </div>
+        <div class="tl-card-body">
+          <span class="tl-badge salience">${(ev.salience * 100).toFixed(0)}%</span>
+          ${ev.group ? `<span class="tl-badge group">${ev.group.slice(0, 12)}</span>` : '<span class="tl-badge group">私聊</span>'}
+          ${(ev.participants || []).length ? `<span class="tl-badge participants">${ev.participants.length} 人</span>` : ''}
+          ${tagsHtml}
+        </div>
+      </div>`;
+    container.appendChild(item);
+  });
+
+  requestAnimationFrame(drawBridges);
+}
+
+function drawBridges() {
+  const container = $('#tl-container');
+  if (!container) return;
+  document.querySelectorAll('.tl-bridge').forEach(b => b.remove());
+
+  State.rawEvents.forEach(ev => {
+    if (!ev.inherit_from || !ev.inherit_from.length) return;
+    ev.inherit_from.forEach(parentId => {
+      const parentDot = container.querySelector(`.tl-dot[data-event-id="${parentId}"]`);
+      const childDot  = container.querySelector(`.tl-dot[data-event-id="${ev.id}"]`);
+      if (!parentDot || !childDot) return;
+
+      const parentItem = parentDot.closest('.tl-item');
+      const childItem  = childDot.closest('.tl-item');
+      if (!parentItem || !childItem) return;
+
+      const parentY = parentItem.offsetTop + parentDot.offsetTop + parentDot.offsetHeight / 2;
+      const childY  = childItem.offsetTop  + childDot.offsetTop  + childDot.offsetHeight  / 2;
+      const top = Math.min(parentY, childY);
+      const height = Math.abs(childY - parentY);
+      if (height < 4) return;
+
+      const parentEv = State.rawEvents.find(e => e.id === parentId);
+      const bridge = document.createElement('div');
+      bridge.className = 'tl-bridge';
+      bridge.style.top = top + 'px';
+      bridge.style.height = height + 'px';
+      bridge.title = `承接关系\n从：${parentEv ? parentEv.content : parentId.slice(0, 8)}\n到：${ev.content}`;
+      bridge.dataset.from = parentId;
+      bridge.dataset.to = ev.id;
+      container.appendChild(bridge);
+    });
+  });
+}
+
+// Redraw bridges on resize
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(() => {
+    if (State.currentPanel === 'events') drawBridges();
+  }).observe(document.getElementById('tl-container'));
 }
 
 function highlightEvents(eventIds) {
-  if (!State.tlItems) return;
   const idSet = new Set(eventIds);
-  State.tlItems.forEach(item => {
-    State.tlItems.update({ id: item.id, className: idSet.has(item.id) ? 'highlighted' : '' });
+  document.querySelectorAll('.tl-dot').forEach(dot => {
+    dot.classList.toggle('highlighted', idSet.has(dot.dataset.eventId));
   });
-  if (eventIds.length && State.timeline) {
-    State.timeline.focus(eventIds, { animation: { duration: 400 } });
+  document.querySelectorAll('.tl-item').forEach(item => {
+    const card = item.querySelector('.tl-card');
+    const dot  = item.querySelector('.tl-dot');
+    if (card && dot) card.classList.toggle('highlighted', idSet.has(dot.dataset.eventId));
+  });
+  if (eventIds.length) {
+    const first = document.querySelector(`.tl-dot[data-event-id="${eventIds[0]}"]`);
+    if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 }
 
@@ -629,14 +921,15 @@ function showEventDetail(eventId) {
   if (!ev) return;
   const html = `
     <h3>📅 事件详情</h3>
-    <div class="field"><span class="k">话题</span><span class="v">${ev.content}</span></div>
-    <div class="field"><span class="k">ID</span><span class="v">${ev.id.slice(0, 12)}…</span></div>
-    <div class="field"><span class="k">群组</span><span class="v">${ev.group || '私聊'}</span></div>
-    <div class="field"><span class="k">起始</span><span class="v">${new Date(ev.start).toLocaleString()}</span></div>
-    <div class="field"><span class="k">重要度</span><span class="v">${(ev.salience * 100).toFixed(0)}%</span></div>
-    <div class="field"><span class="k">参与者</span><span class="v">${(ev.participants || []).map(p => p.slice(0, 8)).join(', ') || '—'}</span></div>
-    <div style="margin-top:8px">${(ev.tags || []).map(t => `<span class="tag">${t}</span>`).join('')}</div>
-  `;
+    <div class="detail-field"><span class="k">话题</span><span class="v">${ev.content}</span></div>
+    <div class="detail-field"><span class="k">ID</span><span class="v">${ev.id.slice(0, 12)}…</span></div>
+    <div class="detail-field"><span class="k">群组</span><span class="v">${ev.group || '私聊'}</span></div>
+    <div class="detail-field"><span class="k">起始</span><span class="v">${new Date(ev.start).toLocaleString()}</span></div>
+    <div class="detail-field"><span class="k">结束</span><span class="v">${new Date(ev.end).toLocaleString()}</span></div>
+    <div class="detail-field"><span class="k">重要度</span><span class="v">${(ev.salience * 100).toFixed(0)}%</span></div>
+    <div class="detail-field"><span class="k">参与者</span><span class="v">${(ev.participants || []).map(p => p.slice(0, 10)).join(', ') || '—'}</span></div>
+    ${(ev.inherit_from || []).length ? `<div class="detail-field"><span class="k">承接自</span><span class="v">${ev.inherit_from.map(id => id.slice(0, 8)).join(', ')}</span></div>` : ''}
+    <div style="margin-top:8px">${(ev.tags || []).map(t => `<span class="detail-tag">${t}</span>`).join('')}</div>`;
   showDetail(html);
 }
 
@@ -647,7 +940,7 @@ async function initRelationGraph() {
   let data;
   try {
     data = await fetchJson('/api/graph');
-  } catch (e) {
+  } catch {
     $('#cy').innerHTML = '<div class="placeholder error">关系图加载失败</div>';
     return;
   }
@@ -657,12 +950,10 @@ async function initRelationGraph() {
 
 function renderGraph() {
   const { nodes, edges } = State.rawGraph;
-  const elements = [...nodes, ...edges];
-
   if (State.cy) State.cy.destroy();
   State.cy = cytoscape({
     container: $('#cy'),
-    elements,
+    elements: [...nodes, ...edges],
     style: [
       {
         selector: 'node',
@@ -672,8 +963,8 @@ function renderGraph() {
           color: 'var(--text)',
           'text-valign': 'center', 'text-halign': 'center',
           'font-size': '11px',
-          width: 46, height: 46,
-          'text-wrap': 'wrap', 'text-max-width': 44,
+          width: 48, height: 48,
+          'text-wrap': 'wrap', 'text-max-width': 46,
           'border-width': 1, 'border-color': 'rgba(255,255,255,0.3)',
         },
       },
@@ -686,28 +977,25 @@ function renderGraph() {
           'target-arrow-shape': 'triangle',
           'font-size': '9px', color: 'var(--text-dim)',
           width: 'mapData(intensity, 0, 1, 1, 5)',
-          'line-color': 'mapData(affect, -1, 1, #ef4444, #22c55e)',
+          'line-color':         'mapData(affect, -1, 1, #ef4444, #22c55e)',
           'target-arrow-color': 'mapData(affect, -1, 1, #ef4444, #22c55e)',
           opacity: 0.85,
         },
       },
-      { selector: '.dim', style: { opacity: 0.15 } },
+      { selector: '.dim', style: { opacity: 0.14 } },
       { selector: '.focused', style: { opacity: 1, 'border-width': 3, 'border-color': 'var(--warn)' } },
       { selector: 'edge.focused', style: { width: 4, opacity: 1 } },
     ],
     layout: { name: 'cose', animate: false, randomize: false, idealEdgeLength: 100 },
   });
 
-  // 邻域高亮：点击节点 → 一跳邻居 + 自身高亮，其他变暗
   State.cy.on('tap', 'node', evt => {
     const node = evt.target;
-    const neighborhood = node.closedNeighborhood();
     State.cy.elements().addClass('dim');
-    neighborhood.removeClass('dim').addClass('focused');
+    node.closedNeighborhood().removeClass('dim').addClass('focused');
     showPersonaDetail(node.data());
   });
 
-  // 点击边：显示证据事件并高亮事件流
   State.cy.on('tap', 'edge', evt => {
     const data = evt.target.data();
     State.cy.elements().addClass('dim');
@@ -717,12 +1005,10 @@ function renderGraph() {
     if (data.evidence_event_ids?.length) highlightEvents(data.evidence_event_ids);
   });
 
-  // 空白处：清除
   State.cy.on('tap', evt => {
     if (evt.target === State.cy) clearHighlight();
   });
 
-  // LOD: 缩放控制标签可见性
   State.cy.on('zoom', () => {
     const z = State.cy.zoom();
     State.cy.style().selector('node').style('font-size', z < 0.6 ? 0 : 11).update();
@@ -739,12 +1025,11 @@ function showPersonaDetail(data) {
   const attrs = data.attrs || {};
   const html = `
     <h3>👤 ${data.label}</h3>
-    <div class="field"><span class="k">UID</span><span class="v">${data.id.slice(0, 12)}…</span></div>
-    <div class="field"><span class="k">置信度</span><span class="v">${(data.confidence * 100).toFixed(0)}%</span></div>
-    ${attrs.description ? `<div class="field"><span class="k">描述</span><span class="v">${attrs.description}</span></div>` : ''}
-    ${attrs.affect_type ? `<div class="field"><span class="k">情感类型</span><span class="v">${attrs.affect_type}</span></div>` : ''}
-    ${(attrs.content_tags || []).length ? `<div style="margin-top:6px">${attrs.content_tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>` : ''}
-  `;
+    <div class="detail-field"><span class="k">UID</span><span class="v">${data.id.slice(0, 12)}…</span></div>
+    <div class="detail-field"><span class="k">置信度</span><span class="v">${(data.confidence * 100).toFixed(0)}%</span></div>
+    ${attrs.description ? `<div class="detail-field"><span class="k">描述</span><span class="v">${attrs.description}</span></div>` : ''}
+    ${attrs.affect_type ? `<div class="detail-field"><span class="k">情感类型</span><span class="v">${attrs.affect_type}</span></div>` : ''}
+    ${(attrs.content_tags || []).length ? `<div style="margin-top:6px">${attrs.content_tags.map(t => `<span class="detail-tag">${t}</span>`).join('')}</div>` : ''}`;
   showDetail(html);
 }
 
@@ -752,13 +1037,12 @@ function showImpressionDetail(data) {
   const affectColor = data.affect > 0 ? 'var(--positive)' : (data.affect < 0 ? 'var(--negative)' : 'var(--text-dim)');
   const html = `
     <h3>🔗 印象详情</h3>
-    <div class="field"><span class="k">关系类型</span><span class="v">${data.label}</span></div>
-    <div class="field"><span class="k">情感</span><span class="v" style="color:${affectColor}">${data.affect.toFixed(2)}</span></div>
-    <div class="field"><span class="k">强度</span><span class="v">${(data.intensity * 100).toFixed(0)}%</span></div>
-    <div class="field"><span class="k">置信度</span><span class="v">${(data.confidence * 100).toFixed(0)}%</span></div>
-    <div class="field"><span class="k">范围</span><span class="v">${data.scope}</span></div>
-    <div class="field"><span class="k">证据事件</span><span class="v">${(data.evidence_event_ids || []).length} 条</span></div>
-  `;
+    <div class="detail-field"><span class="k">关系类型</span><span class="v">${data.label}</span></div>
+    <div class="detail-field"><span class="k">情感</span><span class="v" style="color:${affectColor}">${data.affect.toFixed(2)}</span></div>
+    <div class="detail-field"><span class="k">强度</span><span class="v">${(data.intensity * 100).toFixed(0)}%</span></div>
+    <div class="detail-field"><span class="k">置信度</span><span class="v">${(data.confidence * 100).toFixed(0)}%</span></div>
+    <div class="detail-field"><span class="k">范围</span><span class="v">${data.scope}</span></div>
+    <div class="detail-field"><span class="k">证据事件</span><span class="v">${(data.evidence_event_ids || []).length} 条</span></div>`;
   showDetail(html);
 }
 
@@ -775,58 +1059,102 @@ async function initSummaryPanel() {
   let summaries;
   try {
     summaries = await fetchJson('/api/summaries');
-  } catch (e) {
+  } catch {
     $('#summary-list').innerHTML = '<div class="placeholder error">加载失败</div>';
     return;
   }
+
   const listEl = $('#summary-list');
   if (!summaries.length) {
-    listEl.innerHTML = '<div class="placeholder">暂无摘要</div>';
-    $('#summary-content').innerHTML = '<div class="placeholder">运行群组摘要任务后会出现</div>';
+    listEl.innerHTML = '<div class="placeholder">暂无摘要<br>运行群组摘要任务后出现</div>';
     return;
   }
-  listEl.innerHTML = summaries.map((s, i) => `
-    <div class="s-item" data-i="${i}"
-         onclick='loadSummary(${JSON.stringify(s.group_id)},${JSON.stringify(s.date)},this)'>
+
+  listEl.innerHTML = summaries.map(s =>
+    `<div class="s-item" data-group-id="${s.group_id ?? ''}" data-date="${s.date}"
+      onclick='loadSummary(${JSON.stringify(s.group_id)},${JSON.stringify(s.date)},this)'>
       <div class="s-group">${s.label}</div>
       <div class="s-date">${s.date}</div>
-    </div>
-  `).join('');
+    </div>`
+  ).join('');
+
   const first = listEl.querySelector('.s-item');
   if (first) loadSummary(summaries[0].group_id, summaries[0].date, first);
 }
 
 async function loadSummary(groupId, date, el) {
-  document.querySelectorAll('#summary-list .s-item').forEach(i => i.classList.remove('active'));
+  document.querySelectorAll('.s-item').forEach(i => i.classList.remove('active'));
   if (el) el.classList.add('active');
   const qs = groupId
     ? `group_id=${encodeURIComponent(groupId)}&date=${encodeURIComponent(date)}`
     : `date=${encodeURIComponent(date)}`;
   try {
     const { content } = await fetchJson(`/api/summary?${qs}`);
-    $('#summary-content').innerHTML = marked.parse(content);
+    State.currentSummary = { groupId, date, content };
+    if (!State.summaryEditing) {
+      $('#summary-content').innerHTML = marked.parse(content);
+    }
   } catch {
     $('#summary-content').innerHTML = '<div class="placeholder error">摘要加载失败</div>';
+    State.currentSummary = { groupId, date, content: '' };
+  }
+}
+
+function toggleSummaryEdit() {
+  if (!State.sudo) { toast('修改摘要需要 Sudo 模式'); return; }
+  if (!State.currentSummary.date) { toast('请先选择一条摘要'); return; }
+  State.summaryEditing = true;
+  $('#summary-textarea').value = State.currentSummary.content;
+  $('#summary-content').style.display = 'none';
+  $('#summary-editor').style.display = 'flex';
+  $('#btn-edit-summary').textContent = '预览';
+  $('#btn-edit-summary').onclick = cancelSummaryEdit;
+}
+
+function cancelSummaryEdit() {
+  State.summaryEditing = false;
+  $('#summary-editor').style.display = 'none';
+  $('#summary-content').style.display = 'block';
+  $('#btn-edit-summary').textContent = '编辑';
+  $('#btn-edit-summary').onclick = toggleSummaryEdit;
+}
+
+async function saveSummary() {
+  if (!State.sudo) { toast('需要 Sudo 模式'); return; }
+  const { groupId, date } = State.currentSummary;
+  const content = $('#summary-textarea').value;
+  try {
+    await fetchJson('/api/summary', {
+      method: 'PUT',
+      body: JSON.stringify({ group_id: groupId, date, content }),
+    });
+    State.currentSummary.content = content;
+    cancelSummaryEdit();
+    $('#summary-content').innerHTML = marked.parse(content);
+    toast('摘要已保存');
+  } catch (e) {
+    toast('保存失败：' + (e.body || e.status));
   }
 }
 
 // ============================================================================
-// 统计 + 设置
+// Stats + Settings
 // ============================================================================
 async function refreshStats() {
   try {
     const s = await fetchJson('/api/stats');
-    $('#stat-personas').textContent = `人格 ${s.personas}`;
-    $('#stat-events').textContent = `事件 ${s.events}`;
+    $('#stat-personas').textContent   = `人格 ${s.personas}`;
+    $('#stat-events').textContent     = `事件 ${s.events}`;
     $('#stat-impressions').textContent = `印象 ${s.impressions}`;
-    $('#app-version').textContent = s.version;
+    $('#app-version').textContent    = s.version;
+    $('#app-version-sb').textContent = s.version;
   } catch {}
 }
 
 function showSettings() {
   $('#settings-modal').classList.add('show');
-  $('#auth-status-line').textContent =
-    State.sudo ? `已登录 + Sudo` : (State.authenticated ? '已登录（普通模式）' : '未登录');
+  $('#auth-status-line').textContent = State.sudo
+    ? '已登录 + Sudo' : (State.authenticated ? '已登录（普通模式）' : '未登录');
   loadExtPanels();
 }
 function hideSettings() { $('#settings-modal').classList.remove('show'); }
@@ -835,13 +1163,9 @@ async function loadExtPanels() {
   try {
     const { panels } = await fetchJson('/api/panels');
     const el = $('#ext-panels-list');
-    if (!panels.length) {
-      el.innerHTML = '暂无第三方插件注册面板';
-    } else {
-      el.innerHTML = panels.map(p =>
-        `<div style="padding:4px 0">${p.icon} <b>${p.title}</b> <span style="color:var(--text-dim)">— ${p.plugin_id}</span></div>`
-      ).join('');
-    }
+    el.innerHTML = panels.length
+      ? panels.map(p => `<div style="padding:4px 0">${p.icon} <b>${p.title}</b> — ${p.plugin_id}</div>`).join('')
+      : '暂无第三方插件注册面板';
   } catch {}
 }
 
@@ -866,13 +1190,26 @@ async function runTask(name) {
   toast(`触发 ${name}…`);
   try {
     const r = await fetchJson('/api/admin/run_task', {
-      method: 'POST',
-      body: JSON.stringify({ name }),
+      method: 'POST', body: JSON.stringify({ name }),
     });
     toast(r.ok ? `${name} 已完成` : `${name} 失败`);
     setTimeout(refreshStats, 1500);
   } catch (e) {
     toast(`${name} 错误：${e.body || e.status}`);
+  }
+}
+
+async function injectDemo() {
+  if (!State.sudo) { toast('需要 Sudo 模式'); return; }
+  toast('注入演示数据…');
+  try {
+    const r = await fetchJson('/api/admin/demo', { method: 'POST' });
+    const s = r.seeded || {};
+    toast(`注入成功：${s.personas || 0} 人格, ${s.events || 0} 事件, ${s.impressions || 0} 印象`);
+    hideSettings();
+    await reloadAll();
+  } catch (e) {
+    toast('注入失败：' + (e.body || e.status));
   }
 }
 
@@ -887,7 +1224,7 @@ async function boot() {
   }
   hideLogin();
   await Promise.all([
-    initEventFlow().catch(e => console.error('[EventFlow]', e)),
+    reloadEventFlow().catch(e => console.error('[EventFlow]', e)),
     initRelationGraph().catch(e => console.error('[RelationGraph]', e)),
     initSummaryPanel().catch(e => console.error('[SummaryPanel]', e)),
     refreshStats(),
@@ -896,25 +1233,24 @@ async function boot() {
 }
 
 async function reloadAll() {
-  await Promise.all([initEventFlow(), initRelationGraph(), initSummaryPanel(), refreshStats()]);
+  await Promise.all([reloadEventFlow(), initRelationGraph(), initSummaryPanel(), refreshStats()]);
   toast('已刷新');
 }
 
 // ============================================================================
-// 事件绑定
+// Event bindings
 // ============================================================================
 $('#login-btn').addEventListener('click', handleLoginSubmit);
 $('#login-pw').addEventListener('keypress', e => e.key === 'Enter' && handleLoginSubmit());
 $('#login-pw2').addEventListener('keypress', e => e.key === 'Enter' && handleLoginSubmit());
-$('#btn-logout').addEventListener('click', logout);
-$('#btn-theme').addEventListener('click', toggleTheme);
-$('#btn-settings').addEventListener('click', showSettings);
 $('#btn-fit').addEventListener('click', () => State.cy && State.cy.fit());
 $('#btn-refresh-graph').addEventListener('click', initRelationGraph);
-$('#dock-panels-btn').addEventListener('click', showSettings);
 $('#event-density').addEventListener('input', e => {
   $('#event-density-label').textContent = e.target.value;
-  renderEvents(parseInt(e.target.value));
+  renderTimeline(parseInt(e.target.value));
+});
+$('#settings-modal').addEventListener('click', e => {
+  if (e.target === $('#settings-modal')) hideSettings();
 });
 
 boot();
