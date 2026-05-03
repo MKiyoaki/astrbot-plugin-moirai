@@ -1,0 +1,62 @@
+/* ============================================================
+   Relation Graph — Cytoscape + list view
+   ============================================================ */
+
+/* Cytoscape canvas */
+#cy { position: absolute; inset: 0; }
+
+/* Graph toolbar */
+.graph-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; padding: 8px 16px;
+  background: var(--bg-2); border-bottom: 1px solid var(--panel-border);
+  flex-shrink: 0;
+}
+
+/* Graph list view */
+#graph-list-view {
+  position: absolute; inset: 0; overflow-y: auto;
+}
+.graph-section-title {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--text-dim); padding: 10px 16px 4px; position: sticky; top: 0;
+  background: var(--bg); z-index: 1; border-bottom: 1px solid var(--panel-border);
+}
+.graph-persona-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  cursor: pointer; transition: background 0.1s;
+}
+.graph-persona-row:hover { background: rgba(255, 255, 255, 0.04); }
+.graph-persona-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600; flex-shrink: 0;
+}
+.graph-persona-info { flex: 1; min-width: 0; }
+.graph-persona-name { font-size: 13px; font-weight: 500; }
+.graph-persona-sub { font-size: 10px; color: var(--text-dim); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-persona-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+.graph-impression-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+}
+.graph-imp-nodes { flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; }
+.graph-imp-label { font-size: 10px; color: var(--text-dim); flex-shrink: 0; }
+.graph-imp-affect { font-size: 11px; font-family: ui-monospace, monospace; min-width: 44px; text-align: right; }
+.graph-imp-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+/* Markdown editor inside detail panel */
+.md-editor-wrap { margin-top: 8px; border-top: 1px solid var(--panel-border); padding-top: 8px; }
+.md-editor-title { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; }
+.md-textarea {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.22); border: 1px solid var(--panel-border);
+  border-radius: 6px; color: var(--text); font-size: 11px; line-height: 1.6;
+  padding: 8px 10px; resize: none; min-height: 120px;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+}
+.md-textarea:focus { outline: none; border-color: var(--accent); }

@@ -1,0 +1,57 @@
+<div class="pv-body">
+  <div class="landing-body">
+    <div class="landing-hero">
+      <div class="landing-hero-title">Enhanced Memory</div>
+      <div class="landing-hero-sub">
+        三轴长期记忆管理系统 — 事件流、关系图、摘要记忆。跨平台统一管理聊天机器人的长期记忆。
+      </div>
+    </div>
+
+    <div class="landing-stats">
+      <div class="stat-card">
+        <div class="stat-card-val" id="landing-stat-personas">—</div>
+        <div class="stat-card-lbl">人格节点</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-val" id="landing-stat-events">—</div>
+        <div class="stat-card-lbl">事件记录</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-val" id="landing-stat-impressions">—</div>
+        <div class="stat-card-lbl">印象关系</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-val" id="landing-stat-groups">—</div>
+        <div class="stat-card-lbl">活跃群组</div>
+      </div>
+    </div>
+
+    <div class="landing-cards">
+      <div class="landing-card" onclick="switchPanel('events')">
+        <div class="landing-card-icon"><i data-lucide="activity"></i></div>
+        <div class="landing-card-title">事件流</div>
+        <div class="landing-card-desc">按时间轴查看所有对话事件，支持搜索、新建、编辑和回收站。</div>
+      </div>
+      <div class="landing-card" onclick="switchPanel('graph')">
+        <div class="landing-card-icon"><i data-lucide="share-2"></i></div>
+        <div class="landing-card-title">关系图</div>
+        <div class="landing-card-desc">可视化人格节点与印象关系，支持点击查看证据事件并跳转时间线。</div>
+      </div>
+      <div class="landing-card" onclick="switchPanel('summary')">
+        <div class="landing-card-icon"><i data-lucide="book-open"></i></div>
+        <div class="landing-card-title">摘要记忆</div>
+        <div class="landing-card-desc">按群组和日期浏览定期生成的 Markdown 摘要，支持在线编辑。</div>
+      </div>
+      <div class="landing-card" onclick="switchPanel('recall')">
+        <div class="landing-card-icon"><i data-lucide="search"></i></div>
+        <div class="landing-card-title">记忆召回</div>
+        <div class="landing-card-desc">全文搜索检索历史事件，预览召回效果与匹配算法结果。</div>
+      </div>
+    </div>
+
+    <div class="landing-version">
+      Enhanced Memory v<span id="app-version-landing">…</span> &nbsp;·&nbsp;
+      基于 AstrBot · 三轴记忆模型（事件 / 关系 / 摘要）
+    </div>
+  </div>
+</div>

@@ -1,0 +1,158 @@
+/* ============================================================
+   Event Flow — Timeline & list view
+   ============================================================ */
+
+/* Scroll container */
+#tl-scroll {
+  position: absolute; inset: 0;
+  overflow-y: auto; overflow-x: hidden;
+}
+#tl-container {
+  position: relative;
+  padding: 36px 0 64px;
+  min-height: 100%;
+}
+
+/* Center line */
+#tl-container::before {
+  content: '';
+  position: absolute;
+  left: 50%; top: 0; bottom: 0;
+  width: 2px;
+  background: var(--tl-accent);
+  transform: translateX(-50%);
+  opacity: 0.65;
+}
+
+/* Timeline items */
+.tl-item {
+  display: flex;
+  width: 100%;
+  padding-bottom: 28px;
+  position: relative;
+  align-items: flex-start;
+}
+.tl-item.left {
+  padding-right: calc(50% + 34px);
+  padding-left: 20px;
+  justify-content: flex-end;
+}
+.tl-item.right {
+  padding-left: calc(50% + 34px);
+  padding-right: 20px;
+  justify-content: flex-start;
+}
+
+/* Dot on center line */
+.tl-dot {
+  position: absolute;
+  left: calc(50% - 8px);
+  top: 14px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--tl-accent);
+  border: 2px solid var(--bg);
+  z-index: 4;
+  cursor: pointer;
+  transition: transform 0.18s, box-shadow 0.18s;
+}
+.tl-dot:hover, .tl-dot.highlighted {
+  transform: scale(1.5);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--tl-accent) 30%, transparent);
+}
+.tl-dot.has-parent { background: #f97316; border-color: var(--bg); }
+.tl-dot.has-parent.highlighted { box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.35); }
+
+/* Card */
+.tl-card {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  width: 100%;
+  transition: box-shadow 0.18s, border-color 0.18s;
+}
+.tl-card:hover {
+  box-shadow: 0 4px 20px color-mix(in srgb, var(--tl-accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--tl-accent) 30%, transparent);
+}
+.tl-card.highlighted { border-color: var(--warn); box-shadow: 0 4px 20px rgba(245, 158, 11, 0.28); }
+.tl-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25); }
+
+.tl-card-header {
+  padding: 9px 13px;
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--tl-accent) 22%, transparent) 0%,
+    color-mix(in srgb, var(--tl-accent) 6%, transparent) 100%);
+  border-bottom: 1px solid color-mix(in srgb, var(--tl-accent) 14%, transparent);
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 6px;
+}
+.tl-card-title-wrap { flex: 1; min-width: 0; }
+.tl-card-title { font-size: 13px; font-weight: 600; }
+.tl-card-time  { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+.tl-card-actions { display: flex; gap: 3px; flex-shrink: 0; opacity: 0; transition: opacity 0.15s; }
+.tl-card:hover .tl-card-actions { opacity: 1; }
+
+.tl-card-body {
+  padding: 7px 13px;
+  display: flex; gap: 5px; flex-wrap: wrap; align-items: center;
+}
+
+/* Inheritance bridge lines */
+.tl-bridge {
+  position: absolute;
+  left: calc(50% - 1px);
+  width: 2px; z-index: 3;
+  cursor: pointer;
+}
+.tl-bridge::before {
+  content: ''; position: absolute;
+  left: -8px; right: -8px; top: 0; bottom: 0;
+}
+.tl-bridge::after {
+  content: ''; position: absolute; inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px, transparent 4px,
+    #f97316 4px, #f97316 8px
+  );
+  opacity: 0; transition: opacity 0.2s;
+}
+.tl-bridge:hover::after { opacity: 1; }
+
+/* Bridge popup */
+#bridge-popup {
+  position: fixed;
+  background: var(--panel); backdrop-filter: blur(16px);
+  border: 1px solid var(--panel-border); border-radius: 8px;
+  padding: 10px 14px; font-size: 11px; z-index: 200;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  pointer-events: none; display: none;
+  max-width: 240px;
+}
+#bridge-popup.show { display: block; }
+.bp-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
+.bp-row { display: flex; align-items: center; gap: 5px; padding: 3px 0; }
+.bp-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tl-accent); flex-shrink: 0; }
+.bp-text { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Empty state */
+.tl-empty {
+  text-align: center; color: var(--text-dim);
+  padding: 80px 20px; font-size: 13px; line-height: 1.7;
+}
+
+/* Toolbar above timeline */
+.events-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; padding: 8px 16px;
+  background: var(--bg-2); border-bottom: 1px solid var(--panel-border);
+  flex-shrink: 0;
+}
+.toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* List view */
+#events-list-view {
+  position: absolute; inset: 0; overflow-y: auto;
+}

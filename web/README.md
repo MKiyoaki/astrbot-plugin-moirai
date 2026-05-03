@@ -1,167 +1,140 @@
-# WebUI — 三轴记忆可视化面板
+# Enhanced Memory — WebUI
 
-Enhanced Memory 插件内置的轻量级 Web 界面，基于 **aiohttp** 提供 HTTP 服务，通过三个独立面板呈现三轴记忆模型的运行状态。
+三轴长期记忆管理 WebUI，基于 aiohttp 提供，无需构建步骤。
 
 ## 目录结构
 
 ```
 web/
-├── server.py          # aiohttp 服务器 + JSON API 实现
+├── __init__.py
+├── server.py          # WebuiServer：aiohttp 应用 + 认证中间件 + 路由注册
+├── auth.py            # AuthManager：bcrypt 密码 + session/sudo 状态
+├── registry.py        # PanelRegistry：第三方面板挂载点
 ├── static/
-│   └── index.html     # 单页前端（纯 HTML/CSS/JS，CDN 依赖）
-└── README.md          # 本文件
+│   ├── index.html     # 壳（shell）：仅含 sidebar + 空 panel 容器 + script 标签
+│   ├── css/           # 按关注点拆分的 CSS 文件
+│   │   ├── variables.css     CSS 自定义属性、色彩主题预设、全局 reset
+│   │   ├── layout.css        登录覆盖层、侧边栏、主内容区、panel-view
+│   │   ├── components.css    通用组件：按钮、输入框、徽章、模态框、toast、详情面板
+│   │   ├── timeline.css      事件时间线与列表视图
+│   │   ├── graph.css         关系图（Cytoscape）与列表视图
+│   │   ├── summary.css       摘要记忆面板
+│   │   ├── recall.css        记忆召回测试面板
+│   │   ├── settings.css      设置面板
+│   │   └── landing.css       首页（Landing）
+│   ├── pages/         # 各面板的 HTML 片段，由 JS 按需 fetch 注入
+│   │   ├── landing.html      首页：统计卡片 + 快速导航
+│   │   ├── events.html       事件流：时间线/列表视图 + 搜索 + CRUD 工具栏
+│   │   ├── graph.html        关系图：Cytoscape/列表视图 + 搜索 + 人格管理工具栏
+│   │   ├── summary.html      摘要记忆：侧边列表 + Markdown 渲染/编辑器
+│   │   ├── recall.html       记忆召回测试：查询输入 + 结果列表
+│   │   └── settings.html     设置：色彩主题 + 认证 + 后台任务 + 演示数据
+│   ├── components/    # 全局组件，启动时一次性加载
+│   │   └── modals.html       所有 CRUD 模态框（事件/人格/印象/回收站）
+│   └── js/            # 按职责拆分的 JS 模块（普通 script，无模块系统）
+│       ├── state.js          全局 State 对象
+│       ├── api.js            fetchJson、renderIcons、toast、modal 工具函数
+│       ├── auth.js           登录、登出、sudo 模式、密码修改
+│       ├── timeline.js       事件流渲染、桥接线、搜索过滤、CRUD、回收站
+│       ├── graph.js          关系图渲染、高亮、人格/印象 CRUD
+│       ├── summary.js        摘要面板加载、Markdown 编辑器
+│       ├── recall.js         记忆召回测试
+│       ├── settings.js       统计、后台任务、演示数据、色彩主题
+│       └── app.js            启动（boot）、面板切换、页面动态加载、主题切换
+└── README.md          本文件
 ```
 
-## 访问方式
+## 功能概览
 
-插件启动后，WebUI 默认在本机端口 **2653** 提供服务：
+### 面板
 
-```
-http://localhost:2653/
-```
+| 面板 | 功能 |
+|------|------|
+| 首页 | 统计概览（人格/事件/印象/群组数）、快速导航入口 |
+| 事件流 | 自定义时间线 + 列表视图；搜索（话题/标签/参与者）；新建/编辑/删除事件；批量删除；回收站还原；密度滑杆过滤 |
+| 关系图 | Cytoscape.js 图谱 + 列表视图；邻域高亮；点击印象边查看证据事件并跳转时间线；新建/编辑/删除人格；编辑印象 |
+| 摘要记忆 | Markdown 渲染；在线编辑 |
+| 记忆召回 | FTS5 全文检索测试，查看检索结果与重要度 |
+| 设置 | 色彩主题预设（6 种）；认证管理；后台任务触发；演示数据注入 |
 
-端口可通过插件配置项 `webui_port` 修改，WebUI 也可通过 `webui_enabled: false` 整体关闭。
+### 认证
 
-## 三轴面板说明
+- **登录**：bcrypt 密码 → 会话 Cookie（默认 24 h）
+- **Sudo**：同一密码二次确认 → 约 30 min 写权限，写操作（创建/删除/更新）均需此模式
+- **禁用**：`webui_auth_enabled: false` 跳过全部认证（仅限本地开发）
 
-### ① 事件流（Event Flow）
+### API 路由
 
-- 渲染库：[vis-timeline 7.7.3](https://visjs.github.io/vis-timeline/)
-- 数据源：`GET /api/events?group_id=<gid>&limit=<n>`
-- 每个条目对应一个 `Event` 实体，颜色深浅反映 `salience`（重要度）
-- 点击关系图中的印象边 → 高亮该印象关联的所有事件
+权限：`public` / `auth`（需登录） / `sudo`（需 Sudo 二级验证）
 
-### ② 关系图（Relation Graph）
-
-- 渲染库：[Cytoscape.js 3.29.2](https://cytoscape.org/)
-- 数据源：`GET /api/graph`
-- 节点 = `Persona`，边 = `Impression`（有向）
-- 边宽度 → `intensity`；边颜色 → `affect`（绿色=正面，红色=负面）
-- 机器人节点以粉色高亮区分；点击边 → 关联事件高亮跳转至事件流面板
-
-### ③ 摘要记忆（Summarised Memory）
-
-- 渲染库：[marked.js 9.1.6](https://marked.js.org/)
-- 数据源：`GET /api/summaries` → `GET /api/summary?group_id=<gid>&date=<YYYY-MM-DD>`
-- 读取 `data_dir/groups/<gid>/summaries/*.md` 和 `data_dir/global/summaries/*.md`
-- 左侧列表按群组 + 日期排序，点击条目即时渲染 Markdown 正文
-
-## JSON API 参考
-
-| 方法 | 路径 | 参数 | 返回 |
+| 方法 | 路径 | 权限 | 说明 |
 |------|------|------|------|
-| GET | `/` | — | HTML 单页应用 |
-| GET | `/api/events` | `group_id` (可选), `limit` (默认 100) | `{"items": [EventDict, ...]}` |
-| GET | `/api/graph` | — | `{"nodes": [...], "edges": [...]}` |
-| GET | `/api/summaries` | — | `[{group_id, date, label}, ...]` |
-| GET | `/api/summary` | `group_id` (可选), `date` (必填, YYYY-MM-DD) | `{"content": "<markdown>"}` |
+| GET | `/api/auth/status` | public | 当前认证状态 |
+| POST | `/api/auth/setup` | public | 首次设置密码 |
+| POST | `/api/auth/login` | public | 登录 |
+| POST | `/api/auth/logout` | auth | 登出 |
+| POST | `/api/auth/sudo` | auth | 进入 sudo 模式 |
+| POST | `/api/auth/sudo/exit` | auth | 退出 sudo |
+| POST | `/api/auth/password` | sudo | 修改密码 |
+| GET | `/api/events` | auth | 列举事件 |
+| POST | `/api/events` | sudo | 创建事件 |
+| PUT | `/api/events/{id}` | sudo | 更新事件 |
+| DELETE | `/api/events/{id}` | sudo | 删除事件（移入回收站） |
+| DELETE | `/api/events` | sudo | 清空全部事件 |
+| GET | `/api/recycle_bin` | auth | 回收站列表 |
+| POST | `/api/recycle_bin/restore` | sudo | 还原事件 |
+| DELETE | `/api/recycle_bin` | sudo | 清空回收站 |
+| GET | `/api/graph` | auth | 人格节点与印象边 |
+| POST | `/api/personas` | sudo | 创建人格 |
+| PUT | `/api/personas/{uid}` | sudo | 更新人格 |
+| DELETE | `/api/personas/{uid}` | sudo | 删除人格 |
+| PUT | `/api/impressions/{obs}/{sub}/{scope}` | sudo | 更新印象 |
+| GET | `/api/summaries` | auth | 摘要列表 |
+| GET | `/api/summary` | auth | 摘要内容 |
+| PUT | `/api/summary` | auth | 保存摘要 |
+| GET | `/api/recall` | auth | 记忆召回测试 |
+| GET | `/api/stats` | auth | 统计数据 |
+| POST | `/api/admin/run_task` | sudo | 触发后台任务 |
+| POST | `/api/admin/demo` | sudo | 注入演示数据 |
+| GET | `/api/panels` | auth | 已注册第三方面板列表 |
 
-错误码：`400 Bad Request`（缺少 `date` 参数）、`404 Not Found`（文件不存在）。
+### 第三方面板挂载
 
-### EventDict 结构
-
-```json
-{
-  "id": "evt_abc123",
-  "content": "讨论 Python 异步编程",
-  "start": "2024-01-15T10:00:00+00:00",
-  "end":   "2024-01-15T10:45:00+00:00",
-  "group": "group_42",
-  "salience": 0.72,
-  "tags": ["技术", "Python"],
-  "inherit_from": ["evt_prev"],
-  "participants": ["uid_alice", "uid_bob"]
-}
-```
-
-### Graph Node/Edge 结构
-
-```json
-// Node (Cytoscape 格式)
-{ "data": { "id": "uid_alice", "label": "Alice", "confidence": 0.9, "attrs": {} } }
-
-// Edge (Cytoscape 格式)
-{
-  "data": {
-    "id": "uid_alice--uid_bob--global",
-    "source": "uid_alice",
-    "target": "uid_bob",
-    "label": "friend",
-    "affect": 0.65,
-    "intensity": 0.8,
-    "confidence": 0.75,
-    "scope": "global",
-    "evidence_event_ids": ["evt_abc123"]
-  }
-}
-```
-
-## 代码结构
-
-`WebuiServer` 的数据构建方法（`events_data`、`graph_data`、`summaries_data`、`summary_content`）与 HTTP 路由处理器解耦：数据方法是纯异步函数，不依赖 HTTP 上下文，可在测试中直接调用；路由处理器只负责解析请求参数和序列化响应。
+其他 AstrBot 插件可向本插件注册额外面板（无需独立 HTTP 服务器）：
 
 ```python
-# 在 main.py 中启动
-from web.server import WebuiServer
-
-webui = WebuiServer(
-    persona_repo=persona_repo,
-    event_repo=event_repo,
-    impression_repo=impression_repo,
-    data_dir=data_dir,
-    port=2653,           # 对应配置项 webui_port
-)
-await webui.start()
-# ...
-await webui.stop()
+em = self.context.get_registered_star("astrbot_plugin_enhanced_memory")
+if em and em.webui_registry:
+    em.webui_registry.register(
+        PanelManifest(
+            plugin_id="my_plugin",
+            panel_id="my_panel",
+            title="我的面板",
+            icon="cube",          # Lucide 图标名（不用 Emoji）
+            api_prefix="/api/ext/my_plugin",
+            permission="auth",
+        ),
+        routes=[
+            PanelRoute("GET", "/api/ext/my_plugin/data", my_handler, permission="auth"),
+        ],
+    )
 ```
 
-## 测试
+前端通过 `/api/panels` 自动发现已注册面板；权限校验复用同一套中间件。
 
-WebUI 测试位于 `tests/test_webui.py`，覆盖：
+### 前端设计规范
 
-- 序列化辅助函数（`event_to_dict`、`persona_to_node`、`impression_to_edge`）
-- 数据构建方法（不启动 HTTP 服务器，直接调用异步方法）
-- HTTP API（通过 `aiohttp.test_utils.TestClient` + `TestServer`）
+- **无构建步骤**：CDN UMD 加载 Cytoscape 3.29.2、Marked 9.1.6、Lucide 0.456.0
+- **图标**：Lucide SVG（`<i data-lucide="name">` + `renderIcons()`）；UI 装饰禁用 Emoji
+- **色彩令牌**：CSS 变量，支持暗/亮主题 + 6 种强调色预设（sky / red / orange / green / purple / zinc）
+- **动态加载**：面板 HTML 片段首次访问时 fetch 注入，避免首屏加载全部代码
+- **shadcn 风格**：手写 CSS 对应 shadcn Button / Input / Card / Modal / Separator 等原语；使用 slate 调色板
+
+### 本地开发
 
 ```bash
-pytest tests/test_webui.py -v
+python run_webui_dev.py           # 默认端口 2654，认证禁用，自动注入演示数据
+python run_webui_dev.py --port 3000
 ```
 
-## 扩展指南
-
-### 新增 API 端点
-
-在 `server.py` 的 `_build_app()` 中注册路由，并实现对应的数据方法和路由处理器：
-
-```python
-def _build_app(self) -> web.Application:
-    app = web.Application()
-    # ... 现有路由 ...
-    app.router.add_get("/api/personas", self._handle_personas)  # 新增
-    return app
-
-async def personas_data(self) -> list[dict]:
-    personas = await self._persona_repo.list_all()
-    return [persona_to_node(p) for p in personas]
-
-async def _handle_personas(self, _: web.Request) -> web.Response:
-    return _json(await self.personas_data())
-```
-
-### 修改前端面板
-
-前端代码完整包含在 `static/index.html` 中，使用 CDN 加载的 vis-timeline、Cytoscape.js 和 marked.js，无需构建步骤。面板间通过 `highlightEvents(eventIds)` 函数实现跨面板联动。
-
-如需引入构建流程（如 Vue/React），建议：
-1. 在 `web/` 下新建 `frontend/` 子目录存放源码
-2. 构建产物输出到 `web/static/`
-3. `server.py` 保持不变，仍从 `web/static/` 提供静态文件
-
-### 静态文件目录
-
-`_STATIC_DIR = Path(__file__).parent / "static"` 指向 `web/static/`。如需提供多个静态文件（CSS、JS 模块等），可在 `_build_app()` 中改为 `add_static`:
-
-```python
-app.router.add_static("/static", _STATIC_DIR)
-```
+浏览器访问 `http://localhost:2654` 即可预览完整 WebUI。

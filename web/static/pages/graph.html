@@ -1,0 +1,38 @@
+<div class="pv-header">
+  <span class="pv-title">关系图</span>
+  <div class="search-bar" style="flex:1;max-width:220px">
+    <i data-lucide="search"></i>
+    <input id="graph-search" type="text" placeholder="搜索人格、关系…"
+      oninput="if(State.graphView==='list') renderGraphList()">
+  </div>
+  <div class="pv-controls">
+    <button id="btn-graph-view" class="btn btn-ghost btn-sm active"
+      onclick="setGraphView('graph')">
+      <i data-lucide="share-2"></i> 图谱
+    </button>
+    <button id="btn-graph-list-view" class="btn btn-ghost btn-sm"
+      onclick="setGraphView('list')">
+      <i data-lucide="list"></i> 列表
+    </button>
+    <span style="width:1px;height:16px;background:var(--panel-border);margin:0 2px"></span>
+    <button class="btn btn-ghost btn-sm btn-icon" id="btn-fit"
+      onclick="State.cy && State.cy.fit()" title="适配视图">
+      <i data-lucide="maximize-2"></i>
+    </button>
+    <button class="btn btn-ghost btn-sm btn-icon" onclick="clearHighlight()" title="清除高亮">
+      <i data-lucide="x-circle"></i>
+    </button>
+    <button class="btn btn-primary btn-sm" onclick="showCreatePersonaModal()">
+      <i data-lucide="user-plus"></i> 新建人格
+    </button>
+    <button class="btn btn-ghost btn-sm btn-icon" onclick="initRelationGraph()" title="刷新">
+      <i data-lucide="refresh-cw"></i>
+    </button>
+  </div>
+</div>
+<div class="pv-body">
+  <!-- Cytoscape graph -->
+  <div id="cy"></div>
+  <!-- Compact list view -->
+  <div id="graph-list-view" style="display:none"></div>
+</div>

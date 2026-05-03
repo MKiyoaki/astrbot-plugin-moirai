@@ -213,7 +213,7 @@ class WebuiServer:
         app.router.add_get("/api/stats", self._wrap("auth", self._handle_stats))
         # 管理操作（sudo）
         app.router.add_post("/api/admin/run_task", self._wrap("sudo", self._handle_run_task))
-        app.router.add_put("/api/summary", self._wrap("sudo", self._handle_update_summary))
+        app.router.add_put("/api/summary", self._wrap("auth", self._handle_update_summary))
         app.router.add_post("/api/admin/demo", self._wrap("sudo", self._handle_demo))
         # 记忆召回测试
         app.router.add_get("/api/recall", self._wrap("auth", self._handle_recall))

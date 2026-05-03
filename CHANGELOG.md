@@ -4,6 +4,114 @@
 
 ---
 
+## WebUI 重设计 v3 — 前端模块化重构 + 全 CRUD + 记忆召回 + 色彩主题
+
+**完成日期：** 2026-05-03
+
+### 核心变更
+
+#### 1. 前端文件结构解耦
+
+将原来 1300+ 行的单文件 `index.html` 拆分为：
+
+```
+static/
+├── index.html          shell（~80 行）：侧边栏 + 空 panel 容器 + script 标签
+├── css/                9 个 CSS 文件按关注点拆分
+│   variables.css / layout.css / components.css / timeline.css / graph.css
+│   summary.css / recall.css / settings.css / landing.css
+├── pages/              6 个 HTML 片段，首次访问时 fetch 注入
+│   landing.html / events.html / graph.html / summary.html / recall.html / settings.html
+├── components/         全局组件，启动时一次性加载
+│   modals.html         所有 CRUD 模态框（事件/人格/印象/回收站）
+└── js/                 9 个 JS 模块，按职责划分
+    state.js / api.js / auth.js / timeline.js / graph.js
+    summary.js / recall.js / settings.js / app.js
+```
+
+**设计原则**：页面 HTML 片段按需加载（首次切换面板时 fetch），避免首屏加载全部代码；JS 模块共享全局 `State` 对象，不引入模块系统（维持无构建约定）。
+
+#### 2. 首页（Landing）
+
+- 点击 Logo 或首次登录后，默认展示首页
+- 显示四项统计卡片（人格/事件/印象/群组）
+- 快速导航卡片，点击直跳对应面板
+
+#### 3. 事件流面板增强
+
+新增功能：
+- **搜索/过滤**：实时过滤（话题、标签、参与者、群组 ID）
+- **视图切换**：时间线 ↔ 紧凑列表视图（含 checkbox 批量选择）
+- **新建事件**：模态框填写话题、时间区间、重要度滑杆、标签、参与者、承接关系
+- **编辑事件**：点击卡片或列表行的铅笔按钮，弹出预填充编辑模态框
+- **删除事件**：单条删除（移入回收站）+ 批量删除选中事件
+- **回收站**：查看已删除事件，支持逐条还原和一键清空
+- **桥接线弹窗**：鼠标悬停 `.tl-bridge` 显示父子事件关系信息
+
+#### 4. 关系图面板增强
+
+新增功能：
+- **搜索/过滤**：按人格名称/关系类型过滤
+- **视图切换**：Cytoscape 图谱 ↔ 紧凑列表视图（人格列表 + 印象关系列表）
+- **新建人格**：模态框填写姓名、描述、情感类型、置信度、绑定身份
+- **编辑人格**：点击节点或列表行铅笔按钮，弹出预填充编辑模态框
+- **删除人格**：确认对话框后删除
+- **编辑印象**：点击边或列表行铅笔按钮，调整情感值/强度/置信度/证据事件
+- **证据事件卡片**：点击印象边时，详情面板下方展示关联事件列表，点击可跳转时间线并高亮
+
+#### 5. 记忆召回测试面板（新增）
+
+- 侧边栏新增"记忆召回"导航项
+- 输入查询词，调用 `/api/recall` FTS5 检索
+- 展示匹配事件列表（话题/时间/群组/重要度）
+- 点击结果跳转事件流并高亮对应节点
+
+#### 6. 色彩主题预设（设置面板）
+
+在设置页新增色彩方案选择器，支持 6 种强调色：
+
+| 名称 | 颜色 |
+|------|------|
+| 天蓝（默认） | `#38bdf8` |
+| 红色 | `#ef4444` |
+| 橙色 | `#f97316` |
+| 绿色 | `#22c55e` |
+| 紫色 | `#a855f7` |
+| 灰色 | `#71717a` |
+
+通过 `data-color-scheme` 属性 + CSS 变量覆盖实现，选择持久化到 `localStorage`。
+
+#### 7. 模态框设计系统
+
+统一的模态框 UI：`.modal-overlay` + `.modal-box` + `.modal-header / body / footer`；
+表单元素统一为 `.form-group / .form-label / .form-input / .form-select / .form-textarea`；
+滑杆配合 `.slider-row / .slider-val` 实时显示数值；
+背景点击 / Escape 键关闭。
+
+### 文件变动汇总
+
+| 文件 | 变更 |
+|------|------|
+| `web/static/index.html` | 重写为 ~80 行 shell |
+| `web/static/css/*.css` | 新增 9 个 CSS 文件（完全解耦） |
+| `web/static/pages/*.html` | 新增 6 个页面 HTML 片段 |
+| `web/static/components/modals.html` | 新增，包含全部 CRUD 模态框 |
+| `web/static/js/*.js` | 新增 9 个 JS 模块 |
+| `web/README.md` | 完整重写，涵盖目录结构、API 列表、设计规范 |
+| `CHANGELOG.md` | 本节 |
+
+### 已解决的 TODO（继承自 v1/v2）
+
+- [x] 承接线点击弹窗（`bridge-popup` + `showBridgePopup()`）
+- [x] 背景色/强调色自定义（6 种色彩预设 + `data-color-scheme` CSS 变量）
+
+### 仍未完成
+
+- [ ] 时间轴颜色独立自定义（`<input type="color">` → `--tl-accent`，与主题色分离）
+- [ ] mixins 拆分（等首个 `/memory` 命令出现时启动）
+
+---
+
 ## WebUI 重设计 v2 — Sidebar 分组 / Settings 独立页 / Lucide 图标 / Sudo bug fix
 
 **完成日期：** 2026-05-03

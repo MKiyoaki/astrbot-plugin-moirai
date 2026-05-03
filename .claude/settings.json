@@ -21,7 +21,12 @@
       "Bash(python -m pytest --tb=short -v --co -q)",
       "Bash(python3 -m py_compile main.py)",
       "Bash(python3)",
-      "Bash(python3 -m py_compile core/**/*.py)"
+      "Bash(python3 -m py_compile core/**/*.py)",
+      "Bash(Test-Path \"d:\\\\Program Files\\\\Git Lib\\\\astrbot-plugin-enhanced-memory\\\\web\\\\README.md\")",
+      "Bash(python -c \"from web.server import WebuiServer, _DEMO_SUMMARY_1, _DEMO_SUMMARY_2; print\\('server OK'\\)\")"
+    ],
+    "additionalDirectories": [
+      "d:\\Program Files\\Git Lib\\astrbot-plugin-enhanced-memory\\web\\static"
     ]
   }
 }

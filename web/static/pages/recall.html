@@ -1,0 +1,27 @@
+<div class="pv-header">
+  <span class="pv-title">记忆召回测试</span>
+  <div class="pv-controls">
+    <span style="color:var(--text-dim)">结果数</span>
+    <select id="recall-limit" class="form-select" style="width:60px;padding:3px 6px;font-size:11px">
+      <option value="5" selected>5</option>
+      <option value="10">10</option>
+      <option value="20">20</option>
+    </select>
+  </div>
+</div>
+<div class="pv-body">
+  <div class="recall-layout">
+    <div class="recall-search">
+      <input id="recall-input" class="form-input" type="text"
+        placeholder="输入查询词，测试记忆检索效果…"
+        onkeypress="if(event.key==='Enter') performRecall()">
+      <button class="btn btn-primary" onclick="performRecall()">
+        <i data-lucide="search"></i> 召回
+      </button>
+    </div>
+    <div id="recall-meta" class="recall-meta"></div>
+    <div id="recall-results" class="recall-results">
+      <div class="placeholder">输入查询词后点击召回，查看 FTS5 全文检索结果。</div>
+    </div>
+  </div>
+</div>
