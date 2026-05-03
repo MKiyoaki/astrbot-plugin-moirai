@@ -77,6 +77,11 @@ class EventRepository(ABC):
     async def upsert(self, event: Event) -> None: ...
 
     @abstractmethod
+    async def delete(self, event_id: str) -> bool:
+        """Return False if event_id not found."""
+        ...
+
+    @abstractmethod
     async def update_salience(self, event_id: str, new_salience: float) -> bool:
         """Return False if event_id not found."""
         ...

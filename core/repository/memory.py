@@ -112,6 +112,12 @@ class InMemoryEventRepository(EventRepository):
     async def upsert(self, event: Event) -> None:
         self._store[event.event_id] = deepcopy(event)
 
+    async def delete(self, event_id: str) -> bool:
+        if event_id not in self._store:
+            return False
+        del self._store[event_id]
+        return True
+
     async def update_salience(self, event_id: str, new_salience: float) -> bool:
         if event_id not in self._store:
             return False

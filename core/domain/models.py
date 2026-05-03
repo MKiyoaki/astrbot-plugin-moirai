@@ -8,6 +8,35 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+# ---------------------------------------------------------------------------
+# Validation mixins
+# ---------------------------------------------------------------------------
+
+class _BoundedMixin:
+    """Bounded-interval validation helpers for domain dataclasses.
+
+    Use ``__slots__ = ()`` so this mixin is compatible with ``slots=True``
+    dataclasses: the derived dataclass will generate its own __slots__ for
+    declared fields; the mixin contributes no additional slots.
+    """
+
+    __slots__ = ()
+
+    @staticmethod
+    def _check_unit(name: str, value: float) -> None:
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"{name} must be in [0, 1], got {value}")
+
+    @staticmethod
+    def _check_range(name: str, value: float, lo: float, hi: float) -> None:
+        if not lo <= value <= hi:
+            raise ValueError(f"{name} must be in [{lo}, {hi}], got {value}")
+
+
+# ---------------------------------------------------------------------------
+# Domain models
+# ---------------------------------------------------------------------------
+
 @dataclass(slots=True, frozen=True)
 class MessageRef:
     """Immutable reference to a single raw message stored elsewhere."""
@@ -19,7 +48,7 @@ class MessageRef:
 
 
 @dataclass(slots=True)
-class Persona:
+class Persona(_BoundedMixin):
     """A participant (human or bot) with a stable cross-platform identity."""
 
     uid: str                                # Internal stable UUID4
@@ -31,12 +60,11 @@ class Persona:
     last_active_at: float
 
     def __post_init__(self) -> None:
-        if not 0.0 <= self.confidence <= 1.0:
-            raise ValueError(f"confidence must be in [0, 1], got {self.confidence}")
+        self._check_unit("confidence", self.confidence)
 
 
 @dataclass(slots=True)
-class Event:
+class Event(_BoundedMixin):
     """A closed conversation window — the primary unit of episodic memory."""
 
     event_id: str
@@ -53,10 +81,8 @@ class Event:
     last_accessed_at: float      # Updated on every retrieval
 
     def __post_init__(self) -> None:
-        if not 0.0 <= self.salience <= 1.0:
-            raise ValueError(f"salience must be in [0, 1], got {self.salience}")
-        if not 0.0 <= self.confidence <= 1.0:
-            raise ValueError(f"confidence must be in [0, 1], got {self.confidence}")
+        self._check_unit("salience", self.salience)
+        self._check_unit("confidence", self.confidence)
         if self.start_time > self.end_time:
             raise ValueError(
                 f"start_time ({self.start_time}) must be <= end_time ({self.end_time})"
@@ -64,7 +90,7 @@ class Event:
 
 
 @dataclass(slots=True)
-class Impression:
+class Impression(_BoundedMixin):
     """A directional social relationship: observer perceives subject.
     Impression(A→B) ≠ Impression(B→A).
     """
@@ -80,9 +106,6 @@ class Impression:
     last_reinforced_at: float
 
     def __post_init__(self) -> None:
-        if not -1.0 <= self.affect <= 1.0:
-            raise ValueError(f"affect must be in [-1, 1], got {self.affect}")
-        if not 0.0 <= self.intensity <= 1.0:
-            raise ValueError(f"intensity must be in [0, 1], got {self.intensity}")
-        if not 0.0 <= self.confidence <= 1.0:
-            raise ValueError(f"confidence must be in [0, 1], got {self.confidence}")
+        self._check_range("affect", self.affect, -1.0, 1.0)
+        self._check_unit("intensity", self.intensity)
+        self._check_unit("confidence", self.confidence)

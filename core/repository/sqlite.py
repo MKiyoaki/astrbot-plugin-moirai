@@ -411,6 +411,15 @@ class SQLiteEventRepository(EventRepository):
         )
         await self._db.commit()
 
+    async def delete(self, event_id: str) -> bool:
+        await self._db.execute(
+            "DELETE FROM events WHERE event_id = ?", (event_id,)
+        )
+        await self._db.commit()
+        async with self._db.execute("SELECT changes()") as cur:
+            row = await cur.fetchone()
+        return bool(row and row[0])
+
     async def update_salience(self, event_id: str, new_salience: float) -> bool:
         await self._db.execute(
             "UPDATE events SET salience = ? WHERE event_id = ?",

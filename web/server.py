@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,10 +54,14 @@ def event_to_dict(event: Event) -> dict[str, Any]:
     return {
         "id": event.event_id,
         "content": event.topic or event.event_id[:8],
+        "topic": event.topic,
         "start": _ts_to_iso(event.start_time),
         "end": _ts_to_iso(event.end_time),
+        "start_ts": event.start_time,
+        "end_ts": event.end_time,
         "group": event.group_id,
         "salience": round(event.salience, 3),
+        "confidence": round(event.confidence, 3),
         "tags": event.chat_content_tags,
         "inherit_from": event.inherit_from,
         "participants": event.participants,
@@ -70,6 +75,12 @@ def persona_to_node(persona: Persona) -> dict[str, Any]:
             "label": persona.primary_name,
             "confidence": round(persona.confidence, 3),
             "attrs": persona.persona_attrs,
+            "bound_identities": [
+                {"platform": p, "physical_id": pid}
+                for p, pid in persona.bound_identities
+            ],
+            "created_at": _ts_to_iso(persona.created_at),
+            "last_active_at": _ts_to_iso(persona.last_active_at),
         }
     }
 
@@ -86,6 +97,7 @@ def impression_to_edge(imp: Impression) -> dict[str, Any]:
             "confidence": round(imp.confidence, 3),
             "scope": imp.scope,
             "evidence_event_ids": imp.evidence_event_ids,
+            "last_reinforced_at": _ts_to_iso(imp.last_reinforced_at),
         }
     }
 
@@ -169,6 +181,7 @@ class WebuiServer:
         self.registry = registry or PanelRegistry()
         self._task_runner = task_runner
         self._plugin_version = plugin_version
+        self._recycle_bin: list[dict] = []  # In-memory recycle bin (session-scoped)
         self._app = self._build_app()
         self._runner: web.AppRunner | None = None
 
@@ -202,6 +215,26 @@ class WebuiServer:
         app.router.add_post("/api/admin/run_task", self._wrap("sudo", self._handle_run_task))
         app.router.add_put("/api/summary", self._wrap("sudo", self._handle_update_summary))
         app.router.add_post("/api/admin/demo", self._wrap("sudo", self._handle_demo))
+        # 记忆召回测试
+        app.router.add_get("/api/recall", self._wrap("auth", self._handle_recall))
+        # 事件 CRUD
+        app.router.add_post("/api/events", self._wrap("sudo", self._handle_create_event))
+        app.router.add_put("/api/events/{event_id}", self._wrap("sudo", self._handle_update_event))
+        app.router.add_delete("/api/events/{event_id}", self._wrap("sudo", self._handle_delete_event))
+        app.router.add_delete("/api/events", self._wrap("sudo", self._handle_clear_events))
+        # 回收站
+        app.router.add_get("/api/recycle_bin", self._wrap("auth", self._handle_recycle_bin_list))
+        app.router.add_post("/api/recycle_bin/restore", self._wrap("sudo", self._handle_recycle_bin_restore))
+        app.router.add_delete("/api/recycle_bin", self._wrap("sudo", self._handle_recycle_bin_clear))
+        # 人格 CRUD
+        app.router.add_post("/api/personas", self._wrap("sudo", self._handle_create_persona))
+        app.router.add_put("/api/personas/{uid}", self._wrap("sudo", self._handle_update_persona))
+        app.router.add_delete("/api/personas/{uid}", self._wrap("sudo", self._handle_delete_persona))
+        # 印象更新
+        app.router.add_put(
+            "/api/impressions/{observer}/{subject}/{scope}",
+            self._wrap("sudo", self._handle_update_impression),
+        )
         # 第三方面板注册
         app.router.add_get("/api/panels", self._wrap("auth", self._handle_panels_list))
         # 注入第三方插件已注册的路由
@@ -634,6 +667,256 @@ class WebuiServer:
             "impressions": len(impressions),
             "summaries": 2,
         }})
+
+    # ------------------------------------------------------------------
+    # 路由处理器：记忆召回测试
+    # ------------------------------------------------------------------
+
+    async def _handle_recall(self, request: web.Request) -> web.Response:
+        q = request.rel_url.query.get("q", "").strip()
+        limit = min(int(request.rel_url.query.get("limit", "5")), 50)
+        if not q:
+            return _json({"error": "q required"}, status=400)
+        try:
+            fts_results = await self._event_repo.search_fts(q, limit=limit)
+        except Exception as exc:
+            return _json({"error": str(exc)}, status=500)
+        return _json({
+            "items": [event_to_dict(e) for e in fts_results],
+            "algorithm": "fts5",
+            "query": q,
+            "count": len(fts_results),
+        })
+
+    # ------------------------------------------------------------------
+    # 路由处理器：事件 CRUD
+    # ------------------------------------------------------------------
+
+    async def _handle_create_event(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        now = time.time()
+        try:
+            event = Event(
+                event_id=body.get("event_id") or str(uuid.uuid4()),
+                group_id=body.get("group_id") or None,
+                start_time=float(body.get("start_time", now)),
+                end_time=float(body.get("end_time", now)),
+                participants=body.get("participants", []),
+                interaction_flow=[],
+                topic=body.get("topic", ""),
+                chat_content_tags=body.get("chat_content_tags", []),
+                salience=float(body.get("salience", 0.5)),
+                confidence=float(body.get("confidence", 0.8)),
+                inherit_from=body.get("inherit_from", []),
+                last_accessed_at=now,
+            )
+        except (ValueError, TypeError) as exc:
+            return _json({"error": str(exc)}, status=400)
+        await self._event_repo.upsert(event)
+        return _json({"ok": True, "event": event_to_dict(event)}, status=201)
+
+    async def _handle_update_event(self, request: web.Request) -> web.Response:
+        event_id = request.match_info["event_id"]
+        existing = await self._event_repo.get(event_id)
+        if existing is None:
+            return _json({"error": "not found"}, status=404)
+        body = await request.json()
+        now = time.time()
+        try:
+            updated = Event(
+                event_id=existing.event_id,
+                group_id=body.get("group_id", existing.group_id),
+                start_time=float(body.get("start_time", existing.start_time)),
+                end_time=float(body.get("end_time", existing.end_time)),
+                participants=body.get("participants", existing.participants),
+                interaction_flow=existing.interaction_flow,
+                topic=body.get("topic", existing.topic),
+                chat_content_tags=body.get("chat_content_tags", existing.chat_content_tags),
+                salience=float(body.get("salience", existing.salience)),
+                confidence=float(body.get("confidence", existing.confidence)),
+                inherit_from=body.get("inherit_from", existing.inherit_from),
+                last_accessed_at=now,
+            )
+        except (ValueError, TypeError) as exc:
+            return _json({"error": str(exc)}, status=400)
+        await self._event_repo.upsert(updated)
+        return _json({"ok": True, "event": event_to_dict(updated)})
+
+    async def _handle_delete_event(self, request: web.Request) -> web.Response:
+        event_id = request.match_info["event_id"]
+        existing = await self._event_repo.get(event_id)
+        if existing is None:
+            return _json({"error": "not found"}, status=404)
+        self._recycle_bin.append({
+            **event_to_dict(existing),
+            "deleted_at": _ts_to_iso(time.time()),
+        })
+        await self._event_repo.delete(event_id)
+        return _json({"ok": True})
+
+    async def _handle_clear_events(self, _: web.Request) -> web.Response:
+        group_ids = await self._event_repo.list_group_ids()
+        deleted = 0
+        for gid in group_ids:
+            events = await self._event_repo.list_by_group(gid, limit=10_000)
+            for ev in events:
+                self._recycle_bin.append({
+                    **event_to_dict(ev),
+                    "deleted_at": _ts_to_iso(time.time()),
+                })
+                await self._event_repo.delete(ev.event_id)
+                deleted += 1
+        return _json({"ok": True, "deleted": deleted})
+
+    # ------------------------------------------------------------------
+    # 路由处理器：回收站
+    # ------------------------------------------------------------------
+
+    async def _handle_recycle_bin_list(self, _: web.Request) -> web.Response:
+        return _json({"items": list(reversed(self._recycle_bin))})
+
+    async def _handle_recycle_bin_restore(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        event_id = body.get("event_id", "")
+        if not event_id:
+            return _json({"error": "event_id required"}, status=400)
+        item = next((x for x in self._recycle_bin if x["id"] == event_id), None)
+        if item is None:
+            return _json({"error": "not found in recycle bin"}, status=404)
+        now = time.time()
+        try:
+            event = Event(
+                event_id=item["id"],
+                group_id=item.get("group"),
+                start_time=item.get("start_ts", now),
+                end_time=item.get("end_ts", now),
+                participants=item.get("participants", []),
+                interaction_flow=[],
+                topic=item.get("topic", item.get("content", "")),
+                chat_content_tags=item.get("tags", []),
+                salience=item.get("salience", 0.5),
+                confidence=item.get("confidence", 0.8),
+                inherit_from=item.get("inherit_from", []),
+                last_accessed_at=now,
+            )
+        except (ValueError, TypeError) as exc:
+            return _json({"error": str(exc)}, status=400)
+        await self._event_repo.upsert(event)
+        self._recycle_bin = [x for x in self._recycle_bin if x["id"] != event_id]
+        return _json({"ok": True, "event": event_to_dict(event)})
+
+    async def _handle_recycle_bin_clear(self, _: web.Request) -> web.Response:
+        count = len(self._recycle_bin)
+        self._recycle_bin.clear()
+        return _json({"ok": True, "cleared": count})
+
+    # ------------------------------------------------------------------
+    # 路由处理器：人格 CRUD
+    # ------------------------------------------------------------------
+
+    async def _handle_create_persona(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        now = time.time()
+        raw_bindings = body.get("bound_identities", [])
+        bindings: list[tuple[str, str]] = [
+            (b["platform"], b["physical_id"])
+            for b in raw_bindings
+            if isinstance(b, dict) and "platform" in b and "physical_id" in b
+        ]
+        try:
+            persona = Persona(
+                uid=body.get("uid") or str(uuid.uuid4()),
+                bound_identities=bindings,
+                primary_name=body.get("primary_name", ""),
+                persona_attrs={
+                    "description": body.get("description", ""),
+                    "affect_type": body.get("affect_type", ""),
+                    "content_tags": body.get("content_tags", []),
+                },
+                confidence=float(body.get("confidence", 0.8)),
+                created_at=now,
+                last_active_at=now,
+            )
+        except (ValueError, TypeError) as exc:
+            return _json({"error": str(exc)}, status=400)
+        await self._persona_repo.upsert(persona)
+        return _json({"ok": True, "persona": persona_to_node(persona)}, status=201)
+
+    async def _handle_update_persona(self, request: web.Request) -> web.Response:
+        uid = request.match_info["uid"]
+        existing = await self._persona_repo.get(uid)
+        if existing is None:
+            return _json({"error": "not found"}, status=404)
+        body = await request.json()
+        raw_bindings = body.get("bound_identities")
+        if raw_bindings is not None:
+            bindings: list[tuple[str, str]] = [
+                (b["platform"], b["physical_id"])
+                for b in raw_bindings
+                if isinstance(b, dict) and "platform" in b and "physical_id" in b
+            ]
+        else:
+            bindings = existing.bound_identities
+        existing_attrs = existing.persona_attrs or {}
+        updated_attrs = {
+            "description": body.get("description", existing_attrs.get("description", "")),
+            "affect_type": body.get("affect_type", existing_attrs.get("affect_type", "")),
+            "content_tags": body.get("content_tags", existing_attrs.get("content_tags", [])),
+        }
+        try:
+            updated = Persona(
+                uid=existing.uid,
+                bound_identities=bindings,
+                primary_name=body.get("primary_name", existing.primary_name),
+                persona_attrs=updated_attrs,
+                confidence=float(body.get("confidence", existing.confidence)),
+                created_at=existing.created_at,
+                last_active_at=time.time(),
+            )
+        except (ValueError, TypeError) as exc:
+            return _json({"error": str(exc)}, status=400)
+        await self._persona_repo.upsert(updated)
+        return _json({"ok": True, "persona": persona_to_node(updated)})
+
+    async def _handle_delete_persona(self, request: web.Request) -> web.Response:
+        uid = request.match_info["uid"]
+        ok = await self._persona_repo.delete(uid)
+        if not ok:
+            return _json({"error": "not found"}, status=404)
+        return _json({"ok": True})
+
+    # ------------------------------------------------------------------
+    # 路由处理器：印象更新
+    # ------------------------------------------------------------------
+
+    async def _handle_update_impression(self, request: web.Request) -> web.Response:
+        observer = request.match_info["observer"]
+        subject = request.match_info["subject"]
+        scope = request.match_info["scope"]
+        existing = await self._impression_repo.get(observer, subject, scope)
+        body = await request.json()
+        now = time.time()
+        try:
+            impression = Impression(
+                observer_uid=observer,
+                subject_uid=subject,
+                relation_type=body.get("relation_type",
+                    existing.relation_type if existing else "stranger"),
+                affect=float(body.get("affect",
+                    existing.affect if existing else 0.0)),
+                intensity=float(body.get("intensity",
+                    existing.intensity if existing else 0.5)),
+                confidence=float(body.get("confidence",
+                    existing.confidence if existing else 0.7)),
+                scope=scope,
+                evidence_event_ids=body.get("evidence_event_ids",
+                    existing.evidence_event_ids if existing else []),
+                last_reinforced_at=now,
+            )
+        except (ValueError, TypeError) as exc:
+            return _json({"error": str(exc)}, status=400)
+        await self._impression_repo.upsert(impression)
+        return _json({"ok": True, "impression": impression_to_edge(impression)["data"]})
 
     # ------------------------------------------------------------------
     # 路由处理器：面板注册
