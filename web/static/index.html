@@ -109,7 +109,35 @@ body {
 }
 .nav-item:hover { background: rgba(255,255,255,0.07); color: var(--text); }
 .nav-item.active { background: rgba(56,189,248,0.15); color: var(--accent); font-weight: 600; }
-.nav-icon { font-size: 15px; width: 20px; text-align: center; flex-shrink: 0; }
+.nav-icon { width: 16px; height: 16px; flex-shrink: 0; stroke-width: 2; }
+.nav-item svg { width: 16px; height: 16px; flex-shrink: 0; stroke-width: 2; }
+
+/* 侧边栏分组（shadcn 风格） */
+.sb-group-label {
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.7px;
+  color: var(--text-dim);
+  padding: 8px 12px 4px;
+}
+.sb-separator {
+  height: 1px;
+  background: var(--panel-border);
+  margin: 8px 6px;
+}
+
+/* 全局图标对齐 */
+.icon-btn-svg {
+  width: 14px; height: 14px;
+  stroke-width: 2;
+  vertical-align: middle;
+  display: inline-block;
+}
+.detail-title-icon {
+  width: 14px; height: 14px;
+  stroke-width: 2;
+  vertical-align: -2px;
+  margin-right: 4px;
+}
 
 .sb-footer {
   padding: 10px 10px 12px;
@@ -399,50 +427,45 @@ body {
 }
 
 /* ============================================================
-   设置 Modal
+   设置面板（独立 panel-view）
    ============================================================ */
-#settings-modal {
-  position: fixed; inset: 0; z-index: 600;
-  display: none; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.52);
-}
-#settings-modal.show { display: flex; }
-.modal-card {
-  width: 500px; max-height: 86vh; overflow-y: auto;
-  background: var(--bg-2);
+.settings-section {
+  max-width: 720px; margin-bottom: 24px;
+  background: var(--panel);
   border: 1px solid var(--panel-border);
-  border-radius: 12px; padding: 22px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  border-radius: 10px;
+  padding: 16px 18px;
 }
-.modal-card > h3 { font-size: 15px; margin-bottom: 16px; }
-.modal-close {
-  float: right; background: none; border: none; color: var(--text-dim);
-  font-size: 18px; cursor: pointer; padding: 0 4px;
+.settings-section h4 {
+  font-size: 11px; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.7px;
+  margin-bottom: 12px; font-weight: 600;
 }
-.modal-section { margin-bottom: 20px; }
-.modal-section h4 {
-  font-size: 10px; color: var(--text-dim);
-  text-transform: uppercase; letter-spacing: 0.6px;
-  margin-bottom: 9px;
+.settings-row {
+  display: flex; gap: 8px; align-items: center;
+  margin: 6px 0; font-size: 12px;
 }
-.modal-row { display: flex; gap: 8px; align-items: center; margin: 6px 0; font-size: 12px; }
-.modal-row label { flex: 1; }
-.modal-row input[type="password"], .modal-row input[type="text"] {
+.settings-row label { flex: 1; }
+.settings-row input[type="password"], .settings-row input[type="text"] {
   background: rgba(0,0,0,0.22); border: 1px solid var(--panel-border);
-  border-radius: 4px; padding: 5px 8px; color: var(--text); font-size: 12px;
-  flex: 0 0 120px;
+  border-radius: 6px; padding: 6px 10px; color: var(--text); font-size: 12px;
+  flex: 0 0 140px;
 }
-.modal-btn {
+.settings-row input:focus { outline: none; border-color: var(--accent); }
+.settings-btn {
   background: var(--accent); color: #fff; border: none;
-  padding: 5px 11px; border-radius: 5px; font-size: 12px; cursor: pointer;
+  padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+  transition: opacity 0.15s;
 }
-.modal-btn:hover { opacity: 0.88; }
+.settings-btn:hover { opacity: 0.88; }
 .task-row {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 5px 0; font-size: 12px;
+  padding: 7px 0; font-size: 12px;
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 .task-row:last-child { border-bottom: none; }
+.task-row > span { display: inline-flex; align-items: center; gap: 6px; }
 
 .placeholder {
   color: var(--text-dim); text-align: center;
@@ -479,14 +502,22 @@ body {
     </div>
 
     <nav class="sb-nav">
+      <div class="sb-group-label">可视化</div>
       <button class="nav-item active" data-panel="events" onclick="switchPanel('events',this)">
-        <span class="nav-icon">◎</span>事件流
+        <i data-lucide="activity" class="nav-icon"></i>事件流
       </button>
       <button class="nav-item" data-panel="graph" onclick="switchPanel('graph',this)">
-        <span class="nav-icon">⬡</span>关系图
+        <i data-lucide="share-2" class="nav-icon"></i>关系图
       </button>
       <button class="nav-item" data-panel="summary" onclick="switchPanel('summary',this)">
-        <span class="nav-icon">◧</span>摘要记忆
+        <i data-lucide="book-open" class="nav-icon"></i>摘要记忆
+      </button>
+
+      <div class="sb-separator"></div>
+
+      <div class="sb-group-label">管理</div>
+      <button class="nav-item" data-panel="settings" onclick="switchPanel('settings',this)">
+        <i data-lucide="settings" class="nav-icon"></i>设置
       </button>
     </nav>
 
@@ -497,10 +528,15 @@ body {
         <span class="sb-stat" id="stat-impressions">印象 0</span>
       </div>
       <div class="sb-actions">
-        <button id="btn-sudo" onclick="toggleSudo()">🔐 Sudo</button>
-        <button onclick="toggleTheme()">🌗</button>
-        <button onclick="showSettings()">⚙️</button>
-        <button onclick="logout()">退出</button>
+        <button id="btn-sudo" onclick="toggleSudo()" title="Sudo 模式">
+          <i data-lucide="lock" class="icon-btn-svg"></i> Sudo
+        </button>
+        <button onclick="toggleTheme()" title="切换主题">
+          <i data-lucide="moon-star" class="icon-btn-svg"></i>
+        </button>
+        <button onclick="logout()" title="退出登录">
+          <i data-lucide="log-out" class="icon-btn-svg"></i>
+        </button>
       </div>
       <div class="sb-version">Enhanced Memory v<span id="app-version-sb">…</span></div>
     </div>
@@ -541,6 +577,69 @@ body {
       <div class="pv-body"><div id="cy"></div></div>
     </div>
 
+    <!-- 面板：设置 -->
+    <div class="panel-view" id="panel-settings">
+      <div class="pv-header">
+        <span class="pv-title">设置与管理</span>
+      </div>
+      <div class="pv-body" style="overflow-y:auto;padding:18px 24px">
+        <div class="settings-section">
+          <h4>认证</h4>
+          <div class="settings-row">
+            <label>当前会话</label>
+            <span id="auth-status-line" style="font-size:11px;color:var(--text-dim)">…</span>
+          </div>
+          <div class="settings-row">
+            <label>修改密码（旧 / 新）</label>
+            <input type="password" id="pw-old" placeholder="旧密码">
+            <input type="password" id="pw-new" placeholder="新密码">
+            <button class="settings-btn" onclick="changePassword()">
+              <i data-lucide="check" class="icon-btn-svg"></i> 保存
+            </button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>触发后台任务（需 Sudo）</h4>
+          <div class="task-row">
+            <span><i data-lucide="trending-down" class="icon-btn-svg"></i> 显著度衰减</span>
+            <button class="settings-btn" onclick="runTask('salience_decay')">运行</button>
+          </div>
+          <div class="task-row">
+            <span><i data-lucide="file-down" class="icon-btn-svg"></i> Markdown 投影</span>
+            <button class="settings-btn" onclick="runTask('projection')">运行</button>
+          </div>
+          <div class="task-row">
+            <span><i data-lucide="user-cog" class="icon-btn-svg"></i> 人格画像合成</span>
+            <button class="settings-btn" onclick="runTask('persona_synthesis')">运行</button>
+          </div>
+          <div class="task-row">
+            <span><i data-lucide="users" class="icon-btn-svg"></i> 印象聚合</span>
+            <button class="settings-btn" onclick="runTask('impression_aggregation')">运行</button>
+          </div>
+          <div class="task-row">
+            <span><i data-lucide="layout-list" class="icon-btn-svg"></i> 群组摘要</span>
+            <button class="settings-btn" onclick="runTask('group_summary')">运行</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>演示数据</h4>
+          <div class="settings-row">
+            <label>注入模拟数据以预览界面效果（需 Sudo）</label>
+            <button class="settings-btn" onclick="injectDemo()">
+              <i data-lucide="sparkles" class="icon-btn-svg"></i> 注入
+            </button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>已注册第三方面板</h4>
+          <div id="ext-panels-list" style="font-size:11px;color:var(--text-dim)">加载中…</div>
+        </div>
+      </div>
+    </div>
+
     <!-- 面板：摘要记忆 -->
     <div class="panel-view" id="panel-summary">
       <div class="pv-header">
@@ -578,52 +677,10 @@ body {
 <!-- Toast -->
 <div id="toast"></div>
 
-<!-- 设置 Modal -->
-<div id="settings-modal" onclick="e => e.target===this && hideSettings()">
-  <div class="modal-card">
-    <button class="modal-close" onclick="hideSettings()">×</button>
-    <h3>⚙️ 设置与管理</h3>
-
-    <div class="modal-section">
-      <h4>认证</h4>
-      <div class="modal-row">
-        <label>当前会话</label>
-        <span id="auth-status-line" style="font-size:11px;color:var(--text-dim)">…</span>
-      </div>
-      <div class="modal-row">
-        <label>修改密码（旧 / 新）</label>
-        <input type="password" id="pw-old" placeholder="旧密码">
-        <input type="password" id="pw-new" placeholder="新密码">
-        <button class="modal-btn" onclick="changePassword()">保存</button>
-      </div>
-    </div>
-
-    <div class="modal-section">
-      <h4>触发后台任务（需 Sudo）</h4>
-      <div class="task-row"><span>显著度衰减</span><button class="modal-btn" onclick="runTask('salience_decay')">运行</button></div>
-      <div class="task-row"><span>Markdown 投影</span><button class="modal-btn" onclick="runTask('projection')">运行</button></div>
-      <div class="task-row"><span>人格画像合成</span><button class="modal-btn" onclick="runTask('persona_synthesis')">运行</button></div>
-      <div class="task-row"><span>印象聚合</span><button class="modal-btn" onclick="runTask('impression_aggregation')">运行</button></div>
-      <div class="task-row"><span>群组摘要</span><button class="modal-btn" onclick="runTask('group_summary')">运行</button></div>
-    </div>
-
-    <div class="modal-section">
-      <h4>演示数据</h4>
-      <div class="modal-row">
-        <label>注入模拟数据以预览界面效果（需 Sudo）</label>
-        <button class="modal-btn" onclick="injectDemo()">注入</button>
-      </div>
-    </div>
-
-    <div class="modal-section">
-      <h4>已注册第三方面板</h4>
-      <div id="ext-panels-list" style="font-size:11px;color:var(--text-dim)">加载中…</div>
-    </div>
-  </div>
-</div>
 
 <script src="https://unpkg.com/cytoscape@3.29.2/dist/cytoscape.min.js"></script>
 <script src="https://unpkg.com/marked@9.1.6/marked.min.js"></script>
+<script src="https://unpkg.com/lucide@0.456.0/dist/umd/lucide.min.js"></script>
 
 <script>
 'use strict';
@@ -652,11 +709,18 @@ const fetchJson = async (url, opts = {}) => {
     ...opts,
   });
   if (!res.ok) {
-    const body = await res.text();
-    throw { status: res.status, body };
+    const raw = await res.text();
+    let detail = raw;
+    try { const j = JSON.parse(raw); detail = j.error || raw; } catch {}
+    throw { status: res.status, body: detail, raw };
   }
   return res.json();
 };
+
+// 渲染所有 lucide 图标（动态插入 DOM 后需重新调用）
+function renderIcons() {
+  if (window.lucide) window.lucide.createIcons();
+}
 
 // ============================================================================
 // Panel switching
@@ -676,6 +740,7 @@ function switchPanel(name, btnEl) {
 
   if (name === 'graph' && State.cy) setTimeout(() => State.cy.fit(), 50);
   if (name === 'events') requestAnimationFrame(drawBridges);
+  if (name === 'settings') refreshSettingsView();
 }
 
 // ============================================================================
@@ -763,7 +828,7 @@ async function logout() {
 
 async function toggleSudo() {
   if (State.sudo) {
-    await fetchJson('/api/auth/sudo/exit', { method: 'POST' });
+    await fetchJson('/api/auth/sudo/exit', { method: 'POST' }).catch(() => {});
     State.sudo = false;
     updateSudoUI(0);
     toast('已退出 Sudo');
@@ -772,12 +837,17 @@ async function toggleSudo() {
   const pw = prompt('再次输入密码以进入 Sudo 模式：');
   if (!pw) return;
   try {
-    const r = await fetchJson('/api/auth/sudo', { method: 'POST', body: JSON.stringify({ password: pw }) });
+    const r = await fetchJson('/api/auth/sudo', {
+      method: 'POST',
+      body: JSON.stringify({ password: pw }),
+    });
     State.sudo = true;
     updateSudoUI(r.sudo_remaining_seconds || 1800);
     toast('已进入 Sudo 模式');
-  } catch {
-    toast('密码错误');
+  } catch (e) {
+    console.error('[sudo] 失败', e);
+    const reason = e.body || (e.status === 401 ? '密码错误或会话失效' : `HTTP ${e.status || '?'}`);
+    toast(`Sudo 失败：${reason}`, 4000);
   }
 }
 
@@ -785,12 +855,13 @@ function updateSudoUI(remaining) {
   const btn = $('#btn-sudo');
   if (State.sudo && remaining > 0) {
     btn.classList.add('sudo-active');
-    btn.textContent = `🔓 ${Math.floor(remaining / 60)}m`;
+    btn.innerHTML = `<i data-lucide="unlock" class="icon-btn-svg"></i> ${Math.floor(remaining / 60)}m`;
   } else {
     State.sudo = false;
     btn.classList.remove('sudo-active');
-    btn.textContent = '🔐 Sudo';
+    btn.innerHTML = `<i data-lucide="lock" class="icon-btn-svg"></i> Sudo`;
   }
+  renderIcons();
 }
 
 setInterval(async () => {
@@ -920,7 +991,7 @@ function showEventDetail(eventId) {
   const ev = State.rawEvents.find(e => e.id === eventId);
   if (!ev) return;
   const html = `
-    <h3>📅 事件详情</h3>
+    <h3><i data-lucide="calendar-days" class="detail-title-icon"></i>事件详情</h3>
     <div class="detail-field"><span class="k">话题</span><span class="v">${ev.content}</span></div>
     <div class="detail-field"><span class="k">ID</span><span class="v">${ev.id.slice(0, 12)}…</span></div>
     <div class="detail-field"><span class="k">群组</span><span class="v">${ev.group || '私聊'}</span></div>
@@ -1024,7 +1095,7 @@ function clearHighlight() {
 function showPersonaDetail(data) {
   const attrs = data.attrs || {};
   const html = `
-    <h3>👤 ${data.label}</h3>
+    <h3><i data-lucide="user-round" class="detail-title-icon"></i>${data.label}</h3>
     <div class="detail-field"><span class="k">UID</span><span class="v">${data.id.slice(0, 12)}…</span></div>
     <div class="detail-field"><span class="k">置信度</span><span class="v">${(data.confidence * 100).toFixed(0)}%</span></div>
     ${attrs.description ? `<div class="detail-field"><span class="k">描述</span><span class="v">${attrs.description}</span></div>` : ''}
@@ -1036,7 +1107,7 @@ function showPersonaDetail(data) {
 function showImpressionDetail(data) {
   const affectColor = data.affect > 0 ? 'var(--positive)' : (data.affect < 0 ? 'var(--negative)' : 'var(--text-dim)');
   const html = `
-    <h3>🔗 印象详情</h3>
+    <h3><i data-lucide="link-2" class="detail-title-icon"></i>印象详情</h3>
     <div class="detail-field"><span class="k">关系类型</span><span class="v">${data.label}</span></div>
     <div class="detail-field"><span class="k">情感</span><span class="v" style="color:${affectColor}">${data.affect.toFixed(2)}</span></div>
     <div class="detail-field"><span class="k">强度</span><span class="v">${(data.intensity * 100).toFixed(0)}%</span></div>
@@ -1049,6 +1120,7 @@ function showImpressionDetail(data) {
 function showDetail(html) {
   $('#detail-content').innerHTML = html;
   $('#detail-panel').classList.add('show');
+  renderIcons();
 }
 function hideDetail() { $('#detail-panel').classList.remove('show'); }
 
@@ -1151,15 +1223,9 @@ async function refreshStats() {
   } catch {}
 }
 
-function showSettings() {
-  $('#settings-modal').classList.add('show');
+async function refreshSettingsView() {
   $('#auth-status-line').textContent = State.sudo
     ? '已登录 + Sudo' : (State.authenticated ? '已登录（普通模式）' : '未登录');
-  loadExtPanels();
-}
-function hideSettings() { $('#settings-modal').classList.remove('show'); }
-
-async function loadExtPanels() {
   try {
     const { panels } = await fetchJson('/api/panels');
     const el = $('#ext-panels-list');
@@ -1167,6 +1233,7 @@ async function loadExtPanels() {
       ? panels.map(p => `<div style="padding:4px 0">${p.icon} <b>${p.title}</b> — ${p.plugin_id}</div>`).join('')
       : '暂无第三方插件注册面板';
   } catch {}
+  renderIcons();
 }
 
 async function changePassword() {
@@ -1181,7 +1248,7 @@ async function changePassword() {
     toast('密码已更新，请重新登录');
     setTimeout(() => location.reload(), 1500);
   } catch (e) {
-    toast(e.body || '修改失败');
+    toast(`修改失败：${e.body || e.status}`, 4000);
   }
 }
 
@@ -1195,7 +1262,7 @@ async function runTask(name) {
     toast(r.ok ? `${name} 已完成` : `${name} 失败`);
     setTimeout(refreshStats, 1500);
   } catch (e) {
-    toast(`${name} 错误：${e.body || e.status}`);
+    toast(`${name} 错误：${e.body || e.status}`, 4000);
   }
 }
 
@@ -1206,10 +1273,9 @@ async function injectDemo() {
     const r = await fetchJson('/api/admin/demo', { method: 'POST' });
     const s = r.seeded || {};
     toast(`注入成功：${s.personas || 0} 人格, ${s.events || 0} 事件, ${s.impressions || 0} 印象`);
-    hideSettings();
     await reloadAll();
   } catch (e) {
-    toast('注入失败：' + (e.body || e.status));
+    toast('注入失败：' + (e.body || e.status), 4000);
   }
 }
 
@@ -1217,6 +1283,7 @@ async function injectDemo() {
 // Boot
 // ============================================================================
 async function boot() {
+  renderIcons();
   await refreshAuthStatus();
   if (State.authEnabled && !State.authenticated) {
     showLogin(!State.passwordSet);
@@ -1230,6 +1297,7 @@ async function boot() {
     refreshStats(),
   ]);
   updateSudoUI(0);
+  renderIcons();
 }
 
 async function reloadAll() {
@@ -1248,9 +1316,6 @@ $('#btn-refresh-graph').addEventListener('click', initRelationGraph);
 $('#event-density').addEventListener('input', e => {
   $('#event-density-label').textContent = e.target.value;
   renderTimeline(parseInt(e.target.value));
-});
-$('#settings-modal').addEventListener('click', e => {
-  if (e.target === $('#settings-modal')) hideSettings();
 });
 
 boot();

@@ -360,7 +360,7 @@ class WebuiServer:
         token = self._auth.login(password)
         resp = _json({"ok": True})
         if token:
-            resp.set_cookie(_SESSION_COOKIE, token, httponly=True, samesite="Strict", path="/")
+            resp.set_cookie(_SESSION_COOKIE, token, httponly=True, samesite="Lax", path="/")
         return resp
 
     async def _handle_auth_login(self, request: web.Request) -> web.Response:
@@ -369,7 +369,7 @@ class WebuiServer:
         if token is None:
             return _json({"error": "invalid password"}, status=401)
         resp = _json({"ok": True})
-        resp.set_cookie(_SESSION_COOKIE, token, httponly=True, samesite="Strict", path="/")
+        resp.set_cookie(_SESSION_COOKIE, token, httponly=True, samesite="Lax", path="/")
         return resp
 
     async def _handle_auth_logout(self, request: web.Request) -> web.Response:
@@ -381,8 +381,13 @@ class WebuiServer:
     async def _handle_auth_sudo(self, request: web.Request) -> web.Response:
         body = await request.json()
         token = request.cookies.get(_SESSION_COOKIE)
-        if not self._auth.verify_sudo(token, body.get("password", "")):
+        # 区分会话失效 vs 密码错误，方便用户排查
+        if not token or not self._auth.check(token).is_authenticated:
+            return _json({"error": "session expired, please login again"}, status=401)
+        if not self._auth.verify_password(body.get("password", "")):
             return _json({"error": "invalid password"}, status=401)
+        if not self._auth.verify_sudo(token, body.get("password", "")):
+            return _json({"error": "sudo activation failed"}, status=500)
         state = self._auth.check(token)
         return _json({"ok": True, "sudo_remaining_seconds": state.sudo_remaining_seconds})
 

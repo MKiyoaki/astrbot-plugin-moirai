@@ -1,6 +1,112 @@
-# 演进架构更新日志
+# CHANGELOG
 
 记录每个 Phase 的交付内容、关键设计决策及技术细节。
+
+---
+
+## WebUI 重设计 v2 — Sidebar 分组 / Settings 独立页 / Lucide 图标 / Sudo bug fix
+
+**完成日期：** 2026-05-03
+
+### 关键改动
+
+#### 1. Sudo 模式 bug 修复
+
+**症状**：用户报告 Sudo 按钮无论输入什么都提示"密码错误"，体验反常。
+
+**根因**：
+- 前端 `toggleSudo()` 的 `catch` 块写死了 `toast('密码错误')`，无视实际状态码——会话过期、网络错、500 全都显示"密码错误"，掩盖了真正原因。
+- 后端 `_handle_auth_sudo` 一律返回 `{"error": "invalid password"}` 401，不区分"会话已过期"和"密码错"。
+- Cookie `samesite="Strict"` 在某些浏览器隐私设置下（特别是开发者工具的隔离 context）会丢失。
+
+**修复**：
+- 后端 `web/server.py`：
+  - `_handle_auth_sudo` 拆为三阶检查：先验证 token 有效（401 + `session expired`），再验证密码（401 + `invalid password`），最后才设置 sudo（500 兜底）。
+  - 所有 `set_cookie` 的 `samesite` 由 `Strict` 改为 `Lax` —— 跨标签页 / iframe 嵌入仍能携带，与 webview 兼容。
+- 前端 `web/static/index.html`：
+  - `fetchJson` 解析 4xx/5xx 响应时，先尝试 `JSON.parse(body).error` 取后端 error 字段；失败则原样返回 raw text。
+  - `toggleSudo` 的 `catch (e)` 改为显示 `e.body`（具体原因）+ console.error 完整对象，并把 toast 时长延长到 4s。
+  - 同样模式应用到 `changePassword` / `runTask` / `injectDemo` 的失败提示。
+
+现在 Sudo 失败会显示如 `Sudo 失败：session expired, please login again` 或 `Sudo 失败：invalid password`，可立即定位问题。
+
+#### 2. 前端规范：shadcn 设计语言 + Lucide 图标
+
+**变更**：移除所有 UI chrome 中的 emoji（🔐 / ⚙️ / 🌗 / 📅 / 👤 / 🔗 / ◎ / ⬡ / ◧），改用 [Lucide](https://lucide.dev) SVG 图标库。
+
+**接入方式**：
+- 引入 `https://unpkg.com/lucide@0.456.0/dist/umd/lucide.min.js`（UMD CDN，保持无构建步骤）
+- HTML 中用 `<i data-lucide="icon-name" class="..."></i>`
+- 在 boot、动态插入图标后调用 `renderIcons()`（封装 `lucide.createIcons()`）
+- 新增 CSS 类 `.icon-btn-svg` / `.detail-title-icon` / `.nav-icon` 统一控制 SVG 尺寸与 stroke
+
+**图标映射**：
+| 旧 emoji | Lucide 名 | 用途 |
+|---------|-----------|------|
+| ◎ | `activity` | 事件流导航 |
+| ⬡ | `share-2` | 关系图导航 |
+| ◧ | `book-open` | 摘要记忆导航 |
+| ⚙️ | `settings` | 设置页导航 |
+| 🔐 / 🔓 | `lock` / `unlock` | Sudo 状态按钮 |
+| 🌗 | `moon-star` | 主题切换 |
+| 退出 | `log-out` | 登出 |
+| 📅 / 👤 / 🔗 | `calendar-days` / `user-round` / `link-2` | 详情侧栏标题 |
+| 📊 / 🔄 / ✨ 等 | `trending-down` / `file-down` / `user-cog` / `users` / `layout-list` / `sparkles` / `check` | 设置面板任务图标 |
+
+**CLAUDE.md 增补**：新增 "Front-end Conventions (shadcn-style + Lucide)" 章节，明确：
+- 永远不要在 UI chrome 中使用 emoji，仅在用户生成内容（聊天、摘要）中允许
+- 动态插入带 `data-lucide` 的元素后必须调用 `renderIcons()`
+- 颜色用 CSS 变量而非内联 hex
+- 维持无构建：新依赖必须可经 unpkg/jsdelivr UMD 引入
+
+#### 3. 侧边栏分组 + 设置独立页
+
+**侧边栏**改为 shadcn 风格的 `<SidebarGroup>` + `<Separator />` 语义：
+
+```
+┌─ Enhanced Memory v0.1.0 ──┐
+│                           │
+│  可视化                    │  ← .sb-group-label
+│   ⊙ 事件流                │
+│   ⌗ 关系图                │
+│   ▭ 摘要记忆              │
+│  ─────                    │  ← .sb-separator
+│  管理                      │
+│   ⚙ 设置                  │  ← 第 4 个 nav-item
+│                           │
+│  人格 N / 事件 N / 印象 N  │  ← 统计
+│  [Sudo] [theme] [logout]  │  ← 操作
+└───────────────────────────┘
+```
+
+**设置 modal → 独立 panel-view**：原 `#settings-modal` 弹窗删除，所有内容（认证、后台任务、演示数据、第三方面板列表）改为 `#panel-settings`，与三个可视化面板平级。`switchPanel('settings')` 触发 `refreshSettingsView()` 加载实时数据。
+
+**CSS 重构**：删除 `.modal-card / .modal-row / .modal-section / .modal-btn / .modal-close`（约 45 行），新增 `.settings-section / .settings-row / .settings-btn` + `.sb-group-label / .sb-separator` —— 净减少约 20 行。
+
+#### 4. mixins 现状评估（待用户决策）
+
+`mixins/` 文件夹目前仅有占位文件：
+
+| 文件 | 状态 |
+|------|------|
+| `__init__.py` / `admin_mixin.py` / `commands_mixin.py` / `memory_mixin.py` / `registry.py` | 0 字节空文件 |
+
+### 文件变动汇总
+
+| 文件 | 变更 |
+|------|------|
+| `web/server.py` | `_handle_auth_sudo` 三阶检查；所有 cookie samesite Strict→Lax |
+| `web/static/index.html` | 引入 Lucide CDN；侧边栏分组 + Separator + Lucide 图标；删除 settings-modal，改为 `#panel-settings`；`fetchJson` 解析 error JSON；`toggleSudo` / `changePassword` / `runTask` / `injectDemo` 显示具体错误 |
+| `CLAUDE.md` | 新增 "Front-end Conventions (shadcn-style + Lucide)" 章节；侧边栏分组写入 Visual Design |
+| `mixins/*` | 不动（评估结论：暂不拆分） |
+| `CHANGELOG.md` | 本节 |
+
+### 仍未完成（继承自 v1）
+
+- [ ] 承接线点击弹窗（`.tl-bridge` onclick）
+- [ ] 时间轴颜色自定义（`<input type="color">` → `--tl-accent`）
+- [ ] 背景色自定义（深色预设 + 自定义色板）
+- [ ] mixins 拆分（等首个 `/memory` 命令出现时启动）
 
 ---
 

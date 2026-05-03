@@ -169,9 +169,30 @@ Front-end fetches `/api/panels` and dynamically mounts third-party panels alongs
 - **Density slider** on Event Flow: client-side filter that keeps top-N events by salience (Memorix's saliency-density pattern).
 - **LOD on zoom**: Cytoscape node labels are hidden below `zoom < 0.6` to keep large graphs legible.
 - **Dark/light theme toggle** via CSS variables.
+- **Sidebar grouping**: nav items grouped under section labels (`可视化` / `管理`) separated by a 1-px line — matches shadcn `<SidebarGroup>` + `<Separator />` semantics.
 - **Toast + dock**: bottom dock for quick actions (refresh, clear highlight, panels), center-bottom toast for non-blocking feedback.
 
 The front-end is a single HTML file with CDN-loaded libs — no build step. If a future panel needs richer interactivity, build artefacts can be dropped into `web/static/` without touching `server.py`.
+
+### Front-end Conventions (shadcn-style + Lucide)
+
+The WebUI follows the **[shadcn/ui](https://ui.shadcn.com)** design language adapted to a no-build, single-HTML deployment:
+
+| Aspect | Choice | Why |
+|--------|--------|-----|
+| **Icon system** | [Lucide](https://lucide.dev) via UMD CDN, `<i data-lucide="name">` + `lucide.createIcons()` | Matches shadcn's default icon set; never use emojis (`🔐`/`⚙️`) in UI chrome — emojis vary across OS, can't be re-coloured by CSS, and don't match shadcn aesthetics |
+| **Colour tokens** | CSS variables (`--bg`, `--bg-2`, `--panel`, `--accent`, `--text-dim`) using shadcn's slate palette (slate-950/900/800 for dark, slate-50/200 for light) | Theme switching by toggling `[data-theme="light"]` on `<html>`; no Tailwind needed |
+| **Components** | Hand-rolled CSS that mimics shadcn primitives — `Sidebar` / `SidebarGroup` / `Separator` / `Card` / `Button` / `Input` | shadcn's React components don't fit a CDN-only setup, but its design tokens and visual rhythm transfer 1-to-1 to vanilla CSS |
+| **Spacing & radius** | 8 / 10 / 12 px radii, 4 / 6 / 8 / 12 / 16 / 22 px paddings | shadcn defaults |
+| **Typography** | Inter / Outfit fallback to system, 11–14 px body, 600 weight for emphasis | Consistent with shadcn examples |
+| **Density slider, neighborhood fade, LOD zoom** | Borrowed from Memorix's pattern, restyled to match shadcn surfaces | See `Visual Design` above |
+
+**When editing the front-end:**
+
+1. **Never introduce emojis** for UI chrome (icons, navigation, buttons, panel headers, detail titles). Use Lucide names — see <https://lucide.dev/icons/> for the catalogue. Emojis are acceptable only inside user-generated content (chat messages, summaries) where they originate from data.
+2. **After dynamically inserting any element with `data-lucide`**, call `renderIcons()` (defined in `index.html`) to materialise the SVG. Forgetting this leaves blank `<i>` elements.
+3. **Stick to the existing CSS variables** when adding new components. If a colour is needed that isn't in the palette, propose adding it to `:root` rather than hard-coding hex values inline.
+4. **Keep the no-build promise**: any new dependency must be available via `unpkg.com` / `cdn.jsdelivr.net` as a UMD bundle. No `npm install`, no Vite, no React.
 
 ### Configurable Items (in `_conf_schema.json`)
 

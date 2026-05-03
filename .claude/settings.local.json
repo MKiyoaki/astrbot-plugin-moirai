@@ -39,7 +39,10 @@
       "Bash(python3 -c \"import pytest, aiohttp; print\\(pytest.__version__, aiohttp.__version__\\)\")",
       "Read(//Users/kiyoaki/**)",
       "Bash(python -m pytest tests/test_webui.py --tb=short)",
-      "Bash(python -m pytest --tb=short)"
+      "Bash(python -m pytest --tb=short)",
+      "Bash(python -c \"import unicodedata; print\\('CHANGELOG.md exists:', __import__\\('os'\\).path.exists\\('CHANGELOG.md'\\)\\); print\\('演进架构更新日志.md exists:', __import__\\('os'\\).path.exists\\('演进架构更新日志.md'\\)\\)\")",
+      "Bash(python -m pytest tests/test_webui.py --tb=short -q)",
+      "Bash(python -c 'from html.parser import HTMLParser *)"
     ]
   }
 }
