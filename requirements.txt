@@ -2,6 +2,7 @@
 # Phase 2+: aiosqlite>=0.19
 # Phase 5+: faiss-cpu>=1.7; sentence-transformers>=2.6
 # Phase 7+: jinja2>=3.1
+# Phase 9+: aiohttp>=3.9 (already a transitive dep of AstrBot)
 
 # Development / test
 pytest>=7.4

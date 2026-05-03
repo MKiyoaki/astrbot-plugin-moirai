@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enhanced Memory — 三轴记忆面板</title>
+<link rel="stylesheet"
+  href="https://unpkg.com/vis-timeline@7.7.3/styles/vis-timeline-graph2d.min.css">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f0f2f5;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+header {
+  background: #1a1a2e;
+  color: #e8e8f0;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+header h1 { font-size: 16px; font-weight: 600; letter-spacing: 0.3px; }
+header .badge {
+  font-size: 11px;
+  background: #4a6cf7;
+  padding: 2px 8px;
+  border-radius: 10px;
+  color: #fff;
+}
+.panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  padding: 10px;
+  flex: 1;
+  min-height: 0;
+}
+.panel {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.panel-header {
+  padding: 9px 14px;
+  background: #fafafa;
+  border-bottom: 1px solid #e8e8e8;
+  font-weight: 600;
+  font-size: 13px;
+  color: #333;
+  flex-shrink: 0;
+}
+.panel-body { flex: 1; overflow: hidden; position: relative; }
+
+/* Event Flow */
+#timeline { height: 100%; }
+.vis-item { border-radius: 3px; font-size: 11px; }
+.vis-item.highlighted {
+  border-color: #e53935 !important;
+  background-color: #ffebee !important;
+  color: #c62828 !important;
+}
+
+/* Relation Graph */
+#cy { width: 100%; height: 100%; }
+
+/* Summary panel */
+.summary-layout { display: flex; height: 100%; }
+#summary-list {
+  width: 160px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-right: 1px solid #eee;
+}
+#summary-list .s-item {
+  padding: 7px 12px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.1s;
+}
+#summary-list .s-item:hover { background: #f5f7ff; }
+#summary-list .s-item.active {
+  background: #eef1ff;
+  border-left-color: #4a6cf7;
+}
+#summary-list .s-group { font-size: 12px; font-weight: 600; color: #333; }
+#summary-list .s-date  { font-size: 11px; color: #999; margin-top: 1px; }
+#summary-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #333;
+}
+#summary-content h1 { font-size: 16px; margin: 14px 0 6px; }
+#summary-content h2 { font-size: 14px; margin: 12px 0 5px; }
+#summary-content h3 { font-size: 13px; margin: 10px 0 4px; }
+#summary-content ul, #summary-content ol { padding-left: 18px; margin: 5px 0; }
+#summary-content p  { margin: 5px 0; }
+#summary-content hr { border: none; border-top: 1px solid #eee; margin: 10px 0; }
+
+.placeholder {
+  color: #bbb;
+  text-align: center;
+  padding: 40px 16px;
+  font-size: 12px;
+}
+.error { color: #e53935; }
+
+/* Graph legend */
+#graph-legend {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(255,255,255,0.9);
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: #555;
+  line-height: 1.8;
+}
+#graph-legend .dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Enhanced Memory</h1>
+  <span class="badge">三轴记忆面板</span>
+</header>
+
+<div class="panels">
+
+  <!-- ① Event Flow -->
+  <div class="panel">
+    <div class="panel-header">🕐 事件流（Event Flow）</div>
+    <div class="panel-body">
+      <div id="timeline"></div>
+    </div>
+  </div>
+
+  <!-- ② Relation Graph -->
+  <div class="panel">
+    <div class="panel-header">🔗 关系图（Relation Graph）</div>
+    <div class="panel-body">
+      <div id="cy"></div>
+      <div id="graph-legend">
+        <div><span class="dot" style="background:#4a6cf7"></span>普通用户</div>
+        <div><span class="dot" style="background:#e91e63"></span>机器人</div>
+        <div style="color:#4caf50">— 正面情感</div>
+        <div style="color:#f44336">— 负面情感</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ Summarised Memory -->
+  <div class="panel">
+    <div class="panel-header">📝 摘要记忆（Summarised Memory）</div>
+    <div class="panel-body">
+      <div class="summary-layout">
+        <div id="summary-list"><div class="placeholder">加载中…</div></div>
+        <div id="summary-content"><div class="placeholder">← 从列表选择摘要</div></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- CDN libs -->
+<script src="https://unpkg.com/vis-timeline@7.7.3/standalone/umd/vis-timeline-graph2d.min.js"></script>
+<script src="https://unpkg.com/cytoscape@3.29.2/dist/cytoscape.min.js"></script>
+<script src="https://unpkg.com/marked@9.1.6/marked.min.js"></script>
+
+<script>
+'use strict';
+
+// ============================================================================
+// State
+// ============================================================================
+let timeline = null;
+let tlItems  = null;  // vis.DataSet for Event Flow
+let cy       = null;  // Cytoscape instance
+
+// ============================================================================
+// ① Event Flow
+// ============================================================================
+async function initEventFlow() {
+  let data;
+  try {
+    const res = await fetch('/api/events?limit=200');
+    data = await res.json();
+  } catch (e) {
+    document.getElementById('timeline').innerHTML =
+      '<div class="placeholder error">事件流加载失败</div>';
+    return;
+  }
+
+  tlItems = new vis.DataSet(data.items.map(ev => ({
+    id:      ev.id,
+    content: `<span title="${ev.tags.join(', ')}">${ev.content}</span>`,
+    start:   ev.start,
+    end:     ev.end !== ev.start ? ev.end : undefined,
+    title:   [
+      `话题：${ev.content}`,
+      `重要度：${(ev.salience * 100).toFixed(0)}%`,
+      ev.tags.length ? `标签：${ev.tags.join('、')}` : '',
+      ev.participants.length ? `参与者：${ev.participants.join(', ')}` : '',
+    ].filter(Boolean).join('\n'),
+    _salience: ev.salience,
+    _inherit:  ev.inherit_from,
+  })));
+
+  const container = document.getElementById('timeline');
+  timeline = new vis.Timeline(container, tlItems, {
+    stack: true,
+    selectable: true,
+    zoomable: true,
+    moveable: true,
+    tooltip: { followMouse: true },
+    start: (() => {
+      const starts = data.items.map(e => new Date(e.start).getTime());
+      return starts.length ? new Date(Math.min(...starts) - 3600000) : undefined;
+    })(),
+  });
+}
+
+function highlightEvents(eventIds) {
+  if (!tlItems) return;
+  const idSet = new Set(eventIds);
+  tlItems.forEach(item => {
+    const highlighted = idSet.has(item.id);
+    tlItems.update({ id: item.id, className: highlighted ? 'highlighted' : '' });
+  });
+  if (eventIds.length > 0 && timeline) {
+    timeline.focus(eventIds, { animation: { duration: 400 } });
+  }
+}
+
+// ============================================================================
+// ② Relation Graph
+// ============================================================================
+async function initRelationGraph() {
+  let data;
+  try {
+    const res = await fetch('/api/graph');
+    data = await res.json();
+  } catch (e) {
+    document.getElementById('cy').innerHTML =
+      '<div class="placeholder error">关系图加载失败</div>';
+    return;
+  }
+
+  cy = cytoscape({
+    container: document.getElementById('cy'),
+    elements: [...data.nodes, ...data.edges],
+    style: [
+      {
+        selector: 'node',
+        style: {
+          label:              'data(label)',
+          'background-color': '#4a6cf7',
+          color:              '#fff',
+          'text-valign':      'center',
+          'text-halign':      'center',
+          'font-size':        '11px',
+          width:              50,
+          height:             50,
+          'text-wrap':        'wrap',
+          'text-max-width':   48,
+        },
+      },
+      {
+        selector: 'node[?is_bot]',
+        style: {
+          'background-color': '#e91e63',
+          'border-width':     2,
+          'border-color':     '#fff',
+        },
+      },
+      {
+        selector: 'edge',
+        style: {
+          label:                  'data(label)',
+          'curve-style':          'bezier',
+          'target-arrow-shape':   'triangle',
+          'font-size':            '9px',
+          width:                  'mapData(intensity, 0, 1, 1, 5)',
+          'line-color':           'mapData(affect, -1, 1, #f44336, #4caf50)',
+          'target-arrow-color':   'mapData(affect, -1, 1, #f44336, #4caf50)',
+          'text-background-opacity': 1,
+          'text-background-color':   '#fff',
+          'text-background-padding': '2px',
+          opacity: 0.85,
+        },
+      },
+      {
+        selector: ':selected',
+        style: { 'background-color': '#ff9800', 'line-color': '#ff9800' },
+      },
+    ],
+    layout: { name: 'cose', animate: false, randomize: false },
+  });
+
+  // Click edge → highlight evidence events in Event Flow
+  cy.on('tap', 'edge', evt => {
+    const ids = evt.target.data('evidence_event_ids') || [];
+    if (ids.length) highlightEvents(ids);
+  });
+
+  // Click node or background → clear highlights
+  cy.on('tap', 'node', ()  => highlightEvents([]));
+  cy.on('tap', evt => {
+    if (evt.target === cy) highlightEvents([]);
+  });
+}
+
+// ============================================================================
+// ③ Summarised Memory
+// ============================================================================
+async function initSummaryPanel() {
+  let summaries;
+  try {
+    const res = await fetch('/api/summaries');
+    summaries = await res.json();
+  } catch (e) {
+    document.getElementById('summary-list').innerHTML =
+      '<div class="placeholder error">加载失败</div>';
+    return;
+  }
+
+  const listEl = document.getElementById('summary-list');
+  if (!summaries.length) {
+    listEl.innerHTML = '<div class="placeholder">暂无摘要记录</div>';
+    return;
+  }
+
+  listEl.innerHTML = summaries.map((s, i) => `
+    <div class="s-item" data-i="${i}"
+         onclick="loadSummary(${JSON.stringify(s.group_id)},${JSON.stringify(s.date)},this)">
+      <div class="s-group">${s.label}</div>
+      <div class="s-date">${s.date}</div>
+    </div>
+  `).join('');
+
+  // Auto-load the first entry
+  const first = listEl.querySelector('.s-item');
+  if (first) loadSummary(summaries[0].group_id, summaries[0].date, first);
+}
+
+async function loadSummary(groupId, date, el) {
+  document.querySelectorAll('#summary-list .s-item').forEach(i => i.classList.remove('active'));
+  if (el) el.classList.add('active');
+
+  const qs = groupId
+    ? `group_id=${encodeURIComponent(groupId)}&date=${encodeURIComponent(date)}`
+    : `date=${encodeURIComponent(date)}`;
+
+  try {
+    const res = await fetch(`/api/summary?${qs}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { content } = await res.json();
+    document.getElementById('summary-content').innerHTML = marked.parse(content);
+  } catch (e) {
+    document.getElementById('summary-content').innerHTML =
+      '<div class="placeholder error">摘要加载失败</div>';
+  }
+}
+
+// ============================================================================
+// Boot
+// ============================================================================
+(async () => {
+  await Promise.all([
+    initEventFlow()     .catch(e => console.error('[EventFlow]', e)),
+    initRelationGraph() .catch(e => console.error('[RelationGraph]', e)),
+    initSummaryPanel()  .catch(e => console.error('[SummaryPanel]', e)),
+  ]);
+})();
+</script>
+</body>
+</html>

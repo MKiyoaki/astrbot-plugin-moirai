@@ -18,6 +18,9 @@ from core.embedding.encoder import NullEncoder, SentenceTransformerEncoder
 from core.extractor.extractor import EventExtractor
 from core.projector.projector import MarkdownProjector
 from core.retrieval.formatter import format_events_for_prompt
+from core.sync.syncer import ReverseSyncer
+from core.sync.watcher import FileWatcher
+from core.webui.server import WebuiServer
 from core.tasks.decay import run_salience_decay
 from core.tasks.scheduler import TaskScheduler
 from core.tasks.summary import run_group_summary
@@ -49,6 +52,9 @@ class EnhancedMemoryPlugin(Star):
         self.retriever: HybridRetriever | None = None
         self.projector: MarkdownProjector | None = None
         self._scheduler: TaskScheduler | None = None
+        self._webui: WebuiServer | None = None
+        self._watcher: FileWatcher | None = None
+        self._syncer: ReverseSyncer | None = None
 
     async def initialize(self) -> None:
         data_dir: Path = StarTools.get_data_dir("astrbot_plugin_enhanced_memory")
@@ -106,10 +112,16 @@ class EnhancedMemoryPlugin(Star):
             interval=86_400,
             fn=lambda: run_salience_decay(event_repo),
         )
+        async def _projection_and_register() -> None:
+            if self.projector:
+                await self.projector.render_all_personas()
+            if self._syncer:
+                await self._syncer.register_all()
+
         self._scheduler.register(
             "projection",
             interval=86_400,
-            fn=lambda: self.projector.render_all_personas() if self.projector else None,
+            fn=_projection_and_register,
         )
         self._scheduler.register(
             "persona_synthesis",
@@ -129,6 +141,24 @@ class EnhancedMemoryPlugin(Star):
             fn=lambda: run_group_summary(event_repo, data_dir, provider_getter),
         )
         await self._scheduler.start()
+
+        self._webui = WebuiServer(
+            persona_repo=persona_repo,
+            event_repo=event_repo,
+            impression_repo=impression_repo,
+            data_dir=data_dir,
+        )
+        await self._webui.start()
+
+        self._watcher = FileWatcher()
+        self._syncer = ReverseSyncer(
+            data_dir=data_dir,
+            persona_repo=persona_repo,
+            impression_repo=impression_repo,
+            watcher=self._watcher,
+        )
+        await self._syncer.register_all()
+        await self._watcher.start()
         logger.info("[EnhancedMemory] initialized — DB at %s", db_path)
 
     @filter.on_llm_request()
@@ -161,6 +191,10 @@ class EnhancedMemoryPlugin(Star):
         )
 
     async def terminate(self) -> None:
+        if self._watcher is not None:
+            await self._watcher.stop()
+        if self._webui is not None:
+            await self._webui.stop()
         if self._scheduler is not None:
             await self._scheduler.stop()
         if self.router is not None:
