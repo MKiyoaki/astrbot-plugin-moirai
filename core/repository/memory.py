@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from copy import deepcopy
 
-from domain.models import Event, Impression, Persona
+from ..domain.models import Event, Impression, Persona
 
 from .base import EventRepository, ImpressionRepository, PersonaRepository
 
@@ -96,7 +96,7 @@ class InMemoryEventRepository(EventRepository):
         return results[:limit]
 
     async def search_vector(self, embedding: list[float], limit: int = 20) -> list[Event]:
-        """Stub — no vector index in memory. Phase 5 adds FAISS."""
+        """Stub — no vector index in memory. Phase 5 adds sqlite-vec."""
         return []
 
     async def get_children(self, parent_event_id: str) -> list[Event]:

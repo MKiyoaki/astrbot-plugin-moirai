@@ -1,7 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m pytest tests/ -v)"
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -m pytest tests/test_domain.py tests/test_memory_repo.py -q)",
+      "Bash(pip install *)",
+      "Bash(python -m pytest tests/test_sqlite_repo.py -v)",
+      "Bash(dir \"d:\\\\Program Files\\\\Git Lib\\\\astrbot-plugin-enhanced-memory\" /B)",
+      "Read(//d/Program Files/Python 3.11.9/Lib/site-packages/astrbot/api/event/**)",
+      "Bash(python -c \"import astrbot.api.event as e; print\\(dir\\(e\\)\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -m pytest tests/test_boundary.py -v)"
     ]
   }
 }

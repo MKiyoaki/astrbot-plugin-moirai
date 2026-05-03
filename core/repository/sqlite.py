@@ -1,0 +1,458 @@
+"""SQLite repository implementations using aiosqlite.
+
+Each repository class takes an open aiosqlite.Connection. Connection setup
+(WAL mode, PRAGMA tuning, extension loading) is handled by db_open() in this
+module. Use db_open() as an async context manager in production code.
+
+JSON serialization strategy
+----------------------------
+SQLite stores list/dict fields as JSON text. All serialisation is done at the
+repository boundary; the domain model layer is never aware of it.
+
+MessageRef special case: serialised as {"sender_uid":…, "timestamp":…, …}.
+list[tuple[str,str]] (bound_identities): serialised as [[p, id], …].
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import sqlite3
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import AsyncIterator
+
+import aiosqlite
+
+from ..domain.models import Event, Impression, MessageRef, Persona
+from .base import EventRepository, ImpressionRepository, PersonaRepository
+
+
+# ---------------------------------------------------------------------------
+# Connection factory
+# ---------------------------------------------------------------------------
+
+_PRAGMAS = [
+    "PRAGMA journal_mode=WAL",
+    "PRAGMA synchronous=NORMAL",
+    "PRAGMA busy_timeout=5000",
+    "PRAGMA cache_size=-64000",  # 64 MB page cache
+    "PRAGMA foreign_keys=ON",
+]
+
+
+@asynccontextmanager
+async def db_open(path: Path | str) -> AsyncIterator[aiosqlite.Connection]:
+    """Open a tuned SQLite connection and run pending migrations.
+
+    Usage::
+
+        async with db_open(data_dir / "core.db") as db:
+            repo = SQLiteEventRepository(db)
+            ...
+    """
+    from migrations.runner import run_migrations  # avoid circular import at module level
+
+    async with aiosqlite.connect(str(path)) as db:
+        db.row_factory = aiosqlite.Row
+        for pragma in _PRAGMAS:
+            await db.execute(pragma)
+        await db.commit()
+        await run_migrations(db)
+        yield db
+
+
+# ---------------------------------------------------------------------------
+# Serialisation helpers
+# ---------------------------------------------------------------------------
+
+def _j(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _load_message_refs(raw: str) -> list[MessageRef]:
+    return [MessageRef(**item) for item in json.loads(raw)]
+
+
+def _dump_message_refs(refs: list[MessageRef]) -> str:
+    return json.dumps(
+        [
+            {
+                "sender_uid": r.sender_uid,
+                "timestamp": r.timestamp,
+                "content_hash": r.content_hash,
+                "content_preview": r.content_preview,
+            }
+            for r in refs
+        ],
+        ensure_ascii=False,
+    )
+
+
+def _row_to_event(row: aiosqlite.Row) -> Event:
+    return Event(
+        event_id=row["event_id"],
+        group_id=row["group_id"],
+        start_time=row["start_time"],
+        end_time=row["end_time"],
+        participants=json.loads(row["participants"]),
+        interaction_flow=_load_message_refs(row["interaction_flow"]),
+        topic=row["topic"],
+        chat_content_tags=json.loads(row["chat_content_tags"]),
+        salience=row["salience"],
+        confidence=row["confidence"],
+        inherit_from=json.loads(row["inherit_from"]),
+        last_accessed_at=row["last_accessed_at"],
+    )
+
+
+def _row_to_persona(row: aiosqlite.Row) -> Persona:
+    raw_ids = json.loads(row["bound_identities"] or "[]")
+    return Persona(
+        uid=row["uid"],
+        bound_identities=[(item[0], item[1]) for item in raw_ids],
+        primary_name=row["primary_name"],
+        persona_attrs=json.loads(row["persona_attrs"] or "{}"),
+        confidence=row["confidence"],
+        created_at=row["created_at"],
+        last_active_at=row["last_active_at"],
+    )
+
+
+def _row_to_impression(row: aiosqlite.Row) -> Impression:
+    return Impression(
+        observer_uid=row["observer_uid"],
+        subject_uid=row["subject_uid"],
+        relation_type=row["relation_type"],
+        affect=row["affect"],
+        intensity=row["intensity"],
+        confidence=row["confidence"],
+        scope=row["scope"],
+        evidence_event_ids=json.loads(row["evidence_event_ids"] or "[]"),
+        last_reinforced_at=row["last_reinforced_at"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# PersonaRepository
+# ---------------------------------------------------------------------------
+
+class SQLitePersonaRepository(PersonaRepository):
+    def __init__(self, db: aiosqlite.Connection) -> None:
+        self._db = db
+
+    async def get(self, uid: str) -> Persona | None:
+        # Fetch persona row + all bound identities in one query
+        async with self._db.execute(
+            "SELECT p.*, "
+            "(SELECT json_group_array(json_array(ib.platform, ib.physical_id)) "
+            " FROM identity_bindings ib WHERE ib.uid = p.uid) AS bound_identities "
+            "FROM personas p WHERE p.uid = ?",
+            (uid,),
+        ) as cur:
+            row = await cur.fetchone()
+        return _row_to_persona(row) if row else None
+
+    async def get_by_identity(self, platform: str, physical_id: str) -> Persona | None:
+        async with self._db.execute(
+            "SELECT uid FROM identity_bindings WHERE platform = ? AND physical_id = ?",
+            (platform, physical_id),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        return await self.get(row["uid"])
+
+    async def list_all(self) -> list[Persona]:
+        async with self._db.execute(
+            "SELECT p.*, "
+            "(SELECT json_group_array(json_array(ib.platform, ib.physical_id)) "
+            " FROM identity_bindings ib WHERE ib.uid = p.uid) AS bound_identities "
+            "FROM personas p ORDER BY p.last_active_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_persona(r) for r in rows]
+
+    async def upsert(self, persona: Persona) -> None:
+        async with self._db.execute("BEGIN"):
+            pass  # aiosqlite auto-commits; use explicit transaction
+        await self._db.execute(
+            "INSERT INTO personas(uid, primary_name, persona_attrs, confidence, "
+            "created_at, last_active_at) VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(uid) DO UPDATE SET "
+            "primary_name=excluded.primary_name, "
+            "persona_attrs=excluded.persona_attrs, "
+            "confidence=excluded.confidence, "
+            "last_active_at=excluded.last_active_at",
+            (
+                persona.uid,
+                persona.primary_name,
+                _j(persona.persona_attrs),
+                persona.confidence,
+                persona.created_at,
+                persona.last_active_at,
+            ),
+        )
+        # Replace all bindings for this uid
+        await self._db.execute(
+            "DELETE FROM identity_bindings WHERE uid = ?", (persona.uid,)
+        )
+        for platform, physical_id in persona.bound_identities:
+            await self._db.execute(
+                "INSERT OR REPLACE INTO identity_bindings(platform, physical_id, uid) "
+                "VALUES (?,?,?)",
+                (platform, physical_id, persona.uid),
+            )
+        await self._db.commit()
+
+    async def delete(self, uid: str) -> bool:
+        async with self._db.execute(
+            "SELECT 1 FROM personas WHERE uid = ?", (uid,)
+        ) as cur:
+            if await cur.fetchone() is None:
+                return False
+        await self._db.execute("DELETE FROM personas WHERE uid = ?", (uid,))
+        await self._db.commit()
+        return True
+
+    async def bind_identity(self, uid: str, platform: str, physical_id: str) -> None:
+        await self._db.execute(
+            "INSERT OR REPLACE INTO identity_bindings(platform, physical_id, uid) "
+            "VALUES (?,?,?)",
+            (platform, physical_id, uid),
+        )
+        await self._db.commit()
+
+
+# ---------------------------------------------------------------------------
+# EventRepository
+# ---------------------------------------------------------------------------
+
+_EVENT_SELECT = (
+    "SELECT event_id, group_id, start_time, end_time, participants, "
+    "interaction_flow, topic, chat_content_tags, salience, confidence, "
+    "inherit_from, last_accessed_at FROM events"
+)
+
+
+class SQLiteEventRepository(EventRepository):
+    def __init__(self, db: aiosqlite.Connection) -> None:
+        self._db = db
+
+    async def get(self, event_id: str) -> Event | None:
+        async with self._db.execute(
+            f"{_EVENT_SELECT} WHERE event_id = ?", (event_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return _row_to_event(row) if row else None
+
+    async def list_by_group(self, group_id: str | None, limit: int = 100) -> list[Event]:
+        # IS ? correctly handles NULL comparison (group_id IS NULL)
+        async with self._db.execute(
+            f"{_EVENT_SELECT} WHERE group_id IS ? ORDER BY start_time DESC LIMIT ?",
+            (group_id, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_event(r) for r in rows]
+
+    async def list_by_participant(self, uid: str, limit: int = 100) -> list[Event]:
+        async with self._db.execute(
+            f"{_EVENT_SELECT} e WHERE EXISTS ("
+            "  SELECT 1 FROM json_each(e.participants) WHERE value = ?"
+            ") ORDER BY e.start_time DESC LIMIT ?",
+            (uid, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_event(r) for r in rows]
+
+    async def search_fts(self, query: str, limit: int = 20) -> list[Event]:
+        """BM25 full-text search over topic and chat_content_tags."""
+        try:
+            async with self._db.execute(
+                f"{_EVENT_SELECT} e WHERE e.rowid IN ("
+                "  SELECT rowid FROM events_fts WHERE events_fts MATCH ?"
+                "  ORDER BY rank LIMIT ?"
+                ") ORDER BY e.salience DESC",
+                (query, limit),
+            ) as cur:
+                rows = await cur.fetchall()
+            return [_row_to_event(r) for r in rows]
+        except Exception:
+            # Malformed FTS query → return empty rather than crash
+            return []
+
+    async def search_vector(self, embedding: list[float], limit: int = 20) -> list[Event]:
+        """Stub — sqlite-vec vec0 integration added in Phase 5."""
+        return []
+
+    async def get_children(self, parent_event_id: str) -> list[Event]:
+        async with self._db.execute(
+            f"{_EVENT_SELECT} e WHERE EXISTS ("
+            "  SELECT 1 FROM json_each(e.inherit_from) WHERE value = ?"
+            ")",
+            (parent_event_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_event(r) for r in rows]
+
+    async def upsert(self, event: Event) -> None:
+        await self._db.execute(
+            "INSERT INTO events(event_id, group_id, start_time, end_time, participants, "
+            "interaction_flow, topic, chat_content_tags, salience, confidence, "
+            "inherit_from, last_accessed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(event_id) DO UPDATE SET "
+            "group_id=excluded.group_id, "
+            "start_time=excluded.start_time, "
+            "end_time=excluded.end_time, "
+            "participants=excluded.participants, "
+            "interaction_flow=excluded.interaction_flow, "
+            "topic=excluded.topic, "
+            "chat_content_tags=excluded.chat_content_tags, "
+            "salience=excluded.salience, "
+            "confidence=excluded.confidence, "
+            "inherit_from=excluded.inherit_from, "
+            "last_accessed_at=excluded.last_accessed_at",
+            (
+                event.event_id,
+                event.group_id,
+                event.start_time,
+                event.end_time,
+                _j(event.participants),
+                _dump_message_refs(event.interaction_flow),
+                event.topic,
+                _j(event.chat_content_tags),
+                event.salience,
+                event.confidence,
+                _j(event.inherit_from),
+                event.last_accessed_at,
+            ),
+        )
+        await self._db.commit()
+
+    async def update_salience(self, event_id: str, new_salience: float) -> bool:
+        await self._db.execute(
+            "UPDATE events SET salience = ? WHERE event_id = ?",
+            (new_salience, event_id),
+        )
+        await self._db.commit()
+        async with self._db.execute(
+            "SELECT changes()"
+        ) as cur:
+            row = await cur.fetchone()
+        return bool(row and row[0])
+
+    async def update_last_accessed(self, event_id: str, timestamp: float) -> bool:
+        await self._db.execute(
+            "UPDATE events SET last_accessed_at = ? WHERE event_id = ?",
+            (timestamp, event_id),
+        )
+        await self._db.commit()
+        async with self._db.execute("SELECT changes()") as cur:
+            row = await cur.fetchone()
+        return bool(row and row[0])
+
+    async def decay_all_salience(self, lambda_: float) -> int:
+        """Multiply every event's salience by exp(-lambda_) in a single UPDATE."""
+        factor = math.exp(-lambda_)
+        # Use cursor.rowcount before commit; FTS5 triggers would overwrite changes()
+        cursor = await self._db.execute(
+            "UPDATE events SET salience = MAX(0.0, salience * ?)", (factor,)
+        )
+        count = cursor.rowcount
+        await self._db.commit()
+        return count
+
+
+# ---------------------------------------------------------------------------
+# ImpressionRepository
+# ---------------------------------------------------------------------------
+
+_IMPRESSION_SELECT = (
+    "SELECT observer_uid, subject_uid, relation_type, affect, intensity, "
+    "confidence, scope, evidence_event_ids, last_reinforced_at FROM impressions"
+)
+
+
+class SQLiteImpressionRepository(ImpressionRepository):
+    def __init__(self, db: aiosqlite.Connection) -> None:
+        self._db = db
+
+    async def get(
+        self, observer_uid: str, subject_uid: str, scope: str
+    ) -> Impression | None:
+        async with self._db.execute(
+            f"{_IMPRESSION_SELECT} WHERE observer_uid=? AND subject_uid=? AND scope=?",
+            (observer_uid, subject_uid, scope),
+        ) as cur:
+            row = await cur.fetchone()
+        return _row_to_impression(row) if row else None
+
+    async def list_by_observer(
+        self, observer_uid: str, scope: str | None = None
+    ) -> list[Impression]:
+        if scope is None:
+            sql, params = (
+                f"{_IMPRESSION_SELECT} WHERE observer_uid = ?",
+                (observer_uid,),
+            )
+        else:
+            sql, params = (
+                f"{_IMPRESSION_SELECT} WHERE observer_uid = ? AND scope = ?",
+                (observer_uid, scope),
+            )
+        async with self._db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_impression(r) for r in rows]
+
+    async def list_by_subject(
+        self, subject_uid: str, scope: str | None = None
+    ) -> list[Impression]:
+        if scope is None:
+            sql, params = (
+                f"{_IMPRESSION_SELECT} WHERE subject_uid = ?",
+                (subject_uid,),
+            )
+        else:
+            sql, params = (
+                f"{_IMPRESSION_SELECT} WHERE subject_uid = ? AND scope = ?",
+                (subject_uid, scope),
+            )
+        async with self._db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_impression(r) for r in rows]
+
+    async def upsert(self, impression: Impression) -> None:
+        await self._db.execute(
+            "INSERT INTO impressions(observer_uid, subject_uid, relation_type, "
+            "affect, intensity, confidence, scope, evidence_event_ids, last_reinforced_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(observer_uid, subject_uid, scope) DO UPDATE SET "
+            "relation_type=excluded.relation_type, "
+            "affect=excluded.affect, "
+            "intensity=excluded.intensity, "
+            "confidence=excluded.confidence, "
+            "evidence_event_ids=excluded.evidence_event_ids, "
+            "last_reinforced_at=excluded.last_reinforced_at",
+            (
+                impression.observer_uid,
+                impression.subject_uid,
+                impression.relation_type,
+                impression.affect,
+                impression.intensity,
+                impression.confidence,
+                impression.scope,
+                _j(impression.evidence_event_ids),
+                impression.last_reinforced_at,
+            ),
+        )
+        await self._db.commit()
+
+    async def delete(self, observer_uid: str, subject_uid: str, scope: str) -> bool:
+        await self._db.execute(
+            "DELETE FROM impressions WHERE observer_uid=? AND subject_uid=? AND scope=?",
+            (observer_uid, subject_uid, scope),
+        )
+        await self._db.commit()
+        async with self._db.execute("SELECT changes()") as cur:
+            row = await cur.fetchone()
+        return bool(row and row[0])

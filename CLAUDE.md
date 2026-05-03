@@ -44,9 +44,7 @@ Raw Messages (from AstrBot event stream)
        ▼
 [Repository Layer]           ← abstract interface
        │
-       ├─► Chroma (structured)
-       ├─► Chroma FTS5 (keyword search)
-       ├─► FAISS (vector search)
+       ├─► SQLite + FTS5 + sqlite-vec (single file: structured + keyword + vector)
        └─► Markdown Projector (read-only user-facing files)
 
 Periodic Tasks (cron-style, not on hot path):
@@ -137,8 +135,7 @@ These are all future work. The simple version is sufficient to validate the onto
 ```
 data/plugins/<plugin_name>/data
 ├── db/
-│   ├── core.db          # Chroma: events, personas, impressions, fts5
-│   └── vectors.faiss    # FAISS index for event embeddings
+│   └── core.db          # SQLite WAL: events, personas, impressions, fts5, vec0 (sqlite-vec)
 ├── personas/
 │   └── <uid>/
 │       ├── PROFILE.md   # objective info (read-only projection)
@@ -174,7 +171,7 @@ On every LLM call (before generation):
    - is_event_query / general → continue to RAG
 
 2. Hybrid RAG:
-   a. BM25 top-20 (FTS5) + vector top-20 (FAISS)
+   a. BM25 top-20 (FTS5) + vector top-20 (sqlite-vec vec0)
    b. RRF fusion → top-10
    c. Neighbor expansion: for each retrieved event, optionally include
       one inherit-parent and one inherit-child if they pass a relevance gate

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from domain.models import Event, Impression, Persona
+from ..domain.models import Event, Impression, Persona
 
 
 class PersonaRepository(ABC):
@@ -57,7 +57,7 @@ class EventRepository(ABC):
     @abstractmethod
     async def search_vector(self, embedding: list[float], limit: int = 20) -> list[Event]:
         """Semantic search via embedding similarity.
-        In-memory stub returns []; real implementation uses FAISS (Phase 5).
+        Stub returns []; real implementation uses sqlite-vec vec0 (Phase 5).
         """
         ...
 

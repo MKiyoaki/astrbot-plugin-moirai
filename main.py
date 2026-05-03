@@ -1,27 +1,81 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
-from astrbot.api.star import Context, Star, register
+from __future__ import annotations
+
+from contextlib import AsyncExitStack
+from pathlib import Path
+
 from astrbot.api import logger
+from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.star import Context, Star, StarTools, register
+
+from core.adapters.astrbot import MessageRouter
+from core.adapters.identity import IdentityResolver
+from core.boundary.detector import BoundaryConfig, EventBoundaryDetector
+from core.repository.sqlite import (
+    SQLiteEventRepository,
+    SQLiteImpressionRepository,
+    SQLitePersonaRepository,
+    db_open,
+)
 
 
-@register("helloworld", "YourName", "一个简单的 Hello World 插件", "1.0.0")
-class MyPlugin(Star):
-    def __init__(self, context: Context):
+@register(
+    "astrbot_plugin_enhanced_memory",
+    "DrGariton",
+    "三轴长期记忆插件：情节轴 × 社会关系轴 × 叙事轴",
+    "0.1.0",
+    "https://github.com/DrGariton/astrbot-plugin-enhanced-memory",
+)
+class EnhancedMemoryPlugin(Star):
+    def __init__(self, context: Context) -> None:
         super().__init__(context)
+        self._exit_stack: AsyncExitStack | None = None
+        self.router: MessageRouter | None = None
 
-    async def initialize(self):
-        """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
+    async def initialize(self) -> None:
+        data_dir: Path = StarTools.get_data_dir("astrbot_plugin_enhanced_memory")
+        db_path = data_dir / "db" / "core.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 注册指令的装饰器。指令名为 helloworld。注册成功后，发送 `/helloworld` 就会触发这个指令，并回复 `你好, {user_name}!`
-    @filter.command("helloworld")
-    async def helloworld(self, event: AstrMessageEvent):
-        """这是一个 hello world 指令"""  # 这是 handler 的描述，将会被解析方便用户了解插件内容。建议填写。
-        user_name = event.get_sender_name()
-        message_str = event.message_str  # 用户发的纯文本消息字符串
-        # 用户所发的消息的消息链 # from astrbot.api.message_components import *
-        message_chain = event.get_messages()
-        logger.info(message_chain)
-        # 发送一条纯文本消息
-        yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!")
+        self._exit_stack = AsyncExitStack()
+        db = await self._exit_stack.enter_async_context(db_open(db_path))
 
-    async def terminate(self):
-        """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
+        persona_repo = SQLitePersonaRepository(db)
+        event_repo = SQLiteEventRepository(db)
+        _impression_repo = SQLiteImpressionRepository(db)
+
+        resolver = IdentityResolver(persona_repo)
+        detector = EventBoundaryDetector(BoundaryConfig())
+        self.router = MessageRouter(
+            event_repo=event_repo,
+            identity_resolver=resolver,
+            detector=detector,
+            on_event_close=None,  # Phase 4 will wire the LLM extractor here
+        )
+        logger.info("[EnhancedMemory] initialized — DB at %s", db_path)
+
+    @filter.event_message_type(filter.EventMessageType.ALL)
+    async def on_message(self, event: AstrMessageEvent) -> None:
+        if self.router is None:
+            return
+        platform = event.get_platform_name()
+        physical_id = event.get_sender_id()
+        display_name = event.get_sender_name()
+        text = event.message_str
+        raw_group_id = event.get_group_id() or None
+        timestamp = event.created_at
+
+        await self.router.process(
+            platform=platform,
+            physical_id=physical_id,
+            display_name=display_name,
+            text=text,
+            raw_group_id=raw_group_id,
+            now=timestamp,
+        )
+
+    async def terminate(self) -> None:
+        if self.router is not None:
+            await self.router.flush_all()
+        if self._exit_stack is not None:
+            await self._exit_stack.aclose()
+        logger.info("[EnhancedMemory] terminated")
