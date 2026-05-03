@@ -1,0 +1,25 @@
+# {{ persona.primary_name }} 的印象记录
+
+> 本文件可由用户手动编辑，修改将在下次同步时写回数据库（Phase 10）。
+
+{% if impressions %}
+{% for imp in impressions %}
+---
+
+## 来自 `{{ imp.observer_uid[:8] }}` 的印象（范围：{{ imp.scope }}）
+
+| 字段 | 值 |
+|------|----|
+| 关系类型 | {{ imp.relation_type }} |
+| 情感倾向 | {{ imp.affect | format_affect }} |
+| 强度 | {{ (imp.intensity * 100) | int }}% |
+| 置信度 | {{ (imp.confidence * 100) | int }}% |
+| 最近强化 | {{ imp.last_reinforced_at | format_time }} |
+
+{% if imp.evidence_event_ids %}
+**依据事件：** {{ imp.evidence_event_ids | join(", ") }}
+{% endif %}
+{% endfor %}
+{% else %}
+暂无印象记录
+{% endif %}

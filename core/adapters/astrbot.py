@@ -70,7 +70,7 @@ class MessageRouter:
             )
             self._windows[session_id] = window
 
-        window.add_message(uid, text, now)
+        window.add_message(uid, text, now, display_name)
 
     async def flush_all(self) -> None:
         """Flush all open windows (called on plugin shutdown)."""

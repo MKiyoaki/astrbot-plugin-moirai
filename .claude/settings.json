@@ -1,7 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m pytest -v)"
+      "Bash(python -m pytest -v)",
+      "Bash(python -c ' *)",
+      "Bash(python -m pytest tests/test_extractor.py -v)",
+      "Bash(pip show *)",
+      "Bash(python -c \"import aiosqlite; import inspect; src = inspect.getsource\\(aiosqlite.Connection\\); idx = src.find\\('enable_load_extension'\\); print\\(src[idx:idx+200]\\)\")",
+      "Bash(python -m pytest tests/test_retrieval.py -v)",
+      "Bash(python -c \"import astrbot; print\\(astrbot.__file__\\)\")",
+      "Read(//d/Program Files/Python 3.11.9/Lib/site-packages/astrbot/**)",
+      "Bash(python -m pytest tests/test_prompt_injection.py -v)",
+      "Bash(python -c \"import jinja2; print\\(jinja2.__version__\\)\")",
+      "Bash(python -m pytest --tb=short -q)",
+      "Bash(python -m pytest tests/test_tasks.py -v)"
     ]
   }
 }

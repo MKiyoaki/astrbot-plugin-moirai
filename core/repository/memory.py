@@ -84,6 +84,9 @@ class InMemoryEventRepository(EventRepository):
         events.sort(key=lambda e: e.start_time, reverse=True)
         return events[:limit]
 
+    async def list_group_ids(self) -> list[str | None]:
+        return list({e.group_id for e in self._store.values()})
+
     async def search_fts(self, query: str, limit: int = 20) -> list[Event]:
         """Naive term-in-string match over topic + tags. FTS5 replaces this in Phase 2."""
         terms = query.lower().split()

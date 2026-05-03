@@ -1,0 +1,33 @@
+# Bot 身份档案
+
+> 本文件记录机器人自身的 Persona 信息，由插件自动生成。
+
+## 基本信息
+
+| 字段 | 值 |
+|------|----|
+| 名称 | {{ persona.primary_name }} |
+| UID | `{{ persona.uid }}` |
+| 置信度 | {{ (persona.confidence * 100) | int }}% |
+| 创建时间 | {{ persona.created_at | format_time }} |
+| 最后活跃 | {{ persona.last_active_at | format_time }} |
+
+## 绑定身份
+
+{% if persona.bound_identities %}
+{% for platform, pid in persona.bound_identities %}
+- {{ platform }}: `{{ pid }}`
+{% endfor %}
+{% else %}
+暂无绑定身份
+{% endif %}
+
+## 属性
+
+{% if persona.persona_attrs %}
+{% for key, value in persona.persona_attrs.items() %}
+- **{{ key }}**: {{ value }}
+{% endfor %}
+{% else %}
+暂无属性记录
+{% endif %}

@@ -11,11 +11,18 @@ repository boundary; the domain model layer is never aware of it.
 
 MessageRef special case: serialised as {"sender_uid":…, "timestamp":…, …}.
 list[tuple[str,str]] (bound_identities): serialised as [[p, id], …].
+
+sqlite-vec
+----------
+db_open() tries to load the sqlite-vec extension and create the events_vec
+virtual table. If the extension is unavailable, vector operations silently
+no-op — BM25 search still works.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import math
 import sqlite3
 from contextlib import asynccontextmanager
@@ -26,6 +33,8 @@ import aiosqlite
 
 from ..domain.models import Event, Impression, MessageRef, Persona
 from .base import EventRepository, ImpressionRepository, PersonaRepository
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -41,15 +50,42 @@ _PRAGMAS = [
 ]
 
 
+async def _try_load_sqlite_vec(db: aiosqlite.Connection, dim: int = 512) -> bool:
+    """Load the sqlite-vec extension and create events_vec virtual table.
+
+    Returns True on success, False if the extension is not installed.
+    Safe to call on every startup — uses IF NOT EXISTS.
+    """
+    try:
+        import sqlite_vec  # noqa: PLC0415
+
+        await db.enable_load_extension(True)
+        await db.load_extension(sqlite_vec.loadable_path())
+        await db.enable_load_extension(False)  # re-disable for safety
+        await db.execute(
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS events_vec USING vec0(embedding float[{dim}])"
+        )
+        await db.commit()
+        return True
+    except Exception as exc:
+        logger.debug("[db_open] sqlite-vec not available: %s", exc)
+        return False
+
+
 @asynccontextmanager
-async def db_open(path: Path | str) -> AsyncIterator[aiosqlite.Connection]:
-    """Open a tuned SQLite connection and run pending migrations.
+async def db_open(
+    path: Path | str, vec_dim: int = 512
+) -> AsyncIterator[aiosqlite.Connection]:
+    """Open a tuned SQLite connection, run migrations, and load sqlite-vec.
 
     Usage::
 
         async with db_open(data_dir / "core.db") as db:
             repo = SQLiteEventRepository(db)
             ...
+
+    vec_dim: embedding dimension for the events_vec virtual table.
+    Must match the dimension of the Encoder used in production.
     """
     from migrations.runner import run_migrations  # avoid circular import at module level
 
@@ -59,6 +95,7 @@ async def db_open(path: Path | str) -> AsyncIterator[aiosqlite.Connection]:
             await db.execute(pragma)
         await db.commit()
         await run_migrations(db)
+        await _try_load_sqlite_vec(db, vec_dim)
         yield db
 
 
@@ -228,6 +265,12 @@ class SQLitePersonaRepository(PersonaRepository):
 # EventRepository
 # ---------------------------------------------------------------------------
 
+_EVENT_SELECT_COLS = (
+    "e.event_id, e.group_id, e.start_time, e.end_time, e.participants, "
+    "e.interaction_flow, e.topic, e.chat_content_tags, e.salience, e.confidence, "
+    "e.inherit_from, e.last_accessed_at"
+)
+
 _EVENT_SELECT = (
     "SELECT event_id, group_id, start_time, end_time, participants, "
     "interaction_flow, topic, chat_content_tags, salience, confidence, "
@@ -265,6 +308,11 @@ class SQLiteEventRepository(EventRepository):
             rows = await cur.fetchall()
         return [_row_to_event(r) for r in rows]
 
+    async def list_group_ids(self) -> list[str | None]:
+        async with self._db.execute("SELECT DISTINCT group_id FROM events") as cur:
+            rows = await cur.fetchall()
+        return [row[0] for row in rows]
+
     async def search_fts(self, query: str, limit: int = 20) -> list[Event]:
         """BM25 full-text search over topic and chat_content_tags."""
         try:
@@ -282,8 +330,42 @@ class SQLiteEventRepository(EventRepository):
             return []
 
     async def search_vector(self, embedding: list[float], limit: int = 20) -> list[Event]:
-        """Stub — sqlite-vec vec0 integration added in Phase 5."""
-        return []
+        """Cosine-approximate nearest-neighbour search via sqlite-vec vec0.
+
+        Returns [] if sqlite-vec is not loaded or the embedding is empty.
+        """
+        if not embedding:
+            return []
+        try:
+            async with self._db.execute(
+                f"SELECT {_EVENT_SELECT_COLS} FROM "
+                "(SELECT rowid, distance FROM events_vec WHERE embedding MATCH ? "
+                " ORDER BY distance LIMIT ?) v "
+                "JOIN events e ON e.rowid = v.rowid "
+                "ORDER BY v.distance",
+                (json.dumps(embedding), limit),
+            ) as cur:
+                rows = await cur.fetchall()
+            return [_row_to_event(r) for r in rows]
+        except Exception:
+            return []
+
+    async def upsert_vector(self, event_id: str, embedding: list[float]) -> None:
+        """Store or replace the embedding for an event.
+
+        No-op if events_vec doesn't exist (sqlite-vec not loaded).
+        """
+        if not embedding:
+            return
+        try:
+            await self._db.execute(
+                "INSERT OR REPLACE INTO events_vec(rowid, embedding) "
+                "SELECT rowid, ? FROM events WHERE event_id = ?",
+                (json.dumps(embedding), event_id),
+            )
+            await self._db.commit()
+        except Exception:
+            pass
 
     async def get_children(self, parent_event_id: str) -> list[Event]:
         async with self._db.execute(

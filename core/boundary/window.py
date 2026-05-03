@@ -10,6 +10,7 @@ class RawMessage:
     uid: str
     text: str
     timestamp: float
+    display_name: str = ""
 
 
 @dataclass
@@ -33,8 +34,12 @@ class MessageWindow:
     def age_since_last_message(self, now: float) -> float:
         return now - self.last_message_time
 
-    def add_message(self, uid: str, text: str, timestamp: float) -> None:
-        self.messages.append(RawMessage(uid=uid, text=text, timestamp=timestamp))
+    def add_message(
+        self, uid: str, text: str, timestamp: float, display_name: str = ""
+    ) -> None:
+        self.messages.append(
+            RawMessage(uid=uid, text=text, timestamp=timestamp, display_name=display_name)
+        )
         self.last_message_time = timestamp
 
     @property

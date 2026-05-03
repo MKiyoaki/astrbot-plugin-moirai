@@ -50,6 +50,13 @@ class EventRepository(ABC):
         ...
 
     @abstractmethod
+    async def list_group_ids(self) -> list[str | None]:
+        """Return the distinct group_id values present in the events table.
+        None represents private-chat events.
+        """
+        ...
+
+    @abstractmethod
     async def search_fts(self, query: str, limit: int = 20) -> list[Event]:
         """Keyword search over topic and chat_content_tags."""
         ...
@@ -85,6 +92,13 @@ class EventRepository(ABC):
         Intended to be called once per day by the periodic task scheduler.
         """
         ...
+
+    async def upsert_vector(self, event_id: str, embedding: list[float]) -> None:
+        """Store the vector embedding for an event.
+
+        Default is a no-op — overridden by SQLiteEventRepository when
+        sqlite-vec is loaded. In-memory repo ignores vectors.
+        """
 
 
 class ImpressionRepository(ABC):
