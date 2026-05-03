@@ -4,6 +4,58 @@
 
 ---
 
+## WebUI 重设计 v4 — 迁移至 Next.js + shadcn/ui
+
+**完成日期：** 2026-05-04
+
+### 核心变更
+
+#### 前端框架迁移
+
+将 `web-legacy/`（原生 HTML/CSS/JS 单文件 SPA）完整迁移至 `web/`（Next.js 16 App Router + shadcn/ui base-nova 风格）：
+
+- **框架**：Next.js 16 with App Router；所有页面为 Client Components
+- **组件库**：shadcn/ui（base-nova 风格，底层使用 `@base-ui/react` 而非 Radix UI）
+- **主题**：next-themes（light/dark 通过 HTML `class` 属性切换）
+- **API 代理**：`next.config.mjs` 将 `/api/*` 转发到后端（端口由 `BACKEND_PORT` 环境变量控制，默认 2654）
+
+#### 新增文件结构
+
+```
+web/
+├── app/                 # Next.js App Router
+│   ├── layout.tsx       # 根布局：AppShell + AppProvider + ThemeProvider
+│   ├── page.tsx         # 首页 Dashboard
+│   ├── events/page.tsx  # 事件流面板
+│   ├── graph/page.tsx   # 关系图面板
+│   ├── summary/page.tsx # 摘要记忆面板
+│   ├── recall/page.tsx  # 记忆召回面板
+│   ├── library/page.tsx # 信息库（Tags/Personas/Groups/Events/Time）
+│   └── settings/page.tsx# 设置面板
+├── components/
+│   ├── layout/          # app-shell, app-sidebar, page-header
+│   ├── shared/          # login-screen, toaster, tag-selector
+│   ├── events/          # event-timeline, event-dialogs
+│   └── graph/           # cytoscape-graph, persona-dialogs
+└── lib/
+    ├── i18n.ts          # 全量 zh-CN 翻译对象
+    ├── api.ts           # 类型化 API 客户端
+    └── store.tsx        # React Context 全局状态
+```
+
+#### Bug 修复（相对 web-legacy）
+
+1. **关系图节点/边颜色**：通过 canvas 解析 oklch CSS 变量，Cytoscape 节点/标签颜色随 dark/light 主题自适应
+2. **Sudo 模式倒计时**：改为持久化设置（`sudoGuardEnabled` + `sudoGuardMinutes`），0 分钟表示始终处于 Sudo 状态；配置存储在 localStorage
+3. **多语言支持**：所有 UI 文本集中在 `lib/i18n.ts`，支持后续扩展
+4. **图布局**：已连接节点使用 concentric 布局，孤立节点统一排列在右侧
+5. **记忆召回面板**：所有控件（大文本框、结果数量、会话 ID、召回按钮）集中在顶部单卡片
+6. **页面头部**：每个页面统一的透明头部（大标题 + 描述 + 右对齐操作区 + 分隔线）
+7. **标签选择器**：Popover Combobox 风格，支持选择已有标签或输入创建新标签
+8. **列表视图导航**：Events/Graph 页面的列表视图按钮跳转到 `/library` 对应 Tab
+
+---
+
 ## WebUI 重设计 v3 — 前端模块化重构 + 全 CRUD + 记忆召回 + 色彩主题
 
 **完成日期：** 2026-05-03

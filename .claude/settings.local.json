@@ -42,7 +42,12 @@
       "Bash(python -m pytest --tb=short)",
       "Bash(python -c \"import unicodedata; print\\('CHANGELOG.md exists:', __import__\\('os'\\).path.exists\\('CHANGELOG.md'\\)\\); print\\('演进架构更新日志.md exists:', __import__\\('os'\\).path.exists\\('演进架构更新日志.md'\\)\\)\")",
       "Bash(python -m pytest tests/test_webui.py --tb=short -q)",
-      "Bash(python -c 'from html.parser import HTMLParser *)"
+      "Bash(python -c 'from html.parser import HTMLParser *)",
+      "Bash(npx shadcn@4.6.0 add dialog label switch slider tabs scroll-area popover alert-dialog --yes)",
+      "Bash(export PATH=\"/opt/homebrew/opt/node/bin:$PATH\")",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(/opt/homebrew/opt/node/bin/npx tsc *)"
     ]
   }
 }
