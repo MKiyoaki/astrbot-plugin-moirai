@@ -3,30 +3,30 @@ from __future__ import annotations
 import asyncio
 from contextlib import AsyncExitStack
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.provider import ProviderRequest
-from astrbot.api.star import Context, Star, StarTools, register
+from astrbot.api.event import filter
+from astrbot.api.star import StarTools, register
 
 from web.server import WebuiServer
 
 from core.adapters.astrbot import MessageRouter
 from core.adapters.identity import IdentityResolver
-from core.boundary.detector import BoundaryConfig, EventBoundaryDetector
-from core.boundary.window import MessageWindow
+from core.boundary.detector import EventBoundaryDetector
+from core.config import PluginConfig
 from core.domain.models import Event
 from core.embedding.encoder import NullEncoder, SentenceTransformerEncoder
 from core.extractor.extractor import EventExtractor
+from core.managers import MemoryManager
 from core.projector.projector import MarkdownProjector
 from core.retrieval.formatter import format_events_for_prompt
+from core.retrieval.hybrid import HybridRetriever
 from core.sync.syncer import ReverseSyncer
 from core.sync.watcher import FileWatcher
-from core.tasks.decay import run_salience_decay
 from core.tasks.scheduler import TaskScheduler
 from core.tasks.summary import run_group_summary
 from core.tasks.synthesis import run_impression_aggregation, run_persona_synthesis
-from core.retrieval.hybrid import HybridRetriever
 from core.repository.sqlite import (
     SQLiteEventRepository,
     SQLiteImpressionRepository,
@@ -34,9 +34,16 @@ from core.repository.sqlite import (
     db_open,
 )
 
-_EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
+if TYPE_CHECKING:
+    from astrbot.api.event import AstrMessageEvent
+    from astrbot.api.provider import ProviderRequest
+    from astrbot.api.star import Context, Star
+    from core.boundary.window import MessageWindow
+
+
 _VEC_DIM = 512
 _PLUGIN_VERSION = "0.1.0"
+_PLUGIN_NAME = "EnhancedMemory"
 
 
 @register(
@@ -44,14 +51,14 @@ _PLUGIN_VERSION = "0.1.0"
     "DrGariton",
     "三轴长期记忆插件：情节轴 × 社会关系轴 × 叙事轴",
     _PLUGIN_VERSION,
-    "https://github.com/DrGariton/astrbot-plugin-enhanced-memory",
+    "https://github.com/MKiyoaki/astrbot-plugin-enhanced-memory",
 )
 class EnhancedMemoryPlugin(Star):
     def __init__(self, context: Context) -> None:
         super().__init__(context)
         self._exit_stack: AsyncExitStack | None = None
         self.router: MessageRouter | None = None
-        self.retriever: HybridRetriever | None = None
+        self.memory: MemoryManager | None = None
         self.projector: MarkdownProjector | None = None
         self._scheduler: TaskScheduler | None = None
         self._webui: WebuiServer | None = None
@@ -70,8 +77,10 @@ class EnhancedMemoryPlugin(Star):
         return self._webui.registry if self._webui else None
 
     async def initialize(self) -> None:
-        data_dir: Path = StarTools.get_data_dir(
-            "astrbot_plugin_enhanced_memory")
+        raw_cfg = self.config if hasattr(self, "config") and self.config else {}
+        cfg = PluginConfig(raw_cfg)
+
+        data_dir: Path = StarTools.get_data_dir("astrbot_plugin_enhanced_memory")
         db_path = data_dir / "db" / "core.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -92,41 +101,58 @@ class EnhancedMemoryPlugin(Star):
         )
 
         # Encoder: try local model, fall back to null (BM25-only) on any error
-        try:
-            encoder = SentenceTransformerEncoder(_EMBEDDING_MODEL)
-            _ = encoder.dim  # trigger lazy load to catch missing model early
-        except Exception as exc:
-            logger.warning(
-                "[EnhancedMemory] embedding model unavailable (%s), vector search disabled", exc)
+        if cfg.embedding_enabled:
+            try:
+                encoder = SentenceTransformerEncoder(cfg.embedding_model)
+                _ = encoder.dim  # trigger lazy load to catch missing model early
+            except Exception as exc:
+                logger.warning(
+                    f"[{_PLUGIN_NAME}] embedding model unavailable (%s), "
+                    "vector search disabled", exc,
+                )
+                encoder = NullEncoder()
+        else:
             encoder = NullEncoder()
 
-        self.retriever = HybridRetriever(
-            event_repo=event_repo, encoder=encoder)
+        retriever = HybridRetriever(event_repo=event_repo, encoder=encoder)
+
+        # MemoryManager owns CRUD, lifecycle, decay, and search.
+        self.memory = MemoryManager(
+            event_repo=event_repo,
+            retriever=retriever,
+            encoder=encoder,
+            decay_config=cfg.get_decay_config(),
+        )
 
         extractor = EventExtractor(
             event_repo=event_repo,
             provider_getter=lambda: self.context.get_using_provider(),
             encoder=encoder,
+            extractor_config=cfg.get_extractor_config(),
         )
 
         async def on_event_close(event: Event, window: MessageWindow) -> None:
             asyncio.create_task(extractor(event, window))
 
         resolver = IdentityResolver(persona_repo)
-        detector = EventBoundaryDetector(BoundaryConfig())
+        detector = EventBoundaryDetector(cfg.get_boundary_config())
         self.router = MessageRouter(
             event_repo=event_repo,
             identity_resolver=resolver,
             detector=detector,
             on_event_close=on_event_close,
         )
+
         def provider_getter(): return self.context.get_using_provider()  # noqa: E731
+
+        synthesis_cfg = cfg.get_synthesis_config()
+        summary_cfg = cfg.get_summary_config()
 
         self._scheduler = TaskScheduler()
         self._scheduler.register(
             "salience_decay",
-            interval=86_400,
-            fn=lambda: run_salience_decay(event_repo),
+            interval=cfg.decay_interval_seconds,
+            fn=lambda: self.memory.apply_decay() if self.memory else None,
         )
 
         async def _projection_and_register() -> None:
@@ -137,46 +163,50 @@ class EnhancedMemoryPlugin(Star):
 
         self._scheduler.register(
             "projection",
-            interval=86_400,
+            interval=cfg.summary_interval_seconds,
             fn=_projection_and_register,
         )
         self._scheduler.register(
             "persona_synthesis",
-            interval=604_800,
+            interval=cfg.persona_synthesis_interval_seconds,
             fn=lambda: run_persona_synthesis(
-                persona_repo, event_repo, provider_getter),
+                persona_repo, event_repo, provider_getter,
+                synthesis_config=synthesis_cfg,
+            ),
         )
         self._scheduler.register(
             "impression_aggregation",
-            interval=604_800,
+            interval=cfg.impression_aggregation_interval_seconds,
             fn=lambda: run_impression_aggregation(
-                persona_repo, event_repo, impression_repo, provider_getter
+                persona_repo, event_repo, impression_repo, provider_getter,
+                synthesis_config=synthesis_cfg,
             ),
         )
         self._scheduler.register(
             "group_summary",
-            interval=86_400,
+            interval=cfg.summary_interval_seconds,
             fn=lambda: run_group_summary(
-                event_repo, data_dir, provider_getter),
+                event_repo, data_dir, provider_getter,
+                summary_config=summary_cfg,
+            ),
         )
         await self._scheduler.start()
 
-        cfg = self.config if hasattr(self, "config") and self.config else {}
         self._webui = WebuiServer(
             persona_repo=persona_repo,
             event_repo=event_repo,
             impression_repo=impression_repo,
             data_dir=data_dir,
-            port=int(cfg.get("webui_port", 2653)),
-            auth_enabled=bool(cfg.get("webui_auth_enabled", True)),
+            port=cfg.webui_port,
+            auth_enabled=cfg.webui_auth_enabled,
             task_runner=self._scheduler.run_now,
             plugin_version=_PLUGIN_VERSION,
-            initial_config=dict(cfg),
+            initial_config=cfg.as_dict(),
         )
-        if cfg.get("webui_enabled", True):
+        if cfg.webui_enabled:
             await self._webui.start()
         else:
-            logger.info("[EnhancedMemory] WebUI disabled by config")
+            logger.info(f"[{_PLUGIN_NAME}] WebUI disabled by config")
 
         self._watcher = FileWatcher()
         self._syncer = ReverseSyncer(
@@ -187,15 +217,15 @@ class EnhancedMemoryPlugin(Star):
         )
         await self._syncer.register_all()
         await self._watcher.start()
-        logger.info("[EnhancedMemory] initialized — DB at %s", db_path)
+        logger.info(f"[{_PLUGIN_NAME}] initialized — DB at %s", db_path)
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest) -> None:
         """Inject relevant memory context into the system prompt before LLM generation."""
-        if self.retriever is None or not req.prompt:
+        if self.memory is None or not req.prompt:
             return
         try:
-            results = await self.retriever.search(req.prompt, limit=10)
+            results = await self.memory.search(req.prompt, limit=10, active_only=True)
             if not results:
                 return
             injected = format_events_for_prompt(results)
@@ -203,7 +233,7 @@ class EnhancedMemoryPlugin(Star):
                 sep = "\n\n" if req.system_prompt else ""
                 req.system_prompt = req.system_prompt + sep + injected
         except Exception as exc:
-            logger.warning("[EnhancedMemory] retrieval hook failed: %s", exc)
+            logger.warning(f"[{_PLUGIN_NAME}] retrieval hook failed: %s", exc)
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent) -> None:
@@ -229,4 +259,4 @@ class EnhancedMemoryPlugin(Star):
             await self.router.flush_all()
         if self._exit_stack is not None:
             await self._exit_stack.aclose()
-        logger.info("[EnhancedMemory] terminated")
+        logger.info(f"[{_PLUGIN_NAME}] terminated")

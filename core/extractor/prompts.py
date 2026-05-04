@@ -3,20 +3,10 @@ from __future__ import annotations
 
 import math
 
-from ..boundary.window import MessageWindow
+from typing import TYPE_CHECKING
 
-SYSTEM_PROMPT = """\
-你是一个聊天记录分析助手。根据对话内容提取结构化信息，严格按照指定 JSON 格式输出，不输出任何其他文字。
-
-输出格式（仅输出此 JSON，无前缀、无后缀、无 markdown 代码块）：
-{"topic": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8}
-
-字段说明：
-- topic: 对话核心主题，简洁明了，30字以内
-- chat_content_tags: 2~5个关键词标签，用于检索和分类
-- salience: 重要性分值 0.0~1.0（重要事件/情绪事件偏高，日常闲聊偏低）
-- confidence: 本次提取结果的置信度 0.0~1.0\
-"""
+if TYPE_CHECKING:
+    from ..boundary.window import MessageWindow
 
 
 def build_user_prompt(window: MessageWindow, max_messages: int = 20) -> str:

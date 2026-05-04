@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import json
 import re
+from typing import TYPE_CHECKING
 
-from ..boundary.window import MessageWindow
+if TYPE_CHECKING:
+    from ..boundary.window import MessageWindow
 
 # Keys we require in a valid extraction result
 _REQUIRED = {"topic", "chat_content_tags", "salience", "confidence"}

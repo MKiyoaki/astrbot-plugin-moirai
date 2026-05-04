@@ -5,7 +5,7 @@ All fields are required; no defaults, so slots=True works without field().
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 # ---------------------------------------------------------------------------
@@ -31,6 +31,15 @@ class _BoundedMixin:
     def _check_range(name: str, value: float, lo: float, hi: float) -> None:
         if not lo <= value <= hi:
             raise ValueError(f"{name} must be in [{lo}, {hi}], got {value}")
+
+
+# ---------------------------------------------------------------------------
+# Event lifecycle states
+# ---------------------------------------------------------------------------
+
+class EventStatus:
+    ACTIVE = "active"
+    ARCHIVED = "archived"
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +88,7 @@ class Event(_BoundedMixin):
     confidence: float            # LLM extraction confidence [0, 1]
     inherit_from: list[str]      # Parent event_ids (continuation chain)
     last_accessed_at: float      # Updated on every retrieval
+    status: str = field(default=EventStatus.ACTIVE)  # "active" | "archived"
 
     def __post_init__(self) -> None:
         self._check_unit("salience", self.salience)

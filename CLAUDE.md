@@ -19,13 +19,11 @@ Existing solutions tend to pick one axis and force the other two through it. We 
 
 Not a general-purpose RAG framework. Optimized for chat memory, will not generalize well to document QA.
 
-Not GraphRAG (in the Microsoft Research sense). We do hybrid retrieval over a heterogeneous graph but do not perform community detection or hierarchical graph summarization.
-
 Not a replacement for AstrBot's built-in Auto Context Compression. The plugin handles long-term memory only; short-term context compression is delegated to the host framework.
 
 Not aiming for SOTA benchmark scores. Target is consumer deployment (single user / small group), prioritizing token efficiency and explainability over raw retrieval accuracy.
 
-Architecture Overview
+## Architecture Overview
 ```
 Raw Messages (from AstrBot event stream)
        │
@@ -61,67 +59,40 @@ Three first-class entities:
 ```python
 python@dataclass
 class Persona:
-    uid: str                              # internal stable id
-    bound_identities: list[tuple[str, str]]  # [(platform, physical_id), ...]
-    primary_name: str
-    persona_attrs: dict                   # Persona description, Affect_Type, Content_Tag
-    confidence: float
-    created_at: float
-    last_active_at: float
+    ...
 
 @dataclass
 class Event:
-    event_id: str
-    group_id: str | None                  # None = private chat
-    start_time: float
-    end_time: float
-    participants: list[str]               # uid list
-    interaction_flow: list[MessageRef]    # references to raw messages
-    topic: str
-    chat_content_tags: list[str]
-    salience: float                       # importance, [0, 1], decays over time
-    confidence: float
-    inherit_from: list[str]               # parent event_ids (continuation chain)
-    last_accessed_at: float
-    # group_mood is DERIVED at query time from participant affects, not stored
+    ...
 
 @dataclass
 class Impression:
-    observer_uid: str                     # who holds the impression
-    subject_uid: str                      # who is being perceived
-    relation_type: str                    # enum: friend/colleague/stranger/...
-    affect: float                         # [-1, 1]
-    intensity: float                      # [0, 1]
-    confidence: float
-    scope: str                            # 'global' or specific group_id
-    evidence_event_ids: list[str]
-    last_reinforced_at: float
+    ...
 ```
 
-Bot itself is a Persona node. Impressions are directional (observer → subject), so `Impression(A→B) ≠ Impression(B→A)`.
+Bot itself is a Persona node. Impressions are directional (observer → subject), so `Impression(A->B) != Impression(B->A)`.
 
-## Three Visualization Panels (UI Contract)
 
-The data model is designed to expose three independent panels sharing `event_id` as the cross-reference key:
+## Developing Principle
 
-1. Event Flow Diagram — timeline view, nodes are events, edges are `inherit_from` relations. Rendered with vis-timeline or D3-timeline.
-2. Relation Graph — node-link view, nodes are personas, edges are impressions. Rendered with Cytoscape.js. Bot's own node should be visually distinct.
-3. Summarised Memory — markdown rendering of periodic reports per `(group_id, time_period)`.
+This project has frontend WebUI module in `web/`, and backend engine in  `core/`. 
 
-Click navigation: clicking an impression edge highlights its evidence_event_ids in the Event Flow panel; clicking an event jumps to its containing period in Summarised Memory.
+- When developing frontend, you should only check the files within `web/`, when developing backend, you should only check `core/`. You MUST ask for permission if you need to check over, including when you are developing cross-frontend-backend functionalities.
+- When developing `core/`, if you need to know the AstrBot API, check: https://docs.astrbot.app/dev/star/plugin-new.html. You MUST NOT scan the disk of the user to find the AstrBot Implementation. 
+- When coding, always considering the functionalities and seek for possible abstraction, including the implementation of registry pattern, managers, data types, hooks. 
+- When coding, always check the existing APIs of existing modules at first. 
+- When developing frontend and WebUI, you must retrieve https://ui.shadcn.com/docs/components to understand the API of components. 
 
-## WebUI Module (lives in `web/`, not `core/`)
+## WebUI Module
 
 The WebUI is intentionally outside `core/` because it is a **presentation/admin layer** with a different lifecycle than the data engine: it can be disabled, replaced, or extended by other plugins without touching the memory pipeline.
 
-**Frontend stack**: Next.js 16 (App Router) + shadcn/ui (base-nova style, using `@base-ui/react` headless primitives — NOT Radix UI). All pages are Client Components. Theme managed by `next-themes`. API calls are proxied from `/api/*` to the Python backend via `next.config.mjs` rewrites.
-
-**Important**: The `SidebarMenuButton` and other components use the `render` prop pattern (from `@base-ui/react/use-render`) instead of `asChild` for polymorphism. Use `render={<Link href="..." />}` not `asChild`.
+**Frontend stack**: Next.js 16 (App Router) + shadcn/ui (base-nova style, using `@radix/react` headless primitives — NOT Radix UI). All pages are Client Components. Theme managed by `next-themes`. API calls are proxied from `/api/*` to the Python backend via `next.config.mjs` rewrites.
 
 ### Layout
 
 ```
-web/
+web/frontend/
 ├── app/                 # Next.js App Router pages
 │   ├── layout.tsx       # Root layout: ThemeProvider + AppProvider + AppShell
 │   ├── page.tsx         # Dashboard (stat cards + nav cards)
@@ -219,7 +190,8 @@ Front-end fetches `/api/panels` and dynamically mounts third-party panels alongs
 
 Password is **never** stored in `_conf_schema.json` (sensitive); it's set via the WebUI's first-run flow and persisted to `data_dir/.webui_password`.
 
-## Event Boundary Detection (v1 — Intentionally Simple)
+## Backend Design
+### Event Boundary Detection (v1 — Intentionally Simple)
 
 Do not over-engineer this. v1 uses three signals only:
 
@@ -240,7 +212,7 @@ hysteresis / debouncing
 
 These are all future work. The simple version is sufficient to validate the ontology.
 
-## Storage Layout
+### Storage Layout
 ```
 data/plugins/<plugin_name>/data
 ├── db/
@@ -261,7 +233,7 @@ data/plugins/<plugin_name>/data
 
 **Markdown files are read-only projections by default**, regenerated periodically from the database. Exception: `IMPRESSIONS.md` and user-facing profile files can be edited by users; a file watcher detects changes and merges them back to the database with high prior weight (user edits override LLM inferences).
 
-## Identity Unification (Cross-Platform)
+### Identity Unification (Cross-Platform)
 
 Following [Scriptor](https://github.com/ysf7762-dev/astrbot_plugin_scriptor)'s pattern:
 ```python
@@ -271,7 +243,7 @@ pythondef get_or_create_uid(physical_id: str, platform: str, sender_name: str) -
 ```
 All Domain Model entities reference uid, never `(platform, physical_id)` directly. Platform adapters are responsible for the translation at the boundary.
 
-## Retrieval Pipeline
+### Retrieval Pipeline
 On every LLM call (before generation):
 ```
 1. Query classification (rule-based, no model):
@@ -290,7 +262,7 @@ On every LLM call (before generation):
 3. Inject as system prompt segment with clear demarcation.
 ```
 
-## LLM Usage Budget
+### LLM Usage Budget
 **Hot path (per user message)**: zero LLM calls outside the host model's reply generation. Retrieval is fully local.
 
 **Background (event close)**: one LLM call per event for structured extraction. Output is a constrained JSON schema with enum-typed fields where possible to minimize tokens.
@@ -303,7 +275,7 @@ On every LLM call (before generation):
 
 Estimated total: ~20-50% more tokens than LivingMemory baseline at the same activity level. Acceptable cost for the richer ontology.
 
-## Model Dependencies
+### Model Dependencies
 
 **Required**: an LLM provider (uses AstrBot's configured provider, no separate model needed for plugin operation).
 

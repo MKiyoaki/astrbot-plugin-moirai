@@ -98,11 +98,39 @@ class EventRepository(ABC):
         """
         ...
 
+    @abstractmethod
+    async def list_by_status(
+        self, status: str, limit: int = 100
+    ) -> list[Event]:
+        """Return events filtered by status ('active' or 'archived'), newest first."""
+        ...
+
+    @abstractmethod
+    async def set_status(self, event_id: str, status: str) -> bool:
+        """Update the lifecycle status of one event. Returns False if not found."""
+        ...
+
+    @abstractmethod
+    async def get_rowid(self, event_id: str) -> int | None:
+        """Return the SQLite integer rowid for an event (used for FTS5/vec joins)."""
+        ...
+
+    @abstractmethod
+    async def get_by_rowid(self, rowid: int) -> Event | None:
+        """Look up an event by its integer rowid (the integer primary key)."""
+        ...
+
     async def upsert_vector(self, event_id: str, embedding: list[float]) -> None:
         """Store the vector embedding for an event.
 
         Default is a no-op — overridden by SQLiteEventRepository when
         sqlite-vec is loaded. In-memory repo ignores vectors.
+        """
+
+    async def delete_vector(self, event_id: str) -> None:
+        """Remove the vector embedding for an event.
+
+        Default is a no-op — overridden by SQLiteEventRepository.
         """
 
 

@@ -10,36 +10,33 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
 
-from ..repository.base import EventRepository
+if TYPE_CHECKING:
+    from ..config import SummaryConfig
+    from ..repository.base import EventRepository
 
 logger = logging.getLogger(__name__)
-
-_LLM_TIMEOUT = 45.0
-_MAX_EVENTS = 20
-
-_SUMMARY_SYSTEM = (
-    "你是一个对话记录摘要助手。根据提供的事件列表，生成本期群组活动摘要。"
-    "用Markdown格式输出，包含：本期主要话题（无序列表）、成员活跃度（简短说明）、"
-    "值得关注的事件。总字数不超过300字。不要输出任何其他内容。"
-)
+_MODULE_NAME = "Summary"
 
 
 async def run_group_summary(
     event_repo: EventRepository,
     data_dir: Path,
     provider_getter: Callable,
-    llm_timeout: float = _LLM_TIMEOUT,
+    summary_config: SummaryConfig | None = None,
 ) -> int:
     """Generate and write a daily summary for every active group.
 
     Discovers groups automatically via event_repo.list_group_ids().
     Returns number of summary files written.
     """
+    from ..config import SummaryConfig as _SC
+    cfg = summary_config or _SC()
+
     provider = provider_getter()
     if provider is None:
-        logger.debug("[Summary] no provider, skipping group summary")
+        logger.debug(f"[{_MODULE_NAME}] no provider, skipping group summary")
         return 0
 
     group_ids = await event_repo.list_group_ids()
@@ -47,7 +44,7 @@ async def run_group_summary(
     written = 0
 
     for group_id in group_ids:
-        events = await event_repo.list_by_group(group_id, limit=_MAX_EVENTS)
+        events = await event_repo.list_by_group(group_id, limit=cfg.max_events)
         if not events:
             continue
 
@@ -68,8 +65,8 @@ async def run_group_summary(
 
         try:
             resp = await asyncio.wait_for(
-                provider.text_chat(prompt=prompt, system_prompt=_SUMMARY_SYSTEM),
-                timeout=llm_timeout,
+                provider.text_chat(prompt=prompt, system_prompt=cfg.system_prompt),
+                timeout=cfg.llm_timeout,
             )
             content = (
                 f"# {group_label} 活动摘要 — {today}\n\n"
@@ -84,12 +81,12 @@ async def run_group_summary(
             summary_dir.mkdir(parents=True, exist_ok=True)
             (summary_dir / f"{today}.md").write_text(content, encoding="utf-8")
             written += 1
-            logger.debug("[Summary] wrote summary for group %r", group_label)
+            logger.debug(f"[{_MODULE_NAME}] wrote summary for group %r", group_label)
 
         except asyncio.TimeoutError:
-            logger.warning("[Summary] timeout for group %r", group_label)
+            logger.warning(f"[{_MODULE_NAME}] timeout for group %r", group_label)
         except Exception as exc:
-            logger.warning("[Summary] failed for group %r: %s", group_label, exc)
+            logger.warning(f"[{_MODULE_NAME}] failed for group %r: %s", group_label, exc)
 
-    logger.info("[Summary] group summaries written: %d/%d", written, len(group_ids))
+    logger.info(f"[{_MODULE_NAME}] group summaries written: %d/%d", written, len(group_ids))
     return written

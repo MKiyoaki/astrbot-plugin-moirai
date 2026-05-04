@@ -11,28 +11,15 @@ import dataclasses
 import json
 import logging
 import time
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
 
-from ..repository.base import EventRepository, ImpressionRepository, PersonaRepository
+if TYPE_CHECKING:
+    from ..repository.base import EventRepository, ImpressionRepository, PersonaRepository
+    from ..config import SynthesisConfig
 
 logger = logging.getLogger(__name__)
 
-_LLM_TIMEOUT = 30.0
-_MAX_EVENTS = 10
 _VALID_RELATIONS = frozenset({"friend", "colleague", "stranger", "family", "rival"})
-
-_PERSONA_SYSTEM = (
-    "你是一个用户画像分析助手。根据提供的事件记录，更新用户属性。"
-    "只输出单行JSON，字段：description（≤50字符）、affect_type（积极/消极/中性之一）、"
-    "content_tags（list，≤5项）。不要输出任何其他内容。"
-)
-
-_IMPRESSION_SYSTEM = (
-    "你是一个社交关系分析助手。根据对话事件，更新对某人的印象。"
-    "只输出单行JSON，字段：relation_type（friend/colleague/stranger/family/rival之一）、"
-    "affect（-1.0到1.0的浮点数）、intensity（0.0到1.0的浮点数）、"
-    "confidence（0.0到1.0的浮点数）。不要输出任何其他内容。"
-)
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
@@ -55,12 +42,15 @@ async def run_persona_synthesis(
     persona_repo: PersonaRepository,
     event_repo: EventRepository,
     provider_getter: Callable,
-    llm_timeout: float = _LLM_TIMEOUT,
+    synthesis_config: SynthesisConfig | None = None,
 ) -> int:
     """Re-synthesise persona_attrs for all personas from recent events.
 
     Returns number of personas whose attrs were updated.
     """
+    from ..config import SynthesisConfig as _SC
+    cfg = synthesis_config or _SC()
+
     provider = provider_getter()
     if provider is None:
         logger.debug("[Synthesis] no provider, skipping persona synthesis")
@@ -70,7 +60,7 @@ async def run_persona_synthesis(
     updated = 0
 
     for persona in personas:
-        events = await event_repo.list_by_participant(persona.uid, limit=_MAX_EVENTS)
+        events = await event_repo.list_by_participant(persona.uid, limit=cfg.max_events)
         if not events:
             continue
 
@@ -82,8 +72,8 @@ async def run_persona_synthesis(
         )
         try:
             resp = await asyncio.wait_for(
-                provider.text_chat(prompt=prompt, system_prompt=_PERSONA_SYSTEM),
-                timeout=llm_timeout,
+                provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
+                timeout=cfg.llm_timeout,
             )
             parsed = _safe_parse(resp.completion_text)
             if parsed is None:
@@ -115,12 +105,15 @@ async def run_impression_aggregation(
     event_repo: EventRepository,
     impression_repo: ImpressionRepository,
     provider_getter: Callable,
-    llm_timeout: float = _LLM_TIMEOUT,
+    synthesis_config: SynthesisConfig | None = None,
 ) -> int:
     """Re-evaluate each impression from its evidence events.
 
     Returns number of impressions updated.
     """
+    from ..config import SynthesisConfig as _SC
+    cfg = synthesis_config or _SC()
+
     provider = provider_getter()
     if provider is None:
         logger.debug("[Aggregation] no provider, skipping impression aggregation")
@@ -138,7 +131,7 @@ async def run_impression_aggregation(
             continue
 
         events = []
-        for eid in imp.evidence_event_ids[:_MAX_EVENTS]:
+        for eid in imp.evidence_event_ids[:cfg.max_events]:
             ev = await event_repo.get(eid)
             if ev is not None:
                 events.append(ev)
@@ -158,8 +151,8 @@ async def run_impression_aggregation(
         )
         try:
             resp = await asyncio.wait_for(
-                provider.text_chat(prompt=prompt, system_prompt=_IMPRESSION_SYSTEM),
-                timeout=llm_timeout,
+                provider.text_chat(prompt=prompt, system_prompt=cfg.impression_system_prompt),
+                timeout=cfg.llm_timeout,
             )
             parsed = _safe_parse(resp.completion_text)
             if parsed is None:

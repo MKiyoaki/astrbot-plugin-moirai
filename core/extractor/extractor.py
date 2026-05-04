@@ -16,16 +16,19 @@ import asyncio
 import dataclasses
 import logging
 
-from ..boundary.window import MessageWindow
-from ..domain.models import Event
-from ..embedding.encoder import Encoder, NullEncoder
-from ..repository.base import EventRepository
+from typing import TYPE_CHECKING
+from ..embedding.encoder import NullEncoder
 from .parser import fallback_extraction, parse_llm_output
-from .prompts import SYSTEM_PROMPT, build_user_prompt
+from .prompts import build_user_prompt
+
+if TYPE_CHECKING:
+    from ..boundary.window import MessageWindow
+    from ..repository.base import EventRepository
+    from ..embedding.encoder import Encoder
+    from ..domain.models import Event
+    from ..config import ExtractorConfig
 
 logger = logging.getLogger(__name__)
-
-_LLM_TIMEOUT = 30.0
 
 
 class EventExtractor:
@@ -35,6 +38,7 @@ class EventExtractor:
     provider_getter: zero-arg callable returning an AstrBot Provider or None.
     encoder: optional Encoder; if provided, embeddings are stored after
              extraction so Phase 5 vector search works immediately.
+    extractor_config: ExtractorConfig controlling prompt, timeout, context window.
     """
 
     def __init__(
@@ -42,14 +46,16 @@ class EventExtractor:
         event_repo: EventRepository,
         provider_getter,  # Callable[[], Provider | None]
         encoder: Encoder | None = None,
-        max_context_messages: int = 20,
-        llm_timeout: float = _LLM_TIMEOUT,
+        extractor_config: ExtractorConfig | None = None,
     ) -> None:
+        from ..config import ExtractorConfig as _EC  # local import avoids circularity
+        cfg = extractor_config or _EC()
         self._event_repo = event_repo
         self._provider_getter = provider_getter
         self._encoder: Encoder = encoder or NullEncoder()
-        self._max_context_messages = max_context_messages
-        self._llm_timeout = llm_timeout
+        self._max_context_messages = cfg.max_context_messages
+        self._llm_timeout = cfg.llm_timeout
+        self._system_prompt = cfg.system_prompt
 
     async def __call__(self, event: Event, window: MessageWindow) -> None:
         """on_event_close callback: extract fields, persist, then index vector."""
@@ -67,7 +73,7 @@ class EventExtractor:
         prompt = build_user_prompt(window, self._max_context_messages)
         try:
             resp = await asyncio.wait_for(
-                provider.text_chat(prompt=prompt, system_prompt=SYSTEM_PROMPT),
+                provider.text_chat(prompt=prompt, system_prompt=self._system_prompt),
                 timeout=self._llm_timeout,
             )
             result = parse_llm_output(resp.completion_text)
@@ -79,9 +85,11 @@ class EventExtractor:
                 resp.completion_text[:200],
             )
         except asyncio.TimeoutError:
-            logger.warning("[EventExtractor] LLM call timed out, using fallback")
+            logger.warning(
+                "[EventExtractor] LLM call timed out, using fallback")
         except Exception as exc:
-            logger.warning("[EventExtractor] LLM call failed (%s), using fallback", exc)
+            logger.warning(
+                "[EventExtractor] LLM call failed (%s), using fallback", exc)
 
         return fallback_extraction(window)
 

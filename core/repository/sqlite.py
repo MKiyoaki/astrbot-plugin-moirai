@@ -31,7 +31,7 @@ from typing import AsyncIterator
 
 import aiosqlite
 
-from ..domain.models import Event, Impression, MessageRef, Persona
+from ..domain.models import Event, EventStatus, Impression, MessageRef, Persona
 from .base import EventRepository, ImpressionRepository, PersonaRepository
 
 logger = logging.getLogger(__name__)
@@ -127,6 +127,8 @@ def _dump_message_refs(refs: list[MessageRef]) -> str:
 
 
 def _row_to_event(row: aiosqlite.Row) -> Event:
+    keys = row.keys()
+    status = row["status"] if "status" in keys else EventStatus.ACTIVE
     return Event(
         event_id=row["event_id"],
         group_id=row["group_id"],
@@ -140,6 +142,7 @@ def _row_to_event(row: aiosqlite.Row) -> Event:
         confidence=row["confidence"],
         inherit_from=json.loads(row["inherit_from"]),
         last_accessed_at=row["last_accessed_at"],
+        status=status,
     )
 
 
@@ -265,17 +268,19 @@ class SQLitePersonaRepository(PersonaRepository):
 # EventRepository
 # ---------------------------------------------------------------------------
 
+_EVENT_COLS = (
+    "event_id, group_id, start_time, end_time, participants, "
+    "interaction_flow, topic, chat_content_tags, salience, confidence, "
+    "inherit_from, last_accessed_at, status"
+)
+
 _EVENT_SELECT_COLS = (
     "e.event_id, e.group_id, e.start_time, e.end_time, e.participants, "
     "e.interaction_flow, e.topic, e.chat_content_tags, e.salience, e.confidence, "
-    "e.inherit_from, e.last_accessed_at"
+    "e.inherit_from, e.last_accessed_at, e.status"
 )
 
-_EVENT_SELECT = (
-    "SELECT event_id, group_id, start_time, end_time, participants, "
-    "interaction_flow, topic, chat_content_tags, salience, confidence, "
-    "inherit_from, last_accessed_at FROM events"
-)
+_EVENT_SELECT = f"SELECT {_EVENT_COLS} FROM events"
 
 
 class SQLiteEventRepository(EventRepository):
@@ -367,6 +372,18 @@ class SQLiteEventRepository(EventRepository):
         except Exception:
             pass
 
+    async def delete_vector(self, event_id: str) -> None:
+        """Remove the vec0 embedding for an event (no-op if not present)."""
+        try:
+            await self._db.execute(
+                "DELETE FROM events_vec WHERE rowid = "
+                "(SELECT rowid FROM events WHERE event_id = ?)",
+                (event_id,),
+            )
+            await self._db.commit()
+        except Exception:
+            pass
+
     async def get_children(self, parent_event_id: str) -> list[Event]:
         async with self._db.execute(
             f"{_EVENT_SELECT} e WHERE EXISTS ("
@@ -381,7 +398,7 @@ class SQLiteEventRepository(EventRepository):
         await self._db.execute(
             "INSERT INTO events(event_id, group_id, start_time, end_time, participants, "
             "interaction_flow, topic, chat_content_tags, salience, confidence, "
-            "inherit_from, last_accessed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+            "inherit_from, last_accessed_at, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(event_id) DO UPDATE SET "
             "group_id=excluded.group_id, "
             "start_time=excluded.start_time, "
@@ -393,7 +410,8 @@ class SQLiteEventRepository(EventRepository):
             "salience=excluded.salience, "
             "confidence=excluded.confidence, "
             "inherit_from=excluded.inherit_from, "
-            "last_accessed_at=excluded.last_accessed_at",
+            "last_accessed_at=excluded.last_accessed_at, "
+            "status=excluded.status",
             (
                 event.event_id,
                 event.group_id,
@@ -407,6 +425,7 @@ class SQLiteEventRepository(EventRepository):
                 event.confidence,
                 _j(event.inherit_from),
                 event.last_accessed_at,
+                event.status,
             ),
         )
         await self._db.commit()
@@ -419,6 +438,38 @@ class SQLiteEventRepository(EventRepository):
         async with self._db.execute("SELECT changes()") as cur:
             row = await cur.fetchone()
         return bool(row and row[0])
+
+    async def list_by_status(
+        self, status: str, limit: int = 100
+    ) -> list[Event]:
+        async with self._db.execute(
+            f"{_EVENT_SELECT} WHERE status = ? ORDER BY start_time DESC LIMIT ?",
+            (status, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_event(r) for r in rows]
+
+    async def set_status(self, event_id: str, status: str) -> bool:
+        cursor = await self._db.execute(
+            "UPDATE events SET status = ? WHERE event_id = ?",
+            (status, event_id),
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0
+
+    async def get_rowid(self, event_id: str) -> int | None:
+        async with self._db.execute(
+            "SELECT rowid FROM events WHERE event_id = ?", (event_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else None
+
+    async def get_by_rowid(self, rowid: int) -> Event | None:
+        async with self._db.execute(
+            f"{_EVENT_SELECT} WHERE rowid = ?", (rowid,)
+        ) as cur:
+            row = await cur.fetchone()
+        return _row_to_event(row) if row else None
 
     async def update_salience(self, event_id: str, new_salience: float) -> bool:
         await self._db.execute(

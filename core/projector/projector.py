@@ -23,6 +23,7 @@ from ..repository.base import EventRepository, ImpressionRepository, PersonaRepo
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
+THRESHOLD = 0.6
 
 
 def _format_time(ts: float) -> str:
@@ -30,9 +31,9 @@ def _format_time(ts: float) -> str:
 
 
 def _format_affect(value: float) -> str:
-    if value >= 0.6:
+    if value >= THRESHOLD:
         return f"正面（{value:+.2f}）"
-    if value <= -0.6:
+    if value <= -THRESHOLD:
         return f"负面（{value:+.2f}）"
     return f"中性（{value:+.2f}）"
 

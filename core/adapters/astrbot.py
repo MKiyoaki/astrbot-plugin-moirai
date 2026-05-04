@@ -7,13 +7,17 @@ the window is persisted as an Event and the on_event_close callback is invoked
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
-from ..boundary.detector import EventBoundaryDetector
 from ..boundary.window import MessageWindow
 from ..domain.models import Event, MessageRef
-from ..repository.base import EventRepository
-from .identity import IdentityResolver
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+    from ..boundary.detector import EventBoundaryDetector
+    from ..repository.base import EventRepository
+    from .identity import IdentityResolver
+
 
 
 class MessageRouter:
