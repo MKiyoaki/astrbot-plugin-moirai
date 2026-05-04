@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTheme } from 'next-themes'
 import { Moon, Sun, Check, Play, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -11,18 +11,22 @@ import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageHeader } from '@/components/layout/page-header'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { i18n } from '@/lib/i18n'
 
-const COLOR_PRESETS = [
-  { id: 'sky',    color: '#38bdf8', label: i18n.settings.colors.sky },
-  { id: 'red',    color: '#ef4444', label: i18n.settings.colors.red },
-  { id: 'orange', color: '#f97316', label: i18n.settings.colors.orange },
-  { id: 'green',  color: '#22c55e', label: i18n.settings.colors.green },
-  { id: 'purple', color: '#a855f7', label: i18n.settings.colors.purple },
-  { id: 'zinc',   color: '#71717a', label: i18n.settings.colors.zinc },
+// Standard shadcn/ui theme definitions
+const SHADCN_THEMES = [
+  { id: 'zinc', label: 'Zinc' },
+  { id: 'red', label: 'Red' },
+  { id: 'rose', label: 'Rose' },
+  { id: 'orange', label: 'Orange' },
+  { id: 'green', label: 'Green' },
+  { id: 'blue', label: 'Blue' },
+  { id: 'yellow', label: 'Yellow' },
+  { id: 'violet', label: 'Violet' },
 ]
 
 const TASKS = [
@@ -37,9 +41,20 @@ export default function SettingsPage() {
   const app = useApp()
   const { resolvedTheme, setTheme } = useTheme()
   const isDark = resolvedTheme === 'dark'
+  
+  // Default to zinc, the standard shadcn base
   const [colorScheme, setColorScheme] = useState(() =>
-    typeof localStorage !== 'undefined' ? (localStorage.getItem('em_color_scheme') || 'sky') : 'sky',
+    typeof localStorage !== 'undefined' ? (localStorage.getItem('em_color_scheme') || 'zinc') : 'zinc',
   )
+
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.remove(...SHADCN_THEMES.map(t => `theme-${t.id}`))
+    if (colorScheme !== 'zinc') {
+      root.classList.add(`theme-${colorScheme}`)
+    }
+  }, [colorScheme])
+
   const [oldPw, setOldPw] = useState('')
   const [newPw, setNewPw] = useState('')
   const [taskStatus, setTaskStatus] = useState<Record<string, string>>({})
@@ -56,13 +71,10 @@ export default function SettingsPage() {
     setTheme(isDark ? 'light' : 'dark')
   }
 
-  const applyColor = (id: string) => {
+  // Update logic to apply standard shadcn theme classes
+  const applyColor = (id: string | null) => {
+    if (!id) return
     setColorScheme(id)
-    if (id === 'zinc') {
-      delete document.documentElement.dataset.scheme
-    } else {
-      document.documentElement.dataset.scheme = id
-    }
     localStorage.setItem('em_color_scheme', id)
   }
 
@@ -123,7 +135,6 @@ export default function SettingsPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl space-y-6 p-6">
 
-          {/* Theme */}
           <Card>
             <CardHeader>
               <CardTitle>{i18n.settings.theme}</CardTitle>
@@ -136,28 +147,26 @@ export default function SettingsPage() {
                   {i18n.settings.toggle}
                 </Button>
               </div>
-              <div className="flex flex-col gap-2">
+              
+              {/* Replaced color circles with shadcn Select component */}
+              <div className="flex items-center justify-between">
                 <Label>{i18n.settings.accentColor}</Label>
-                <div className="flex flex-wrap gap-2">
-                  {COLOR_PRESETS.map(p => (
-                    <button
-                      key={p.id}
-                      title={p.label}
-                      onClick={() => applyColor(p.id)}
-                      className="relative size-7 rounded-full ring-2 ring-offset-2 ring-offset-background transition-all hover:scale-110"
-                      style={{ backgroundColor: p.color, outlineColor: colorScheme === p.id ? p.color : 'transparent' }}
-                    >
-                      {colorScheme === p.id && (
-                        <Check className="absolute inset-0 m-auto size-3.5 text-white drop-shadow" />
-                      )}
-                    </button>
-                  ))}
-                </div>
+                <Select value={colorScheme} onValueChange={applyColor}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Select a theme" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SHADCN_THEMES.map((theme) => (
+                      <SelectItem key={theme.id} value={theme.id}>
+                        {theme.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>
 
-          {/* Auth */}
           <Card>
             <CardHeader>
               <CardTitle>{i18n.settings.auth}</CardTitle>
@@ -195,7 +204,6 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Sudo guard settings */}
           <Card>
             <CardHeader>
               <CardTitle>{i18n.settings.sudoSettings}</CardTitle>
@@ -231,7 +239,6 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Default persona confidence */}
           <Card>
             <CardHeader>
               <CardTitle>{i18n.settings.defaultPersonaConfidence}</CardTitle>
@@ -253,7 +260,6 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Background tasks */}
           <Card>
             <CardHeader>
               <CardTitle>{i18n.settings.tasks}</CardTitle>
@@ -281,7 +287,6 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Demo data */}
           <Card>
             <CardHeader>
               <CardTitle>{i18n.settings.demo}</CardTitle>
@@ -294,7 +299,6 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Third-party panels */}
           <Card>
             <CardHeader>
               <CardTitle>{i18n.settings.thirdParty}</CardTitle>
