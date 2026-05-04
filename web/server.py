@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_STATIC_DIR = Path(__file__).parent / "output"
+_STATIC_DIR = Path(__file__).parent / "frontend" / "output"
 _DEFAULT_PORT = 2653
 _SESSION_COOKIE = "em_session"
 
@@ -159,6 +159,9 @@ class WebuiServer:
     All write operations (password modification, task triggering, config updates) require sudo mode.
     """
 
+    # Path to the plugin configuration schema (one level above web/)
+    _CONF_SCHEMA_PATH = Path(__file__).parent.parent / "_conf_schema.json"
+
     def __init__(
         self,
         persona_repo: PersonaRepository,
@@ -170,6 +173,7 @@ class WebuiServer:
         registry: PanelRegistry | None = None,
         task_runner: TaskRunner | None = None,
         plugin_version: str = "0.1.0",
+        initial_config: dict | None = None,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
@@ -181,7 +185,11 @@ class WebuiServer:
         self.registry = registry or PanelRegistry()
         self._task_runner = task_runner
         self._plugin_version = plugin_version
-        
+
+        # Plugin config: stored at data_dir/plugin_config.json, seeded from initial_config
+        self._config_path = data_dir / "plugin_config.json"
+        self._initial_config: dict = initial_config or {}
+
         # In-memory recycle bin (session-scoped)
         self._recycle_bin: list[dict] = []
         self._app = self._build_app()
@@ -291,6 +299,16 @@ class WebuiServer:
             self._wrap("sudo", self._handle_update_impression),
         )
         
+        # Tags aggregation
+        app.router.add_get(
+            "/api/tags", self._wrap("auth", self._handle_tags))
+
+        # Plugin config
+        app.router.add_get(
+            "/api/config", self._wrap("auth", self._handle_get_config))
+        app.router.add_put(
+            "/api/config", self._wrap("sudo", self._handle_update_config))
+
         # Third-party panel registration
         app.router.add_get(
             "/api/panels", self._wrap("auth", self._handle_panels_list))
@@ -1018,6 +1036,78 @@ class WebuiServer:
         await self._impression_repo.upsert(impression)
         return _json({"ok": True, "impression": impression_to_edge(impression)["data"]})
 
+    # Route handlers: Tags aggregation
+
+    async def _handle_tags(self, _: web.Request) -> web.Response:
+        """Return all unique chat_content_tags across all events with usage counts."""
+        counts: dict[str, int] = {}
+        for gid in await self._event_repo.list_group_ids():
+            for ev in await self._event_repo.list_by_group(gid, limit=10_000):
+                for tag in (ev.chat_content_tags or []):
+                    counts[tag] = counts.get(tag, 0) + 1
+        tags = [{"name": k, "count": v}
+                for k, v in sorted(counts.items(), key=lambda x: -x[1])]
+        return _json({"tags": tags})
+
+    # Route handlers: Plugin config
+
+    def _load_conf_schema(self) -> dict:
+        try:
+            return json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    def _read_config(self) -> dict:
+        """Return merged config: schema defaults ← initial_config ← saved file."""
+        schema = self._load_conf_schema()
+        merged: dict = {k: v.get("default") for k, v in schema.items()}
+        merged.update(self._initial_config)
+        if self._config_path.exists():
+            try:
+                saved = json.loads(self._config_path.read_text(encoding="utf-8"))
+                merged.update(saved)
+            except Exception:
+                pass
+        return merged
+
+    async def _handle_get_config(self, _: web.Request) -> web.Response:
+        schema = self._load_conf_schema()
+        values = self._read_config()
+        return _json({"schema": schema, "values": values})
+
+    async def _handle_update_config(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        schema = self._load_conf_schema()
+        # Validate keys against schema; coerce types
+        coerced: dict = {}
+        for key, val in body.items():
+            if key not in schema:
+                continue
+            field_type = schema[key].get("type", "string")
+            try:
+                if field_type == "bool":
+                    coerced[key] = bool(val)
+                elif field_type == "int":
+                    coerced[key] = int(val)
+                elif field_type == "float":
+                    coerced[key] = float(val)
+                else:
+                    coerced[key] = val
+            except (TypeError, ValueError):
+                coerced[key] = val
+        # Merge with existing saved config
+        existing: dict = {}
+        if self._config_path.exists():
+            try:
+                existing = json.loads(self._config_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        existing.update(coerced)
+        self._config_path.write_text(
+            json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return _json({"ok": True, "saved": list(coerced.keys())})
+
     # Route handlers: Third-party panel registration
 
     async def _handle_panels_list(self, _: web.Request) -> web.Response:
@@ -1038,7 +1128,7 @@ Usage:
 """
 
 # Ensure project root is in sys.path
-_ROOT = Path(__file__).parent
+_ROOT = Path(__file__).parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 

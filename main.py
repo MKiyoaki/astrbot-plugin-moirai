@@ -171,6 +171,7 @@ class EnhancedMemoryPlugin(Star):
             auth_enabled=bool(cfg.get("webui_auth_enabled", True)),
             task_runner=self._scheduler.run_now,
             plugin_version=_PLUGIN_VERSION,
+            initial_config=dict(cfg),
         )
         if cfg.get("webui_enabled", True):
             await self._webui.start()

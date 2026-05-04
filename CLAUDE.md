@@ -190,8 +190,12 @@ Front-end fetches `/api/panels` and dynamically mounts third-party panels alongs
 - **Dark/light theme toggle** via `next-themes` (`useTheme()` + `setTheme()`). Cytoscape re-initializes on theme class change.
 - **Sidebar grouping**: nav items grouped under `可视化` / `工具` / `管理` using shadcn `<SidebarGroup>` + `<SidebarGroupLabel>`.
 - **Toast**: center-bottom fixed via custom `Toaster` component reading from AppContext toasts array.
+- **Frontend build environment**: Node.js lives in the `node` conda env (`/Users/kiyoaki/miniconda3/envs/node/bin/node`). Prepend it to PATH before running npm: `export PATH="/Users/kiyoaki/miniconda3/envs/node/bin:$PATH"`. Build command: `cd web/frontend && npm run build` (output to `web/frontend/output/`).
 - **Tag Selector**: Popover-based combobox; Enter/comma to add new tags, backspace to remove.
 - **Sudo guard settings**: Configurable via Settings page; `sudoGuardEnabled` + `sudoGuardMinutes` stored in localStorage. 0 minutes = always-sudo mode (shows Unlock badge instead of toggle).
+- **Event timeline**: shadcn `Card` grouped-by-thread vertical layout (replaces legacy SVG canvas). Uses colored `border-left` for thread accent; adapts to light/dark theme via Tailwind utility classes only — no inline background color.
+- **Persona confidence is read-only**: never expose a confidence slider in create/edit persona dialogs. Confidence is ML-derived. New persona initial value comes from `app.defaultPersonaConfidence` (settings-configurable, default 0.5, stored in localStorage as `em_default_persona_confidence`). Edit persona must preserve the existing `node.data.confidence` and pass it back to the API unchanged.
+- **Searchable combobox pattern**: follow `TagSelector` / `EventInheritPicker` — Popover + Input + filtered scrollable list. No `Command` component is installed; do not add it.
 
 **When editing the front-end:**
 

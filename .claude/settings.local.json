@@ -47,7 +47,15 @@
       "Bash(export PATH=\"/opt/homebrew/opt/node/bin:$PATH\")",
       "Bash(npm install *)",
       "Bash(npx tsc *)",
-      "Bash(/opt/homebrew/opt/node/bin/npx tsc *)"
+      "Bash(/opt/homebrew/opt/node/bin/npx tsc *)",
+      "Bash(export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\")",
+      "Bash(conda run *)",
+      "Bash(conda activate *)",
+      "Bash(/Users/kiyoaki/.nvm/versions/node/v24.15.0/bin/npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(conda info *)",
+      "Bash(export PATH=\"/Users/kiyoaki/miniconda3/envs/node/bin:$PATH\")",
+      "Bash(python3 -c \"import sys; sys.path.insert\\(0, '/Users/kiyoaki/Documents/Projects/Personal/astrbot_plugins/astrbot-plugin-enhanced-memory'\\); from astrbot.api.star import Star; import inspect; print\\(inspect.getsource\\(Star\\)\\)\")"
     ]
   }
 }
