@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, SetStateAction } from 'react'
 import { Plus, RefreshCw, Trash2, CircleMinus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -188,7 +188,7 @@ export default function EventsPage() {
         <div className="w-24">
           <Slider
             value={[density]}
-            onValueChange={v => setDensity(Array.isArray(v) ? v[0] : v)}
+            onValueChange={(v: SetStateAction<number> | SetStateAction<number>[]) => setDensity(Array.isArray(v) ? v[0] : v)}
             min={20} max={500} step={10}
           />
         </div>
@@ -196,23 +196,23 @@ export default function EventsPage() {
       </div>
 
       {/* Actions */}
-      <Button variant="ghost" size="icon-sm" onClick={openBin} title={i18n.events.recycleBin}>
+      <Button variant="ghost" size="sm" onClick={openBin} title={i18n.events.recycleBin}>
         <Trash2 />
       </Button>
-      <Button variant="ghost" size="icon-sm" onClick={handleDeleteSelected} title={i18n.events.deleteSelected}>
+      <Button variant="ghost" size="sm" onClick={handleDeleteSelected} title={i18n.events.deleteSelected}>
         <CircleMinus />
       </Button>
       <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo}>
         <Plus className="mr-1 size-3.5" />{i18n.common.create}
       </Button>
-      <Button variant="ghost" size="icon-sm" onClick={loadEvents} title={i18n.common.refresh}>
+      <Button variant="ghost" size="sm" onClick={loadEvents} title={i18n.common.refresh}>
         <RefreshCw />
       </Button>
     </div>
   )
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden">
       <PageHeader
         title={i18n.page.events.title}
         description={i18n.page.events.description}
@@ -238,7 +238,7 @@ export default function EventsPage() {
           <div className="bg-card ring-foreground/10 flex h-full w-72 shrink-0 flex-col gap-3 overflow-y-auto border-l p-4 ring-1">
             <div className="flex items-center justify-between">
               <h3 className="font-medium">{i18n.events.detailTitle}</h3>
-              <Button variant="ghost" size="icon-xs" onClick={() => setDetailEvent(null)}>✕</Button>
+              <Button variant="ghost" size="icon" onClick={() => setDetailEvent(null)}>✕</Button>
             </div>
             <EventDetailCard
               event={detailEvent}

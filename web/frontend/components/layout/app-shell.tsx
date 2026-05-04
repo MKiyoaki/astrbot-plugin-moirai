@@ -7,19 +7,24 @@ import { LoginScreen } from '@/components/shared/login-screen'
 import { Toaster } from '@/components/shared/toaster'
 import { useApp } from '@/lib/store'
 
+const SHADCN_THEMES = [
+  'zinc', 
+  'red', 'rose', 'orange', 'green', 'blue', 'yellow', 'violet'
+]
+
 function Shell({ children }: { children: ReactNode }) {
   const app = useApp()
 
   useEffect(() => {
-    // Restore accent color scheme from localStorage
-    const scheme = localStorage.getItem('em_color_scheme')
-    if (scheme && scheme !== 'zinc') {
-      document.documentElement.dataset.scheme = scheme
-    } else {
-      delete document.documentElement.dataset.scheme
+    const scheme = localStorage.getItem('em_color_scheme') || 'zinc'
+    const root = document.documentElement
+    
+    root.classList.remove(...SHADCN_THEMES.map(t => `theme-${t}`))
+    
+    if (scheme !== 'zinc') {
+      root.classList.add(`theme-${scheme}`)
     }
 
-    // Boot: refresh auth + stats
     app.refreshAuth().then(() => {
       if (app.authenticated || !app.authEnabled) {
         app.refreshStats()
@@ -28,7 +33,6 @@ function Shell({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Show login if auth enabled and not authenticated
   if (app.authEnabled && !app.authenticated) {
     return (
       <>
@@ -42,7 +46,7 @@ function Shell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={true}>
       <AppSidebar />
       <SidebarInset>
         {children}

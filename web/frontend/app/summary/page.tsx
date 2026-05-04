@@ -117,22 +117,22 @@ export default function SummaryPage() {
           </Button>
         </>
       )}
-      <Button variant="ghost" size="icon-sm" onClick={loadList} title={i18n.common.refresh}>
+      <Button variant="ghost" size="icon" onClick={loadList} title={i18n.common.refresh}>
         <RefreshCw />
       </Button>
     </div>
   )
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
+    // Replaced h-full with w-full flex-1 h-full min-w-0 to constrain width bounds
+    <div className="flex w-full flex-1 h-full flex-col min-w-0 overflow-hidden">
       <PageHeader
         title={i18n.page.summary.title}
         description={i18n.page.summary.description}
         actions={actions}
       />
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Summary list */}
+      <div className="flex flex-1 overflow-hidden min-w-0">
         <div className="bg-card border-foreground/10 flex w-56 shrink-0 flex-col border-r">
           <ScrollArea className="flex-1">
             <div className="p-2">
@@ -161,8 +161,8 @@ export default function SummaryPage() {
           </ScrollArea>
         </div>
 
-        {/* Content area */}
-        <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Added min-w-0 to prevent long markdown lines from expanding the flex item */}
+        <div className="flex flex-1 flex-col overflow-hidden min-w-0">
           {!current.date ? (
             <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
               {i18n.summary.placeholder}
@@ -172,7 +172,7 @@ export default function SummaryPage() {
               {i18n.common.loading}
             </div>
           ) : editing ? (
-            <div className="flex flex-1 flex-col gap-0 overflow-hidden p-4">
+            <div className="flex flex-1 flex-col gap-0 overflow-hidden p-4 min-w-0">
               <Textarea
                 className="min-h-0 flex-1 resize-none font-mono text-sm"
                 value={editContent}
@@ -183,7 +183,7 @@ export default function SummaryPage() {
           ) : (
             <ScrollArea className="flex-1">
               <div
-                className="prose dark:prose-invert max-w-none p-6"
+                className="prose dark:prose-invert max-w-none p-6 break-words w-full"
                 dangerouslySetInnerHTML={{ __html: renderedHtml || `<p class="text-muted-foreground text-sm">${i18n.summary.placeholder}</p>` }}
               />
             </ScrollArea>

@@ -151,23 +151,23 @@ export default function GraphPage() {
         <span className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs">🔍</span>
       </div>
 
-      <Button variant="ghost" size="icon-sm" onClick={handleFit} title={i18n.graph.fit}>
+      <Button variant="ghost" size="sm" onClick={handleFit} title={i18n.graph.fit}>
         <Maximize2 />
       </Button>
-      <Button variant="ghost" size="icon-sm" onClick={handleClear} title={i18n.graph.clearHighlight}>
+      <Button variant="ghost" size="sm" onClick={handleClear} title={i18n.graph.clearHighlight}>
         <XCircle />
       </Button>
       <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo}>
         <UserPlus className="mr-1 size-3.5" />{i18n.graph.createPersona}
       </Button>
-      <Button variant="ghost" size="icon-sm" onClick={loadGraph} title={i18n.common.refresh}>
+      <Button variant="ghost" size="icon" onClick={loadGraph} title={i18n.common.refresh}>
         <RefreshCw />
       </Button>
     </div>
   )
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden">
       <PageHeader
         title={i18n.page.graph.title}
         description={i18n.page.graph.description}
@@ -179,14 +179,14 @@ export default function GraphPage() {
         <div className="flex flex-1 flex-col overflow-hidden">
           <TagFilter tags={tagList} value={activeTags} onChange={setActiveTags} />
           <div className="flex-1 overflow-hidden">
-          <CytoscapeGraph
-            nodes={filteredNodes}
-            edges={filteredEdges}
-            onNodeClick={handleNodeClick}
-            onEdgeClick={handleEdgeClick}
-            onBackgroundClick={handleClear}
-            instanceRef={cyRef}
-          />
+            <CytoscapeGraph
+              nodes={filteredNodes}
+              edges={filteredEdges}
+              onNodeClick={handleNodeClick}
+              onEdgeClick={handleEdgeClick}
+              onBackgroundClick={handleClear}
+              instanceRef={cyRef}
+            />
           </div>
         </div>
 
@@ -197,7 +197,7 @@ export default function GraphPage() {
               <h3 className="font-medium">
                 {detailNode ? i18n.graph.detailTitle : i18n.graph.impressionDetail}
               </h3>
-              <Button variant="ghost" size="icon-xs" onClick={handleClear}>✕</Button>
+              <Button variant="ghost" size="icon" onClick={handleClear}>✕</Button>
             </div>
             {detailNode && (
               <PersonaDetailCard

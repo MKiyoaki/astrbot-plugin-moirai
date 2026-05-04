@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState, useCallback, Suspense, Fragment } from 'react'
+import { useEffect, useState, useCallback, Suspense, Fragment, SetStateAction } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import {
   Users, Building2, Activity, Clock, Search,
   ChevronDown, ChevronRight, Pencil, Trash2,
-  Network, GitBranch, CheckSquare, Square, Minus,
+  Network, GitBranch
 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
@@ -15,13 +15,21 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select'
+import {
+  Pagination, PaginationContent, PaginationItem,
+  PaginationNext, PaginationPrevious
+} from '@/components/ui/pagination'
 import { PageHeader } from '@/components/layout/page-header'
 import { TagFilter } from '@/components/shared/tag-filter'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { i18n } from '@/lib/i18n'
 
-// Local UI strings not yet in i18n.ts — add these to lib/i18n.ts when convenient
+// Local UI strings not yet in i18n.ts
 const L = {
   editMode:       '编辑模式',
   exitEditMode:   '退出编辑',
@@ -50,9 +58,11 @@ function LibraryContent() {
   // Expandable row detail state
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  // Edit mode state
+  // Edit mode & Pagination state
   const [editMode, setEditMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [pageSize, setPageSize] = useState<number>(25)
+  const [currentPage, setCurrentPage] = useState<number>(1)
 
   const loadData = useCallback(async () => {
     const [tagsData, graphData, eventsData] = await Promise.allSettled([
@@ -86,22 +96,28 @@ function LibraryContent() {
 
   useEffect(() => {
     loadData()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [loadData])
 
   useEffect(() => {
     const t = searchParams.get('tab')
     if (t) setTab(t)
   }, [searchParams])
 
-  // Reset selection when tab or edit mode changes
+  // Reset pagination & selection when tab, search, or filters change
   useEffect(() => {
+    setCurrentPage(1)
     setSelectedIds(new Set())
     setExpandedId(null)
-  }, [tab, editMode])
+  }, [tab, search, activeTags, pageSize])
+
+  // Reset selection when exiting edit mode
+  useEffect(() => {
+    if (!editMode) setSelectedIds(new Set())
+  }, [editMode])
 
   const q = search.toLowerCase()
 
+  // Data Filtering
   const filteredPersonas = personaList.filter(n => {
     if (q && !(n.data.label || '').toLowerCase().includes(q) &&
         !(n.data.attrs?.description || '').toLowerCase().includes(q)) return false
@@ -132,6 +148,19 @@ function LibraryContent() {
     if (tagMatchedGroupIds && !tagMatchedGroupIds.has(g.id)) return false
     return true
   })
+
+  // Pagination Logic
+  const paginate = <T,>(items: T[]) => items.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  
+  const paginatedPersonas = paginate(filteredPersonas)
+  const totalPersonaPages = Math.max(1, Math.ceil(filteredPersonas.length / pageSize))
+
+  const paginatedGroups = paginate(filteredGroups)
+  const totalGroupPages = Math.max(1, Math.ceil(filteredGroups.length / pageSize))
+
+  const sortedEvents = [...filteredEvents].sort((a, b) => new Date(b.start).getTime() - new Date(a.start).getTime())
+  const paginatedEvents = paginate(sortedEvents)
+  const totalEventPages = Math.max(1, Math.ceil(sortedEvents.length / pageSize))
 
   // Row toggle helpers
   const toggleExpand = (id: string) => {
@@ -167,7 +196,6 @@ function LibraryContent() {
     await app.refreshStats()
   }
 
-  // Navigation helpers
   const goToGraph = (uid: string) => {
     sessionStorage.setItem('em_focus_persona', uid)
     router.push('/graph')
@@ -178,18 +206,20 @@ function LibraryContent() {
     router.push('/events')
   }
 
-  // Select-all helpers
-  const allPersonaIds = filteredPersonas.map(n => n.data.id)
-  const allEventIds = filteredEvents.map(ev => ev.id)
-  const currentIds = tab === 'personas' ? allPersonaIds : tab === 'events' ? allEventIds : []
+  // Select-all logic (applied to the current paginated view)
+  const currentIds = tab === 'personas' ? paginatedPersonas.map(n => n.data.id) : tab === 'events' ? paginatedEvents.map(ev => ev.id) : []
   const allSelected = currentIds.length > 0 && currentIds.every(id => selectedIds.has(id))
   const someSelected = currentIds.some(id => selectedIds.has(id))
 
   const toggleAll = () => {
     if (allSelected) {
-      setSelectedIds(new Set())
+      const next = new Set(selectedIds)
+      currentIds.forEach(id => next.delete(id))
+      setSelectedIds(next)
     } else {
-      setSelectedIds(new Set(currentIds))
+      const next = new Set(selectedIds)
+      currentIds.forEach(id => next.add(id))
+      setSelectedIds(next)
     }
   }
 
@@ -217,6 +247,51 @@ function LibraryContent() {
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
+      </div>
+    </div>
+  )
+
+  // ── Pagination Footer Component ────────────────────────────────────────────
+  const PaginationFooter = ({ totalItems, totalPages }: { totalItems: number, totalPages: number }) => (
+    <div className="flex items-center justify-between border-t px-2 py-3 mt-4 shrink-0">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <span>每页显示</span>
+        <Select value={pageSize.toString()} onValueChange={(v: any) => setPageSize(Number(v))}>
+          <SelectTrigger className="h-8 w-[70px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="25">25</SelectItem>
+            <SelectItem value="50">50</SelectItem>
+            <SelectItem value="100">100</SelectItem>
+          </SelectContent>
+        </Select>
+        <span>项</span>
+      </div>
+      <div className="flex items-center gap-4">
+        <span className="text-sm text-muted-foreground">
+          {totalItems} Items (Page {currentPage}/{totalPages})
+        </span>
+        <Pagination className="justify-end w-auto mx-0">
+          <PaginationContent>
+            <PaginationItem>
+              <PaginationPrevious
+                href="#"
+                size="sm"
+                onClick={(e) => { e.preventDefault(); if (currentPage > 1) setCurrentPage(p => p - 1) }}
+                className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+              />
+            </PaginationItem>
+            <PaginationItem>
+              <PaginationNext
+                href="#"
+                size="sm"
+                onClick={(e) => { e.preventDefault(); if (currentPage < totalPages) setCurrentPage(p => p + 1) }}
+                className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+              />
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
       </div>
     </div>
   )
@@ -345,14 +420,16 @@ function LibraryContent() {
   // ── Checkbox cell ────────────────────────────────────────────────────────
   const SelectCell = ({ id }: { id: string }) => (
     <TableCell className="w-8 pr-0" onClick={e => { e.stopPropagation(); toggleSelect(id) }}>
-      {selectedIds.has(id)
-        ? <CheckSquare className="size-4 text-primary" />
-        : <Square className="text-muted-foreground size-4" />}
+      <Checkbox
+        checked={selectedIds.has(id)}
+        onCheckedChange={() => toggleSelect(id)}
+        aria-label="选择此项"
+      />
     </TableCell>
   )
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden">
       <PageHeader
         title={i18n.page.library.title}
         description={i18n.page.library.description}
@@ -362,7 +439,7 @@ function LibraryContent() {
       <TagFilter tags={tagList} value={activeTags} onChange={setActiveTags} />
 
       <div className="flex flex-1 flex-col overflow-hidden p-6 pt-4">
-        <Tabs value={tab} onValueChange={t => { setEditMode(false); setTab(t) }} className="flex flex-1 flex-col overflow-hidden">
+        <Tabs value={tab} onValueChange={(t: SetStateAction<string>) => { setEditMode(false); setTab(t) }} className="flex flex-1 flex-col overflow-hidden">
           <TabsList className="mb-4 shrink-0">
             <TabsTrigger value="personas">
               <Users className="mr-1.5 size-3.5" />{i18n.library.tabs.personas}
@@ -379,20 +456,19 @@ function LibraryContent() {
           </TabsList>
 
           {/* PERSONAS */}
-          <TabsContent value="personas" className="flex-1 overflow-hidden">
-            <ScrollArea className="h-full">
+          <TabsContent value="personas" className="flex-1 overflow-hidden flex flex-col">
+            <ScrollArea className="flex-1">
               <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       {editMode && (
-                        <TableHead className="w-8 pr-0"
-                          onClick={toggleAll}>
-                          {allSelected
-                            ? <CheckSquare className="size-4 text-primary cursor-pointer" />
-                            : someSelected
-                              ? <Minus className="size-4 text-primary cursor-pointer" />
-                              : <Square className="text-muted-foreground size-4 cursor-pointer" />}
+                        <TableHead className="w-8 pr-0" onClick={toggleAll}>
+                          <Checkbox
+                            checked={allSelected ? true : (someSelected ? 'indeterminate' : false)}
+                            onCheckedChange={toggleAll}
+                            aria-label="选择全部"
+                          />
                         </TableHead>
                       )}
                       <TableHead className="w-4"></TableHead>
@@ -404,13 +480,13 @@ function LibraryContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredPersonas.length === 0 ? (
+                    {paginatedPersonas.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={editMode ? 7 : 6} className="text-muted-foreground text-center">
+                        <TableCell colSpan={editMode ? 7 : 6} className="text-muted-foreground text-center py-8">
                           {i18n.library.personas.noPersonas}
                         </TableCell>
                       </TableRow>
-                    ) : filteredPersonas.map(n => {
+                    ) : paginatedPersonas.map(n => {
                       const d = n.data
                       const attrs = d.attrs || {}
                       const isExpanded = expandedId === d.id
@@ -444,7 +520,7 @@ function LibraryContent() {
                                     key={t}
                                     variant={activeTags.has(t) ? 'default' : 'secondary'}
                                     className="cursor-pointer text-xs"
-                                    onClick={e => {
+                                    onClick={(e: { stopPropagation: () => void }) => {
                                       e.stopPropagation()
                                       const next = new Set(activeTags)
                                       if (next.has(t)) next.delete(t); else next.add(t)
@@ -465,11 +541,12 @@ function LibraryContent() {
                 </Table>
               </div>
             </ScrollArea>
+            <PaginationFooter totalItems={filteredPersonas.length} totalPages={totalPersonaPages} />
           </TabsContent>
 
           {/* GROUPS */}
-          <TabsContent value="groups" className="flex-1 overflow-hidden">
-            <ScrollArea className="h-full">
+          <TabsContent value="groups" className="flex-1 overflow-hidden flex flex-col">
+            <ScrollArea className="flex-1">
               <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
                 <Table>
                   <TableHeader>
@@ -480,13 +557,13 @@ function LibraryContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredGroups.length === 0 ? (
+                    {paginatedGroups.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={3} className="text-muted-foreground text-center">
+                        <TableCell colSpan={3} className="text-muted-foreground text-center py-8">
                           {i18n.library.groups.noGroups}
                         </TableCell>
                       </TableRow>
-                    ) : filteredGroups.map(g => (
+                    ) : paginatedGroups.map(g => (
                       <TableRow key={g.id}>
                         <TableCell className="font-mono text-sm">{g.id}</TableCell>
                         <TableCell className="text-sm">{g.event_count}</TableCell>
@@ -499,22 +576,23 @@ function LibraryContent() {
                 </Table>
               </div>
             </ScrollArea>
+            <PaginationFooter totalItems={filteredGroups.length} totalPages={totalGroupPages} />
           </TabsContent>
 
           {/* EVENTS */}
-          <TabsContent value="events" className="flex-1 overflow-hidden">
-            <ScrollArea className="h-full">
+          <TabsContent value="events" className="flex-1 overflow-hidden flex flex-col">
+            <ScrollArea className="flex-1">
               <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       {editMode && (
                         <TableHead className="w-8 pr-0" onClick={toggleAll}>
-                          {allSelected
-                            ? <CheckSquare className="size-4 text-primary cursor-pointer" />
-                            : someSelected
-                              ? <Minus className="size-4 text-primary cursor-pointer" />
-                              : <Square className="text-muted-foreground size-4 cursor-pointer" />}
+                          <Checkbox
+                            checked={allSelected ? true : (someSelected ? 'indeterminate' : false)}
+                            onCheckedChange={toggleAll}
+                            aria-label="选择全部"
+                          />
                         </TableHead>
                       )}
                       <TableHead className="w-4"></TableHead>
@@ -526,15 +604,13 @@ function LibraryContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredEvents.length === 0 ? (
+                    {paginatedEvents.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={editMode ? 7 : 6} className="text-muted-foreground text-center">
+                        <TableCell colSpan={editMode ? 7 : 6} className="text-muted-foreground text-center py-8">
                           {i18n.common.noData}
                         </TableCell>
                       </TableRow>
-                    ) : filteredEvents
-                      .sort((a, b) => new Date(b.start).getTime() - new Date(a.start).getTime())
-                      .map(ev => {
+                    ) : paginatedEvents.map(ev => {
                         const isExpanded = expandedId === ev.id
                         return (
                           <Fragment key={ev.id}>
@@ -563,7 +639,7 @@ function LibraryContent() {
                                       key={t}
                                       variant={activeTags.has(t) ? 'default' : 'secondary'}
                                       className="cursor-pointer text-xs"
-                                      onClick={e => {
+                                      onClick={(e: { stopPropagation: () => void }) => {
                                         e.stopPropagation()
                                         const next = new Set(activeTags)
                                         if (next.has(t)) next.delete(t); else next.add(t)
@@ -584,6 +660,7 @@ function LibraryContent() {
                 </Table>
               </div>
             </ScrollArea>
+            <PaginationFooter totalItems={sortedEvents.length} totalPages={totalEventPages} />
           </TabsContent>
 
           {/* TIME */}

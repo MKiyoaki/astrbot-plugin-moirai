@@ -83,7 +83,7 @@ export default function HomePage() {
         {/* Stats */}
         <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {STATS.map(({ label, val }) => (
-            <Card key={label} size="sm">
+            <Card key={label}>
               <CardContent className="pt-3 text-center">
                 <div className="text-3xl font-bold">{val}</div>
                 <div className="text-muted-foreground text-sm">{label}</div>

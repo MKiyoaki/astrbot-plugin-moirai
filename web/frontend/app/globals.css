@@ -7,7 +7,7 @@
 /* ==========================================================================
    Tailwind v4 Theme Configuration (DO NOT REMOVE)
    ========================================================================== */
-@theme inline {
+@theme {
   --font-heading: var(--font-sans);
   --font-sans: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -54,17 +54,26 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
+
   html {
     @apply font-sans;
   }
 }
 
 @keyframes tlBubbleIn {
-  from { opacity: 0; transform: translateX(-5px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 /* ==========================================================================
@@ -104,6 +113,8 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-width: 16rem;
+  --sidebar-width-icon: 3rem;
 }
 
 .dark {
@@ -151,6 +162,7 @@
   --primary-foreground: oklch(0.985 0 0);
   --ring: oklch(0.708 0 0);
 }
+
 .dark.theme-zinc {
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
@@ -163,6 +175,7 @@
   --primary-foreground: oklch(0.985 0 0);
   --ring: oklch(0.60 0.25 29);
 }
+
 .dark.theme-red {
   --primary: oklch(0.73 0.22 29);
   --primary-foreground: oklch(0.145 0 0);
@@ -175,6 +188,7 @@
   --primary-foreground: oklch(0.985 0 0);
   --ring: oklch(0.60 0.22 15);
 }
+
 .dark.theme-rose {
   --primary: oklch(0.72 0.19 15);
   --primary-foreground: oklch(0.145 0 0);
@@ -187,6 +201,7 @@
   --primary-foreground: oklch(0.985 0 0);
   --ring: oklch(0.65 0.21 55);
 }
+
 .dark.theme-orange {
   --primary: oklch(0.78 0.18 55);
   --primary-foreground: oklch(0.145 0 0);
@@ -199,6 +214,7 @@
   --primary-foreground: oklch(0.985 0 0);
   --ring: oklch(0.62 0.20 149);
 }
+
 .dark.theme-green {
   --primary: oklch(0.77 0.18 149);
   --primary-foreground: oklch(0.145 0 0);
@@ -211,6 +227,7 @@
   --primary-foreground: oklch(0.985 0 0);
   --ring: oklch(0.62 0.18 214);
 }
+
 .dark.theme-blue {
   --primary: oklch(0.76 0.16 214);
   --primary-foreground: oklch(0.145 0 0);
@@ -223,6 +240,7 @@
   --primary-foreground: oklch(0.145 0 0);
   --ring: oklch(0.75 0.18 90);
 }
+
 .dark.theme-yellow {
   --primary: oklch(0.85 0.15 90);
   --primary-foreground: oklch(0.145 0 0);
@@ -235,6 +253,7 @@
   --primary-foreground: oklch(0.985 0 0);
   --ring: oklch(0.58 0.25 298);
 }
+
 .dark.theme-violet {
   --primary: oklch(0.74 0.22 298);
   --primary-foreground: oklch(0.145 0 0);

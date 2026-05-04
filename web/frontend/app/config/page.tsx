@@ -14,7 +14,6 @@ import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { i18n } from '@/lib/i18n'
 
-// Groups config keys into labelled sections
 const SECTIONS: { label: string; keys: string[] }[] = [
   {
     label: i18n.config.sections.webui,
@@ -60,14 +59,21 @@ function ConfigField({
   if (schema.type === 'bool') {
     return (
       <div className="flex items-center justify-between py-2">
-        <div className="flex-1 pr-4">
-          <Label htmlFor={id} className="text-sm font-medium">{schema.description}</Label>
-          {schema.hint && <p className="mt-0.5 text-xs text-muted-foreground">{schema.hint}</p>}
+        <div className="flex-1 pr-4 min-w-0">
+          {/* 增加 break-words 和 whitespace-normal 防止长文本撑破布局 */}
+          <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
+            {schema.description}
+          </Label>
+          {schema.hint && (
+            <p className="mt-0.5 text-xs text-muted-foreground break-words whitespace-normal">
+              {schema.hint}
+            </p>
+          )}
         </div>
         <Switch
           id={id}
           checked={Boolean(value)}
-          onCheckedChange={v => onChange(v)}
+          onCheckedChange={(v: unknown) => onChange(v)}
           disabled={disabled}
         />
       </div>
@@ -77,18 +83,24 @@ function ConfigField({
   if (schema.type === 'float') {
     const num = typeof value === 'number' ? value : parseFloat(String(value)) || 0
     return (
-      <div className="py-2">
-        <div className="mb-2 flex items-center justify-between">
-          <Label htmlFor={id} className="text-sm font-medium">{schema.description}</Label>
-          <span className="w-12 text-right text-sm tabular-nums text-muted-foreground">
+      <div className="py-2 min-w-0">
+        <div className="mb-2 flex items-start justify-between gap-4">
+          <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal flex-1">
+            {schema.description}
+          </Label>
+          <span className="w-12 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
             {num.toFixed(2)}
           </span>
         </div>
-        {schema.hint && <p className="mb-2 text-xs text-muted-foreground">{schema.hint}</p>}
+        {schema.hint && (
+          <p className="mb-2 text-xs text-muted-foreground break-words whitespace-normal">
+            {schema.hint}
+          </p>
+        )}
         <Slider
           id={id}
           value={[num]}
-          onValueChange={v => onChange(Array.isArray(v) ? v[0] : v)}
+          onValueChange={(v: unknown) => onChange(Array.isArray(v) ? v[0] : v)}
           min={0} max={1} step={0.01}
           disabled={disabled}
         />
@@ -96,11 +108,16 @@ function ConfigField({
     )
   }
 
-  // int or string
   return (
-    <div className="py-2">
-      <Label htmlFor={id} className="text-sm font-medium">{schema.description}</Label>
-      {schema.hint && <p className="mt-0.5 mb-1.5 text-xs text-muted-foreground">{schema.hint}</p>}
+    <div className="py-2 min-w-0">
+      <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
+        {schema.description}
+      </Label>
+      {schema.hint && (
+        <p className="mt-0.5 mb-1.5 text-xs text-muted-foreground break-words whitespace-normal">
+          {schema.hint}
+        </p>
+      )}
       <Input
         id={id}
         type={schema.type === 'int' ? 'number' : 'text'}
@@ -110,7 +127,7 @@ function ConfigField({
           onChange(schema.type === 'int' ? (parseInt(raw, 10) || 0) : raw)
         }}
         disabled={disabled}
-        className="h-8 text-sm"
+        className="h-8 text-sm w-full"
       />
     </div>
   )
@@ -169,7 +186,7 @@ export default function ConfigPage() {
           {dirtyCount} 项已修改
         </Badge>
       )}
-      <Button variant="ghost" size="icon-sm" onClick={load} title={i18n.common.refresh}>
+      <Button variant="ghost" size="icon" onClick={load} title={i18n.common.refresh}>
         <RefreshCw className={loading ? 'animate-spin' : ''} />
       </Button>
       <Button
@@ -183,16 +200,16 @@ export default function ConfigPage() {
   )
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
+    // 添加了 w-full flex-1 min-w-0 收束边界宽度
+    <div className="flex w-full flex-1 h-full flex-col min-w-0 overflow-hidden">
       <PageHeader
         title={i18n.page.config.title}
         description={i18n.page.config.description}
         actions={actions}
       />
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-2xl space-y-6 p-6">
-          {/* Restart notice */}
+      <div className="flex-1 overflow-y-auto min-w-0">
+        <div className="mx-auto w-full max-w-2xl space-y-6 p-6">
           <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3">
             <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">{i18n.config.restartHint}</p>
@@ -205,10 +222,9 @@ export default function ConfigPage() {
               const fields = section.keys.filter(k => schema[k])
               if (!fields.length) return null
               return (
-                <Card key={section.label}>
+                <Card key={section.label} className="overflow-hidden">
                   <CardHeader>
                     <CardTitle>{section.label}</CardTitle>
-                    {/* Show default values as hint */}
                     <CardDescription>
                       {fields.length} 项配置
                     </CardDescription>

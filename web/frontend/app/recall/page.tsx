@@ -10,7 +10,6 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { PageHeader } from '@/components/layout/page-header'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { i18n } from '@/lib/i18n'
@@ -43,26 +42,26 @@ export default function RecallPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
+    // Removed h-screen. Applied w-full flex-1 h-full min-w-0 to inherit layout constraints safely
+    <div className="flex w-full flex-1 h-full flex-col min-w-0 overflow-hidden">
       <PageHeader
         title={i18n.page.recall.title}
         description={i18n.page.recall.description}
       />
 
-      <div className="flex flex-1 flex-col gap-4 overflow-hidden p-6">
-        {/* Search card */}
+      {/* Added min-w-0 to secure inner flex box bounds */}
+      <div className="flex flex-1 flex-col gap-4 overflow-hidden p-6 min-w-0">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{i18n.recall.title}</CardTitle>
             <CardDescription>{i18n.recall.hint}</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            {/* Query input — large textarea */}
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="recall-input">查询内容</Label>
               <Textarea
                 id="recall-input"
-                className="min-h-24 resize-y text-sm"
+                className="min-h-24 resize-y text-sm w-full"
                 placeholder={i18n.recall.placeholder}
                 value={query}
                 onChange={e => setQuery(e.target.value)}
@@ -75,9 +74,7 @@ export default function RecallPage() {
               />
             </div>
 
-            {/* Controls row */}
             <div className="flex flex-wrap items-end gap-3">
-              {/* Result count */}
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="recall-limit">{i18n.recall.resultCount}</Label>
                 <Input
@@ -94,15 +91,14 @@ export default function RecallPage() {
                 />
               </div>
 
-              {/* Optional session ID */}
-              <div className="flex min-w-48 flex-col gap-1.5">
+              <div className="flex min-w-48 flex-col gap-1.5 flex-1 sm:flex-none">
                 <Label htmlFor="recall-session">{i18n.recall.sessionId}</Label>
                 <Input
                   id="recall-session"
                   value={sessionId}
                   onChange={e => setSessionId(e.target.value)}
                   placeholder="（可选）"
-                  className="font-mono text-xs"
+                  className="font-mono text-xs w-full"
                 />
               </div>
 
@@ -118,9 +114,8 @@ export default function RecallPage() {
           </CardContent>
         </Card>
 
-        {/* Results */}
         {searched && (
-          <div className="flex min-h-0 flex-1 flex-col gap-2">
+          <div className="flex min-h-0 flex-1 flex-col gap-2 min-w-0">
             {meta && (
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground text-sm">
@@ -137,7 +132,7 @@ export default function RecallPage() {
                   {results.map(ev => (
                     <div
                       key={ev.id}
-                      className="bg-card ring-foreground/10 rounded-xl p-3 ring-1 transition-shadow hover:ring-2"
+                      className="bg-card ring-foreground/10 rounded-xl p-3 ring-1 transition-shadow hover:ring-2 w-full break-words"
                     >
                       <div className="mb-1 font-medium text-sm">{ev.content || ev.topic || ev.id}</div>
                       <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">

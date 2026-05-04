@@ -4,7 +4,14 @@ import { useState, useRef, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { i18n } from '@/lib/i18n'
 
-const THREAD_COLORS = ['#7dd3fc', '#86efac', '#fca5a5', '#c4b5fd', '#fdba74', '#67e8f9', '#fde68a']
+// 使用 Tailwind 语义化图表变量
+const THREAD_COLORS = [
+  'var(--color-chart-1)',
+  'var(--color-chart-2)',
+  'var(--color-chart-3)',
+  'var(--color-chart-4)',
+  'var(--color-chart-5)',
+]
 const COLLAPSED_H = 36
 
 export interface TagItem {
@@ -70,7 +77,12 @@ export function TagFilter({ tags, value, onChange }: TagFilterProps) {
               key={tag.name}
               onClick={() => toggle(tag.name)}
               className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] transition-all"
-              style={active ? { borderColor: `${color}55`, background: `${color}18`, color } : {}}
+              style={active ? {
+                // 利用 color-mix 完美渲染出主题色的微透明高亮效果
+                borderColor: `color-mix(in srgb, ${color} 40%, transparent)`,
+                background: `color-mix(in srgb, ${color} 15%, transparent)`,
+                color
+              } : {}}
             >
               <span className="text-[10px] text-muted-foreground">#</span>
               {tag.name}

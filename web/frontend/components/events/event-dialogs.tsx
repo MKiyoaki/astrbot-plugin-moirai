@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Undo2, Trash2, Pencil, Check, ChevronsUpDown, X, Plus } from 'lucide-react'
+import { Plus, Undo2, Trash2, Pencil, Check, ChevronsUpDown, X } from 'lucide-react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
@@ -34,7 +34,6 @@ const toLocalIso = (ts: number) =>
 const fromLocalIso = (s: string) =>
   Math.floor(new Date(s).getTime() / 1000)
 
-// ── Group picker (free-text + dropdown from known groups) ─────────────────
 
 function GroupPicker({
   value,
@@ -301,7 +300,7 @@ function EventForm({
         </div>
         <Slider
           value={[data.salience]}
-          onValueChange={v => set('salience', Array.isArray(v) ? v[0] : v)}
+          onValueChange={(v: number | number[]) => set('salience', Array.isArray(v) ? v[0] : v)}
           min={0} max={1} step={0.01}
         />
       </div>
@@ -370,7 +369,7 @@ export function CreateEventDialog({ open, onClose, onSubmit, tagSuggestions, eve
   }
 
   return (
-    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v: any) => !v && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{i18n.events.createTitle}</DialogTitle>
@@ -442,10 +441,11 @@ export function EditEventDialog({ open, event, onClose, onSubmit, tagSuggestions
     }
   }
 
+  // Filter out the currently-edited event from the inherit candidates
   const inheritCandidates = events.filter(ev => ev.id !== event?.id)
 
   return (
-    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v: any) => !v && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{i18n.events.editTitle}</DialogTitle>
@@ -482,7 +482,7 @@ interface RecycleBinDialogProps {
 
 export function RecycleBinDialog({ open, items, loading, onClose, onRestore, onClear, sudoMode }: RecycleBinDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v: any) => !v && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{i18n.events.recycleBin}</DialogTitle>

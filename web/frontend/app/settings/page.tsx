@@ -126,7 +126,7 @@ export default function SettingsPage() {
       : i18n.auth.status.notLoggedIn
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden">
       <PageHeader
         title={i18n.page.settings.title}
         description={i18n.page.settings.description}
@@ -249,7 +249,7 @@ export default function SettingsPage() {
                 <div className="flex-1">
                   <Slider
                     value={[app.defaultPersonaConfidence]}
-                    onValueChange={v => app.setDefaultPersonaConfidence(Array.isArray(v) ? v[0] : v)}
+                    onValueChange={(v: number | number[]) => app.setDefaultPersonaConfidence(Array.isArray(v) ? v[0] : v)}
                     min={0} max={1} step={0.01}
                   />
                 </div>
