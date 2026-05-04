@@ -216,20 +216,20 @@ export function EditImpressionDialog({
   onClose: () => void
   onSubmit: (observer: string, subject: string, scope: string, data: Record<string, unknown>) => Promise<void>
 }) {
+  const existingConfidenceRef = useRef<number>(0.8)
   const [relation, setRelation] = useState('')
   const [affect, setAffect] = useState(0)
   const [intensity, setIntensity] = useState(0.5)
-  const [confidence, setConfidence] = useState(0.8)
   const [evidence, setEvidence] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     if (edge) {
+      existingConfidenceRef.current = edge.data.confidence
       setRelation(edge.data.label || '')
       setAffect(edge.data.affect)
       setIntensity(edge.data.intensity)
-      setConfidence(edge.data.confidence)
       setEvidence((edge.data.evidence_event_ids || []).join(', '))
       setError('')
     }
@@ -241,7 +241,8 @@ export function EditImpressionDialog({
     try {
       await onSubmit(edge.data.source, edge.data.target, edge.data.scope, {
         relation_type: relation.trim(),
-        affect, intensity, confidence,
+        affect, intensity,
+        confidence: existingConfidenceRef.current,
         scope: edge.data.scope,
         evidence_event_ids: evidence.split(',').map(s => s.trim()).filter(Boolean),
       })
@@ -267,7 +268,6 @@ export function EditImpressionDialog({
           {[
             { label: i18n.graph.affect, val: affect, set: setAffect, min: -1, max: 1 },
             { label: i18n.graph.intensity, val: intensity, set: setIntensity, min: 0, max: 1 },
-            { label: i18n.graph.confidence, val: confidence, set: setConfidence, min: 0, max: 1 },
           ].map(({ label, val, set: setter, min, max }) => (
             <div key={label} className="flex flex-col gap-1.5">
               <div className="flex justify-between">

@@ -1,11 +1,16 @@
 'use client'
 
-import { useEffect, useState, useCallback, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { Users, Building2, Activity, Clock, Search } from 'lucide-react'
+import { useEffect, useState, useCallback, Suspense, Fragment } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
+import {
+  Users, Building2, Activity, Clock, Search,
+  ChevronDown, ChevronRight, Pencil, Trash2,
+  Network, GitBranch, CheckSquare, Square, Minus,
+} from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -16,8 +21,21 @@ import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { i18n } from '@/lib/i18n'
 
+// Local UI strings not yet in i18n.ts — add these to lib/i18n.ts when convenient
+const L = {
+  editMode:       '编辑模式',
+  exitEditMode:   '退出编辑',
+  deleteSelected: '删除所选',
+  viewInGraph:    '关系图',
+  viewInEvents:   '事件流',
+  noSelected:     '未选择任何项目',
+  confirmDelete:  (n: number) => `确认删除选中的 ${n} 项？`,
+  deletedOk:      (n: number) => `已删除 ${n} 项`,
+}
+
 function LibraryContent() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const app = useApp()
   const defaultTab = searchParams.get('tab') || 'personas'
   const [tab, setTab] = useState(defaultTab)
@@ -28,6 +46,13 @@ function LibraryContent() {
   const [personaList, setPersonaList] = useState<api.PersonaNode[]>([])
   const [groupList, setGroupList] = useState<{ id: string; event_count: number; last_active?: string }[]>([])
   const [eventList, setEventList] = useState<api.ApiEvent[]>([])
+
+  // Expandable row detail state
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  // Edit mode state
+  const [editMode, setEditMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const loadData = useCallback(async () => {
     const [tagsData, graphData, eventsData] = await Promise.allSettled([
@@ -69,6 +94,12 @@ function LibraryContent() {
     if (t) setTab(t)
   }, [searchParams])
 
+  // Reset selection when tab or edit mode changes
+  useEffect(() => {
+    setSelectedIds(new Set())
+    setExpandedId(null)
+  }, [tab, editMode])
+
   const q = search.toLowerCase()
 
   const filteredPersonas = personaList.filter(n => {
@@ -92,7 +123,6 @@ function LibraryContent() {
     return true
   })
 
-  // Groups: filter by name search; when tags active, only groups that have matching events
   const tagMatchedGroupIds = activeTags.size > 0
     ? new Set(filteredEvents.filter(ev => ev.group).map(ev => ev.group as string))
     : null
@@ -103,16 +133,222 @@ function LibraryContent() {
     return true
   })
 
+  // Row toggle helpers
+  const toggleExpand = (id: string) => {
+    if (editMode) return
+    setExpandedId(prev => prev === id ? null : id)
+  }
+
+  const toggleSelect = (id: string) => {
+    const next = new Set(selectedIds)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    setSelectedIds(next)
+  }
+
+  // Bulk delete
+  const handleDeleteSelected = async () => {
+    if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
+    if (!selectedIds.size) { app.toast(L.noSelected, 'destructive'); return }
+    if (!confirm(L.confirmDelete(selectedIds.size))) return
+
+    let ok = 0
+    if (tab === 'personas') {
+      for (const uid of selectedIds) {
+        try { await api.graph.deletePersona(uid); ok++ } catch {}
+      }
+    } else if (tab === 'events') {
+      for (const id of selectedIds) {
+        try { await api.events.delete(id); ok++ } catch {}
+      }
+    }
+    setSelectedIds(new Set())
+    app.toast(L.deletedOk(ok))
+    await loadData()
+    await app.refreshStats()
+  }
+
+  // Navigation helpers
+  const goToGraph = (uid: string) => {
+    sessionStorage.setItem('em_focus_persona', uid)
+    router.push('/graph')
+  }
+
+  const goToEvents = (eventId: string) => {
+    sessionStorage.setItem('em_focus_event', eventId)
+    router.push('/events')
+  }
+
+  // Select-all helpers
+  const allPersonaIds = filteredPersonas.map(n => n.data.id)
+  const allEventIds = filteredEvents.map(ev => ev.id)
+  const currentIds = tab === 'personas' ? allPersonaIds : tab === 'events' ? allEventIds : []
+  const allSelected = currentIds.length > 0 && currentIds.every(id => selectedIds.has(id))
+  const someSelected = currentIds.some(id => selectedIds.has(id))
+
+  const toggleAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(currentIds))
+    }
+  }
+
   const actions = (
-    <div className="relative">
-      <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
-      <Input
-        className="h-7 w-48 pl-7 text-xs"
-        placeholder={i18n.common.search + '…'}
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-      />
+    <div className="flex items-center gap-2">
+      {editMode && selectedIds.size > 0 && (
+        <Button variant="destructive" size="sm" onClick={handleDeleteSelected}>
+          <Trash2 className="mr-1 size-3.5" />{L.deleteSelected} ({selectedIds.size})
+        </Button>
+      )}
+      {(tab === 'personas' || tab === 'events') && (
+        <Button
+          variant={editMode ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setEditMode(v => !v)}
+        >
+          {editMode ? L.exitEditMode : L.editMode}
+        </Button>
+      )}
+      <div className="relative">
+        <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
+        <Input
+          className="h-7 w-48 pl-7 text-xs"
+          placeholder={i18n.common.search + '…'}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+      </div>
     </div>
+  )
+
+  // ── Persona detail expand row ────────────────────────────────────────────
+  const PersonaDetail = ({ node }: { node: api.PersonaNode }) => {
+    const d = node.data
+    const attrs = d.attrs || {}
+    return (
+      <TableRow className="bg-muted/40 hover:bg-muted/40">
+        <TableCell colSpan={editMode ? 7 : 6} className="py-3">
+          <div className="flex flex-col gap-3 px-2">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
+              <div>
+                <span className="text-muted-foreground text-xs">UID</span>
+                <p className="font-mono text-xs">{d.id}</p>
+              </div>
+              {attrs.description && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground text-xs">{i18n.graph.description}</span>
+                  <p className="text-sm">{attrs.description}</p>
+                </div>
+              )}
+              {d.bound_identities?.length > 0 && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground text-xs">{i18n.graph.bindings}</span>
+                  <div className="mt-0.5 flex flex-wrap gap-1">
+                    {d.bound_identities.map(b => (
+                      <Badge key={`${b.platform}:${b.physical_id}`} variant="outline" className="text-xs">
+                        {b.platform}:{b.physical_id}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => goToGraph(d.id)}>
+                <Network className="mr-1 size-3.5" />{L.viewInGraph}
+              </Button>
+              <Button size="sm" variant="ghost" disabled={!app.sudo}
+                onClick={() => { app.toast('请在关系图页面编辑人格', 'destructive') }}>
+                <Pencil className="mr-1 size-3.5" />{i18n.common.edit}
+              </Button>
+              <Button size="sm" variant="destructive" disabled={!app.sudo}
+                onClick={async () => {
+                  if (!confirm(`确认删除人格「${d.label}」？`)) return
+                  try {
+                    await api.graph.deletePersona(d.id)
+                    app.toast('人格已删除')
+                    setExpandedId(null)
+                    await loadData()
+                    await app.refreshStats()
+                  } catch (e: unknown) {
+                    app.toast('删除失败：' + (e as api.ApiError).body, 'destructive')
+                  }
+                }}>
+                <Trash2 className="mr-1 size-3.5" />{i18n.common.delete}
+              </Button>
+            </div>
+          </div>
+        </TableCell>
+      </TableRow>
+    )
+  }
+
+  // ── Event detail expand row ──────────────────────────────────────────────
+  const EventDetail = ({ ev }: { ev: api.ApiEvent }) => (
+    <TableRow className="bg-muted/40 hover:bg-muted/40">
+      <TableCell colSpan={editMode ? 6 : 5} className="py-3">
+        <div className="flex flex-col gap-3 px-2">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
+            <div>
+              <span className="text-muted-foreground text-xs">ID</span>
+              <p className="font-mono text-xs">{ev.id}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground text-xs">{i18n.events.confidence}</span>
+              <p className="text-sm">{(ev.confidence * 100).toFixed(0)}%</p>
+            </div>
+            {(ev.participants?.length ?? 0) > 0 && (
+              <div className="col-span-2">
+                <span className="text-muted-foreground text-xs">{i18n.events.participants}</span>
+                <p className="text-sm">{ev.participants!.join(', ')}</p>
+              </div>
+            )}
+            {(ev.inherit_from?.length ?? 0) > 0 && (
+              <div className="col-span-2">
+                <span className="text-muted-foreground text-xs">{i18n.events.inheritFrom}</span>
+                <div className="mt-0.5 flex flex-wrap gap-1">
+                  {ev.inherit_from!.map(id => (
+                    <Badge key={id} variant="outline" className="cursor-pointer text-xs"
+                      onClick={() => goToEvents(id)}>
+                      {id.slice(0, 12)}…
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => goToEvents(ev.id)}>
+              <GitBranch className="mr-1 size-3.5" />{L.viewInEvents}
+            </Button>
+            <Button size="sm" variant="destructive" disabled={!app.sudo}
+              onClick={async () => {
+                if (!confirm(`确认删除事件「${ev.content || ev.topic}」？`)) return
+                try {
+                  await api.events.delete(ev.id)
+                  app.toast('事件已移入回收站')
+                  setExpandedId(null)
+                  await loadData()
+                  await app.refreshStats()
+                } catch (e: unknown) {
+                  app.toast('删除失败：' + (e as api.ApiError).body, 'destructive')
+                }
+              }}>
+              <Trash2 className="mr-1 size-3.5" />{i18n.common.delete}
+            </Button>
+          </div>
+        </div>
+      </TableCell>
+    </TableRow>
+  )
+
+  // ── Checkbox cell ────────────────────────────────────────────────────────
+  const SelectCell = ({ id }: { id: string }) => (
+    <TableCell className="w-8 pr-0" onClick={e => { e.stopPropagation(); toggleSelect(id) }}>
+      {selectedIds.has(id)
+        ? <CheckSquare className="size-4 text-primary" />
+        : <Square className="text-muted-foreground size-4" />}
+    </TableCell>
   )
 
   return (
@@ -123,11 +359,10 @@ function LibraryContent() {
         actions={actions}
       />
 
-      {/* Tag filter — shared across all tabs */}
       <TagFilter tags={tagList} value={activeTags} onChange={setActiveTags} />
 
       <div className="flex flex-1 flex-col overflow-hidden p-6 pt-4">
-        <Tabs value={tab} onValueChange={setTab} className="flex flex-1 flex-col overflow-hidden">
+        <Tabs value={tab} onValueChange={t => { setEditMode(false); setTab(t) }} className="flex flex-1 flex-col overflow-hidden">
           <TabsList className="mb-4 shrink-0">
             <TabsTrigger value="personas">
               <Users className="mr-1.5 size-3.5" />{i18n.library.tabs.personas}
@@ -150,27 +385,47 @@ function LibraryContent() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {editMode && (
+                        <TableHead className="w-8 pr-0"
+                          onClick={toggleAll}>
+                          {allSelected
+                            ? <CheckSquare className="size-4 text-primary cursor-pointer" />
+                            : someSelected
+                              ? <Minus className="size-4 text-primary cursor-pointer" />
+                              : <Square className="text-muted-foreground size-4 cursor-pointer" />}
+                        </TableHead>
+                      )}
+                      <TableHead className="w-4"></TableHead>
                       <TableHead>名称</TableHead>
                       <TableHead>{i18n.graph.description}</TableHead>
                       <TableHead>{i18n.graph.affectType}</TableHead>
                       <TableHead>{i18n.graph.confidence}</TableHead>
-                      <TableHead>最后活跃</TableHead>
                       <TableHead>{i18n.events.tags}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredPersonas.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-muted-foreground text-center">
+                        <TableCell colSpan={editMode ? 7 : 6} className="text-muted-foreground text-center">
                           {i18n.library.personas.noPersonas}
                         </TableCell>
                       </TableRow>
-                    ) : (
-                      filteredPersonas.map(n => {
-                        const d = n.data
-                        const attrs = d.attrs || {}
-                        return (
-                          <TableRow key={d.id}>
+                    ) : filteredPersonas.map(n => {
+                      const d = n.data
+                      const attrs = d.attrs || {}
+                      const isExpanded = expandedId === d.id
+                      return (
+                        <Fragment key={d.id}>
+                          <TableRow
+                            className="cursor-pointer"
+                            onClick={() => editMode ? toggleSelect(d.id) : toggleExpand(d.id)}
+                          >
+                            {editMode && <SelectCell id={d.id} />}
+                            <TableCell className="w-4 pr-0 text-muted-foreground">
+                              {!editMode && (isExpanded
+                                ? <ChevronDown className="size-3.5" />
+                                : <ChevronRight className="size-3.5" />)}
+                            </TableCell>
                             <TableCell className="font-medium">
                               {d.label}
                               {d.is_bot && (
@@ -182,9 +437,6 @@ function LibraryContent() {
                             </TableCell>
                             <TableCell className="text-sm">{attrs.affect_type || '—'}</TableCell>
                             <TableCell className="text-sm">{(d.confidence * 100).toFixed(0)}%</TableCell>
-                            <TableCell className="text-sm">
-                              {d.last_active_at ? new Date(d.last_active_at).toLocaleDateString('zh-CN') : '—'}
-                            </TableCell>
                             <TableCell>
                               <div className="flex flex-wrap gap-1">
                                 {(attrs.content_tags || []).slice(0, 3).map((t: string) => (
@@ -192,7 +444,8 @@ function LibraryContent() {
                                     key={t}
                                     variant={activeTags.has(t) ? 'default' : 'secondary'}
                                     className="cursor-pointer text-xs"
-                                    onClick={() => {
+                                    onClick={e => {
+                                      e.stopPropagation()
                                       const next = new Set(activeTags)
                                       if (next.has(t)) next.delete(t); else next.add(t)
                                       setActiveTags(next)
@@ -204,9 +457,10 @@ function LibraryContent() {
                               </div>
                             </TableCell>
                           </TableRow>
-                        )
-                      })
-                    )}
+                          {isExpanded && <PersonaDetail node={n} />}
+                        </Fragment>
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -232,17 +486,15 @@ function LibraryContent() {
                           {i18n.library.groups.noGroups}
                         </TableCell>
                       </TableRow>
-                    ) : (
-                      filteredGroups.map(g => (
-                        <TableRow key={g.id}>
-                          <TableCell className="font-mono text-sm">{g.id}</TableCell>
-                          <TableCell className="text-sm">{g.event_count}</TableCell>
-                          <TableCell className="text-sm">
-                            {g.last_active ? new Date(g.last_active).toLocaleDateString('zh-CN') : '—'}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
+                    ) : filteredGroups.map(g => (
+                      <TableRow key={g.id}>
+                        <TableCell className="font-mono text-sm">{g.id}</TableCell>
+                        <TableCell className="text-sm">{g.event_count}</TableCell>
+                        <TableCell className="text-sm">
+                          {g.last_active ? new Date(g.last_active).toLocaleDateString('zh-CN') : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </div>
@@ -256,6 +508,16 @@ function LibraryContent() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {editMode && (
+                        <TableHead className="w-8 pr-0" onClick={toggleAll}>
+                          {allSelected
+                            ? <CheckSquare className="size-4 text-primary cursor-pointer" />
+                            : someSelected
+                              ? <Minus className="size-4 text-primary cursor-pointer" />
+                              : <Square className="text-muted-foreground size-4 cursor-pointer" />}
+                        </TableHead>
+                      )}
+                      <TableHead className="w-4"></TableHead>
                       <TableHead>{i18n.events.topic}</TableHead>
                       <TableHead>{i18n.events.group}</TableHead>
                       <TableHead>{i18n.events.time}</TableHead>
@@ -266,44 +528,58 @@ function LibraryContent() {
                   <TableBody>
                     {filteredEvents.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-muted-foreground text-center">
+                        <TableCell colSpan={editMode ? 7 : 6} className="text-muted-foreground text-center">
                           {i18n.common.noData}
                         </TableCell>
                       </TableRow>
-                    ) : (
-                      filteredEvents
-                        .sort((a, b) => new Date(b.start).getTime() - new Date(a.start).getTime())
-                        .map(ev => (
-                          <TableRow key={ev.id}>
-                            <TableCell className="max-w-60 truncate font-medium">
-                              {ev.content || ev.topic || ev.id}
-                            </TableCell>
-                            <TableCell className="text-sm">{ev.group || i18n.events.privateChat}</TableCell>
-                            <TableCell className="text-sm">
-                              {new Date(ev.start).toLocaleDateString('zh-CN')}
-                            </TableCell>
-                            <TableCell className="text-sm">{(ev.salience * 100).toFixed(0)}%</TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1">
-                                {(ev.tags || []).slice(0, 3).map(t => (
-                                  <Badge
-                                    key={t}
-                                    variant={activeTags.has(t) ? 'default' : 'secondary'}
-                                    className="cursor-pointer text-xs"
-                                    onClick={() => {
-                                      const next = new Set(activeTags)
-                                      if (next.has(t)) next.delete(t); else next.add(t)
-                                      setActiveTags(next)
-                                    }}
-                                  >
-                                    {t}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                    )}
+                    ) : filteredEvents
+                      .sort((a, b) => new Date(b.start).getTime() - new Date(a.start).getTime())
+                      .map(ev => {
+                        const isExpanded = expandedId === ev.id
+                        return (
+                          <Fragment key={ev.id}>
+                            <TableRow
+                              className="cursor-pointer"
+                              onClick={() => editMode ? toggleSelect(ev.id) : toggleExpand(ev.id)}
+                            >
+                              {editMode && <SelectCell id={ev.id} />}
+                              <TableCell className="w-4 pr-0 text-muted-foreground">
+                                {!editMode && (isExpanded
+                                  ? <ChevronDown className="size-3.5" />
+                                  : <ChevronRight className="size-3.5" />)}
+                              </TableCell>
+                              <TableCell className="max-w-60 truncate font-medium">
+                                {ev.content || ev.topic || ev.id}
+                              </TableCell>
+                              <TableCell className="text-sm">{ev.group || i18n.events.privateChat}</TableCell>
+                              <TableCell className="text-sm">
+                                {new Date(ev.start).toLocaleDateString('zh-CN')}
+                              </TableCell>
+                              <TableCell className="text-sm">{(ev.salience * 100).toFixed(0)}%</TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap gap-1">
+                                  {(ev.tags || []).slice(0, 3).map(t => (
+                                    <Badge
+                                      key={t}
+                                      variant={activeTags.has(t) ? 'default' : 'secondary'}
+                                      className="cursor-pointer text-xs"
+                                      onClick={e => {
+                                        e.stopPropagation()
+                                        const next = new Set(activeTags)
+                                        if (next.has(t)) next.delete(t); else next.add(t)
+                                        setActiveTags(next)
+                                      }}
+                                    >
+                                      {t}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                            {isExpanded && <EventDetail ev={ev} />}
+                          </Fragment>
+                        )
+                      })}
                   </TableBody>
                 </Table>
               </div>
@@ -331,7 +607,12 @@ function LibraryContent() {
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {evs.slice(0, 20).map(ev => (
-                          <Badge key={ev.id} variant="outline" className="text-xs">
+                          <Badge
+                            key={ev.id}
+                            variant="outline"
+                            className="cursor-pointer text-xs"
+                            onClick={() => goToEvents(ev.id)}
+                          >
                             {ev.start.slice(5, 10)} {ev.content?.slice(0, 12) || ev.id.slice(0, 8)}
                           </Badge>
                         ))}

@@ -41,7 +41,20 @@ export default function EventsPage() {
   }, [app])
 
   useEffect(() => {
-    loadEvents()
+    loadEvents().then(() => {
+      const focusId = sessionStorage.getItem('em_focus_event')
+      if (focusId) {
+        sessionStorage.removeItem('em_focus_event')
+        setHighlightIds(new Set([focusId]))
+        const ev = app.rawEvents.find(e => e.id === focusId)
+        if (ev) setDetailEvent(ev)
+      }
+      const highlightRaw = sessionStorage.getItem('em_highlight_events')
+      if (highlightRaw) {
+        sessionStorage.removeItem('em_highlight_events')
+        try { setHighlightIds(new Set(JSON.parse(highlightRaw))) } catch {}
+      }
+    })
     api.tags.list().then(r => {
       setTagList(r.tags)
       setTagSuggestions(r.tags.map(t => t.name))
@@ -82,7 +95,6 @@ export default function EventsPage() {
       start_time:        Math.floor(new Date(data.start_time).getTime() / 1000),
       end_time:          Math.floor(new Date(data.end_time).getTime() / 1000),
       salience:          data.salience,
-      confidence:        data.confidence,
       chat_content_tags: data.tags,
       participants:      data.participants,
       inherit_from:      data.inherit_from,
@@ -101,7 +113,6 @@ export default function EventsPage() {
       start_time:        Math.floor(new Date(data.start_time).getTime() / 1000),
       end_time:          Math.floor(new Date(data.end_time).getTime() / 1000),
       salience:          data.salience,
-      confidence:        data.confidence,
       chat_content_tags: data.tags,
       participants:      data.participants,
       inherit_from:      data.inherit_from,

@@ -44,7 +44,14 @@ export default function GraphPage() {
   }, [app])
 
   useEffect(() => {
-    loadGraph()
+    loadGraph().then(() => {
+      const focusId = sessionStorage.getItem('em_focus_persona')
+      if (focusId) {
+        sessionStorage.removeItem('em_focus_persona')
+        const node = app.rawGraph.nodes.find(n => n.data.id === focusId) ?? null
+        if (node) setDetailNode(node)
+      }
+    })
     api.tags.list().then(r => setTagList(r.tags))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

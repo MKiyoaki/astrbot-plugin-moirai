@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Save, Undo2, Trash2, Pencil, Check, ChevronsUpDown, X } from 'lucide-react'
+import { Undo2, Trash2, Pencil, Check, ChevronsUpDown, X, Plus } from 'lucide-react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
@@ -46,64 +46,86 @@ function GroupPicker({
   events: ApiEvent[]
 }) {
   const [open, setOpen] = useState(false)
-  const [input, setInput] = useState(value)
+  const [search, setSearch] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Derive unique group ids from events
   const knownGroups = Array.from(new Set(events.map(ev => ev.group).filter(Boolean) as string[]))
-  const filtered = knownGroups.filter(g => g.toLowerCase().includes(input.toLowerCase()))
-
-  useEffect(() => { setInput(value) }, [value])
+  const filtered = knownGroups.filter(g => g.toLowerCase().includes(search.toLowerCase()))
 
   const select = (g: string) => {
     onChange(g)
-    setInput(g)
     setOpen(false)
+    setSearch('')
   }
 
-  const handleInput = (v: string) => {
-    setInput(v)
-    onChange(v)
-    if (!open) setOpen(true)
+  const useCustom = () => {
+    if (search.trim()) {
+      onChange(search.trim())
+      setOpen(false)
+      setSearch('')
+    }
   }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <div className="relative flex items-center">
-          <Input
-            ref={inputRef}
-            value={input}
-            onChange={e => handleInput(e.target.value)}
-            placeholder={i18n.events.groupPlaceholder}
-            className="pr-8"
-            onFocus={() => setOpen(true)}
-          />
-          <ChevronsUpDown
-            className="text-muted-foreground pointer-events-none absolute right-2.5 size-3.5 shrink-0"
-          />
+      <PopoverTrigger
+        className="border-input bg-transparent text-foreground flex min-h-9 w-full items-center justify-between rounded-lg border px-2.5 py-1.5 text-sm"
+        onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 50) }}
+      >
+        <span className={value ? 'font-mono' : 'text-muted-foreground'}>
+          {value || i18n.events.groupPlaceholder}
+        </span>
+        <div className="flex items-center gap-1">
+          {value && (
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onChange('') }}
+              className="hover:text-destructive"
+            >
+              <X className="size-3" />
+            </button>
+          )}
+          <ChevronsUpDown className="text-muted-foreground size-3.5 shrink-0" />
         </div>
       </PopoverTrigger>
-      {filtered.length > 0 && (
-        <PopoverContent className="w-full p-1" align="start" onOpenAutoFocus={e => e.preventDefault()}>
-          <div className="max-h-40 overflow-y-auto">
-            {filtered.map(g => (
-              <button
-                key={g}
-                type="button"
-                onClick={() => select(g)}
-                className={cn(
-                  'hover:bg-accent flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm',
-                  value === g && 'bg-accent/50',
-                )}
-              >
-                <Check className={cn('size-3.5 shrink-0', value === g ? 'opacity-100' : 'opacity-0')} />
-                <span className="font-mono">{g}</span>
-              </button>
-            ))}
-          </div>
-        </PopoverContent>
-      )}
+      <PopoverContent className="w-72 p-2" align="start">
+        <Input
+          ref={inputRef}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="输入或搜索群组 ID"
+          className="mb-2"
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); useCustom() } }}
+        />
+        {search.trim() && !knownGroups.includes(search.trim()) && (
+          <button
+            type="button"
+            onClick={useCustom}
+            className="hover:bg-accent mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm"
+          >
+            <Plus className="size-3.5 shrink-0" />
+            <span>使用 &ldquo;{search}&rdquo;</span>
+          </button>
+        )}
+        <div className="max-h-40 overflow-y-auto">
+          {filtered.length === 0 && !search.trim() ? (
+            <p className="text-muted-foreground px-2 py-1.5 text-sm">暂无已知群组</p>
+          ) : filtered.map(g => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => select(g)}
+              className={cn(
+                'hover:bg-accent flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm',
+                value === g && 'bg-accent/50',
+              )}
+            >
+              <Check className={cn('size-3.5 shrink-0', value === g ? 'opacity-100' : 'opacity-0')} />
+              <span className="font-mono">{g}</span>
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
     </Popover>
   )
 }
@@ -292,11 +314,12 @@ function EventForm({
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ev-participants">{i18n.events.participants}（UID，逗号分隔）</Label>
-        <Input
-          id="ev-participants"
-          value={data.participants.join(', ')}
-          onChange={e => set('participants', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+        <Label>{i18n.events.participants}</Label>
+        <TagSelector
+          value={data.participants}
+          onChange={v => set('participants', v)}
+          suggestions={[]}
+          placeholder="输入 UID，按 Enter 确认"
         />
       </div>
       <div className="flex flex-col gap-1.5">

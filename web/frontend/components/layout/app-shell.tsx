@@ -11,6 +11,14 @@ function Shell({ children }: { children: ReactNode }) {
   const app = useApp()
 
   useEffect(() => {
+    // Restore accent color scheme from localStorage
+    const scheme = localStorage.getItem('em_color_scheme')
+    if (scheme && scheme !== 'zinc') {
+      document.documentElement.dataset.scheme = scheme
+    } else {
+      delete document.documentElement.dataset.scheme
+    }
+
     // Boot: refresh auth + stats
     app.refreshAuth().then(() => {
       if (app.authenticated || !app.authEnabled) {
