@@ -24,7 +24,13 @@
       "Bash(python3 -m py_compile core/**/*.py)",
       "Bash(Test-Path \"d:\\\\Program Files\\\\Git Lib\\\\astrbot-plugin-enhanced-memory\\\\web\\\\README.md\")",
       "Bash(python -c \"from web.server import WebuiServer, _DEMO_SUMMARY_1, _DEMO_SUMMARY_2; print\\('server OK'\\)\")",
-      "PowerShell(cd \"d:\\\\Program Files\\\\Git Lib\\\\astrbot-plugin-enhanced-memory\"; git show e5929cf --name-status | Select-String \"^A|^D\" | Select-String \"web/\" | Where-Object { $_ -notmatch \"\\\\.agents\"} | Select-Object -First 30)"
+      "PowerShell(cd \"d:\\\\Program Files\\\\Git Lib\\\\astrbot-plugin-enhanced-memory\"; git show e5929cf --name-status | Select-String \"^A|^D\" | Select-String \"web/\" | Where-Object { $_ -notmatch \"\\\\.agents\"} | Select-Object -First 30)",
+      "Read(//d/Program Files/Git Lib/**)",
+      "PowerShell(Get-ChildItem \"d:\\\\Program Files\\\\Git Lib\\\\astrbot-plugin-enhanced-memory\\\\web\" -Recurse | Select-Object FullName, PSIsContainer | Where-Object { $_.PSIsContainer -eq $false } | Select-Object -First 60)",
+      "PowerShell($content = Get-Content \"d:\\\\Program Files\\\\Git Lib\\\\astrbot-plugin-enhanced-memory\\\\web\\\\output\\\\_next\\\\static\\\\chunks\\\\77658d2db7f82a84.js\" -Raw; $idx = $content.IndexOf\\(\"ev-confidence\"\\); if \\($idx -ge 0\\) { $start = [Math]::Max\\(0,$idx-2000\\); $content.Substring\\($start, [Math]::Min\\(4000,$content.Length-$start\\)\\) } else { \"not found\"; $idx2 = $content.IndexOf\\('\"confidence\"'\\); Write-Host \"confidence at: $idx2\" })",
+      "Bash(python web/server.py)",
+      "Bash(curl -s http://localhost:2653/api/events?limit=5)",
+      "Bash(curl -s 'http://127.0.0.1:2654/_next/static/chunks/2b1cef1e1995a8fd.js' -o /tmp/chunk_events.js)"
     ],
     "additionalDirectories": [
       "d:\\Program Files\\Git Lib\\astrbot-plugin-enhanced-memory\\web\\static"

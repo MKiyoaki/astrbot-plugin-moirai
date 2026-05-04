@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>事件流</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#0f172a;color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;font-size:13px}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px}
+#app{display:flex;flex-direction:column;height:100vh}
+
+/* Top bar */
+#topbar{display:flex;align-items:center;gap:8px;padding:7px 16px;background:#1e293b;border-bottom:1px solid rgba(255,255,255,0.08);flex-shrink:0}
+#topbar .title{font-size:14px;font-weight:600;letter-spacing:-.01em}
+#topbar .counter{font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);color:#94a3b8;font-family:monospace}
+#topbar .spacer{flex:1}
+.tbtn{display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:5px;border:1px solid transparent;background:transparent;color:#94a3b8;font-size:11.5px;cursor:pointer;font-family:inherit;transition:all .15s}
+.tbtn:hover{background:rgba(255,255,255,0.07);color:#f1f5f9}
+.tbtn.active{background:rgba(56,189,248,0.12);color:#38bdf8;border-color:rgba(56,189,248,0.25)}
+.tbtn-primary{background:#38bdf8;color:#fff;border:none;font-weight:600}
+.tbtn-primary:hover{background:#0ea5e9;color:#fff}
+.sep{width:1px;height:16px;background:rgba(255,255,255,0.08)}
+
+/* Collapsible section */
+.csec{background:#1e293b;border-bottom:1px solid rgba(255,255,255,0.08);flex-shrink:0;padding:7px 16px 9px}
+.csec-hd{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.csec-label{font-size:9.5px;font-weight:600;color:#64748b;letter-spacing:.07em;text-transform:uppercase}
+.csec-clear{font-size:9.5px;padding:1px 7px;border-radius:10px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:#64748b;cursor:pointer;font-family:inherit}
+.csec-inner{display:flex;flex-wrap:wrap;gap:5px;align-items:center;overflow:hidden;transition:height .2s ease;position:relative}
+.expand-btn{font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid rgba(255,255,255,0.08);background:#1e293b;color:#64748b;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0}
+
+/* Tag chip */
+.tchip{display:inline-flex;align-items:center;gap:3px;padding:3px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:#94a3b8;font-size:11px;cursor:pointer;font-family:inherit;transition:all .15s;flex-shrink:0}
+.tchip .hash{opacity:.45;font-size:10px}
+.tchip .cnt{font-size:9px;margin-left:2px;padding:0 4px;background:rgba(255,255,255,0.06);border-radius:6px;color:#475569}
+.tchip.on{font-weight:600;outline:2px solid transparent;outline-offset:1px}
+
+/* Thread chip */
+.thchip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:5px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:#475569;font-size:10.5px;cursor:pointer;font-family:inherit;transition:all .15s;flex-shrink:0;opacity:.38}
+.thchip.matched{opacity:1;cursor:pointer}
+.thchip.on{opacity:1}
+.thchip .dot{width:6px;height:6px;border-radius:50%;background:#475569;flex-shrink:0;transition:background .15s}
+.thchip.on .dot,.thchip.matched .dot{}
+
+/* Canvas */
+#canvas-wrap{flex:1;overflow-y:auto;overflow-x:hidden;padding:4px 20px 60px;position:relative}
+#tl-svg{position:absolute;top:0;left:0;pointer-events:none;overflow:visible}
+#tl-bubbles{position:absolute;top:0;left:0;width:100%;pointer-events:none}
+
+/* Bubble card */
+.bubble{position:absolute;background:rgba(30,41,59,0.97);border:1px solid rgba(255,255,255,0.08);border-radius:7px;padding:7px 11px;min-width:155px;max-width:240px;pointer-events:auto;animation:bIn .13s ease;box-shadow:0 4px 16px rgba(0,0,0,.35)}
+.bubble .bconn{position:absolute;left:-9px;top:50%;transform:translateY(-50%);width:8px;height:1px;opacity:.5}
+.bubble .btitle{font-size:12px;font-weight:600;color:#f1f5f9;margin-bottom:3px;line-height:1.4}
+.bubble .btime{font-size:10px;color:#94a3b8;margin-bottom:6px;font-family:monospace;letter-spacing:-.02em}
+.bubble .btags{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.bubble .btag{font-size:10px;padding:1px 6px;border-radius:4px;font-weight:500}
+.bubble .bsal{font-size:10px;padding:1px 6px;border-radius:4px;font-family:monospace;margin-left:auto}
+
+/* Empty state */
+.empty{padding:60px 20px;text-align:center;color:#64748b;line-height:1.7}
+.empty small{font-size:11px;color:#334155}
+
+@keyframes bIn{from{opacity:0;transform:translateX(-5px)}to{opacity:1;transform:translateX(0)}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <span class="title">事件流</span>
+    <span class="counter" id="counter"></span>
+    <div class="spacer"></div>
+    <button class="tbtn active" id="btn-tl">时间线</button>
+    <button class="tbtn" id="btn-list">列表</button>
+    <span class="sep"></span>
+    <button class="tbtn" id="btn-refresh" title="刷新">↺</button>
+    <button class="tbtn tbtn-primary" id="btn-new">＋ 新建</button>
+  </div>
+
+  <div class="csec" id="sec-tags">
+    <div class="csec-hd">
+      <span class="csec-label">按标签筛选</span>
+      <button class="csec-clear" id="tag-clear" style="display:none">✕ 清除</button>
+    </div>
+    <div class="csec-inner" id="tag-row"></div>
+  </div>
+
+  <div class="csec" id="sec-threads">
+    <div class="csec-hd"><span class="csec-label">事件轴</span></div>
+    <div class="csec-inner" id="thread-row"></div>
+  </div>
+
+  <div id="canvas-wrap">
+    <svg id="tl-svg"></svg>
+    <div id="tl-bubbles"></div>
+    <div id="tl-empty" class="empty" style="display:none">
+      暂无匹配事件轴<br><small>请在上方选择标签或切换事件轴</small>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── Data ── */
+const THREAD_COLORS = ['#7dd3fc','#86efac','#fca5a5','#c4b5fd','#fdba74','#67e8f9','#fde68a'];
+const RAW = [
+  {id:'A',label:'学习计划',events:[
+    {id:'a1',title:'开始复习高数',    ts:'2026-03-01T09:00',tags:['数学','复习'],  sal:.92},
+    {id:'a2',title:'完成第一章练习',  ts:'2026-03-05T14:30',tags:['练习'],         sal:.78},
+    {id:'a3',title:'参加模拟考试',    ts:'2026-03-12T10:00',tags:['考试','数学'],  sal:.95},
+    {id:'a4',title:'成绩反馈收到',    ts:'2026-03-15T16:00',tags:['反馈'],         sal:.85},
+  ]},
+  {id:'B',label:'项目协作',events:[
+    {id:'b1',title:'项目启动会议',    ts:'2026-03-03T10:00',tags:['会议','团队'],  sal:.88},
+    {id:'b2',title:'需求文档完成',    ts:'2026-03-08T18:00',tags:['文档'],         sal:.72},
+    {id:'b3',title:'Code Review',     ts:'2026-03-18T15:00',tags:['开发'],         sal:.80},
+  ]},
+  {id:'C',label:'健康记录',events:[
+    {id:'c1',title:'开始规律跑步',    ts:'2026-03-02T07:00',tags:['运动'],         sal:.70},
+    {id:'c2',title:'跑步达成50km',    ts:'2026-03-10T07:30',tags:['运动','里程碑'],sal:.90},
+    {id:'c3',title:'体检预约',        ts:'2026-03-20T09:00',tags:['健康'],         sal:.75},
+    {id:'c4',title:'体检完成',        ts:'2026-03-22T11:00',tags:['健康','记录'],  sal:.82},
+    {id:'c5',title:'收到体检报告',    ts:'2026-03-25T14:00',tags:['健康'],         sal:.88},
+  ]},
+  {id:'D',label:'读书笔记',events:[
+    {id:'d1',title:'开始读《深度学习》',ts:'2026-03-04T20:00',tags:['阅读'],       sal:.65},
+    {id:'d2',title:'完成前三章笔记',  ts:'2026-03-14T21:00',tags:['笔记','阅读'], sal:.74},
+  ]},
+  {id:'E',label:'社交活动',events:[
+    {id:'e1',title:'朋友聚餐',        ts:'2026-03-06T19:00',tags:['社交'],         sal:.60},
+    {id:'e2',title:'生日派对',        ts:'2026-03-16T18:00',tags:['社交','纪念'],  sal:.82},
+    {id:'e3',title:'同学聚会',        ts:'2026-03-28T17:00',tags:['社交'],         sal:.71},
+  ]},
+  {id:'F',label:'工作汇报',events:[
+    {id:'f1',title:'季度总结提交',    ts:'2026-03-07T09:00',tags:['工作'],         sal:.88},
+    {id:'f2',title:'绩效评估面谈',    ts:'2026-03-21T14:00',tags:['工作','评估'],  sal:.95},
+  ]},
+  {id:'G',label:'旅行计划',events:[
+    {id:'g1',title:'订机票',          ts:'2026-03-09T11:00',tags:['旅行'],         sal:.67},
+    {id:'g2',title:'行程规划完成',    ts:'2026-03-17T20:00',tags:['旅行','计划'],  sal:.75},
+    {id:'g3',title:'出发',            ts:'2026-03-29T08:00',tags:['旅行'],         sal:.92},
+  ]},
+];
+RAW.forEach((t,i)=>{ t.color=THREAD_COLORS[i%THREAD_COLORS.length]; t.events.forEach(e=>e.ts=new Date(e.ts)); });
+
+/* ── Layout constants ── */
+const AX=28, FTX=58, TW=14, TG=16, NR=5, RH=68, TP=40, BG=14, MERGE=7200000;
+const tx=i=>FTX+i*(TW+TG);
+
+/* ── State ── */
+let activeTags=new Set(), dimmedIds=new Set(), hoveredId=null;
+
+/* ── Tag counts ── */
+function tagCounts(){
+  const m={};
+  RAW.forEach(t=>t.events.forEach(ev=>ev.tags.forEach(tag=>{m[tag]=(m[tag]||0)+1;})));
+  return Object.entries(m).map(([tag,count])=>({tag,count})).sort((a,b)=>b.count-a.count);
+}
+
+/* ── Row map ── */
+function buildRowMap(threads){
+  const evts=threads.flatMap(t=>t.events.map(ev=>({...ev,tsMs:ev.ts.getTime()}))).sort((a,b)=>a.tsMs-b.tsMs);
+  const rows=[]; const erm={};
+  evts.forEach(ev=>{
+    const last=rows[rows.length-1];
+    if(last&&ev.tsMs-last.tsMs<=MERGE){erm[ev.id]=last.idx;}
+    else{const idx=rows.length;rows.push({idx,tsMs:ev.tsMs});erm[ev.id]=idx;}
+  });
+  return{erm,total:rows.length,rows};
+}
+
+/* ── Matched threads ── */
+function matchedIds(){
+  if(!activeTags.size) return new Set(RAW.map(t=>t.id));
+  return new Set(RAW.filter(t=>t.events.some(ev=>ev.tags.some(tag=>activeTags.has(tag)))).map(t=>t.id));
+}
+
+/* ── Collapsible row logic ── */
+function initCollapsible(container){
+  const ROW_H=36;
+  let expanded=false;
+  let btn=container.querySelector('.expand-btn');
+  function update(){
+    container.style.height='';
+    const full=container.scrollHeight;
+    if(full<=ROW_H+6){container.style.height='auto';if(btn)btn.remove();return;}
+    if(!btn){
+      btn=document.createElement('button');
+      btn.className='expand-btn';
+      container.appendChild(btn);
+      btn.onclick=()=>{expanded=!expanded;update();};
+    }
+    if(expanded){container.style.height=full+'px';btn.textContent='收起';}
+    else{container.style.height=ROW_H+'px';const hidden=container.querySelectorAll('.tchip,.thchip').length;btn.textContent=`+${Math.max(0,hidden-3)} 更多`;}
+  }
+  new ResizeObserver(update).observe(container);
+  update();
+}
+
+/* ── Format time ── */
+function fmt(ts){
+  return ts.toLocaleDateString('zh-CN',{month:'2-digit',day:'2-digit'})+' '+
+    ts.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false});
+}
+
+/* ── Render tag legend ── */
+function renderTags(){
+  const row=document.getElementById('tag-row');
+  const clear=document.getElementById('tag-clear');
+  const tags=tagCounts();
+  row.innerHTML='';
+  tags.forEach(({tag,count},i)=>{
+    const on=activeTags.has(tag);
+    const color=THREAD_COLORS[i%THREAD_COLORS.length];
+    const btn=document.createElement('button');
+    btn.className='tchip'+(on?' on':'');
+    btn.innerHTML=`<span class="hash">#</span>${tag}<span class="cnt">${count}</span>`;
+    if(on){btn.style.borderColor=color+'55';btn.style.background=color+'18';btn.style.color=color;btn.style.outlineColor=color+'28';}
+    btn.onclick=()=>{
+      activeTags.has(tag)?activeTags.delete(tag):activeTags.add(tag);
+      dimmedIds=new Set();
+      renderTags();renderThreads();renderTimeline();
+    };
+    row.appendChild(btn);
+  });
+  clear.style.display=activeTags.size?'':'none';
+  initCollapsible(row);
+}
+
+/* ── Render thread toggle ── */
+function renderThreads(){
+  const row=document.getElementById('thread-row');
+  const mid=matchedIds();
+  row.innerHTML='';
+  RAW.forEach(t=>{
+    const matched=mid.has(t.id);
+    const dimmed=dimmedIds.has(t.id);
+    const lit=matched&&!dimmed;
+    const btn=document.createElement('button');
+    btn.className='thchip'+(matched?' matched':'')+(lit?' on':'');
+    btn.innerHTML=`<span class="dot"></span>${t.label}`;
+    if(matched){
+      btn.style.borderColor=lit?t.color+'55':'rgba(255,255,255,0.08)';
+      btn.style.background=lit?t.color+'12':'transparent';
+      btn.style.color=lit?t.color:'#94a3b8';
+      btn.querySelector('.dot').style.background=lit?t.color:'#475569';
+      btn.onclick=()=>{
+        dimmedIds.has(t.id)?dimmedIds.delete(t.id):dimmedIds.add(t.id);
+        renderThreads();renderTimeline();
+      };
+    }
+    row.appendChild(btn);
+  });
+  initCollapsible(row);
+}
+
+/* ── Render timeline ── */
+function renderTimeline(){
+  const mid=matchedIds();
+  const threads=RAW.filter(t=>mid.has(t.id));
+  const emptyEl=document.getElementById('tl-empty');
+  const wrap=document.getElementById('canvas-wrap');
+  const svg=document.getElementById('tl-svg');
+  const bubbles=document.getElementById('tl-bubbles');
+
+  // Update counter
+  document.getElementById('counter').textContent=`${threads.length}/${RAW.length} 轴 · ${activeTags.size} 标签`;
+
+  if(!threads.length){emptyEl.style.display='';svg.innerHTML='';bubbles.innerHTML='';return;}
+  emptyEl.style.display='none';
+
+  const{erm,total,rows}=buildRowMap(threads);
+  const ry=i=>TP+i*RH;
+  const svgH=TP+total*RH+60;
+
+  // Size svg
+  svg.setAttribute('height',svgH);
+  svg.style.width='100%';
+
+  // Build SVG
+  let s=``;
+  // Main axis
+  s+=`<line x1="${AX}" y1="${TP-10}" x2="${AX}" y2="${svgH-14}" stroke="rgba(255,255,255,0.15)" stroke-width="1.5"/>`;
+  // Row ticks
+  rows.forEach(row=>{
+    s+=`<line x1="${AX-3}" y1="${ry(row.idx)}" x2="${AX+3}" y2="${ry(row.idx)}" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>`;
+  });
+
+  // Threads
+  threads.forEach((thread,ti)=>{
+    const x=tx(ti);
+    const isHov=hoveredId===thread.id;
+    const isDim=dimmedIds.has(thread.id);
+    let op;
+    if(hoveredId!==null) op=isHov?1:0.1;
+    else if(isDim) op=0.1;
+    else op=1;
+
+    const evRows=thread.events.map(ev=>erm[ev.id]);
+    const minR=Math.min(...evRows),maxR=Math.max(...evRows);
+
+    s+=`<g opacity="${op}" style="transition:opacity .2s ease">`;
+    // Line
+    s+=`<line x1="${x}" y1="${ry(minR)}" x2="${x}" y2="${ry(maxR)}" stroke="${thread.color}" stroke-width="1.5" stroke-linecap="round" opacity=".7"/>`;
+    // Nodes
+    thread.events.forEach(ev=>{
+      const r2=ry(erm[ev.id]);
+      if(isHov) s+=`<circle cx="${x}" cy="${r2}" r="${NR+5}" fill="${thread.color}" opacity=".07"/>`;
+      s+=`<circle cx="${x}" cy="${r2}" r="${isHov?NR+1.5:NR}" fill="${isHov?thread.color:'#1e293b'}" stroke="${thread.color}" stroke-width="${isHov?2:1.5}" opacity="${isHov?1:.85}" style="transition:all .18s ease"/>`;
+    });
+    // End marker
+    const endY=ry(maxR)+18;
+    s+=`<line x1="${x-8}" y1="${endY}" x2="${x+8}" y2="${endY}" stroke="${thread.color}" stroke-width="2" stroke-linecap="round" opacity=".8"/>`;
+    s+=`<line x1="${AX+2}" y1="${endY}" x2="${x-8}" y2="${endY}" stroke="${thread.color}" stroke-width=".8" stroke-dasharray="3 2" opacity="${isHov?.6:.12}" style="transition:opacity .2s ease"/>`;
+    s+=`<line x1="${AX-4}" y1="${endY}" x2="${AX+4}" y2="${endY}" stroke="${thread.color}" stroke-width="1.8" opacity="${isHov?.9:.2}" style="transition:opacity .2s ease"/>`;
+    s+=`</g>`;
+  });
+  svg.innerHTML=s;
+
+  // Date labels
+  const bwrap=bubbles;
+  bwrap.innerHTML='';
+  // resize wrap
+  wrap.style.position='relative';
+  svg.style.position='absolute';
+  svg.style.top='0';svg.style.left='0';
+
+  rows.forEach(row=>{
+    const d=document.createElement('div');
+    d.style.cssText=`position:absolute;left:${AX+8}px;top:${ry(row.idx)-7}px;font-size:9px;font-family:monospace;color:rgba(255,255,255,0.18);white-space:nowrap;pointer-events:none;line-height:1`;
+    d.textContent=new Date(row.tsMs).toLocaleDateString('zh-CN',{month:'2-digit',day:'2-digit'});
+    bwrap.appendChild(d);
+  });
+
+  // Hover zones
+  threads.forEach((thread,ti)=>{
+    const x=tx(ti);
+    const evRows=thread.events.map(ev=>erm[ev.id]);
+    const minR=Math.min(...evRows),maxR=Math.max(...evRows);
+    const zoneTop=ry(minR)-NR-8;
+    const zoneH=ry(maxR)+32-zoneTop;
+    const zone=document.createElement('div');
+    zone.style.cssText=`position:absolute;left:${x-(TW/2+TG/2)}px;top:${zoneTop}px;width:${TW+TG}px;height:${zoneH}px;cursor:pointer;z-index:4`;
+    zone.onmouseenter=()=>{hoveredId=thread.id;renderTimeline();};
+    zone.onmouseleave=()=>{hoveredId=null;renderTimeline();};
+    bwrap.appendChild(zone);
+  });
+
+  // Bubbles for hovered thread
+  if(hoveredId){
+    const thread=threads.find(t=>t.id===hoveredId);
+    if(thread){
+      const ti=threads.findIndex(t=>t.id===hoveredId);
+      const x=tx(ti);
+      const bx=x+NR+BG;
+      thread.events.forEach(ev=>{
+        const top=ry(erm[ev.id])-24;
+        const salCol=ev.sal>=.85?'#f59e0b':ev.sal>=.7?'#38bdf8':'#94a3b8';
+        const card=document.createElement('div');
+        card.className='bubble';
+        card.style.cssText=`left:${bx}px;top:${top}px;border-left-color:${thread.color}`;
+        card.innerHTML=`
+          <div class="bconn" style="background:${thread.color}"></div>
+          <div class="btitle">${ev.title}</div>
+          <div class="btime">${fmt(ev.ts)}</div>
+          <div class="btags">
+            ${ev.tags.map(tag=>`<span class="btag" style="background:${thread.color}16;color:${thread.color};border:1px solid ${thread.color}28">${tag}</span>`).join('')}
+            <span class="bsal" style="background:${salCol}14;color:${salCol};border:1px solid ${salCol}28">${Math.round(ev.sal*100)}%</span>
+          </div>`;
+        card.onmouseenter=()=>{hoveredId=thread.id;};
+        card.onmouseleave=()=>{hoveredId=null;renderTimeline();};
+        bwrap.appendChild(card);
+      });
+    }
+  }
+
+  // Fix svg height to match content
+  const totalH=svgH;
+  svg.setAttribute('height',totalH);
+  wrap.style.minHeight=totalH+'px';
+}
+
+/* ── Tag clear ── */
+document.getElementById('tag-clear').onclick=()=>{activeTags=new Set();dimmedIds=new Set();renderTags();renderThreads();renderTimeline();};
+
+/* ── Init ── */
+(function(){
+  const tc=tagCounts();
+  if(tc.length) activeTags=new Set([tc[0].tag]);
+  renderTags();
+  renderThreads();
+  renderTimeline();
+})();
+</script>
+</body>
+</html>
