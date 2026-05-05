@@ -6,7 +6,7 @@
 
 ## P0 — 记忆隔离（对话 / 人格 / Bot 视角）
 
-**目标**：确保检索、Impression 聚合、Recall 注入均按 `group_id` scope 隔离，私聊与群聊事件不互相污染，Bot 在不同群有独立视角。
+**目标**：确保检索、Impression 聚合、Recall 注入均按 `group_id` scope 隔离，私聊与群聊事件不互相污染，Bot 在不同群有独立视角。相关参数如limitation，人格隔离和对话隔离的开关都放到可配置项中`core/config.py`和`_conf_schema.json`中。
 
 **涉及文件**：
 - `core/repository/base.py` — `search_fts`、`search_vector` 加 `group_id` 参数
