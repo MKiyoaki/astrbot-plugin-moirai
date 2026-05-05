@@ -139,6 +139,30 @@ class InMemoryEventRepository(EventRepository):
             event.salience = max(0.0, event.salience * factor)
         return len(self._store)
 
+    async def list_by_status(self, status: str, limit: int = 100) -> list[Event]:
+        events = [deepcopy(e) for e in self._store.values() if e.status == status]
+        events.sort(key=lambda e: e.start_time, reverse=True)
+        return events[:limit]
+
+    async def set_status(self, event_id: str, status: str) -> bool:
+        if event_id not in self._store:
+            return False
+        self._store[event_id].status = status
+        return True
+
+    async def get_rowid(self, event_id: str) -> int | None:
+        # In-memory has no rowid concept; return position index as a surrogate
+        for i, key in enumerate(self._store):
+            if key == event_id:
+                return i
+        return None
+
+    async def get_by_rowid(self, rowid: int) -> Event | None:
+        keys = list(self._store)
+        if rowid < 0 or rowid >= len(keys):
+            return None
+        return deepcopy(self._store[keys[rowid]])
+
 
 class InMemoryImpressionRepository(ImpressionRepository):
     def __init__(self) -> None:

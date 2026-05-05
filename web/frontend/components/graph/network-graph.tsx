@@ -129,13 +129,13 @@ export function NetworkGraph({
     })
   }, [positions, nodes, containerSize])
 
-  // Expose fitView via data attribute hack for parent toolbar buttons
+  // Expose fitView on SVG element so parent can call via svgRef
   useEffect(() => {
-    const el = containerRef.current
+    const el = svgRef.current
     if (!el) return
     // @ts-expect-error custom method
     el.__fitView = fitView
-  }, [fitView])
+  }, [fitView, svgRef])
 
   // ── Mouse handlers ──────────────────────────────────────────────────────────
 
@@ -146,12 +146,14 @@ export function NetworkGraph({
   }, [transform])
 
   const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-    if (!dragRef.current) return
-    const dx = e.clientX - dragRef.current.startX
-    const dy = e.clientY - dragRef.current.startY
+    const drag = dragRef.current
+    if (!drag) return
+    const dx = e.clientX - drag.startX
+    const dy = e.clientY - drag.startY
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) isDraggingRef.current = true
     if (isDraggingRef.current) {
-      setTransform(t => ({ ...t, x: dragRef.current!.tx + dx, y: dragRef.current!.ty + dy }))
+      const { tx, ty } = drag
+      setTransform(t => ({ ...t, x: tx + dx, y: ty + dy }))
     }
   }, [])
 
@@ -159,22 +161,28 @@ export function NetworkGraph({
     dragRef.current = null
   }, [])
 
-  const handleWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
-    e.preventDefault()
-    const factor = e.deltaY < 0 ? 1.1 : 0.91
-    const rect = svgRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const mouseX = e.clientX - rect.left
-    const mouseY = e.clientY - rect.top
-    setTransform(t => {
-      const newScale = Math.min(3.5, Math.max(0.25, t.scale * factor))
-      const scaleDiff = newScale - t.scale
-      return {
-        x: t.x - mouseX * scaleDiff / t.scale,
-        y: t.y - mouseY * scaleDiff / t.scale,
-        scale: newScale,
-      }
-    })
+  // Native wheel handler — must be non-passive to call preventDefault()
+  useEffect(() => {
+    const el = svgRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const factor = e.deltaY < 0 ? 1.1 : 0.91
+      const rect = el.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const mouseY = e.clientY - rect.top
+      setTransform(t => {
+        const newScale = Math.min(3.5, Math.max(0.25, t.scale * factor))
+        const scaleDiff = newScale - t.scale
+        return {
+          x: t.x - mouseX * scaleDiff / t.scale,
+          y: t.y - mouseY * scaleDiff / t.scale,
+          scale: newScale,
+        }
+      })
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
   }, [svgRef])
 
   const handleBgClick = useCallback(() => {
@@ -204,18 +212,15 @@ export function NetworkGraph({
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
-  if (!positions) {
-    return (
-      <div ref={containerRef} className="size-full flex items-center justify-center text-muted-foreground text-sm">
-        计算布局中…
-      </div>
-    )
-  }
-
   const showLabel = transform.scale >= 0.5
 
   return (
     <div ref={containerRef} className="size-full relative overflow-hidden select-none">
+      {!positions && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center text-muted-foreground text-sm pointer-events-none">
+          计算布局中…
+        </div>
+      )}
       <svg
         ref={svgRef as React.RefObject<SVGSVGElement>}
         className="size-full cursor-grab active:cursor-grabbing"
@@ -223,7 +228,6 @@ export function NetworkGraph({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
       >
         <defs>
           <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
@@ -247,7 +251,7 @@ export function NetworkGraph({
 
         <g transform={`translate(${transform.x},${transform.y}) scale(${transform.scale})`}>
           {/* Edges rendered first (under nodes) */}
-          {edgePairs.map(pair => {
+          {positions && edgePairs.map(pair => {
             const pa = positions[pair.srcId]
             const pb = positions[pair.tgtId]
             if (!pa || !pb) return null
@@ -324,7 +328,7 @@ export function NetworkGraph({
           })}
 
           {/* Nodes */}
-          {nodes.map(node => {
+          {positions && nodes.map(node => {
             const p = positions[node.data.id]
             if (!p) return null
             const r = nodeRadius(node)

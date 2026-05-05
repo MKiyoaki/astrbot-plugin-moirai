@@ -189,9 +189,8 @@ export default function GraphPage() {
   // ── Fit view ────────────────────────────────────────────────────────────────
   const graphContainerRef = useRef<HTMLDivElement>(null)
   const handleFit = () => {
-    const el = graphContainerRef.current
     // @ts-expect-error custom method
-    if (el?.__fitView) el.__fitView()
+    if (svgRef.current?.__fitView) (svgRef.current as SVGSVGElement & { __fitView: () => void }).__fitView()
   }
 
   // ── CRUD handlers ───────────────────────────────────────────────────────────

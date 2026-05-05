@@ -91,6 +91,7 @@ def persona_to_node(persona: Persona) -> dict[str, Any]:
             ],
             "created_at": _ts_to_iso(persona.created_at),
             "last_active_at": _ts_to_iso(persona.last_active_at),
+            "is_bot": any(p == "internal" for p, _ in persona.bound_identities),
         }
     }
 
