@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import shutil
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -74,7 +75,7 @@ async def _try_load_sqlite_vec(db: aiosqlite.Connection, dim: int = 512) -> bool
 
 @asynccontextmanager
 async def db_open(
-    path: Path | str, vec_dim: int = 512
+    path: Path | str, vec_dim: int = 512, migration_auto_backup: bool = True,
 ) -> AsyncIterator[aiosqlite.Connection]:
     """Open a tuned SQLite connection, run migrations, and load sqlite-vec.
 
@@ -86,8 +87,17 @@ async def db_open(
 
     vec_dim: embedding dimension for the events_vec virtual table.
     Must match the dimension of the Encoder used in production.
+    migration_auto_backup: if True, copy the DB to <name>.db.bak before applying migrations.
     """
     from migrations.runner import run_migrations  # avoid circular import at module level
+
+    db_path = Path(path)
+    if migration_auto_backup and db_path.exists():
+        try:
+            shutil.copy(db_path, db_path.with_suffix(".db.bak"))
+            logger.debug("[db_open] backed up %s → %s.bak", db_path.name, db_path.name)
+        except Exception as exc:
+            logger.warning("[db_open] auto-backup failed (continuing): %s", exc)
 
     async with aiosqlite.connect(str(path)) as db:
         db.row_factory = aiosqlite.Row
@@ -214,36 +224,39 @@ class SQLitePersonaRepository(PersonaRepository):
         return [_row_to_persona(r) for r in rows]
 
     async def upsert(self, persona: Persona) -> None:
-        async with self._db.execute("BEGIN"):
-            pass  # aiosqlite auto-commits; use explicit transaction
-        await self._db.execute(
-            "INSERT INTO personas(uid, primary_name, persona_attrs, confidence, "
-            "created_at, last_active_at) VALUES (?,?,?,?,?,?) "
-            "ON CONFLICT(uid) DO UPDATE SET "
-            "primary_name=excluded.primary_name, "
-            "persona_attrs=excluded.persona_attrs, "
-            "confidence=excluded.confidence, "
-            "last_active_at=excluded.last_active_at",
-            (
-                persona.uid,
-                persona.primary_name,
-                _j(persona.persona_attrs),
-                persona.confidence,
-                persona.created_at,
-                persona.last_active_at,
-            ),
-        )
-        # Replace all bindings for this uid
-        await self._db.execute(
-            "DELETE FROM identity_bindings WHERE uid = ?", (persona.uid,)
-        )
-        for platform, physical_id in persona.bound_identities:
+        await self._db.execute("BEGIN IMMEDIATE")
+        try:
             await self._db.execute(
-                "INSERT OR REPLACE INTO identity_bindings(platform, physical_id, uid) "
-                "VALUES (?,?,?)",
-                (platform, physical_id, persona.uid),
+                "INSERT INTO personas(uid, primary_name, persona_attrs, confidence, "
+                "created_at, last_active_at) VALUES (?,?,?,?,?,?) "
+                "ON CONFLICT(uid) DO UPDATE SET "
+                "primary_name=excluded.primary_name, "
+                "persona_attrs=excluded.persona_attrs, "
+                "confidence=excluded.confidence, "
+                "last_active_at=excluded.last_active_at",
+                (
+                    persona.uid,
+                    persona.primary_name,
+                    _j(persona.persona_attrs),
+                    persona.confidence,
+                    persona.created_at,
+                    persona.last_active_at,
+                ),
             )
-        await self._db.commit()
+            # Replace all bindings for this uid atomically
+            await self._db.execute(
+                "DELETE FROM identity_bindings WHERE uid = ?", (persona.uid,)
+            )
+            for platform, physical_id in persona.bound_identities:
+                await self._db.execute(
+                    "INSERT OR REPLACE INTO identity_bindings(platform, physical_id, uid) "
+                    "VALUES (?,?,?)",
+                    (platform, physical_id, persona.uid),
+                )
+            await self._db.commit()
+        except Exception:
+            await self._db.rollback()
+            raise
 
     async def delete(self, uid: str) -> bool:
         async with self._db.execute(
@@ -318,25 +331,37 @@ class SQLiteEventRepository(EventRepository):
             rows = await cur.fetchall()
         return [row[0] for row in rows]
 
-    async def search_fts(self, query: str, limit: int = 20, active_only: bool = True) -> list[Event]:
-        """BM25 full-text search over topic and chat_content_tags."""
+    async def search_fts(
+        self, query: str, limit: int = 20, active_only: bool = True,
+        group_id: str | None = None,
+    ) -> list[Event]:
+        """BM25 full-text search over topic and chat_content_tags.
+
+        group_id=None searches across all groups; pass a value to restrict to one scope.
+        """
         try:
             status_clause = " AND e.status = 'active'" if active_only else ""
             async with self._db.execute(
                 f"{_EVENT_SELECT} e WHERE e.rowid IN ("
                 "  SELECT rowid FROM events_fts WHERE events_fts MATCH ?"
                 "  ORDER BY rank LIMIT ?"
-                f"){status_clause} ORDER BY e.salience DESC",
-                (query, limit),
+                f"){status_clause}"
+                " AND (? IS NULL OR e.group_id = ?)"
+                " ORDER BY e.salience DESC",
+                (query, limit, group_id, group_id),
             ) as cur:
                 rows = await cur.fetchall()
             return [_row_to_event(r) for r in rows]
         except Exception:
             return []
 
-    async def search_vector(self, embedding: list[float], limit: int = 20, active_only: bool = True) -> list[Event]:
+    async def search_vector(
+        self, embedding: list[float], limit: int = 20, active_only: bool = True,
+        group_id: str | None = None,
+    ) -> list[Event]:
         """Cosine-approximate nearest-neighbour search via sqlite-vec vec0.
 
+        group_id=None searches across all groups; pass a value to restrict to one scope.
         Returns [] if sqlite-vec is not loaded or the embedding is empty.
         """
         if not embedding:
@@ -347,9 +372,10 @@ class SQLiteEventRepository(EventRepository):
                 f"SELECT {_EVENT_SELECT_COLS} FROM "
                 "(SELECT rowid, distance FROM events_vec WHERE embedding MATCH ? "
                 " ORDER BY distance LIMIT ?) v "
-                f"JOIN events e ON e.rowid = v.rowid{status_clause} "
-                "ORDER BY v.distance",
-                (json.dumps(embedding), limit),
+                f"JOIN events e ON e.rowid = v.rowid{status_clause}"
+                " AND (? IS NULL OR e.group_id = ?)"
+                " ORDER BY v.distance",
+                (json.dumps(embedding), limit, group_id, group_id),
             ) as cur:
                 rows = await cur.fetchall()
             return [_row_to_event(r) for r in rows]
@@ -439,6 +465,24 @@ class SQLiteEventRepository(EventRepository):
         async with self._db.execute("SELECT changes()") as cur:
             row = await cur.fetchone()
         return bool(row and row[0])
+
+    async def delete_with_vector(self, event_id: str) -> bool:
+        """Delete both the events row and its vec0 entry in one transaction."""
+        await self._db.execute("BEGIN IMMEDIATE")
+        try:
+            await self._db.execute(
+                "DELETE FROM events_vec WHERE rowid = "
+                "(SELECT rowid FROM events WHERE event_id = ?)",
+                (event_id,),
+            )
+            cursor = await self._db.execute(
+                "DELETE FROM events WHERE event_id = ?", (event_id,)
+            )
+            await self._db.commit()
+            return cursor.rowcount > 0
+        except Exception:
+            await self._db.rollback()
+            raise
 
     async def list_by_status(
         self, status: str, limit: int = 100

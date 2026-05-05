@@ -21,7 +21,7 @@ from ..config import (
     MEMORY_INJECTION_HEADER,
 )
 from ..domain.models import Event
-from ..retrieval.formatter import format_events_for_fake_tool_call, format_events_for_prompt
+from ..utils.formatter import format_events_for_fake_tool_call, format_events_for_prompt
 from ..retrieval.rrf import rrf_scores
 from .base import BaseRecallManager
 
@@ -58,7 +58,9 @@ class RecallManager(BaseRecallManager):
     async def recall(self, query: str, group_id: str | None = None) -> list[Event]:
         """Return re-ranked events for injection."""
         cfg = self._rcfg
-        bm25, vec = await self._retriever.search_raw(query, active_only=cfg.active_only)
+        bm25, vec = await self._retriever.search_raw(
+            query, active_only=cfg.active_only, group_id=group_id
+        )
 
         # Vector fallback: if BM25 returned nothing and fallback is enabled, use vec only.
         if not bm25 and cfg.vector_fallback_enabled and vec:

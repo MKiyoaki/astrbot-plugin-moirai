@@ -4,6 +4,190 @@
 
 ---
 
+## [已完成] Phase 1 — 记忆隔离（Memory Scope Isolation） — 2026-05-05
+
+### 变更概览
+
+实现全链路 `group_id` 隔离，防止私聊与群聊记忆互相污染；新增 `persona_isolation_enabled` 开关控制 Impression 聚合按群组作用域。
+
+### 新增配置项（`_conf_schema.json` + `core/config.py`）
+
+| 配置键 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `memory_isolation_enabled` | bool | true | 按 group_id 隔离检索，私聊/群聊事件不互污 |
+| `persona_isolation_enabled` | bool | false | Impression 聚合仅取同一群组内事件作为 evidence |
+
+### 接口变更
+
+**`core/repository/base.py`**
+- `EventRepository.search_fts(...)` 新增 `group_id: str | None = None` 参数
+- `EventRepository.search_vector(...)` 新增 `group_id: str | None = None` 参数
+- `group_id=None` 时行为不变（全局检索）
+
+**`core/repository/sqlite.py`**
+- `search_fts`：WHERE 子句追加 `AND (? IS NULL OR e.group_id = ?)`，绑定 `(group_id, group_id)`
+- `search_vector`：JOIN 条件追加相同过滤子句
+
+**`core/repository/memory.py`**
+- 同步更新 `InMemoryEventRepository.search_fts/search_vector`，Python 层 `if group_id is not None` 过滤
+- 同时修复了 `active_only` 参数缺失的问题（之前签名缺少该参数）
+
+**`core/retrieval/hybrid.py`**
+- `HybridRetriever.search_raw(...)` 新增 `group_id` 参数，透传给两个 repo 方法
+- `HybridRetriever.search(...)` 同步新增 `group_id` 参数
+
+**`core/managers/recall_manager.py`**
+- `RecallManager.recall()` 已有 `group_id` 参数但未传给 `search_raw()`，现已修复
+
+**`core/tasks/synthesis.py`**
+- `run_impression_aggregation(...)` 新增 `persona_isolation_enabled: bool = False` 参数
+- 当开关开启时，拉取 evidence 事件时跳过 `ev.group_id != imp.scope` 的事件
+
+**`core/plugin_initializer.py`**
+- 调度 `impression_aggregation` 任务时传入 `persona_isolation_enabled=cfg.persona_isolation_enabled`
+
+---
+
+## [已完成] Phase 2 — Retrieval 模块整理 + Relation 开关联动 — 2026-05-05
+
+### 变更概览
+
+将 `formatter.py` 迁移至 `core/utils/`，旧路径保留 re-export shim 保持向后兼容；为关系图功能实现服务端守卫和前端禁用提示，`relation_enabled=false` 时 API 返回空数据，前端显示禁用卡片。
+
+### 文件迁移
+
+**`core/utils/formatter.py`**（新建为规范位置）
+- 从 `core/retrieval/formatter.py` 迁移所有内容（`format_events_for_prompt`、`format_events_for_fake_tool_call`）
+
+**`core/retrieval/formatter.py`**（改为 re-export shim）
+```python
+from ..utils.formatter import format_events_for_fake_tool_call, format_events_for_prompt
+__all__ = ["format_events_for_prompt", "format_events_for_fake_tool_call"]
+```
+
+**`core/managers/recall_manager.py`**
+- import 来源从 `..retrieval.formatter` 改为 `..utils.formatter`
+
+### Relation 开关联动
+
+**`web/server.py`**
+- `WebuiServer.__init__` 读取 `initial_config.get("relation_enabled", True)` 并存入 `self._relation_enabled`
+- `GET /api/graph`：`relation_enabled=false` 时返回 `{"enabled": false, "nodes": [], "edges": []}`
+- `PUT /api/impressions/{observer}/{subject}/{scope}`：同样被守卫
+- 新增 `GET /api/config/schema` 路由，直接返回 `_conf_schema.json` 内容
+
+**`web/frontend/lib/api.ts`**
+- `GraphData` 接口新增 `enabled?: boolean` 字段
+
+**`web/frontend/lib/i18n.ts`**
+- `page.graph` 新增 `disabledTitle` / `disabledDescription` 字符串
+
+**`web/frontend/app/graph/page.tsx`**
+- 新增 `relationEnabled` state（`useState<boolean | null>(null)`）
+- `loadGraph` 检测 `data.enabled === false` → 设置禁用状态
+- 禁用时渲染 shadcn `<Card>` 提示卡片，所有操作均不可用
+
+---
+
+## [已完成] Phase 3 — 数据安全 + core/api.py + run_core_dev.py — 2026-05-05
+
+### 变更概览
+
+迁移前自动备份数据库；`delete_event` 改为原子事务；`PersonaRepository.upsert` 修复假事务；提取 `core/api.py` 纯业务逻辑层；新增端到端冒烟测试脚本。
+
+### 新增配置项
+
+| 配置键 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `migration_auto_backup` | bool | true | 迁移前自动将 core.db 备份为 core.db.bak |
+
+### 数据安全
+
+**`core/repository/sqlite.py`**
+- `db_open()` 新增 `migration_auto_backup: bool = True` 参数，首次打开时若 DB 文件存在且有待迁移脚本则调用 `shutil.copy` 备份
+- `SQLiteEventRepository.delete_with_vector(event_id)`：用 `BEGIN IMMEDIATE` / COMMIT / ROLLBACK 包裹 vec 表和主表的两步删除，保证原子性
+- `SQLitePersonaRepository.upsert`：修复伪事务（`async with db.execute("BEGIN")` 不持有锁），改为显式 `BEGIN IMMEDIATE` / try-commit / except-rollback
+
+**`core/repository/base.py`**
+- `EventRepository` 新增 `delete_with_vector(event_id)` 默认实现（顺序调用 `delete_vector` + `delete`，子类可覆盖为原子实现）
+
+**`core/managers/memory_manager.py`**
+- `delete_event` 简化为 `return await self._repo.delete_with_vector(event_id)`，不再手动两步删除
+
+**`core/plugin_initializer.py`**
+- `db_open()` 调用传入 `migration_auto_backup=cfg.migration_auto_backup`
+
+### core/api.py（新建）
+
+提取自 `web/server.py` 的纯异步业务函数，HTTP 无关：
+
+| 函数 | 说明 |
+|------|------|
+| `event_to_dict` / `persona_to_dict` / `impression_to_dict` | 序列化辅助函数 |
+| `get_stats` | 统计：事件数、人设数、印象数、版本 |
+| `list_events` | 分页列出事件（支持 group_id 过滤） |
+| `get_event` / `update_event` / `delete_event` | 事件 CRUD |
+| `list_personas` | 列出所有人设 |
+| `get_graph` | 节点 + 边，供关系图渲染 |
+| `update_impression` | 更新印象字段 |
+| `recall_preview` | 语义检索预览，返回格式化 dict 列表 |
+
+### run_core_dev.py（新建，根目录）
+
+无需 AstrBot/WebUI 的端到端冒烟测试，7 个检测步骤：
+1. Persona CRUD
+2. Event CRUD + group_id 隔离断言
+3. RecallManager group_id 透传验证
+4. `delete_with_vector` 原子删除验证
+5. `PersonaRepository.upsert` 事务完整性
+6. Impression upsert
+7. `core/api.py` 全函数覆盖测试
+
+---
+
+## [已完成] Phase 4 — WebUI Config Schema 接口 + Event 触发聚合 — 2026-05-05
+
+### 变更概览
+
+新增 `GET /api/config/schema` 接口供前端动态渲染配置表单；实现事件关闭时纯规则式印象触发更新（无 LLM、无 ML）。Phase 4.2（ML 印象生成器）已按需求取消。
+
+### 新增配置项
+
+| 配置键 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `impression_event_trigger_enabled` | bool | true | 事件关闭时按规则触发印象更新 |
+| `impression_event_trigger_threshold` | int | 5 | 触发所需最少共享事件数 |
+| `impression_trigger_debounce_hours` | float | 1.0 | 防抖窗口（小时），避免高频刷新 |
+
+### GET /api/config/schema（Phase 4.1）
+
+**`web/server.py`**
+- 新增 `GET /api/config/schema` 路由（auth 级别）
+- `_handle_get_config_schema`：读取并返回 `_conf_schema.json` 完整内容
+- 前端 `app/config/page.tsx` 已实现动态表单渲染，接通此接口后自动适配新配置项
+
+### Event 数量触发聚合（Phase 4.3）
+
+**`core/plugin_initializer.py`**
+
+`on_event_close` 回调新增触发逻辑：
+```python
+if cfg.relation_enabled and cfg.impression_event_trigger_enabled:
+    asyncio.create_task(
+        _maybe_trigger_impression(event, impression_repo, event_repo, cfg)
+    )
+```
+
+模块级函数 `_maybe_trigger_impression(event, impression_repo, event_repo, cfg)`：
+- 遍历事件参与者所有 (observer, subject) 有向对
+- 防抖检查：`now - existing.last_reinforced_at < debounce_sec` 则跳过
+- 计数检查：同 scope 内共享事件数 `< threshold` 则跳过
+- 规则式启发：`intensity = min(1.0, count / 20.0)`，`affect = avg_salience - 0.5`，`relation_type = "colleague" if count >= 10 else "stranger"`
+- 已有印象：指数移动平均混合（α=0.3）；无印象：直接创建
+- 全程零 LLM 调用，零额外 token 消耗
+
+---
+
 ## [已完成] 检索算法升级 + RecallManager + 插件架构重构 — 2026-05-05
 
 ### 变更概览

@@ -106,6 +106,7 @@ async def run_impression_aggregation(
     impression_repo: ImpressionRepository,
     provider_getter: Callable,
     synthesis_config: SynthesisConfig | None = None,
+    persona_isolation_enabled: bool = False,
 ) -> int:
     """Re-evaluate each impression from its evidence events.
 
@@ -133,8 +134,11 @@ async def run_impression_aggregation(
         events = []
         for eid in imp.evidence_event_ids[:cfg.max_events]:
             ev = await event_repo.get(eid)
-            if ev is not None:
-                events.append(ev)
+            if ev is None:
+                continue
+            if persona_isolation_enabled and ev.group_id != imp.scope:
+                continue
+            events.append(ev)
         if not events:
             continue
 

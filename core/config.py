@@ -275,6 +275,26 @@ class PluginConfig:
         return self._bool("relation_enabled", True)
 
     # ------------------------------------------------------------------
+    # Data safety
+    # ------------------------------------------------------------------
+
+    @property
+    def migration_auto_backup(self) -> bool:
+        return self._bool("migration_auto_backup", True)
+
+    # ------------------------------------------------------------------
+    # Memory isolation
+    # ------------------------------------------------------------------
+
+    @property
+    def memory_isolation_enabled(self) -> bool:
+        return self._bool("memory_isolation_enabled", True)
+
+    @property
+    def persona_isolation_enabled(self) -> bool:
+        return self._bool("persona_isolation_enabled", False)
+
+    # ------------------------------------------------------------------
     # Periodic tasks
     # ------------------------------------------------------------------
 
@@ -297,6 +317,18 @@ class PluginConfig:
     @property
     def file_watcher_poll_seconds(self) -> int:
         return self._int("file_watcher_poll_seconds", 30)
+
+    @property
+    def impression_event_trigger_enabled(self) -> bool:
+        return self._bool("impression_event_trigger_enabled", True)
+
+    @property
+    def impression_event_trigger_threshold(self) -> int:
+        return self._int("impression_event_trigger_threshold", 5)
+
+    @property
+    def impression_trigger_debounce_hours(self) -> float:
+        return self._float("impression_trigger_debounce_hours", 1.0)
 
     # ------------------------------------------------------------------
     # Raw dict passthrough (for subsystems that need the full dict)

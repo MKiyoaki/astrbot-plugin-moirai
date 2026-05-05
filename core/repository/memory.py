@@ -87,19 +87,29 @@ class InMemoryEventRepository(EventRepository):
     async def list_group_ids(self) -> list[str | None]:
         return list({e.group_id for e in self._store.values()})
 
-    async def search_fts(self, query: str, limit: int = 20) -> list[Event]:
-        """Naive term-in-string match over topic + tags. FTS5 replaces this in Phase 2."""
+    async def search_fts(
+        self, query: str, limit: int = 20, active_only: bool = True,
+        group_id: str | None = None,
+    ) -> list[Event]:
+        """Naive term-in-string match over topic + tags. FTS5 replaces this in production."""
         terms = query.lower().split()
         results: list[Event] = []
         for event in self._store.values():
+            if active_only and event.status != "active":
+                continue
+            if group_id is not None and event.group_id != group_id:
+                continue
             haystack = (event.topic + " " + " ".join(event.chat_content_tags)).lower()
             if any(term in haystack for term in terms):
                 results.append(deepcopy(event))
         results.sort(key=lambda e: e.salience, reverse=True)
         return results[:limit]
 
-    async def search_vector(self, embedding: list[float], limit: int = 20) -> list[Event]:
-        """Stub — no vector index in memory. Phase 5 adds sqlite-vec."""
+    async def search_vector(
+        self, embedding: list[float], limit: int = 20, active_only: bool = True,
+        group_id: str | None = None,
+    ) -> list[Event]:
+        """Stub — no vector index in memory. Production uses sqlite-vec."""
         return []
 
     async def get_children(self, parent_event_id: str) -> list[Event]:

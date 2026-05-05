@@ -25,6 +25,8 @@ export const zh = {
     graph: {
       title: '关系图',
       description: '可视化人格节点与印象关系，支持点击查看证据事件并跳转时间线。',
+      disabledTitle: '关系图功能已关闭',
+      disabledDescription: '社交关系推断（relation_enabled）当前已禁用。如需启用，请前往「插件配置」页面将 relation_enabled 设为开启，重启后生效。',
     },
     summary: {
       title: '摘要记忆',

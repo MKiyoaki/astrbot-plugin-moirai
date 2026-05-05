@@ -192,6 +192,11 @@ class WebuiServer:
         self._config_path = data_dir / "plugin_config.json"
         self._initial_config: dict = initial_config or {}
 
+        # Feature flags derived from initial config (evaluated once at startup)
+        self._relation_enabled: bool = bool(
+            (initial_config or {}).get("relation_enabled", True)
+        )
+
         # In-memory recycle bin (session-scoped)
         self._recycle_bin: list[dict] = []
         self._app = self._build_app()
@@ -249,7 +254,7 @@ class WebuiServer:
         app.router.add_get(
             "/api/events", self._wrap("auth", self._handle_events))
         app.router.add_get(
-            "/api/graph", self._wrap("auth", self._handle_graph))
+            "/api/graph", self._wrap("auth", self._handle_graph_guarded))
         app.router.add_get(
             "/api/summaries", self._wrap("auth", self._handle_summaries))
         app.router.add_get(
@@ -298,7 +303,7 @@ class WebuiServer:
         # Impression updates
         app.router.add_put(
             "/api/impressions/{observer}/{subject}/{scope}",
-            self._wrap("sudo", self._handle_update_impression),
+            self._wrap("sudo", self._handle_update_impression_guarded),
         )
         
         # Tags aggregation
@@ -310,6 +315,8 @@ class WebuiServer:
             "/api/config", self._wrap("auth", self._handle_get_config))
         app.router.add_put(
             "/api/config", self._wrap("sudo", self._handle_update_config))
+        app.router.add_get(
+            "/api/config/schema", self._wrap("auth", self._handle_get_config_schema))
 
         # Third-party panel registration
         app.router.add_get(
@@ -565,6 +572,24 @@ class WebuiServer:
         group_id = request.rel_url.query.get("group_id") or None
         limit = int(request.rel_url.query.get("limit", "100"))
         return _json(await self.events_data(group_id, limit))
+
+    def _relation_disabled_response(self) -> web.Response | None:
+        """Return a disabled-feature response when relation_enabled=False, else None."""
+        if not self._relation_enabled:
+            return _json({"enabled": False, "nodes": [], "edges": []})
+        return None
+
+    async def _handle_graph_guarded(self, request: web.Request) -> web.Response:
+        guard = self._relation_disabled_response()
+        if guard is not None:
+            return guard
+        return await self._handle_graph(request)
+
+    async def _handle_update_impression_guarded(self, request: web.Request) -> web.Response:
+        guard = self._relation_disabled_response()
+        if guard is not None:
+            return guard
+        return await self._handle_update_impression(request)
 
     async def _handle_graph(self, _: web.Request) -> web.Response:
         return _json(await self.graph_data())
@@ -1080,6 +1105,9 @@ class WebuiServer:
         schema = self._load_conf_schema()
         values = self._read_config()
         return _json({"schema": schema, "values": values})
+
+    async def _handle_get_config_schema(self, _: web.Request) -> web.Response:
+        return _json(self._load_conf_schema())
 
     async def _handle_update_config(self, request: web.Request) -> web.Response:
         body = await request.json()

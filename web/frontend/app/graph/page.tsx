@@ -15,6 +15,7 @@ import { GroupCardList } from '@/components/graph/group-card-list'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { i18n } from '@/lib/i18n'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   DEFAULT_PHYSICS_PARAMS,
   DEFAULT_VISUAL_PARAMS,
@@ -33,6 +34,9 @@ export default function GraphPage() {
   // ── Tag filter ──────────────────────────────────────────────────────────────
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set())
   const [tagList, setTagList] = useState<{ name: string; count: number }[]>([])
+
+  // ── Feature flag ────────────────────────────────────────────────────────────
+  const [relationEnabled, setRelationEnabled] = useState<boolean | null>(null)
 
   // ── Group / view state ──────────────────────────────────────────────────────
   const [groupCards, setGroupCards] = useState<GroupCard[]>([])
@@ -65,6 +69,11 @@ export default function GraphPage() {
     setLoading(true)
     try {
       const data = await api.graph.get()
+      if (data.enabled === false) {
+        setRelationEnabled(false)
+        return
+      }
+      setRelationEnabled(true)
       app.setRawGraph(data)
       const cards = buildGroupCards(data.nodes, data.edges, physics.biWeight)
       setGroupCards(cards)
@@ -317,6 +326,24 @@ export default function GraphPage() {
       />
     )
   })()
+
+  if (relationEnabled === false) {
+    return (
+      <div className="flex h-screen flex-col overflow-hidden">
+        <PageHeader title={i18n.page.graph.title} description={i18n.page.graph.description} />
+        <div className="flex flex-1 items-center justify-center p-8">
+          <Card className="max-w-md w-full">
+            <CardHeader>
+              <CardTitle>{i18n.page.graph.disabledTitle}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">{i18n.page.graph.disabledDescription}</p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">

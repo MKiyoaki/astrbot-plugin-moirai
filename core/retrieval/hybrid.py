@@ -35,26 +35,29 @@ class HybridRetriever:
         self._rrf_k = rrf_k
 
     async def search_raw(
-        self, query: str, active_only: bool = True
+        self, query: str, active_only: bool = True, group_id: str | None = None,
     ) -> tuple[list[Event], list[Event]]:
         """Return (bm25_results, vec_results) without fusion.
 
+        group_id=None searches across all groups; pass a value to restrict to one scope.
         Encoding runs in a thread to avoid blocking the event loop.
         """
         bm25 = await self._event_repo.search_fts(
-            query, limit=self._bm25_limit, active_only=active_only
+            query, limit=self._bm25_limit, active_only=active_only, group_id=group_id,
         )
         vec: list[Event] = []
         if self._encoder.dim > 0:
             embedding = await asyncio.to_thread(self._encoder.encode, query)
             vec = await self._event_repo.search_vector(
-                embedding, limit=self._vec_limit, active_only=active_only
+                embedding, limit=self._vec_limit, active_only=active_only, group_id=group_id,
             )
         return bm25, vec
 
-    async def search(self, query: str, limit: int = 10, active_only: bool = True) -> list[Event]:
+    async def search(
+        self, query: str, limit: int = 10, active_only: bool = True, group_id: str | None = None,
+    ) -> list[Event]:
         """Return up to `limit` events most relevant to the query string."""
-        bm25, vec = await self.search_raw(query, active_only=active_only)
+        bm25, vec = await self.search_raw(query, active_only=active_only, group_id=group_id)
 
         if not vec:
             return bm25[:limit]

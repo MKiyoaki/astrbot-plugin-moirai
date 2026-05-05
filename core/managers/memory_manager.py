@@ -90,10 +90,7 @@ class MemoryManager(BaseMemoryManager):
             await self._repo.upsert_vector(event.event_id, vec)
 
     async def delete_event(self, event_id: str) -> bool:
-        # Step 1: remove vec0 entry (needs rowid lookup before the row is gone).
-        await self._repo.delete_vector(event_id)
-        # Step 2: DELETE from DocumentStorage; FTS5 delete trigger fires here.
-        return await self._repo.delete(event_id)
+        return await self._repo.delete_with_vector(event_id)
 
     # ------------------------------------------------------------------
     # Event lifecycle

@@ -7,7 +7,9 @@ out of the Star shell.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
+import time
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -75,7 +77,8 @@ class PluginInitializer:
 
         self._exit_stack = AsyncExitStack()
         db = await self._exit_stack.enter_async_context(
-            db_open(db_path, vec_dim=_VEC_DIM)
+            db_open(db_path, vec_dim=_VEC_DIM,
+                    migration_auto_backup=cfg.migration_auto_backup)
         )
 
         persona_repo = SQLitePersonaRepository(db)
@@ -133,6 +136,12 @@ class PluginInitializer:
 
         async def on_event_close(event: Event, window: MessageWindow) -> None:
             asyncio.create_task(extractor(event, window))
+            if cfg.relation_enabled and cfg.impression_event_trigger_enabled:
+                asyncio.create_task(
+                    _maybe_trigger_impression(
+                        event, impression_repo, event_repo, cfg
+                    )
+                )
 
         resolver = IdentityResolver(persona_repo)
         detector = EventBoundaryDetector(cfg.get_boundary_config())
@@ -181,6 +190,7 @@ class PluginInitializer:
             fn=lambda: run_impression_aggregation(
                 persona_repo, event_repo, impression_repo, provider_getter,
                 synthesis_config=synthesis_cfg,
+                persona_isolation_enabled=cfg.persona_isolation_enabled,
             ),
         )
         self.scheduler.register(
@@ -242,3 +252,96 @@ def _get_plugin_version() -> str:
         return version("astrbot-plugin-enhanced-memory")
     except Exception:
         return "0.1.0"
+
+
+async def _maybe_trigger_impression(
+    event: Event,
+    impression_repo,
+    event_repo,
+    cfg: PluginConfig,
+) -> None:
+    """Rule-based impression update triggered on event close.
+
+    Iterates all (observer, subject) pairs among event participants.
+    Skips a pair if:
+    - debounce window not elapsed since last_reinforced_at
+    - shared event count in this scope < threshold
+
+    On trigger: updates relation_type, intensity, affect from simple heuristics
+    (no LLM, no ML — pure rule-based, zero extra token cost).
+    """
+    from .domain.models import Impression
+
+    uids = event.participants
+    if len(uids) < 2:
+        return
+
+    scope = event.group_id or "global"
+    threshold = cfg.impression_event_trigger_threshold
+    debounce_sec = cfg.impression_trigger_debounce_hours * 3600
+    now = time.time()
+
+    for i, observer in enumerate(uids):
+        for subject in uids[i + 1:]:
+            for obs, subj in [(observer, subject), (subject, observer)]:
+                try:
+                    existing = await impression_repo.get(obs, subj, scope)
+
+                    # Debounce
+                    if existing and (now - existing.last_reinforced_at) < debounce_sec:
+                        continue
+
+                    # Count shared events in this scope
+                    obs_events = await event_repo.list_by_participant(obs, limit=200)
+                    subj_ids = {
+                        e.event_id
+                        for e in await event_repo.list_by_participant(subj, limit=200)
+                    }
+                    shared = [
+                        e for e in obs_events
+                        if e.event_id in subj_ids
+                        and (e.group_id or "global") == scope
+                    ]
+
+                    if len(shared) < threshold:
+                        continue
+
+                    # Rule-based heuristics
+                    count = len(shared)
+                    avg_salience = sum(e.salience for e in shared) / count
+                    intensity = min(1.0, count / 20.0)
+                    affect = round(avg_salience - 0.5, 3)  # 0–1 salience → -0.5–0.5
+                    relation_type = "colleague" if count >= 10 else "stranger"
+
+                    if existing:
+                        # Blend new signal with existing confidence
+                        alpha = 0.3
+                        new_imp = dataclasses.replace(
+                            existing,
+                            relation_type=relation_type,
+                            intensity=round(existing.intensity * (1 - alpha) + intensity * alpha, 3),
+                            affect=round(existing.affect * (1 - alpha) + affect * alpha, 3),
+                            last_reinforced_at=now,
+                        )
+                    else:
+                        new_imp = Impression(
+                            observer_uid=obs,
+                            subject_uid=subj,
+                            relation_type=relation_type,
+                            affect=affect,
+                            intensity=intensity,
+                            confidence=0.5,
+                            scope=scope,
+                            evidence_event_ids=[e.event_id for e in shared[-5:]],
+                            last_reinforced_at=now,
+                        )
+
+                    await impression_repo.upsert(new_imp)
+                    logger.debug(
+                        "[ImpressionTrigger] %s→%s scope=%s updated (count=%d)",
+                        obs[:8], subj[:8], scope, count,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[ImpressionTrigger] failed for %s→%s: %s", obs[:8], subj[:8], exc
+                    )

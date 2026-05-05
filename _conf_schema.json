@@ -83,6 +83,24 @@
         "hint": "禁用后仅保留情节记忆（Event Flow），不执行 Impression 推断和关系图构建",
         "default": true
     },
+    "migration_auto_backup": {
+        "description": "迁移前自动备份数据库文件",
+        "type": "bool",
+        "hint": "插件启动时若检测到待执行迁移脚本，在运行前自动将数据库备份为 core.db.bak；关闭则跳过备份",
+        "default": true
+    },
+    "memory_isolation_enabled": {
+        "description": "启用记忆隔离（按群组 ID 隔离检索）",
+        "type": "bool",
+        "hint": "开启后私聊与各群组的记忆检索互不干扰；关闭则跨 group_id 全局检索",
+        "default": true
+    },
+    "persona_isolation_enabled": {
+        "description": "启用人格视角隔离（Bot 在不同群有独立印象）",
+        "type": "bool",
+        "hint": "开启后 Impression 聚合仅取同一群组内的事件作为 evidence；关闭则混合所有群组事件",
+        "default": false
+    },
     "decay_interval_hours": {
         "description": "重要度衰减任务间隔（小时）",
         "type": "int",
@@ -112,5 +130,23 @@
         "type": "int",
         "hint": "检测用户编辑 IMPRESSIONS.md 的轮询频率，值越小响应越快但 I/O 开销越高",
         "default": 30
+    },
+    "impression_event_trigger_enabled": {
+        "description": "启用事件数量触发印象更新",
+        "type": "bool",
+        "hint": "每次事件关闭后，若参与者间共享事件数达到阈值则自动触发规则式印象更新（不消耗 LLM token）",
+        "default": true
+    },
+    "impression_event_trigger_threshold": {
+        "description": "印象触发所需最少共享事件数",
+        "type": "int",
+        "hint": "两人在同一 scope 内的共享事件数达到此值时才触发印象更新",
+        "default": 5
+    },
+    "impression_trigger_debounce_hours": {
+        "description": "印象触发防抖时间（小时）",
+        "type": "float",
+        "hint": "上次更新距今不足此时长则跳过本次触发，避免高频刷新",
+        "default": 1.0
     }
 }

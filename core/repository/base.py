@@ -57,13 +57,24 @@ class EventRepository(ABC):
         ...
 
     @abstractmethod
-    async def search_fts(self, query: str, limit: int = 20, active_only: bool = True) -> list[Event]:
-        """Keyword search over topic and chat_content_tags."""
+    async def search_fts(
+        self, query: str, limit: int = 20, active_only: bool = True,
+        group_id: str | None = None,
+    ) -> list[Event]:
+        """Keyword search over topic and chat_content_tags.
+
+        group_id=None searches across all groups; pass a value to restrict to one scope.
+        """
         ...
 
     @abstractmethod
-    async def search_vector(self, embedding: list[float], limit: int = 20, active_only: bool = True) -> list[Event]:
+    async def search_vector(
+        self, embedding: list[float], limit: int = 20, active_only: bool = True,
+        group_id: str | None = None,
+    ) -> list[Event]:
         """Semantic search via embedding similarity.
+
+        group_id=None searches across all groups; pass a value to restrict to one scope.
         Stub returns []; real implementation uses sqlite-vec vec0 (Phase 5).
         """
         ...
@@ -132,6 +143,16 @@ class EventRepository(ABC):
 
         Default is a no-op — overridden by SQLiteEventRepository.
         """
+
+    async def delete_with_vector(self, event_id: str) -> bool:
+        """Delete an event and its vector embedding atomically.
+
+        Default implementation calls delete_vector then delete sequentially.
+        SQLiteEventRepository overrides this with a single transaction.
+        Returns False if event_id was not found.
+        """
+        await self.delete_vector(event_id)
+        return await self.delete(event_id)
 
 
 class ImpressionRepository(ABC):
