@@ -1,4 +1,4 @@
-"""Format retrieved events into a system-prompt-injectable string.
+"""Format retrieved events into injectable prompt content.
 
 Greedy fill: sort by salience descending, add entries until token_budget
 is exhausted. Conservative token estimate: len(text) // 2 (handles
@@ -6,8 +6,11 @@ Chinese where 1 char ≈ 1 token).
 """
 from __future__ import annotations
 
+import json
 import time
+import uuid
 
+from ..config import FAKE_TOOL_CALL_ID_PREFIX
 from ..domain.models import Event
 
 _TOKEN_BUDGET = 800
@@ -33,7 +36,7 @@ def format_events_for_prompt(
     token_budget: int = _TOKEN_BUDGET,
     now: float | None = None,
 ) -> str:
-    """Return a prompt segment string, or empty string if events is empty."""
+    """Return the memory body string (no wrapper), or empty string if events is empty."""
     if not events:
         return ""
     if now is None:
@@ -58,3 +61,44 @@ def format_events_for_prompt(
         return ""
 
     return header + "\n".join(lines)
+
+
+def format_events_for_fake_tool_call(
+    events: list[Event],
+    query: str,
+    *,
+    token_budget: int = _TOKEN_BUDGET,
+    now: float | None = None,
+) -> list[dict]:
+    """Return two OpenAI-format messages simulating a tool call result.
+
+    Message 1 (assistant): announces a recall_memory tool call.
+    Message 2 (tool):      the memory content as tool output.
+
+    Returns empty list if no content to inject.
+    """
+    content = format_events_for_prompt(events, token_budget=token_budget, now=now)
+    if not content:
+        return []
+    tool_call_id = f"{FAKE_TOOL_CALL_ID_PREFIX}{uuid.uuid4().hex[:8]}"
+    return [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": "recall_memory",
+                        "arguments": json.dumps({"query": query}, ensure_ascii=False),
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": content,
+        },
+    ]

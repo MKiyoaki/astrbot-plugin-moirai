@@ -1,19 +1,28 @@
-"""Abstract base class for the memory manager.
+"""Abstract base classes for all manager types.
 
-Defines the public contract that MemoryManager must satisfy. Keeps
-main.py and other callers decoupled from the concrete implementation.
+Hierarchy:
+    BaseManager                 — generic base: provides logger
+      ├── BaseMemoryManager     — CRUD + lifecycle + decay + search
+      └── BaseRecallManager     — retrieval pipeline + injection
 """
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..domain.models import Event, Impression, Persona
-    from ..embedding.encoder import Encoder
+    from ..domain.models import Event
 
 
-class BaseMemoryManager(ABC):
+class BaseManager:
+    """Generic base class providing a logger to all manager subclasses."""
+
+    def __init__(self) -> None:
+        self._logger = logging.getLogger(self.__class__.__name__)
+
+
+class BaseMemoryManager(BaseManager, ABC):
     """Unified interface for all memory CRUD, retrieval, and lifecycle operations.
 
     Primary key convention
@@ -139,4 +148,39 @@ class BaseMemoryManager(ABC):
     @abstractmethod
     async def stats(self) -> dict:
         """Return a dict of memory statistics (counts, salience distribution, etc.)."""
+        ...
+
+
+class BaseRecallManager(BaseManager, ABC):
+    """Contract for the retrieval + injection pipeline."""
+
+    @abstractmethod
+    async def recall(self, query: str, group_id: str | None = None) -> list[Event]:
+        """Retrieve relevant events for the given query.
+
+        group_id is reserved for future scope filtering; pass None to search globally.
+        """
+        ...
+
+    @abstractmethod
+    async def recall_and_inject(
+        self,
+        query: str,
+        req: object,
+        session_id: str,
+        group_id: str | None = None,
+    ) -> int:
+        """Recall events and inject them into the ProviderRequest.
+
+        Returns the number of events actually injected.
+        """
+        ...
+
+    @abstractmethod
+    def clear_previous_injection(self, req: object) -> int:
+        """Remove previously injected memory markers from req.
+
+        Clears system_prompt, prompt, and contexts fields.
+        Returns the count of injection blocks removed.
+        """
         ...

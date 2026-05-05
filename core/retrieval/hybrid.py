@@ -5,10 +5,12 @@ model (SentenceTransformerEncoder) or skipped entirely (NullEncoder).
 """
 from __future__ import annotations
 
+import asyncio
+
 from ..domain.models import Event
 from ..embedding.encoder import Encoder, NullEncoder
 from ..repository.base import EventRepository
-from .rrf import rrf_fuse
+from .rrf import rrf_fuse, rrf_scores
 
 
 class HybridRetriever:
@@ -32,14 +34,27 @@ class HybridRetriever:
         self._vec_limit = vec_limit
         self._rrf_k = rrf_k
 
-    async def search(self, query: str, limit: int = 10) -> list[Event]:
-        """Return up to `limit` events most relevant to the query string."""
-        bm25 = await self._event_repo.search_fts(query, limit=self._bm25_limit)
+    async def search_raw(
+        self, query: str, active_only: bool = True
+    ) -> tuple[list[Event], list[Event]]:
+        """Return (bm25_results, vec_results) without fusion.
 
+        Encoding runs in a thread to avoid blocking the event loop.
+        """
+        bm25 = await self._event_repo.search_fts(
+            query, limit=self._bm25_limit, active_only=active_only
+        )
         vec: list[Event] = []
         if self._encoder.dim > 0:
-            embedding = self._encoder.encode(query)
-            vec = await self._event_repo.search_vector(embedding, limit=self._vec_limit)
+            embedding = await asyncio.to_thread(self._encoder.encode, query)
+            vec = await self._event_repo.search_vector(
+                embedding, limit=self._vec_limit, active_only=active_only
+            )
+        return bm25, vec
+
+    async def search(self, query: str, limit: int = 10, active_only: bool = True) -> list[Event]:
+        """Return up to `limit` events most relevant to the query string."""
+        bm25, vec = await self.search_raw(query, active_only=active_only)
 
         if not vec:
             return bm25[:limit]
@@ -47,11 +62,7 @@ class HybridRetriever:
         return rrf_fuse([bm25, vec], k=self._rrf_k, limit=limit)
 
     async def index_event(self, event: Event) -> None:
-        """Compute and store the embedding for a single event (background use).
-
-        Called after LLM extraction so the vector reflects the extracted topic
-        and tags rather than the raw message text.
-        """
+        """Compute and store the embedding for a single event (background use)."""
         if self._encoder.dim == 0:
             return
         text = event.topic

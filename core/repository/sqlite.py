@@ -318,23 +318,23 @@ class SQLiteEventRepository(EventRepository):
             rows = await cur.fetchall()
         return [row[0] for row in rows]
 
-    async def search_fts(self, query: str, limit: int = 20) -> list[Event]:
+    async def search_fts(self, query: str, limit: int = 20, active_only: bool = True) -> list[Event]:
         """BM25 full-text search over topic and chat_content_tags."""
         try:
+            status_clause = " AND e.status = 'active'" if active_only else ""
             async with self._db.execute(
                 f"{_EVENT_SELECT} e WHERE e.rowid IN ("
                 "  SELECT rowid FROM events_fts WHERE events_fts MATCH ?"
                 "  ORDER BY rank LIMIT ?"
-                ") ORDER BY e.salience DESC",
+                f"){status_clause} ORDER BY e.salience DESC",
                 (query, limit),
             ) as cur:
                 rows = await cur.fetchall()
             return [_row_to_event(r) for r in rows]
         except Exception:
-            # Malformed FTS query → return empty rather than crash
             return []
 
-    async def search_vector(self, embedding: list[float], limit: int = 20) -> list[Event]:
+    async def search_vector(self, embedding: list[float], limit: int = 20, active_only: bool = True) -> list[Event]:
         """Cosine-approximate nearest-neighbour search via sqlite-vec vec0.
 
         Returns [] if sqlite-vec is not loaded or the embedding is empty.
@@ -342,11 +342,12 @@ class SQLiteEventRepository(EventRepository):
         if not embedding:
             return []
         try:
+            status_clause = " AND e.status = 'active'" if active_only else ""
             async with self._db.execute(
                 f"SELECT {_EVENT_SELECT_COLS} FROM "
                 "(SELECT rowid, distance FROM events_vec WHERE embedding MATCH ? "
                 " ORDER BY distance LIMIT ?) v "
-                "JOIN events e ON e.rowid = v.rowid "
+                f"JOIN events e ON e.rowid = v.rowid{status_clause} "
                 "ORDER BY v.distance",
                 (json.dumps(embedding), limit),
             ) as cur:

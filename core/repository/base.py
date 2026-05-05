@@ -57,12 +57,12 @@ class EventRepository(ABC):
         ...
 
     @abstractmethod
-    async def search_fts(self, query: str, limit: int = 20) -> list[Event]:
+    async def search_fts(self, query: str, limit: int = 20, active_only: bool = True) -> list[Event]:
         """Keyword search over topic and chat_content_tags."""
         ...
 
     @abstractmethod
-    async def search_vector(self, embedding: list[float], limit: int = 20) -> list[Event]:
+    async def search_vector(self, embedding: list[float], limit: int = 20, active_only: bool = True) -> list[Event]:
         """Semantic search via embedding similarity.
         Stub returns []; real implementation uses sqlite-vec vec0 (Phase 5).
         """

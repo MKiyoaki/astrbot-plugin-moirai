@@ -90,8 +90,9 @@ Persona Synthesis  — 约 1 次 LLM 调用 / 活跃 Persona / 天
 
 ### 关键设计决策摘要
 |设计点	| 说明 |
+|------|------|
 |热路径零 LLM	|检索完全本地，不增加延迟|
-|三轴分离	|事件（时间轴）、印象（社会轴）、摘要（叙事轴）各自独立，共用 event_id 做交叉引用|
-|事件是唯一索引	impression 的 evidence_event_ids 指向具体事件，摘要也按事件聚合，三者通过 event_id 互相可跳转｜
-｜Salience 衰减	｜重要性随时间衰减（每日 decay 任务），避免旧事件永远占满 token budget｜
-｜Relation 模块可选	｜relation_inference.enabled = false 时记忆系统仍完整工作，只是不注入印象信息｜
+|三轴分离	|事件（时间轴）、印象（社会轴）、摘要（叙事轴）各自独立，共用 event_id 做交叉引用 |
+|事件是唯一索引 | impression 的 evidence_event_ids 指向具体事件，摘要也按事件聚合，三者通过 event_id 互相可跳转 ｜
+｜Salience 衰减	｜ 重要性随时间衰减（每日 decay 任务），避免旧事件永远占满 token budget ｜
+｜Relation 模块可选	｜ relation_inference.enabled = false 时记忆系统仍完整工作，只是不注入印象信息 ｜

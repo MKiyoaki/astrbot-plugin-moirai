@@ -4,6 +4,90 @@
 
 ---
 
+## [已完成] 检索算法升级 + RecallManager + 插件架构重构 — 2026-05-05
+
+### 变更概览
+
+本次迭代覆盖 Sprint 2 全部内容，涉及检索管道、注入机制、管理器架构和插件生命周期四个维度。
+
+### 1. 域模型：Event 生命周期状态
+
+- **`core/domain/models.py`**：新增 `EventStatus` 常量类（`ACTIVE` / `ARCHIVED`）；`Event` dataclass 新增 `status` 字段（默认 `"active"`）。
+- **`migrations/002_event_status.sql`**：`ALTER TABLE events ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`，并创建 `idx_events_status` 索引。
+
+### 2. Repository 层：active_only 过滤
+
+- **`core/repository/base.py`**：`search_fts` 与 `search_vector` 抽象方法增加 `active_only: bool = True` 参数。
+- **`core/repository/sqlite.py`**：
+  - `search_fts`：在 FTS 子查询后条件拼接 `AND e.status = 'active'`（当 `active_only=True`）。
+  - `search_vector`：在 `JOIN events e ON e.rowid = v.rowid` 后拼接同样的状态过滤。
+  - `upsert`：写入 `status` 字段，`_row_to_event` 支持旧行兜底（无 `status` 列时默认 `ACTIVE`）。
+  - 新增方法：`list_by_status`、`set_status`、`get_rowid`、`get_by_rowid`、`delete_vector`。
+
+### 3. 检索管道：RRF scores + search_raw + asyncio.to_thread
+
+- **`core/retrieval/rrf.py`**：新增 `rrf_scores(ranked_lists, k)` 函数，返回 `event_id → float` 原始得分字典，供 RecallManager 加权融合用（不排序不截断）。
+- **`core/retrieval/hybrid.py`**：
+  - 新增 `search_raw(query, active_only)` 方法，返回 `(bm25_results, vec_results)` 元组，不做融合。向量编码通过 `asyncio.to_thread` 执行，避免阻塞事件循环热路径。
+  - `search()` 重构为内部调用 `search_raw()` + `rrf_fuse()`，新增 `active_only` 参数透传。
+
+### 4. 注入机制：格式化器 + 4 种注入位置
+
+- **`core/retrieval/formatter.py`**：
+  - 新增 `format_events_for_fake_tool_call(events, query)` 函数，返回两条 OpenAI 格式消息（assistant tool_calls + tool result），用于 `fake_tool_call` 注入模式。
+  - `format_events_for_prompt()` 保持返回纯正文，wrapper（HEADER/FOOTER）由 RecallManager 负责包裹。
+- **`core/config.py`**：
+  - 新增 `MEMORY_INJECTION_HEADER = "<!-- EM:MEMORY:START -->"` / `MEMORY_INJECTION_FOOTER = "<!-- EM:MEMORY:END -->"` 哨兵常量，用于自动清除旧注入。
+  - 新增 `FAKE_TOOL_CALL_ID_PREFIX = "em_recall_"` 前缀，用于识别 fake tool call 消息对。
+  - 新增 `RetrievalConfig` dataclass（10 个参数：限制数、权重、半衰期、fallback 开关等）。
+  - 新增 `InjectionConfig` dataclass（position、auto_clear、token_budget）。
+  - `PluginConfig` 新增 `get_retrieval_config()` / `get_injection_config()` 方法。
+- **`_conf_schema.json`**：新增 `retrieval_*` 和 `injection_*` 共 14 个配置项。
+
+### 5. Manager 架构：三层基类
+
+- **`core/managers/base.py`** 重构为三层：
+  - `BaseManager`：通用根类，提供 `self._logger`（`logging.getLogger(cls.__name__)`）。
+  - `BaseMemoryManager(BaseManager, ABC)`：现有全部抽象方法保持不变，继承 logger。
+  - `BaseRecallManager(BaseManager, ABC)`：新增，定义 `recall`、`recall_and_inject`、`clear_previous_injection` 三个抽象方法。
+
+### 6. RecallManager：完整检索 + 注入管道
+
+- **`core/managers/recall_manager.py`**（新建）：
+  - `recall(query, group_id)` 实现加权重排：`relevance_weight × RRF/max_rrf + salience_weight × salience + recency_weight × exp(-log2 × days / half_life)`。
+  - 支持 `vector_fallback_enabled`：BM25 为空时自动降级为纯向量候选池。
+  - `recall_and_inject(query, req, session_id, group_id)` 根据 `injection_position` 分支注入：`system_prompt`、`user_message_before`、`user_message_after`、`fake_tool_call`。
+  - `clear_previous_injection(req)` 用正则清除 `system_prompt`、`prompt` 中的 HEADER/FOOTER 标记块；遍历 `contexts` 识别并删除 fake tool call 消息对（assistant + tool）。
+- **`core/managers/__init__.py`**：导出 `RecallManager`。
+
+### 7. 插件架构：PluginInitializer + EventHandler
+
+- **`core/plugin_initializer.py`**（新建）：
+  - 接收 `context`、`PluginConfig`、`data_dir`，按依赖顺序构建所有组件（db → repos → encoder → retriever → memory → recall → extractor → router → scheduler → webui → watcher → syncer）。
+  - `teardown()` 按逆序关闭（watcher → webui → scheduler → router.flush_all() → exit_stack）。
+  - `HybridRetriever` 构造时正确透传 `bm25_limit`、`vec_limit`、`rrf_k`（原 `main.py` 使用默认值）。
+- **`core/event_handler.py`**（新建）：
+  - `handle_llm_request`：使用 `event.message_str` 而非 `req.prompt` 作为召回查询，避免旧注入内容污染查询语义。
+  - `handle_message`：委托 `MessageRouter.process()`，保持不变。
+
+### 8. main.py：精简 Star 壳
+
+- 移除所有内联初始化逻辑（~200 行），改为委托 `PluginInitializer` + `EventHandler`。
+- `initialize()` 仅三行有效逻辑；`terminate()` 一行委托；事件回调各两行。
+
+### 设计决策
+
+| 决策 | 理由 |
+|------|------|
+| `asyncio.to_thread` 包裹编码 | 本地 SentenceTransformer 是 CPU 密集型，在 hot path 阻塞事件循环会导致消息积压 |
+| `active_only` 在 SQL 层过滤 | 在候选池形成前剔除归档事件，避免浪费 RRF 名额 |
+| `vector_fallback_enabled` 开关 | BM25 在短消息/非中文场景下召回率低，fallback 保证召回不为空 |
+| auto_clear 默认开启 | 防止多轮对话中注入内容累积堆叠，消耗 context window |
+| fake_tool_call 注入 | 某些模型对 tool result 格式的上下文理解优于 system prompt 追加 |
+| `event.message_str` 作为查询 | `req.prompt` 在 on_llm_request 触发时可能已含上一轮注入，用原始消息更准确 |
+
+---
+
 ## [已完成] 关系图谱界面重构 v5 (graph-wireframe-v2) — 2026-05-04
 
 ### 背景
