@@ -8,8 +8,8 @@
     "webui_port": {
         "description": "WebUI 端口号",
         "type": "int",
-        "hint": "WebUI HTTP 服务绑定的本机端口，默认 2653，修改后需重启",
-        "default": 2653
+        "hint": "WebUI HTTP 服务绑定的本机端口，默认 2655，修改后需重启",
+        "default": 2655
     },
     "webui_auth_enabled": {
         "description": "启用 WebUI 密码认证",
@@ -42,82 +42,16 @@
         "default": "BAAI/bge-small-zh-v1.5"
     },
     "retrieval_top_k": {
-        "description": "检索最终返回事件数",
+        "description": "检索注入的最大事件数",
         "type": "int",
-        "hint": "RRF 融合后保留的最终事件数量（final_limit），值越大注入内容越丰富但消耗 token 越多",
+        "hint": "注入 Prompt 前最终保留的事件数量，值越大 context 越丰富但消耗 token 越多",
         "default": 10
-    },
-    "retrieval_bm25_limit": {
-        "description": "BM25 候选池大小",
-        "type": "int",
-        "hint": "FTS5 关键词检索时返回的候选数量，用于 RRF 融合前的候选池，建议 ≥ retrieval_top_k × 2",
-        "default": 20
-    },
-    "retrieval_vec_limit": {
-        "description": "向量检索候选池大小",
-        "type": "int",
-        "hint": "sqlite-vec 向量检索时返回的候选数量，用于 RRF 融合前的候选池",
-        "default": 20
-    },
-    "retrieval_rrf_k": {
-        "description": "RRF 融合参数 k",
-        "type": "int",
-        "hint": "Reciprocal Rank Fusion 的平滑参数，原始论文默认值 60；值越大对低名次文档越宽松",
-        "default": 60
-    },
-    "retrieval_salience_weight": {
-        "description": "最终排序：重要度权重",
-        "type": "float",
-        "hint": "最终得分 = relevance_weight × RRF得分 + salience_weight × salience + recency_weight × 新鲜度；三者之和建议为 1.0",
-        "default": 0.3
-    },
-    "retrieval_recency_weight": {
-        "description": "最终排序：新鲜度权重",
-        "type": "float",
-        "hint": "新鲜度用指数衰减计算，半衰期由 retrieval_recency_half_life_days 控制",
-        "default": 0.2
-    },
-    "retrieval_relevance_weight": {
-        "description": "最终排序：相关度权重（RRF 得分）",
-        "type": "float",
-        "hint": "RRF 得分归一化后乘以此权重参与最终排序",
-        "default": 0.5
-    },
-    "retrieval_recency_half_life_days": {
-        "description": "新鲜度衰减半衰期（天）",
-        "type": "float",
-        "hint": "事件距今超过此天数后新鲜度得分降至 0.5，默认 30 天；值越小对旧事件惩罚越重",
-        "default": 30.0
-    },
-    "retrieval_vector_fallback_enabled": {
-        "description": "启用向量检索兜底",
-        "type": "bool",
-        "hint": "BM25 无结果时自动降级为纯向量检索；关闭后 BM25 为空时直接返回空结果",
-        "default": true
-    },
-    "retrieval_active_only": {
-        "description": "检索仅包含活跃事件",
-        "type": "bool",
-        "hint": "开启后 archived 状态的事件不参与 BM25 和向量检索，节省候选池配额",
-        "default": true
     },
     "retrieval_token_budget": {
         "description": "记忆注入的 Token 上限",
         "type": "int",
-        "hint": "超出上限时按最终得分贪心截断，保留得分最高的事件",
+        "hint": "超出上限时按「重要度 × 新鲜度 × 相关度」贪心截断",
         "default": 800
-    },
-    "injection_position": {
-        "description": "记忆注入位置",
-        "type": "string",
-        "hint": "system_prompt：追加到系统提示词末尾；user_message_before：插在用户消息前；user_message_after：追加到用户消息后；fake_tool_call：伪造为工具调用结果注入对话历史",
-        "default": "system_prompt"
-    },
-    "injection_auto_clear": {
-        "description": "自动清除旧注入片段",
-        "type": "bool",
-        "hint": "开启后每次注入前自动从 system_prompt、prompt 和 contexts 中删除上一轮注入的记忆标记块，避免重复堆叠",
-        "default": true
     },
     "boundary_time_gap_minutes": {
         "description": "事件边界：空闲时间阈值（分钟）",
@@ -140,32 +74,8 @@
     "boundary_topic_drift_threshold": {
         "description": "事件边界：话题漂移阈值",
         "type": "float",
-        "hint": "0–1 之间的余弦距离值，超过此值且消息数达到检测阈值时触发话题切换检测（需启用向量检索）",
+        "hint": "0–1 之间的余弦距离值，超过此值且消息数 ≥ 20 时触发话题切换检测（需启用向量检索）",
         "default": 0.6
-    },
-    "boundary_topic_check_message_count": {
-        "description": "事件边界：触发话题漂移检测的最小消息数",
-        "type": "int",
-        "hint": "窗口内消息数达到此值后才开始计算话题漂移，避免消息过少时的误判",
-        "default": 20
-    },
-    "extractor_max_context_messages": {
-        "description": "事件提取：发送给 LLM 的最大消息条数",
-        "type": "int",
-        "hint": "事件窗口超过此条数时截取最新的 N 条发送，减少 token 消耗",
-        "default": 20
-    },
-    "extractor_llm_timeout_seconds": {
-        "description": "事件提取：LLM 调用超时时间（秒）",
-        "type": "int",
-        "hint": "超时后自动降级为规则提取，不影响热路径",
-        "default": 30
-    },
-    "extractor_system_prompt": {
-        "description": "事件提取：LLM 系统提示词",
-        "type": "string",
-        "hint": "留空则使用内置默认提示词。自定义时须保证模型输出合法 JSON，包含 topic / chat_content_tags / salience / confidence 四个字段",
-        "default": ""
     },
     "relation_enabled": {
         "description": "启用社会关系推断",
@@ -202,59 +112,5 @@
         "type": "int",
         "hint": "检测用户编辑 IMPRESSIONS.md 的轮询频率，值越小响应越快但 I/O 开销越高",
         "default": 30
-    },
-    "decay_lambda": {
-        "description": "重要度衰减系数 λ（指数衰减）",
-        "type": "float",
-        "hint": "每次衰减任务将 salience 乘以 exp(-λ)；λ=0.01 时半衰期约 69 天，λ=0.02 时约 35 天",
-        "default": 0.01
-    },
-    "decay_archive_threshold": {
-        "description": "自动归档阈值（salience 下限）",
-        "type": "float",
-        "hint": "衰减后 salience 低于此值的事件自动置为 archived 状态，不再参与检索",
-        "default": 0.05
-    },
-    "synthesis_llm_timeout_seconds": {
-        "description": "人设合成/印象聚合：LLM 调用超时（秒）",
-        "type": "int",
-        "hint": "超时后跳过本次合成，保留上次结果",
-        "default": 30
-    },
-    "synthesis_max_events": {
-        "description": "人设合成/印象聚合：参考的最大事件条数",
-        "type": "int",
-        "hint": "每次 LLM 合成时最多取最近 N 条事件作为上下文",
-        "default": 10
-    },
-    "synthesis_persona_system_prompt": {
-        "description": "人设合成系统提示词",
-        "type": "string",
-        "hint": "留空使用内置提示词。自定义时须保证输出包含 description / affect_type / content_tags 三个字段的 JSON",
-        "default": ""
-    },
-    "synthesis_impression_system_prompt": {
-        "description": "印象聚合系统提示词",
-        "type": "string",
-        "hint": "留空使用内置提示词。自定义时须保证输出包含 relation_type / affect / intensity / confidence 的 JSON",
-        "default": ""
-    },
-    "summary_llm_timeout_seconds": {
-        "description": "群组摘要生成：LLM 调用超时（秒）",
-        "type": "int",
-        "hint": "摘要生成 LLM 调用超时时间，建议适当宽松（默认 45 秒）",
-        "default": 45
-    },
-    "summary_max_events": {
-        "description": "群组摘要生成：每次摘要参考的最大事件数",
-        "type": "int",
-        "hint": "每个群组每次摘要最多取最近 N 条事件",
-        "default": 20
-    },
-    "summary_system_prompt": {
-        "description": "群组摘要系统提示词",
-        "type": "string",
-        "hint": "留空使用内置提示词。自定义时须保证输出为 Markdown 格式",
-        "default": ""
     }
 }

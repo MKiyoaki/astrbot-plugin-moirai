@@ -4,6 +4,109 @@
 
 ---
 
+## [已完成] 关系图谱界面重构 v5 (graph-wireframe-v2) — 2026-05-04
+
+### 背景
+
+当前图谱界面（`app/graph/page.tsx`）使用 Cytoscape.js 渲染，仅有同心圆和网格两种静态布局，无物理模拟，无群组概念，无双向关系拆分显示。新设计参考 `graph-wireframe-v2.html` 和 `Graph-impliment-todo.md`，全面重构为自定义 SVG 引擎 + ForceAtlas2 近似物理仿真 + 群组卡片列表两层视图。
+
+### 文件变动概览
+
+**新增（10 个）**：`lib/graph-types.ts`、`lib/graph-utils.ts`、`hooks/use-force-simulation.ts`、`components/graph/network-graph.tsx`、`components/graph/mini-graph.tsx`、`components/graph/group-card.tsx`、`components/graph/group-card-list.tsx`、`components/graph/params-panel.tsx`、`components/graph/node-detail.tsx`、`components/graph/edge-detail.tsx`
+
+**改写（3 个）**：`app/graph/page.tsx`、`lib/api.ts`、`lib/i18n.ts`
+
+**删除（1 个）**：`components/graph/cytoscape-graph.tsx`（被 `network-graph.tsx` 替换）
+
+**保留不变**：`components/graph/persona-dialogs.tsx`、`components/shared/`、`components/layout/`
+
+### 重构 Todolist（Phase 0–7）
+
+#### Phase 0：前置准备 — 类型定义 + 工具函数库
+- [x] `lib/graph-types.ts`（新增）：定义 `EdgePair`、`GroupCard`、`PhysicsParams`、`VisualParams`、`PositionMap`、`ViewMode` 类型及 `DEFAULT_PHYSICS_PARAMS`、`DEFAULT_VISUAL_PARAMS` 常量
+- [x] `lib/graph-utils.ts`（新增）：实现 `buildEdgePairs()`（按 `${minUID}|${maxUID}` 配对识别双向关系）、`computeAffinity()`（双向：`(fwd.intensity + bwd.intensity) * biWeight`，单向：`fwd.intensity`）、`buildGroupCards()`、`circularLayout()`（均匀圆周：`angle = (i/n)*2π - π/2`）、`computeNodeRadius()`（线性映射 `[12,22]`px）、`mockCluster()`（BFS 贪心聚类，Leiden 近似）、`aggregateTopTags()`（content_tags 频次 top-k）
+- [x] `lib/api.ts`（修改）：新增 `graph.getByGroup(groupId)`；`ImpressionEdge.data` 扩展可选 `msg_count?: number`
+- [x] `lib/i18n.ts`（修改）：追加 `graph.params.*`（参数面板全量字符串）和 `graph.detail.*`（详情面板字符串）
+
+#### Phase 1：★ 物理仿真 Hook（核心算法，重点检查）
+- [x] `hooks/use-force-simulation.ts`（新增）：实现 ForceAtlas2 近似物理仿真 hook
+  - 接口：`{ nodes, edgePairs, params, containerSize, enabled } → { positions, refresh, isComputing }`
+  - 预计算度数（degree）和视觉半径（radii：`12 + (degree/maxDegree)*10`）
+  - 随机初始化位置（`randSeed` 状态控制，`refresh()` 递增 seed）
+  - **斥力**（O(V²)）：`effDist = max(preventOverlap ? radii[a]+radii[b]+12 : 0.01, dist)`；`F_rep = scalingRatio × 375 / effDist²`；`dissuadeHubs` 时乘 `1/(degree[a]+1) × 1/(degree[b]+1)`
+  - **引力**（沿边）：`weight = {affinity|msgs/120|1}[gravSource]`；`linLog ? log(1+dist)×weight×edgeWeightInfluence×0.015 : dist×weight×edgeWeightInfluence×0.008`
+  - **中心引力**：`(center - pos) × gravity × 0.004`
+  - **位置更新**：`pos += forces × damping`，迭代 `params.iterations` 次
+  - 环形模式：直接返回 `circularLayout()`，跳过物理循环
+  - 锁定模式：跳过计算，保留现有 positions
+  - `useEffect` 依赖数组完整包含所有物理参数 + randSeed
+
+#### Phase 2：★ SVG 网络图谱渲染器（重点检查）
+- [x] `components/graph/network-graph.tsx`（新增）：自定义 SVG 图谱，替换 Cytoscape
+  - `ResizeObserver` 监听容器尺寸（回调 `onSizeChange`）
+  - 鼠标拖拽 pan（mousedown→mousemove→mouseup），滚轮缩放（范围 `[0.25, 3.5]`，以光标为中心）
+  - SVG `<defs>` 注册三个箭头 marker（默认/正情感/负情感）
+  - **边渲染**：单向 = 单线+箭头；双向 = 两条平行线（垂直偏移 ±1.0px），线宽 ÷1.5，无箭头；透明击中区（strokeWidth=14）；缩放>0.7时显示边标签
+  - **节点渲染**：Bot → `#fce4ec`；Leiden聚类 → 6色循环；默认 → `#e8e8e8`；选中 → strokeWidth=2.5；标签按 `labelZoomThreshold` 显示
+  - 聚焦节点（focusNodeId）：pan 视口使节点居中
+  - 深色模式：节点描边和标签用 CSS 变量（`var(--foreground)` 等）
+- [x] `components/graph/mini-graph.tsx`（新增）：260×60 静态环形 SVG，节点半径 3.5px，边线宽 0.8px，opacity=0.5，无交互
+
+#### Phase 3：参数面板
+- [x] `components/graph/params-panel.tsx`（新增）：右侧三 Tab 参数面板
+  - 固定上方区域：`showBot` Switch、`locked` Switch、布局模式 SegmentedControl（`circular|force`）、显示模式（`all|member`）+ 成员排序/下拉
+  - **物理 Tab**：引力/边宽数据源 Select、双向加权系数 Slider+Tooltip、5个物理参数 Slider（全局斥力/中心引力/边权重影响/运动阻尼/迭代步数）、3个Switch（防重叠/LinLog/枢纽斥力）、刷新按钮；锁定或环形时 `disabled`
+  - **视觉 Tab**：边透明度/标签阈值/箭头大小 Slider、显示箭头 Switch、节点搜索 Input（Popover结果）、Leiden聚类 Switch+分辨率 Slider+Tooltip、情感色彩映射 Switch、恢复配色 Button
+  - **导出 Tab**：高刷新率/WebGL Switch（UI保留）、导出PNG Button（序列化 SVG→download）、全屏 Button
+
+#### Phase 4：群组卡片视图
+- [x] `components/graph/group-card.tsx`（新增）：shadcn Card + hover效果（`shadow-md -translate-y-px`），含头部（群组名+ID+成员数Badge）、统计行（节点数·边对数·最后活跃）、代表性Tag（最多4个，超出`+N`）、MiniGraph缩略图、描述文字（`line-clamp-2`）
+- [x] `components/graph/group-card-list.tsx`（新增）：响应式网格（`auto-fill, minmax(280px, 1fr)`）、加载态Skeleton×3、空态提示
+
+#### Phase 5：详情面板
+- [x] `components/graph/node-detail.tsx`（新增）：节点详情，含"← 总参数面板"返回按钮、全字段展示（含`msg_count ?? 'N/A'`）、关联边列表（对端节点名/关系类型/affect值）、编辑/删除按钮（sudoMode控制）
+- [x] `components/graph/edge-detail.tsx`（新增）：★ 双向拆分边详情
+  - 总体信息：总消息数、双向/单向 Badge
+  - **A→B 分区**：关系类型、消息数、AffectBar、强度、编辑按钮
+  - **B→A 分区**（仅 `isBidirectional` 时）：同上
+  - **综合情感均值**（仅双向）：`(fwd.affect + bwd.affect) / 2`
+  - `AffectBar` 内联组件：中心零点，左半红（负）右半绿（正），数值标注
+
+#### Phase 6：页面主逻辑重写
+- [x] `app/graph/page.tsx`（完全重写）：群组卡片 ↔ 展开图谱视图的两层状态机
+  - `expandedGroupId: string | null` 控制视图切换
+  - 数据流：`api.graph.get()` → `buildGroupCards()` → `groupCards` 状态
+  - 活跃节点/边对过滤（`viewMode` + `showBot` + `selectedMemberId`）
+  - `useForceSimulation` 接入（传入活跃节点+边对）
+  - 右侧面板三态：params / node-detail / edge-detail（由 selectedNodeId/selectedPairKey 控制）
+  - `em_focus_persona` sessionStorage 兼容：加载后检查，展开对应群组并 setFocusNodeId
+  - 保留三个对话框：`CreatePersonaDialog`、`EditPersonaDialog`、`EditImpressionDialog`
+  - TagFilter 集成：群组列表视图中过滤含匹配节点的群组
+  - 响应式（useMobile）：窄屏时右侧面板改为 shadcn Sheet
+
+#### Phase 7：清理与集成测试
+- [x] 删除 `components/graph/cytoscape-graph.tsx`
+- [x] 确认所有 CytoscapeGraph 引用已移除
+- [x] TypeScript 编译通过（`npm run build` 零错误，11 个页面静态生成成功）
+
+### 关键算法速查
+
+```
+斥力：effDist = max(preventOverlap ? (radii[a]+radii[b]+12) : 0.01, dist)
+      F_rep = scalingRatio × 375 / effDist²
+
+引力：att = linLog ? log(1+dist)×weight×edgeWeightInfluence×0.015
+               : dist×weight×edgeWeightInfluence×0.008
+
+中心引力：F_grav = (center - pos) × gravity × 0.004
+
+双向边偏移：perp = {x: -dy/dist × 1.0, y: dx/dist × 1.0}
+           line1: (ax+perp.x, ay+perp.y) → (bx+perp.x, by+perp.y)
+           line2: (bx-perp.x, by-perp.y) → (ax-perp.x, ay-perp.y)
+```
+
+---
+
 ## WebUI 增强 v4.4 — 2026-05-04
 
 ### 变更内容

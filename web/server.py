@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).parent / "frontend" / "output"
-_DEFAULT_PORT = 2653
+_DEFAULT_PORT = 2655
 _SESSION_COOKIE = "em_session"
 
 
@@ -74,6 +74,7 @@ def event_to_dict(event: Event) -> dict[str, Any]:
         "tags": event.chat_content_tags,
         "inherit_from": event.inherit_from,
         "participants": event.participants,
+        "status": event.status,
     }
 
 
@@ -391,16 +392,20 @@ class WebuiServer:
 
     def _wrap(self, level: PermLevel, handler: Callable) -> Callable:
         async def wrapped(request: web.Request) -> web.StreamResponse:
-            if not self._auth_enabled or level == "public":
+            try:
+                if not self._auth_enabled or level == "public":
+                    return await handler(request)
+                token = request.cookies.get(_SESSION_COOKIE)
+                state = self._auth.check(token)
+                if not state.is_authenticated:
+                    return _json({"error": "unauthorized"}, status=401)
+                if level == "sudo" and not state.is_sudo:
+                    return _json({"error": "sudo required"}, status=403)
+                request["auth"] = state
                 return await handler(request)
-            token = request.cookies.get(_SESSION_COOKIE)
-            state = self._auth.check(token)
-            if not state.is_authenticated:
-                return _json({"error": "unauthorized"}, status=401)
-            if level == "sudo" and not state.is_sudo:
-                return _json({"error": "sudo required"}, status=403)
-            request["auth"] = state
-            return await handler(request)
+            except Exception as exc:
+                logger.exception("[WebUI] Unhandled error in %s %s", request.method, request.path)
+                return _json({"error": str(exc)}, status=500)
         return wrapped
 
     # Data construction (async, independently testable)
@@ -1132,7 +1137,7 @@ _ROOT = Path(__file__).parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-_PORT = 2654
+_PORT = 2655
 _DATA_DIR = _ROOT / ".dev_data"
 
 

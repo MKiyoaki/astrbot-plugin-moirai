@@ -94,6 +94,7 @@ export interface PersonaNode {
     created_at: string
     last_active_at: string
     is_bot?: boolean
+    msg_count?: number
   }
 }
 export interface ImpressionEdge {
@@ -108,6 +109,7 @@ export interface ImpressionEdge {
     scope: string
     evidence_event_ids: string[]
     last_reinforced_at: string
+    msg_count?: number
   }
 }
 export interface GraphData { nodes: PersonaNode[]; edges: ImpressionEdge[] }
