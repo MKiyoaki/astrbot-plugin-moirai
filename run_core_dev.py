@@ -104,6 +104,8 @@ async def main() -> None:
     from core import api as core_api
 
     DEV_DB.parent.mkdir(parents=True, exist_ok=True)
+    if DEV_DB.exists():
+        DEV_DB.unlink()
 
     print("=" * 60)
     print("run_core_dev — core smoke test")

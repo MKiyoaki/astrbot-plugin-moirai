@@ -470,11 +470,14 @@ class SQLiteEventRepository(EventRepository):
         """Delete both the events row and its vec0 entry in one transaction."""
         await self._db.execute("BEGIN IMMEDIATE")
         try:
-            await self._db.execute(
-                "DELETE FROM events_vec WHERE rowid = "
-                "(SELECT rowid FROM events WHERE event_id = ?)",
-                (event_id,),
-            )
+            try:
+                await self._db.execute(
+                    "DELETE FROM events_vec WHERE rowid = "
+                    "(SELECT rowid FROM events WHERE event_id = ?)",
+                    (event_id,),
+                )
+            except Exception:
+                pass  # sqlite-vec not loaded
             cursor = await self._db.execute(
                 "DELETE FROM events WHERE event_id = ?", (event_id,)
             )
