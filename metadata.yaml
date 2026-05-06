@@ -1,6 +1,6 @@
 name: astrbot_plugin_enhanced_memory
 display_name: Enhanced Memory
 desc: 三轴长期记忆插件（情节轴 × 社会关系轴 × 叙事轴），基于 SQLite+FTS5 实现跨平台统一记忆管理。
-version: v0.2.1
+version: v0.2.2
 author: MKiyoaki, DrGariton
 repo: https://github.com/MKiyoaki/astrbot-plugin-enhanced-memory

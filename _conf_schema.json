@@ -38,8 +38,69 @@
     "embedding_model": {
         "description": "向量嵌入模型名称",
         "type": "string",
-        "hint": "HuggingFace 模型 ID，首次运行时自动下载；推荐中文模型 BAAI/bge-small-zh-v1.5",
+        "hint": "HuggingFace 模型 ID (Local) 或 API 模型名 (API)",
         "default": "BAAI/bge-small-zh-v1.5"
+    },
+    "embedding_provider": {
+        "description": "向量嵌入提供者",
+        "type": "select",
+        "options": ["local", "api"],
+        "hint": "选择使用本地模型还是远程 API",
+        "default": "local"
+    },
+    "embedding_api_url": {
+        "description": "Embedding API 地址",
+        "type": "string",
+        "hint": "仅在提供者为 API 时有效，例如 https://api.openai.com/v1/embeddings",
+        "default": ""
+    },
+    "embedding_api_key": {
+        "description": "Embedding API 密钥",
+        "type": "string",
+        "hint": "仅在提供者为 API 时有效",
+        "default": ""
+    },
+    "embedding_batch_size": {
+        "description": "Embedding 批次大小",
+        "type": "int",
+        "hint": "单个批次同时处理的消息数量",
+        "default": 1
+    },
+    "embedding_concurrency": {
+        "description": "Embedding 最大并发数",
+        "type": "int",
+        "hint": "同时进行的 Embedding 请求（批次）数量",
+        "default": 1
+    },
+    "embedding_batch_interval_ms": {
+        "description": "批次读取间隔（毫秒）",
+        "type": "int",
+        "hint": "处理完一个批次后等待多久读取下一个批次",
+        "default": 0
+    },
+    "embedding_request_interval_ms": {
+        "description": "请求间隔（毫秒）",
+        "type": "int",
+        "hint": "两次网络请求之间的最小等待时间",
+        "default": 0
+    },
+    "embedding_failure_tolerance_ratio": {
+        "description": "允许失败比例",
+        "type": "float",
+        "hint": "一个批次中允许失败的消息比例上限 (0.0-1.0)",
+        "default": 0.0
+    },
+    "embedding_retry_max": {
+        "description": "最大重试次数",
+        "type": "int",
+        "hint": "Embedding 请求失败时的最大尝试次数",
+        "default": 3
+    },
+    "embedding_retry_delay_ms": {
+        "description": "重试等待时间（毫秒）",
+        "type": "int",
+        "hint": "重试前的等待时间",
+        "default": 1000
     },
     "retrieval_top_k": {
         "description": "检索注入的最大事件数",

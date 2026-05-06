@@ -124,6 +124,21 @@ class CleanupConfig:
     interval_days: int = 7
 
 
+@dataclass
+class EmbeddingConfig:
+    provider: str = "local"
+    model: str = "BAAI/bge-small-zh-v1.5"
+    api_url: str = ""
+    api_key: str = ""
+    batch_size: int = 1
+    concurrency: int = 1
+    batch_interval_ms: int = 0
+    request_interval_ms: int = 0
+    failure_tolerance_ratio: float = 0.0
+    retry_max: int = 3
+    retry_delay_ms: int = 1000
+
+
 class PluginConfig:
     """Wraps the raw AstrBot config dict and provides typed, named accessors.
 
@@ -250,6 +265,21 @@ class PluginConfig:
             enabled=self._bool("memory_cleanup_enabled", True),
             threshold=self._float("memory_cleanup_threshold", 0.3),
             interval_days=self._int("memory_cleanup_interval_days", 7),
+        )
+
+    def get_embedding_config(self) -> EmbeddingConfig:
+        return EmbeddingConfig(
+            provider=self._str("embedding_provider", "local"),
+            model=self._str("embedding_model", "BAAI/bge-small-zh-v1.5"),
+            api_url=self._str("embedding_api_url", ""),
+            api_key=self._str("embedding_api_key", ""),
+            batch_size=self._int("embedding_batch_size", 1),
+            concurrency=self._int("embedding_concurrency", 1),
+            batch_interval_ms=self._int("embedding_batch_interval_ms", 0),
+            request_interval_ms=self._int("embedding_request_interval_ms", 0),
+            failure_tolerance_ratio=self._float("embedding_failure_tolerance_ratio", 0.0),
+            retry_max=self._int("embedding_retry_max", 3),
+            retry_delay_ms=self._int("embedding_retry_delay_ms", 1000),
         )
 
     # ------------------------------------------------------------------

@@ -21,9 +21,11 @@ from .adapters.identity import IdentityResolver
 from .boundary.detector import EventBoundaryDetector
 from .config import PluginConfig
 from .domain.models import Event
-from .embedding.encoder import NullEncoder, SentenceTransformerEncoder
+from .embedding.encoder import NullEncoder, SentenceTransformerEncoder, ApiEncoder, Encoder
 from .extractor.extractor import EventExtractor
 from .managers import MemoryManager, RecallManager
+from .managers.context_manager import ContextManager
+from .managers.embedding_manager import EmbeddingManager
 from .projector.projector import MarkdownProjector
 from .repository.sqlite import (
     SQLiteEventRepository,
@@ -60,6 +62,8 @@ class PluginInitializer:
         self._exit_stack: AsyncExitStack | None = None
 
         # Subsystem attributes — set during initialize()
+        self.context_manager: ContextManager | None = None
+        self.embedding_manager: EmbeddingManager | None = None
         self.memory: MemoryManager | None = None
         self.recall: RecallManager | None = None
         self.router: MessageRouter | None = None
@@ -72,6 +76,10 @@ class PluginInitializer:
     async def initialize(self) -> None:
         cfg = self._cfg
         data_dir = self._data_dir
+        # ... (rest of initialize remains same)
+        # Actually I need to make sure I add start/stop to the end of initialize and start of terminate
+        
+    # Wait, the tool only shows parts of the file. I need to find where initialize/terminate methods end.
 
         db_path = data_dir / "db" / "core.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -93,23 +101,35 @@ class PluginInitializer:
             impression_repo=impression_repo,
         )
 
-        # Encoder: try local model, fall back to null (BM25-only) on any error
+        # Encoder: try local/API model, fall back to null (BM25-only) on any error
+        embed_cfg = cfg.get_embedding_config()
         if cfg.embedding_enabled:
             try:
-                encoder = SentenceTransformerEncoder(cfg.embedding_model)
-                _ = encoder.dim  # trigger lazy load early
+                if embed_cfg.provider == "api":
+                    encoder: Encoder = ApiEncoder(
+                        model_name=embed_cfg.model,
+                        api_url=embed_cfg.api_url,
+                        api_key=embed_cfg.api_key
+                    )
+                else:
+                    encoder = SentenceTransformerEncoder(embed_cfg.model)
+                    _ = encoder.dim  # trigger lazy load early
             except Exception as exc:
                 astrbot_logger.warning(
-                    "[%s] embedding model unavailable (%s), vector search disabled",
-                    _PLUGIN_NAME, exc,
+                    "[%s] embedding provider (%s) unavailable: %s. Falling back to NullEncoder.",
+                    _PLUGIN_NAME, embed_cfg.provider, exc,
                 )
                 encoder = NullEncoder()
         else:
             encoder = NullEncoder()
 
+        self.embedding_manager = EmbeddingManager(encoder, embed_cfg)
+        
+        self.context_manager = ContextManager(cfg.get_context_config())
+
         retriever = HybridRetriever(
             event_repo=event_repo,
-            encoder=encoder,
+            encoder=self.embedding_manager,  # Use manager as encoder
             bm25_limit=cfg.get_retrieval_config().bm25_limit,
             vec_limit=cfg.get_retrieval_config().vec_limit,
             rrf_k=cfg.get_retrieval_config().rrf_k,
@@ -118,7 +138,7 @@ class PluginInitializer:
         self.memory = MemoryManager(
             event_repo=event_repo,
             retriever=retriever,
-            encoder=encoder,
+            encoder=self.embedding_manager,  # Use manager
             decay_config=cfg.get_decay_config(),
         )
 
@@ -131,7 +151,7 @@ class PluginInitializer:
         extractor = EventExtractor(
             event_repo=event_repo,
             provider_getter=lambda: self._context.get_using_provider(),
-            encoder=encoder,
+            encoder=self.embedding_manager,  # Use manager
             extractor_config=cfg.get_extractor_config(),
         )
 
@@ -241,6 +261,8 @@ class PluginInitializer:
         )
         await self.syncer.register_all()
         await self.watcher.start()
+        if self.embedding_manager:
+            await self.embedding_manager.start()
 
         astrbot_logger.info("[%s] initialized — DB at %s", _PLUGIN_NAME, db_path)
 
@@ -251,6 +273,8 @@ class PluginInitializer:
             await self.webui.stop()
         if self.scheduler is not None:
             await self.scheduler.stop()
+        if self.embedding_manager is not None:
+            await self.embedding_manager.stop()
         if self.router is not None:
             await self.router.flush_all()
         if self._exit_stack is not None:
