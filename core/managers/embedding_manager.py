@@ -23,7 +23,10 @@ class EmbeddingRetryManager(BaseRetryManager[List[List[float]]]):
 
 
 class EmbeddingManager:
-    """Manages embedding requests with batching, concurrency, and intervals."""
+    """Manages embedding requests with batching, concurrency, and intervals.
+    
+    Implements the Encoder protocol to be used as a drop-in replacement.
+    """
 
     def __init__(self, encoder: Encoder, config: EmbeddingConfig) -> None:
         self._encoder = encoder
@@ -37,6 +40,11 @@ class EmbeddingManager:
         self._stop_event = asyncio.Event()
         self._worker_task: asyncio.Task | None = None
         self._last_request_time = 0.0
+
+    @property
+    def dim(self) -> int:
+        """Proxy the underlying encoder dimension."""
+        return self._encoder.dim
 
     async def start(self) -> None:
         """Start the background worker."""
@@ -56,12 +64,28 @@ class EmbeddingManager:
 
     async def encode(self, text: str) -> List[float]:
         """Enqueue a single text for embedding and wait for the result."""
-        if self._encoder.dim == 0:
+        if self.dim == 0:
             return []
             
         future: asyncio.Future[List[float]] = asyncio.Future()
         await self._queue.put((text, future))
         return await future
+
+    async def encode_batch(self, texts: List[str]) -> List[List[float]]:
+        """Enqueue multiple texts and wait for all results."""
+        if self.dim == 0:
+            return [[] for _ in texts]
+        if not texts:
+            return []
+            
+        # Wrap each in a future and wait
+        futures = []
+        for text in texts:
+            future: asyncio.Future[List[float]] = asyncio.Future()
+            await self._queue.put((text, future))
+            futures.append(future)
+            
+        return await asyncio.gather(*futures)
 
     async def _worker(self) -> None:
         """Background worker that processes batches."""

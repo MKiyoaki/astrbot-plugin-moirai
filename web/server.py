@@ -75,6 +75,7 @@ def event_to_dict(event: Event) -> dict[str, Any]:
         "inherit_from": event.inherit_from,
         "participants": event.participants,
         "status": event.status,
+        "is_locked": event.is_locked,
     }
 
 
@@ -1371,4 +1372,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
-    

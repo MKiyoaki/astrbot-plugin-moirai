@@ -338,9 +338,11 @@ export const zh = {
     needSudo: '修改配置需要 Sudo 模式',
     sections: {
       webui: 'WebUI 设置',
-      embedding: '向量检索',
+      embedding: '向量检索与 Embedding',
       retrieval: '检索参数',
       boundary: '事件边界',
+      vcm: '虚拟上下文 (VCM)',
+      cleanup: '记忆清理',
       relation: '社会关系',
       tasks: '后台任务',
     },
@@ -366,7 +368,8 @@ export const zh = {
   },
   stats: {
     personas: '人格',
-    events: '事件',
+    events: '总事件',
+    locked: '已锁定',
     impressions: '印象',
     groups: '活跃群组',
   },

@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Undo2, Trash2, Pencil, Check, ChevronsUpDown, X } from 'lucide-react'
+import { Plus, Undo2, Trash2, Pencil, Check, ChevronsUpDown, X, Lock, Unlock } from 'lucide-react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
@@ -26,6 +27,7 @@ export interface EventFormData {
   tags: string[]
   participants: string[]
   inherit_from: string[]
+  is_locked: boolean
 }
 
 const toLocalIso = (ts: number) =>
@@ -321,6 +323,21 @@ function EventForm({
           placeholder="输入 UID，按 Enter 确认"
         />
       </div>
+      <div className="flex items-center justify-between py-1">
+        <div className="flex flex-col gap-0.5">
+          <Label htmlFor="ev-locked" className="flex items-center gap-1.5 cursor-pointer">
+            {data.is_locked ? <Lock className="size-3.5" /> : <Unlock className="size-3.5" />}
+            锁定记忆
+          </Label>
+          <p className="text-[11px] text-muted-foreground">锁定后，此记忆不会被自动清理任务删除。</p>
+        </div>
+        <Switch
+          id="ev-locked"
+          checked={data.is_locked}
+          onCheckedChange={v => set('is_locked', v)}
+        />
+      </div>
+
       <div className="flex flex-col gap-1.5">
         <Label>{i18n.events.inheritFrom}</Label>
         <EventInheritPicker
@@ -350,7 +367,7 @@ export function CreateEventDialog({ open, onClose, onSubmit, tagSuggestions, eve
 
   const [data, setData] = useState<EventFormData>({
     topic: '', group_id: '', start_time: isoNow, end_time: isoEnd,
-    salience: 0.5, tags: [], participants: [], inherit_from: [],
+    salience: 0.5, tags: [], participants: [], inherit_from: [], is_locked: false,
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -405,7 +422,7 @@ export function EditEventDialog({ open, event, onClose, onSubmit, tagSuggestions
   const existingConfidenceRef = useRef<number>(0.8)
   const [data, setData] = useState<EventFormData>({
     topic: '', group_id: '', start_time: '', end_time: '',
-    salience: 0.5, tags: [], participants: [], inherit_from: [],
+    salience: 0.5, tags: [], participants: [], inherit_from: [], is_locked: false,
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -422,6 +439,7 @@ export function EditEventDialog({ open, event, onClose, onSubmit, tagSuggestions
         tags:        event.tags || [],
         participants: event.participants || [],
         inherit_from: event.inherit_from || [],
+        is_locked:    event.is_locked || false,
       })
       setError('')
     }
@@ -561,7 +579,10 @@ export function EventDetailCard({ event, onEdit, onDelete, sudoMode }: EventDeta
         ].map(([k, v]) => (
           <div key={k} className="contents">
             <span className="text-muted-foreground">{k}</span>
-            <span className="truncate font-medium">{v}</span>
+            <span className="truncate font-medium flex items-center gap-1.5">
+              {v}
+              {k === i18n.events.topic && event.is_locked && <Lock className="size-3 text-amber-500" />}
+            </span>
           </div>
         ))}
       </div>

@@ -45,7 +45,7 @@ interface AppActions {
 
 const AppContext = createContext<(AppState & AppActions) | null>(null)
 
-const DEFAULT_STATS: api.Stats = { personas: 0, events: 0, impressions: 0, groups: 0, version: '…' }
+const DEFAULT_STATS: api.Stats = { personas: 0, events: 0, locked_count: 0, impressions: 0, groups: 0, version: '…' }
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [authEnabled, setAuthEnabled] = useState(true)

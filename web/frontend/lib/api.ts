@@ -45,6 +45,7 @@ export const auth = {
 export interface Stats {
   personas: number
   events: number
+  locked_count: number
   impressions: number
   groups: number
   version: string
@@ -68,6 +69,7 @@ export interface ApiEvent {
   tags: string[]
   inherit_from: string[]
   participants: string[]
+  is_locked: boolean
 }
 export interface EventsResponse { items: ApiEvent[]; total: number }
 export const events = {
@@ -163,7 +165,8 @@ export const tags = {
 export interface ConfSchemaField {
   description: string
   hint?: string
-  type: 'bool' | 'int' | 'float' | 'string' | 'text' | 'object' | 'list'
+  type: 'bool' | 'int' | 'float' | 'string' | 'text' | 'object' | 'list' | 'select'
+  options?: string[]
   default: unknown
 }
 export interface PluginConfigResponse {

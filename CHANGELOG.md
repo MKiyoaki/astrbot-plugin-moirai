@@ -13,16 +13,19 @@
 - **并发与批处理引擎**：新增 `EmbeddingManager` 作为向量请求的中转中心，支持请求队列化、自动批处理 (Batching) 和并发信号量 (Semaphore) 控制。
 - **智能重试机制**：新增 `core/utils/retry.py` 抽象重试层，支持最大重试次数、重试延迟和指数退避 (Exponential Backoff)，提升外部 API 调用的鲁棒性。
 
-#### 2. 深入配置控制
-在 WebUI 和底层配置中全面开放 Embedding 管道参数：
-- `embedding_provider`: `local` 或 `api`
-- `embedding_batch_size` & `embedding_concurrency`
-- `embedding_batch_interval_ms` & `embedding_request_interval_ms`
-- `embedding_failure_tolerance_ratio`, `embedding_retry_max`, `embedding_retry_delay_ms`
+#### 2. 深入配置控制与 WebUI 升级
+- **动态配置面板**：WebUI 配置页已全面适配 17 个新增参数，支持 `select` 枚举选择（如 Provider 切换）与分组管理。
+- **Dashboard 增强**：首页新增“已锁定记忆”统计卡片，实时监控受保护记忆规模。
+- **记忆锁定 UI**：
+    - 在事件流时间线（Timeline）气泡卡片中显示 🔒 图标。
+    - 事件编辑与创建对话框中集成“锁定记忆”开关。
+    - 详情面板展示同步后的锁定状态。
 
 ### 技术细节
-- 重构了 `Encoder` 协议，新增异步 `encode_batch` 接口。本地模型（SentenceTransformers）通过 `asyncio.run_in_executor` 下沉至线程池执行以防止阻塞事件循环。
-- `PluginInitializer` 切换为使用 `EmbeddingManager` 代理所有内部组件（如 `Extractor` 和 `HybridRetriever`）的向量化请求。
+- **类型安全**：重构了前端 `ApiEvent` 和 `Stats` 定义，确保 `is_locked` 与 `locked_count` 全链路类型检查。
+- **构建优化**：完成了前端 `npm run build` 校验，确保 Next.js 静态导出的代码健壮性。
+- **重构 Encoder 协议**：新增异步 `encode_batch` 接口。本地模型（SentenceTransformers）通过 `asyncio.run_in_executor` 下沉至线程池执行以防止阻塞事件循环。
+- **智能重试集成**：`PluginInitializer` 切换为使用 `EmbeddingManager` 代理所有内部组件（如 `Extractor` 和 `HybridRetriever`）的向量化请求。
 - 新增 `tests/test_embedding_manager.py` 和 `tests/test_retry.py` 确保并发时序和容错逻辑正确。
 
 ---

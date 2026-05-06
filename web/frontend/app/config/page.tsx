@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { PageHeader } from '@/components/layout/page-header'
@@ -21,11 +22,32 @@ const SECTIONS: { label: string; keys: string[] }[] = [
   },
   {
     label: i18n.config.sections.embedding,
-    keys: ['embedding_enabled', 'embedding_model'],
+    keys: [
+      'embedding_enabled', 
+      'embedding_provider', 
+      'embedding_model', 
+      'embedding_api_url', 
+      'embedding_api_key',
+      'embedding_batch_size',
+      'embedding_concurrency',
+      'embedding_batch_interval_ms',
+      'embedding_request_interval_ms',
+      'embedding_failure_tolerance_ratio',
+      'embedding_retry_max',
+      'embedding_retry_delay_ms'
+    ],
   },
   {
     label: i18n.config.sections.retrieval,
-    keys: ['retrieval_top_k', 'retrieval_token_budget'],
+    keys: ['retrieval_top_k', 'retrieval_token_budget', 'memory_isolation_enabled'],
+  },
+  {
+    label: i18n.config.sections.vcm,
+    keys: ['vcm_enabled', 'context_max_sessions', 'context_session_idle_seconds', 'context_window_size'],
+  },
+  {
+    label: i18n.config.sections.cleanup,
+    keys: ['memory_cleanup_enabled', 'memory_cleanup_threshold', 'memory_cleanup_interval_days'],
   },
   {
     label: i18n.config.sections.boundary,
@@ -33,7 +55,7 @@ const SECTIONS: { label: string; keys: string[] }[] = [
   },
   {
     label: i18n.config.sections.relation,
-    keys: ['relation_enabled'],
+    keys: ['relation_enabled', 'persona_isolation_enabled', 'impression_event_trigger_enabled', 'impression_event_trigger_threshold', 'impression_trigger_debounce_hours'],
   },
   {
     label: i18n.config.sections.tasks,
@@ -60,7 +82,6 @@ function ConfigField({
     return (
       <div className="flex items-center justify-between py-2">
         <div className="flex-1 pr-4 min-w-0">
-          {/* 增加 break-words 和 whitespace-normal 防止长文本撑破布局 */}
           <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
             {schema.description}
           </Label>
@@ -76,6 +97,37 @@ function ConfigField({
           onCheckedChange={(v: unknown) => onChange(v)}
           disabled={disabled}
         />
+      </div>
+    )
+  }
+
+  if (schema.type === 'select' && schema.options) {
+    return (
+      <div className="py-2 min-w-0">
+        <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
+          {schema.description}
+        </Label>
+        {schema.hint && (
+          <p className="mt-0.5 mb-1.5 text-xs text-muted-foreground break-words whitespace-normal">
+            {schema.hint}
+          </p>
+        )}
+        <Select
+          disabled={disabled}
+          value={String(value)}
+          onValueChange={v => onChange(v)}
+        >
+          <SelectTrigger id={id} className="h-8 text-sm w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {schema.options.map(opt => (
+              <SelectItem key={opt} value={opt}>
+                {opt}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
     )
   }

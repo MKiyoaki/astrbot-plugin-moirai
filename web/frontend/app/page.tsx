@@ -53,6 +53,7 @@ export default function HomePage() {
   const STATS = [
     { label: i18n.stats.personas,    val: app.stats.personas    },
     { label: i18n.stats.events,      val: app.stats.events      },
+    { label: i18n.stats.locked,      val: app.stats.locked_count },
     { label: i18n.stats.impressions, val: app.stats.impressions },
     { label: i18n.stats.groups,      val: app.stats.groups      },
   ]
@@ -71,22 +72,13 @@ export default function HomePage() {
       <Separator className="mt-4" />
 
       <main className="flex-1 p-6">
-        {/* Hero */}
-        <div className="mb-8 text-center">
-          <h2 className="text-3xl font-bold tracking-tight">{i18n.app.name}</h2>
-          <p className="text-muted-foreground mt-2">
-            三轴长期记忆管理系统 — 事件流、关系图、摘要记忆
-          </p>
-          <p className="text-muted-foreground text-sm">v{app.stats.version}</p>
-        </div>
-
         {/* Stats */}
-        <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-5">
           {STATS.map(({ label, val }) => (
             <Card key={label}>
-              <CardContent className="pt-3 text-center">
-                <div className="text-3xl font-bold">{val}</div>
-                <div className="text-muted-foreground text-sm">{label}</div>
+              <CardContent className="pt-3 text-center px-2">
+                <div className="text-2xl font-bold sm:text-3xl">{val}</div>
+                <div className="text-muted-foreground text-[10px] sm:text-xs uppercase tracking-wider">{label}</div>
               </CardContent>
             </Card>
           ))}

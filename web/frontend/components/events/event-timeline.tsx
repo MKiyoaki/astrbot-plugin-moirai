@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Pencil, Trash2 } from 'lucide-react'
+import { Pencil, Trash2, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -390,8 +390,9 @@ export function EventTimeline({
                     className="absolute -left-2 top-1/2 h-px w-2 -translate-y-1/2 opacity-50"
                     style={{ background: thread.color }}
                   />
-                  <p className="mb-1 truncate text-sm font-semibold leading-snug">
+                  <p className="mb-1 truncate text-sm font-semibold leading-snug flex items-center gap-1">
                     {ev.content || ev.topic || ev.id}
+                    {ev.is_locked && <Lock className="size-3 text-amber-500 shrink-0" />}
                   </p>
                   <p className="mb-1.5 font-mono text-[10px] text-muted-foreground">
                     {fmtTime(ev.start)}

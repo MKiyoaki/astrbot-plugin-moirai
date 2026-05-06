@@ -160,6 +160,21 @@ class InMemoryEventRepository(EventRepository):
         self._store[event_id].status = status
         return True
 
+    async def set_locked(self, event_id: str, is_locked: bool) -> bool:
+        if event_id not in self._store:
+            return False
+        self._store[event_id].is_locked = is_locked
+        return True
+
+    async def cleanup_low_salience_events(self, threshold: float) -> int:
+        to_delete = [
+            eid for eid, ev in self._store.items()
+            if ev.salience < threshold and not ev.is_locked
+        ]
+        for eid in to_delete:
+            del self._store[eid]
+        return len(to_delete)
+
     async def get_rowid(self, event_id: str) -> int | None:
         # In-memory has no rowid concept; return position index as a surrogate
         for i, key in enumerate(self._store):
