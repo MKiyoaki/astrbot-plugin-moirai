@@ -4,6 +4,54 @@
 
 ---
 
+## [v0.3.0] — 2026-05-06
+
+### 核心变更：IPC 社交取向分析系统（Phase A + C）
+
+#### 1. Impression 数据模型重构（Breaking Change）
+- 旧字段 `relation_type` → `ipc_orientation`（8 种 IPC 中文标签）
+- 旧字段 `affect` → `benevolence`（亲和轴 [-1, 1]）
+- 旧字段 `intensity` → `affect_intensity`（IPC 模长 [0, 1]）
+- 新增 `power`（支配轴 [-1, 1]）、`r_squared`（八分区归属置信度 [0, 1]）
+- 新增常量 `IPC_VALID_ORIENTATIONS`（frozenset，8 个中文标签）
+- 新增 `BigFiveVector` 冻结 dataclass（OCEAN 各维 [-1, 1]，含 `__post_init__` 范围校验）
+
+#### 2. DB Migration 004
+- `migrations/004_ipc_impression.sql`：RENAME COLUMN 及 ADD COLUMN 变更
+- 旧 relation_type 语义保留注释：friend→友好, rival→敌意, colleague→主导友好 等
+
+#### 3. IPC 数学模型（`core/social/ipc_model.py`）
+- `classify_octant(B, P) → str`：atan2 最近八分区标签
+- `affect_intensity(B, P) → float`：`√(B²+P²)/√2`，[0,1]
+- `r_squared(B, P) → float`：`1 - d²/(r+ε)²`，d=点到质心距离
+- `bigfive_to_ipc(bfv) → (B, P)`：Procrustean 旋转（DeYoung 2013 近似系数）
+- `derive_fields(B, P) → (orientation, intensity, r²)`：便捷组合函数
+
+#### 4. Big Five 评分基础设施（`core/social/big_five_scorer.py`）
+- `BigFiveScorer(Protocol)`：可替换接口（未来 BERT 实现兼容）
+- `LLMBigFiveScorer`：单次 LLM 调用 → `{"O":f,"C":f,"E":f,"A":f,"N":f}`，超时/解析失败 fallback 零向量
+- `BigFiveBuffer`：per-session per-user 消息计数 + BigFiveVector 缓存，X 条消息触发后台异步评分
+
+#### 5. 社交取向分析器（`core/social/orientation_analyzer.py`）
+- `SocialOrientationAnalyzer.analyze(window, buffer, salience, scope) → int`
+- per (observer, subject) pair：BigFive 缓存 → IPC 坐标 → 事件显著性加权 → 衍生字段
+- EMA 融合（α=0.3）：新印象 = 0.3×新值 + 0.7×旧值
+
+#### 6. EventExtractor 集成（`core/extractor/extractor.py`）
+- 修复 Bug：`self._system_prompt` 和 `self._llm_timeout` 之前从未从 `cfg` 赋值
+- 新增可选参数：`big_five_buffer`, `orientation_analyzer`, `ipc_enabled`
+- 事件关闭后台任务：喂入消息到 BigFiveBuffer → 触发 maybe_score → 运行 IPC 分析
+
+#### 7. 配置扩展（`core/config.py`）
+- 新增 `IPCConfig` dataclass：`enabled`, `bigfive_x_messages`, `bigfive_llm_timeout`
+- `PluginConfig.get_ipc_config()` 读取 `ipc_enabled`, `bigfive_x_messages`, `bigfive_llm_timeout_seconds`
+
+#### 8. 组件连接（`core/plugin_initializer.py`）
+- 按 `ipc_cfg.enabled && relation_enabled` 条件构建 `BigFiveBuffer` + `SocialOrientationAnalyzer`
+- 修复 `_maybe_trigger_impression`：旧 IPC 字段名（`relation_type`, `affect`, `intensity`）全部替换为新 IPC 字段；规则启发式 colleague→主导友好, stranger→友好
+
+---
+
 ## [v0.2.2] — 2026-05-06
 
 ### 核心变更

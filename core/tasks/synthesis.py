@@ -10,6 +10,7 @@ import asyncio
 import dataclasses
 import json
 import logging
+import math
 import time
 from typing import Callable, TYPE_CHECKING
 
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_VALID_RELATIONS = frozenset({"friend", "colleague", "stranger", "family", "rival"})
+_SQRT2 = math.sqrt(2)
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
@@ -142,10 +143,12 @@ async def run_impression_aggregation(
         if not events:
             continue
 
+        from ..domain.models import IPC_VALID_ORIENTATIONS
         event_summaries = "\n".join(f"- {e.topic}" for e in events)
         current = (
-            f"relation_type={imp.relation_type}, affect={imp.affect:.2f}, "
-            f"intensity={imp.intensity:.2f}, confidence={imp.confidence:.2f}"
+            f"ipc_orientation={imp.ipc_orientation}, "
+            f"benevolence={imp.benevolence:.2f}, power={imp.power:.2f}, "
+            f"confidence={imp.confidence:.2f}"
         )
         prompt = (
             f"观察者:{imp.observer_uid[:8]}，被观察者:{imp.subject_uid[:8]}。\n"
@@ -162,12 +165,18 @@ async def run_impression_aggregation(
             if parsed is None:
                 continue
 
-            rel = str(parsed.get("relation_type", imp.relation_type))
+            ipc_o = str(parsed.get("ipc_orientation", imp.ipc_orientation))
+            ben = _clamp(float(parsed.get("benevolence", imp.benevolence)), -1.0, 1.0)
+            pow_ = _clamp(float(parsed.get("power", imp.power)), -1.0, 1.0)
+            ai = min(1.0, math.sqrt(ben ** 2 + pow_ ** 2) / _SQRT2)
+            r2 = _clamp(float(parsed.get("r_squared", imp.r_squared)), 0.0, 1.0)
             new_imp = dataclasses.replace(
                 imp,
-                relation_type=rel if rel in _VALID_RELATIONS else imp.relation_type,
-                affect=_clamp(float(parsed.get("affect", imp.affect)), -1.0, 1.0),
-                intensity=_clamp(float(parsed.get("intensity", imp.intensity)), 0.0, 1.0),
+                ipc_orientation=ipc_o if ipc_o in IPC_VALID_ORIENTATIONS else imp.ipc_orientation,
+                benevolence=ben,
+                power=pow_,
+                affect_intensity=ai,
+                r_squared=r2,
                 confidence=_clamp(float(parsed.get("confidence", imp.confidence)), 0.0, 1.0),
                 last_reinforced_at=time.time(),
             )

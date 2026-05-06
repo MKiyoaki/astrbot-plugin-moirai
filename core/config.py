@@ -41,8 +41,8 @@ _DEFAULT_PERSONA_SYSTEM_PROMPT = (
 
 _DEFAULT_IMPRESSION_SYSTEM_PROMPT = (
     "你是一个社交关系分析助手。根据对话事件，更新对某人的印象。"
-    "只输出单行JSON，字段：relation_type（friend/colleague/stranger/family/rival之一）、"
-    "affect（-1.0到1.0的浮点数）、intensity（0.0到1.0的浮点数）、"
+    "只输出单行JSON，字段：ipc_orientation（以下8种之一：友好/主导友好/主导/主导敌意/敌意/服从敌意/服从/服从友好）、"
+    "benevolence（亲和度，-1.0到1.0的浮点数）、power（支配度，-1.0到1.0的浮点数）、"
     "confidence（0.0到1.0的浮点数）。不要输出任何其他内容。"
 )
 
@@ -100,6 +100,13 @@ class InjectionConfig:
     """Strip previous injection markers from the request before re-injecting."""
     token_budget: int = 800
     """Maximum tokens to fill with injected memory text."""
+
+
+@dataclass
+class IPCConfig:
+    enabled: bool = True
+    bigfive_x_messages: int = 10
+    bigfive_llm_timeout: float = 30.0
 
 
 @dataclass
@@ -242,6 +249,13 @@ class PluginConfig:
             position=pos if pos in valid else "system_prompt",
             auto_clear=self._bool("injection_auto_clear", True),
             token_budget=self._int("retrieval_token_budget", 800),
+        )
+
+    def get_ipc_config(self) -> IPCConfig:
+        return IPCConfig(
+            enabled=self._bool("ipc_enabled", True),
+            bigfive_x_messages=self._int("bigfive_x_messages", 10),
+            bigfive_llm_timeout=self._float("bigfive_llm_timeout_seconds", 30.0),
         )
 
     def get_extractor_config(self) -> ExtractorConfig:

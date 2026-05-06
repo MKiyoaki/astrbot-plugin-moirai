@@ -175,9 +175,11 @@ def _row_to_impression(row: aiosqlite.Row) -> Impression:
     return Impression(
         observer_uid=row["observer_uid"],
         subject_uid=row["subject_uid"],
-        relation_type=row["relation_type"],
-        affect=row["affect"],
-        intensity=row["intensity"],
+        ipc_orientation=row["ipc_orientation"],
+        benevolence=row["benevolence"],
+        power=row["power"],
+        affect_intensity=row["affect_intensity"],
+        r_squared=row["r_squared"],
         confidence=row["confidence"],
         scope=row["scope"],
         evidence_event_ids=json.loads(row["evidence_event_ids"] or "[]"),
@@ -606,8 +608,9 @@ class SQLiteEventRepository(EventRepository):
 # ---------------------------------------------------------------------------
 
 _IMPRESSION_SELECT = (
-    "SELECT observer_uid, subject_uid, relation_type, affect, intensity, "
-    "confidence, scope, evidence_event_ids, last_reinforced_at FROM impressions"
+    "SELECT observer_uid, subject_uid, ipc_orientation, benevolence, power, "
+    "affect_intensity, r_squared, confidence, scope, evidence_event_ids, "
+    "last_reinforced_at FROM impressions"
 )
 
 
@@ -661,22 +664,27 @@ class SQLiteImpressionRepository(ImpressionRepository):
 
     async def upsert(self, impression: Impression) -> None:
         await self._db.execute(
-            "INSERT INTO impressions(observer_uid, subject_uid, relation_type, "
-            "affect, intensity, confidence, scope, evidence_event_ids, last_reinforced_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?) "
+            "INSERT INTO impressions(observer_uid, subject_uid, ipc_orientation, "
+            "benevolence, power, affect_intensity, r_squared, confidence, scope, "
+            "evidence_event_ids, last_reinforced_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(observer_uid, subject_uid, scope) DO UPDATE SET "
-            "relation_type=excluded.relation_type, "
-            "affect=excluded.affect, "
-            "intensity=excluded.intensity, "
+            "ipc_orientation=excluded.ipc_orientation, "
+            "benevolence=excluded.benevolence, "
+            "power=excluded.power, "
+            "affect_intensity=excluded.affect_intensity, "
+            "r_squared=excluded.r_squared, "
             "confidence=excluded.confidence, "
             "evidence_event_ids=excluded.evidence_event_ids, "
             "last_reinforced_at=excluded.last_reinforced_at",
             (
                 impression.observer_uid,
                 impression.subject_uid,
-                impression.relation_type,
-                impression.affect,
-                impression.intensity,
+                impression.ipc_orientation,
+                impression.benevolence,
+                impression.power,
+                impression.affect_intensity,
+                impression.r_squared,
                 impression.confidence,
                 impression.scope,
                 _j(impression.evidence_event_ids),

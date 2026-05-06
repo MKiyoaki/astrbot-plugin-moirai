@@ -9,6 +9,8 @@ call never blocks message ingestion on the hot path.
 
 After LLM extraction, the extractor also stores the embedding (topic +
 tags text) via event_repo.upsert_vector() if an encoder is provided.
+If IPC analysis is enabled, a background task runs SocialOrientationAnalyzer
+to derive Big Five → IPC impression updates for every participant pair.
 """
 from __future__ import annotations
 
@@ -27,6 +29,8 @@ if TYPE_CHECKING:
     from ..embedding.encoder import Encoder
     from ..domain.models import Event
     from ..config import ExtractorConfig
+    from ..social.big_five_scorer import BigFiveBuffer
+    from ..social.orientation_analyzer import SocialOrientationAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,11 @@ class EventExtractor:
     encoder: optional Encoder; if provided, embeddings are stored after
              extraction so Phase 5 vector search works immediately.
     extractor_config: ExtractorConfig controlling prompt, timeout, context window.
+    big_five_buffer: optional BigFiveBuffer; if provided alongside orientation_analyzer,
+                     IPC social orientation analysis runs as a background task.
+    orientation_analyzer: optional SocialOrientationAnalyzer for IPC impression updates.
+    ipc_enabled: master switch for IPC analysis (default True when both optional
+                 components are provided).
     """
 
     def __init__(
@@ -47,16 +56,21 @@ class EventExtractor:
         provider_getter,  # Callable[[], Provider | None]
         encoder: Encoder | None = None,
         extractor_config: ExtractorConfig | None = None,
+        big_five_buffer: BigFiveBuffer | None = None,
+        orientation_analyzer: SocialOrientationAnalyzer | None = None,
+        ipc_enabled: bool = True,
     ) -> None:
-        from ..config import ExtractorConfig as _EC  # local import avoids circularity
+        from ..config import ExtractorConfig as _EC
         cfg = extractor_config or _EC()
         self._event_repo = event_repo
         self._provider_getter = provider_getter
         self._encoder: Encoder = encoder or NullEncoder()
-        self._max_context_messages = extractor_config.max_context_messages if extractor_config else 20
-        # If PluginConfig was passed, we could get it from there. 
-        # But ExtractorConfig is passed here. 
-        # Let's ensure ExtractorConfig is updated if needed or just use it.
+        self._max_context_messages = cfg.max_context_messages
+        self._system_prompt = cfg.system_prompt
+        self._llm_timeout = cfg.llm_timeout
+        self._big_five_buffer = big_five_buffer
+        self._orientation_analyzer = orientation_analyzer
+        self._ipc_enabled = ipc_enabled and (big_five_buffer is not None) and (orientation_analyzer is not None)
 
     async def __call__(self, event: Event, window: MessageWindow) -> None:
         """on_event_close callback: extract fields, persist, then index vector."""
@@ -64,6 +78,8 @@ class EventExtractor:
         updated = dataclasses.replace(event, **fields)
         await self._event_repo.upsert(updated)
         await self._index_vector(updated)
+        if self._ipc_enabled:
+            asyncio.create_task(self._run_ipc_analysis(updated, window))
 
     async def _extract(self, window: MessageWindow) -> dict:
         provider = self._provider_getter()
@@ -93,6 +109,22 @@ class EventExtractor:
                 "[EventExtractor] LLM call failed (%s), using fallback", exc)
 
         return fallback_extraction(window)
+
+    async def _run_ipc_analysis(self, event: Event, window: MessageWindow) -> None:
+        """Feed window messages to BigFiveBuffer, trigger scoring, run orientation analysis."""
+        assert self._big_five_buffer is not None
+        assert self._orientation_analyzer is not None
+        try:
+            for msg in window.messages:
+                self._big_five_buffer.add_message(msg.uid, msg.text or "")
+            for uid in window.participants:
+                self._big_five_buffer.maybe_score(uid, self._provider_getter)
+            scope = event.group_id or "global"
+            await self._orientation_analyzer.analyze(
+                window, self._big_five_buffer, event.salience, scope
+            )
+        except Exception as exc:
+            logger.warning("[EventExtractor] IPC analysis failed: %s", exc)
 
     async def _index_vector(self, event: Event) -> None:
         if self._encoder.dim == 0:

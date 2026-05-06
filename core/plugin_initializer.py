@@ -34,6 +34,8 @@ from .repository.sqlite import (
     db_open,
 )
 from .retrieval.hybrid import HybridRetriever
+from .social.big_five_scorer import BigFiveBuffer
+from .social.orientation_analyzer import SocialOrientationAnalyzer
 from .sync.syncer import ReverseSyncer
 from .sync.watcher import FileWatcher
 from .tasks.cleanup import run_memory_cleanup
@@ -148,11 +150,24 @@ class PluginInitializer:
             injection_config=cfg.get_injection_config(),
         )
 
+        ipc_cfg = cfg.get_ipc_config()
+        big_five_buffer: BigFiveBuffer | None = None
+        orientation_analyzer: SocialOrientationAnalyzer | None = None
+        if ipc_cfg.enabled and cfg.relation_enabled:
+            big_five_buffer = BigFiveBuffer(
+                x_messages=ipc_cfg.bigfive_x_messages,
+                llm_timeout=ipc_cfg.bigfive_llm_timeout,
+            )
+            orientation_analyzer = SocialOrientationAnalyzer(impression_repo)
+
         extractor = EventExtractor(
             event_repo=event_repo,
             provider_getter=lambda: self._context.get_using_provider(),
-            encoder=self.embedding_manager,  # Use manager
+            encoder=self.embedding_manager,
             extractor_config=cfg.get_extractor_config(),
+            big_five_buffer=big_five_buffer,
+            orientation_analyzer=orientation_analyzer,
+            ipc_enabled=ipc_cfg.enabled,
         )
 
         async def on_event_close(event: Event, window: MessageWindow) -> None:
@@ -303,9 +318,11 @@ async def _maybe_trigger_impression(
     - debounce window not elapsed since last_reinforced_at
     - shared event count in this scope < threshold
 
-    On trigger: updates relation_type, intensity, affect from simple heuristics
-    (no LLM, no ML — pure rule-based, zero extra token cost).
+    On trigger: maps heuristic signals to IPC coordinates (no LLM, no ML).
+    colleague (≥10 shared events) → 主导友好 (B=0.4, P=0.2)
+    stranger  (<10 shared events) → 友好      (B=0.2, P=0.0)
     """
+    import math
     from .domain.models import Impression
 
     uids = event.participants
@@ -342,31 +359,42 @@ async def _maybe_trigger_impression(
                     if len(shared) < threshold:
                         continue
 
-                    # Rule-based heuristics
+                    # Rule-based IPC heuristics
                     count = len(shared)
                     avg_salience = sum(e.salience for e in shared) / count
-                    intensity = min(1.0, count / 20.0)
-                    affect = round(avg_salience - 0.5, 3)  # 0–1 salience → -0.5–0.5
-                    relation_type = "colleague" if count >= 10 else "stranger"
+                    # colleague → 主导友好 (B=0.4, P=0.2); stranger → 友好 (B=0.2, P=0.0)
+                    if count >= 10:
+                        ipc_orientation = "主导友好"
+                        benevolence = min(1.0, 0.3 + avg_salience * 0.4)
+                        power = 0.2
+                    else:
+                        ipc_orientation = "友好"
+                        benevolence = min(1.0, 0.1 + avg_salience * 0.3)
+                        power = 0.0
+                    affect_intensity = min(1.0, math.sqrt(benevolence ** 2 + power ** 2) / math.sqrt(2))
+                    r_squared = 0.3  # low confidence — rule-based signal only
 
                     if existing:
-                        # Blend new signal with existing confidence
                         alpha = 0.3
                         new_imp = dataclasses.replace(
                             existing,
-                            relation_type=relation_type,
-                            intensity=round(existing.intensity * (1 - alpha) + intensity * alpha, 3),
-                            affect=round(existing.affect * (1 - alpha) + affect * alpha, 3),
+                            ipc_orientation=ipc_orientation,
+                            benevolence=round(existing.benevolence * (1 - alpha) + benevolence * alpha, 3),
+                            power=round(existing.power * (1 - alpha) + power * alpha, 3),
+                            affect_intensity=round(existing.affect_intensity * (1 - alpha) + affect_intensity * alpha, 3),
+                            r_squared=round(existing.r_squared * (1 - alpha) + r_squared * alpha, 3),
                             last_reinforced_at=now,
                         )
                     else:
                         new_imp = Impression(
                             observer_uid=obs,
                             subject_uid=subj,
-                            relation_type=relation_type,
-                            affect=affect,
-                            intensity=intensity,
-                            confidence=0.5,
+                            ipc_orientation=ipc_orientation,
+                            benevolence=benevolence,
+                            power=power,
+                            affect_intensity=affect_intensity,
+                            r_squared=r_squared,
+                            confidence=0.3,
                             scope=scope,
                             evidence_event_ids=[e.event_id for e in shared[-5:]],
                             last_reinforced_at=now,
@@ -374,13 +402,10 @@ async def _maybe_trigger_impression(
 
                     await impression_repo.upsert(new_imp)
                     logger.debug(
-                        "[ImpressionTrigger] %s→%s scope=%s updated (count=%d)",
-                        obs[:8], subj[:8], scope, count,
+                        "[ImpressionTrigger] %s→%s scope=%s updated (count=%d, ipc=%s)",
+                        obs[:8], subj[:8], scope, count, ipc_orientation,
                     )
                 except Exception as exc:
                     logger.warning(
-                        "[ImpressionTrigger] failed for %s→%s: %s", obs[:8], subj[:8], exc
-                    )
-               logger.warning(
                         "[ImpressionTrigger] failed for %s→%s: %s", obs[:8], subj[:8], exc
                     )

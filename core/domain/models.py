@@ -5,6 +5,7 @@ All fields are required; no defaults, so slots=True works without field().
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 
@@ -40,6 +41,16 @@ class _BoundedMixin:
 class EventStatus:
     ACTIVE = "active"
     ARCHIVED = "archived"
+
+
+# ---------------------------------------------------------------------------
+# IPC social orientation constants
+# ---------------------------------------------------------------------------
+
+IPC_VALID_ORIENTATIONS: frozenset[str] = frozenset({
+    "友好", "主导友好", "主导", "主导敌意",
+    "敌意", "服从敌意", "服从", "服从友好",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -103,20 +114,53 @@ class Event(_BoundedMixin):
 @dataclass(slots=True)
 class Impression(_BoundedMixin):
     """A directional social relationship: observer perceives subject.
+
     Impression(A→B) ≠ Impression(B→A).
+    Coordinates are in the Interpersonal Circumplex (IPC) space:
+      benevolence: Affiliation axis [-1, 1]  (friendly ↔ hostile)
+      power:       Dominance axis  [-1, 1]  (dominant ↔ submissive)
     """
 
     observer_uid: str
     subject_uid: str
-    relation_type: str           # friend | colleague | stranger | family | rival | ...
-    affect: float                # Sentiment [-1, 1]
-    intensity: float             # Strength [0, 1]
-    confidence: float            # [0, 1]
-    scope: str                   # 'global' or a specific group_id
+    ipc_orientation: str    # One of IPC_VALID_ORIENTATIONS (8 Chinese labels)
+    benevolence: float      # Affiliation axis [-1, 1]  (formerly: affect)
+    power: float            # Dominance axis  [-1, 1]  (new field)
+    affect_intensity: float # √(B²+P²)/√2   [0, 1]   (formerly: intensity)
+    r_squared: float        # Octant-fit confidence [0, 1]  (new field)
+    confidence: float       # Overall extraction confidence [0, 1]
+    scope: str              # 'global' or a specific group_id
     evidence_event_ids: list[str]  # Events that support this impression
     last_reinforced_at: float
 
     def __post_init__(self) -> None:
-        self._check_range("affect", self.affect, -1.0, 1.0)
-        self._check_unit("intensity", self.intensity)
+        self._check_range("benevolence", self.benevolence, -1.0, 1.0)
+        self._check_range("power", self.power, -1.0, 1.0)
+        self._check_unit("affect_intensity", self.affect_intensity)
+        self._check_unit("r_squared", self.r_squared)
         self._check_unit("confidence", self.confidence)
+
+
+@dataclass(slots=True, frozen=True)
+class BigFiveVector(_BoundedMixin):
+    """Big Five personality trait scores, each in [-1, 1].
+
+    Used as an intermediate representation before IPC rotation.
+    Positive values indicate higher trait expression.
+    """
+
+    openness: float
+    conscientiousness: float
+    extraversion: float
+    agreeableness: float
+    neuroticism: float
+
+    def __post_init__(self) -> None:
+        for name, val in (
+            ("openness", self.openness),
+            ("conscientiousness", self.conscientiousness),
+            ("extraversion", self.extraversion),
+            ("agreeableness", self.agreeableness),
+            ("neuroticism", self.neuroticism),
+        ):
+            self._check_range(name, val, -1.0, 1.0)
