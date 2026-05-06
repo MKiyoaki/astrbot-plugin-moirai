@@ -91,11 +91,3 @@ Persona Synthesis — 合成 User Profile 与 Bot 的自我意识镜像
 | **Gating 门控** | 模拟 LSTM 的遗忘与输入逻辑，动态调节信息流 | **代谢机制**：让 Bot 拥有“选择性记忆”能力 |
 | **社会认知坐标** | 利用 Dominance 与 Affiliation 向量化定义社交地位与亲和力 | **人格一致性**：基于心理学模型而非随机语气 |
 | **Session 隔离** | 状态机基于 Session ID 独立运行，支持跨群全局信息透传 | **隐私与环境适配**：认识人，但分得清场子 |
-
----
-
-### 待办事项 (TODO)
-- [ ] 集成 `sqlite-vec` 实现本地向量检索
-- [ ] 接入预训练的轻量级中文字符 Encoder (推荐 BGE-Small)
-- [ ] 实现基于 Tanh 函数的好感度限幅算法，防止“刷分”现象
-- [ ] 开发针对 Astrbot 事件流的 `Context_Manager` 状态切换逻辑助助手
