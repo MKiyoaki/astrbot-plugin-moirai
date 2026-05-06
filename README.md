@@ -4,95 +4,98 @@ Version: `0.0.1`
 
 Author: `MKiyoaki`, `Gariton`
 
-TODO: Add Description here
+**Description**: 一个基于“虚拟上下文管理 (VCM)”与“人际环 (Interpersonal Circle)”理论的 AI Agent 长短期记忆系统。通过事件化存储、社会关系建模与实时情感门控，赋予 Bot 跨会话的社交一致性与动态性格。
 
 ## Installation
 
 ## Getting Start
 
-
 ## Implementation Details
 
 ### 数据流全景
-1. 原始消息 → 事件生成
+
+#### 1. 消息入库与事件代谢 (Event Lifecycle)
 ```
-AstrBot 事件流（QQ/Telegram/WeChat 等原始消息）
+AstrBot 原始消息流
     │
     ▼
-[Identity Unification]  — 平台 adapter 将 (platform, physical_id) → 内部稳定 uid
+[Identity Unification] — (platform, physical_id) → 内部稳定 uid
     │
     ▼
-[Event Boundary Detector]  — 纯启发式，零 LLM 调用
-    触发条件（满足任一）：
-    ① 距上条消息 > 30 分钟
-    ② 消息数 ≥ 20 且 topic_drift > 0.6
-       (topic_drift = 首条消息 embedding 与最新消息 embedding 的余弦距离)
-    ③ 硬上限：消息数 ≥ 50 或窗口时长 ≥ 60 分钟
-```
-事件边界触发后：
-
-```
-[LLM Event Extractor]  — 每个事件仅一次 LLM 调用
-    输出：constrained JSON schema（字段尽量 enum 化以省 token）
-    填充 Event dataclass：
-    - topic, chat_content_tags, salience, participants, interaction_flow
-    - inherit_from（与哪些前驱事件是连续关系）
-    ↓
-写入 SQLite (core.db)：
-    - events 表（结构化字段）
-    - FTS5 虚拟表（BM25 全文检索）
-    - sqlite-vec vec0（向量索引，需 embedding 模型）
-```
-2. 关系图（Impression）的生成
-关系图不是从原始消息直接提取的，而是批处理周期任务：
-
-```
-[Periodic: 每日/每周]
-    ↓
-Impression Aggregation  — 约 1 次 LLM 调用 / 活跃的 (observer, subject) 对
-    输入：evidence_event_ids（相关事件）
-    输出：Impression dataclass
-    - relation_type, affect [-1,1], intensity [0,1]
-    - scope (global / group_id)
-    ↓
-写入 impressions 表
-
-Persona Synthesis  — 约 1 次 LLM 调用 / 活跃 Persona / 天
-    更新 Persona.persona_attrs（人格描述、情感倾向、内容标签）
-    ↓
-写入 personas 表 + 投影到 personas/<uid>/PROFILE.md
-```
-关系图是单向的（A→B 的印象 ≠ B→A 的印象），Bot 本身也是 Persona 节点。
-
-3. 召回 → 影响 Prompt 生成
-在每次 LLM 调用之前（热路径，零额外 LLM 调用）：
-
-```
-[Query Classification]  — 纯规则，无模型
-    │
-    ├─ is_relation_query?  → 直接查 impressions 表，格式化注入
-    ├─ is_profile_query?   → 读 PERSONA.md，注入
-    └─ is_event_query / general → 进入 Hybrid RAG
-
-[Hybrid RAG]
-    ① BM25 top-20 (FTS5)
-    ② Vector top-20 (sqlite-vec)
-    ③ RRF 融合 → top-10
-    ④ Neighbor expansion：
-       每个检索到的事件，可选择性加入其 inherit-parent 和 inherit-child
-       （需通过 relevance gate）
-    ⑤ Greedy 填充 token budget（默认 800 token，硬上限）
-       排序依据：salience × recency_decay × relevance_score
+[Event Boundary & Merge Detector] — 启发式 + Embedding 相似度
+    ├─ 触发新建：距上条 > 30min 或 topic_drift > 0.6
+    └─ 触发合并：若新消息与末尾 Event 语义高度重合 (cos_sim > 0.85)，则追加并标记摘要更新
     │
     ▼
-以清晰分隔符注入 system prompt
+[LLM Event Extractor] — 异步处理，生成结构化 Event
+    - 字段：topic, salience, participants, interaction_flow
+    - 写入 SQLite (FTS5 + sqlite-vec)
+```
+
+#### 2. 社交认知快回路 (Social Cognitive Circuit)
+此回路为“热路径”，每轮对话触发，不调用 LLM。
+```
+当前消息 (Query)
+    │
+    ▼
+[Encoder-based Perception] — 小型 Encoder (如 BERT/Qwen-0.5B)
+    ├─ Sentiment: 提取情感极性 (S)，负面权重 > 正面权重
+    ├─ Interpersonal: 提取 Dominance (D) 与 Affiliation (A) 维度的 Logits
+    └─ Calculation: 
+       - Mood = f(D, A) 决定当前情绪基调
+       - ΔAffinity = S × Salience × Decay 累加至 User-Bot 好感度
+    │
+    ▼
+[Memory Gating] — 借鉴 LSTM 逻辑
+    - Input Gate: 过滤噪音（如“哈哈”），决定是否写入长期记忆
+    - Forget Gate: 根据 Token 负载，决定踢出哪些陈旧的 Active Context Slot
+```
+
+#### 3. 关系图（Impression）与人格合成
+```
+[Periodic Task] — 每日/每周
+    │
+    ▼
+Impression Aggregation — 利用多分类 Logits 强度更新关系标签
+    - Relation Labels: [Stranger, Friend, Rival, Mentor, etc.]
+    - Affect & Intensity: 基于历史 ΔAffinity 的 IIR 滤波更新
+    ↓
+Persona Synthesis — 合成 User Profile 与 Bot 的自我意识镜像
+```
+
+#### 4. VCM 状态机 → 影响 Prompt 生成
+在每次生成前，由状态机决定“意识桌面”的布局：
+
+```
+[VCM Session State Machine]
+    │
+    ├─ [Focused Mode]: 话题连续且 Token 低 -> 仅保留 Core Profile + 最近对话
+    ├─ [Recall Mode]: 意图不明确/触发主动回想 -> 启动 Dual-Route Hybrid RAG
+    ├─ [Eviction Mode]: Token 溢出 -> 执行“换页”，将长文本 Event 压缩为 Summary
+    └─ [Drift Mode]: 话题突变 -> 清空 Active Slots，快照保存当前上下文
+    │
+    ▼
+[Context Injection]
+    - System Prompt: 注入 [Mood, Affinity_Level, Relation_Tag]
+    - Memory Slot: 注入 [Active_Events, Summaries]
+    - Dynamic Weighting: 抑制近期高频话题，引入 RRF 排序后的多样化记忆
 ```
 
 ### 关键设计决策摘要
-|设计点	| 说明 |
-|------|------|
-|热路径零 LLM	|检索完全本地，不增加延迟|
-|三轴分离	|事件（时间轴）、印象（社会轴）、摘要（叙事轴）各自独立，共用 event_id 做交叉引用 |
-|事件是唯一索引 | impression 的 evidence_event_ids 指向具体事件，摘要也按事件聚合，三者通过 event_id 互相可跳转 ｜
-｜Salience 衰减	｜ 重要性随时间衰减（每日 decay 任务），避免旧事件永远占满 token budget ｜
-｜Relation 模块可选	｜ relation_inference.enabled = false 时记忆系统仍完整工作，只是不注入印象信息 ｜
+
+| 设计点 | 说明 | 本质逻辑 |
+| :--- | :--- | :--- |
+| **热路径零 LLM** | 检索与情感计算完全本地化，由小模型和数学公式驱动 | **快思考 (Intuition)**：实时反馈，低延迟 |
+| **VCM 状态管理** | 将 Context Window 视为内存，数据库为磁盘，自动进行“换页”与“剔除” | **意识流控制**：防止语义空转与话题拟合 |
+| **三轴分离架构** | 事件 (时间)、印象 (社会)、摘要 (叙事) 独立索引 | **多维时空建模**：解决长程逻辑关联问题 |
+| **Gating 门控** | 模拟 LSTM 的遗忘与输入逻辑，动态调节信息流 | **代谢机制**：让 Bot 拥有“选择性记忆”能力 |
+| **社会认知坐标** | 利用 Dominance 与 Affiliation 向量化定义社交地位与亲和力 | **人格一致性**：基于心理学模型而非随机语气 |
+| **Session 隔离** | 状态机基于 Session ID 独立运行，支持跨群全局信息透传 | **隐私与环境适配**：认识人，但分得清场子 |
+
+---
+
+### 待办事项 (TODO)
+- [ ] 集成 `sqlite-vec` 实现本地向量检索
+- [ ] 接入预训练的轻量级中文字符 Encoder (推荐 BGE-Small)
+- [ ] 实现基于 Tanh 函数的好感度限幅算法，防止“刷分”现象
+- [ ] 开发针对 Astrbot 事件流的 `Context_Manager` 状态切换逻辑助助手
