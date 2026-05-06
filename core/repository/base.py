@@ -122,6 +122,16 @@ class EventRepository(ABC):
         ...
 
     @abstractmethod
+    async def set_locked(self, event_id: str, is_locked: bool) -> bool:
+        """Protect an event from auto-cleanup. Returns False if not found."""
+        ...
+
+    @abstractmethod
+    async def cleanup_low_salience_events(self, threshold: float) -> int:
+        """Delete non-locked events with salience < threshold. Returns count deleted."""
+        ...
+
+    @abstractmethod
     async def get_rowid(self, event_id: str) -> int | None:
         """Return the SQLite integer rowid for an event (used for FTS5/vec joins)."""
         ...

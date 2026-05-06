@@ -26,13 +26,14 @@ class MessageRouter:
         event_repo: EventRepository,
         identity_resolver: IdentityResolver,
         detector: EventBoundaryDetector,
+        context_manager: ContextManager,
         on_event_close: Callable[[Event, MessageWindow], Awaitable[None]] | None = None,
     ) -> None:
         self._event_repo = event_repo
         self._resolver = identity_resolver
         self._detector = detector
+        self._context_manager = context_manager
         self._on_event_close = on_event_close
-        self._windows: dict[str, MessageWindow] = {}
 
     async def process(
         self,
@@ -58,29 +59,28 @@ class MessageRouter:
 
         uid = await self._resolver.get_or_create_uid(platform, physical_id, display_name)
 
-        window = self._windows.get(session_id)
+        window = self._context_manager.get_window(session_id)
+        drift_detected = False
         if window is not None:
-            should_close, _reason = self._detector.should_close(window, now)
+            should_close, reason = self._detector.should_close(window, now)
             if should_close:
+                drift_detected = (reason == "topic_drift")
                 await self._flush_window(window)
                 window = None
 
         if window is None:
-            window = MessageWindow(
-                session_id=session_id,
-                group_id=group_id,
-                start_time=now,
-                last_message_time=now,
-            )
-            self._windows[session_id] = window
+            window = self._context_manager.get_window(session_id, create=True, group_id=group_id)
 
         window.add_message(uid, text, now, display_name)
+        self._context_manager.update_state(session_id, drift_detected=drift_detected)
 
     async def flush_all(self) -> None:
         """Flush all open windows (called on plugin shutdown)."""
-        for window in list(self._windows.values()):
-            await self._flush_window(window)
-        self._windows.clear()
+        # Iterate over a snapshot of keys to avoid modification during iteration
+        for session_id in list(self._context_manager._windows.keys()):
+            window = self._context_manager.get_window(session_id)
+            if window:
+                await self._flush_window(window)
 
     async def _flush_window(self, window: MessageWindow) -> None:
         event = Event(
@@ -108,4 +108,4 @@ class MessageRouter:
         await self._event_repo.upsert(event)
         if self._on_event_close is not None:
             await self._on_event_close(event, window)
-        self._windows.pop(window.session_id, None)
+        self._context_manager.pop_window(window.session_id)

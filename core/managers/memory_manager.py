@@ -102,6 +102,12 @@ class MemoryManager(BaseMemoryManager):
     async def unarchive_event(self, event_id: str) -> bool:
         return await self._repo.set_status(event_id, EventStatus.ACTIVE)
 
+    async def lock_event(self, event_id: str) -> bool:
+        return await self._repo.set_locked(event_id, True)
+
+    async def unlock_event(self, event_id: str) -> bool:
+        return await self._repo.set_locked(event_id, False)
+
     async def list_active_events(self, limit: int = 100) -> list[Event]:
         return await self._repo.list_by_status(EventStatus.ACTIVE, limit=limit)
 
@@ -145,13 +151,16 @@ class MemoryManager(BaseMemoryManager):
         active = await self._repo.list_by_status(EventStatus.ACTIVE, limit=100_000)
         archived = await self._repo.list_by_status(EventStatus.ARCHIVED, limit=100_000)
 
+        all_events = active + archived
         saliences = [e.salience for e in active]
         avg_salience = sum(saliences) / len(saliences) if saliences else 0.0
+        locked_count = sum(1 for e in all_events if e.is_locked)
 
         return {
             "active_count": len(active),
             "archived_count": len(archived),
-            "total_count": len(active) + len(archived),
+            "locked_count": locked_count,
+            "total_count": len(all_events),
             "avg_salience": round(avg_salience, 4),
             "min_salience": round(min(saliences, default=0.0), 4),
             "max_salience": round(max(saliences, default=0.0), 4),

@@ -139,6 +139,7 @@ def _dump_message_refs(refs: list[MessageRef]) -> str:
 def _row_to_event(row: aiosqlite.Row) -> Event:
     keys = row.keys()
     status = row["status"] if "status" in keys else EventStatus.ACTIVE
+    is_locked = bool(row["is_locked"]) if "is_locked" in keys else False
     return Event(
         event_id=row["event_id"],
         group_id=row["group_id"],
@@ -153,6 +154,7 @@ def _row_to_event(row: aiosqlite.Row) -> Event:
         inherit_from=json.loads(row["inherit_from"]),
         last_accessed_at=row["last_accessed_at"],
         status=status,
+        is_locked=is_locked,
     )
 
 
@@ -284,13 +286,13 @@ class SQLitePersonaRepository(PersonaRepository):
 _EVENT_COLS = (
     "event_id, group_id, start_time, end_time, participants, "
     "interaction_flow, topic, chat_content_tags, salience, confidence, "
-    "inherit_from, last_accessed_at, status"
+    "inherit_from, last_accessed_at, status, is_locked"
 )
 
 _EVENT_SELECT_COLS = (
     "e.event_id, e.group_id, e.start_time, e.end_time, e.participants, "
     "e.interaction_flow, e.topic, e.chat_content_tags, e.salience, e.confidence, "
-    "e.inherit_from, e.last_accessed_at, e.status"
+    "e.inherit_from, e.last_accessed_at, e.status, e.is_locked"
 )
 
 _EVENT_SELECT = f"SELECT {_EVENT_COLS} FROM events"
@@ -425,7 +427,7 @@ class SQLiteEventRepository(EventRepository):
         await self._db.execute(
             "INSERT INTO events(event_id, group_id, start_time, end_time, participants, "
             "interaction_flow, topic, chat_content_tags, salience, confidence, "
-            "inherit_from, last_accessed_at, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "inherit_from, last_accessed_at, status, is_locked) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(event_id) DO UPDATE SET "
             "group_id=excluded.group_id, "
             "start_time=excluded.start_time, "
@@ -438,7 +440,8 @@ class SQLiteEventRepository(EventRepository):
             "confidence=excluded.confidence, "
             "inherit_from=excluded.inherit_from, "
             "last_accessed_at=excluded.last_accessed_at, "
-            "status=excluded.status",
+            "status=excluded.status, "
+            "is_locked=excluded.is_locked",
             (
                 event.event_id,
                 event.group_id,
@@ -453,6 +456,7 @@ class SQLiteEventRepository(EventRepository):
                 _j(event.inherit_from),
                 event.last_accessed_at,
                 event.status,
+                int(event.is_locked),
             ),
         )
         await self._db.commit()
@@ -504,6 +508,50 @@ class SQLiteEventRepository(EventRepository):
         )
         await self._db.commit()
         return cursor.rowcount > 0
+
+    async def set_locked(self, event_id: str, is_locked: bool) -> bool:
+        cursor = await self._db.execute(
+            "UPDATE events SET is_locked = ? WHERE event_id = ?",
+            (int(is_locked), event_id),
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0
+
+    async def cleanup_low_salience_events(self, threshold: float) -> int:
+        """Delete non-locked events with salience < threshold.
+        
+        Also deletes associated vector embeddings.
+        """
+        # Get event_ids to delete first to handle vector deletion
+        async with self._db.execute(
+            "SELECT event_id FROM events WHERE salience < ? AND is_locked = 0",
+            (threshold,),
+        ) as cur:
+            ids = [row[0] for row in await cur.fetchall()]
+        
+        if not ids:
+            return 0
+
+        # Delete from events_vec first if it exists
+        try:
+            for eid in ids:
+                await self._db.execute(
+                    "DELETE FROM events_vec WHERE rowid = "
+                    "(SELECT rowid FROM events WHERE event_id = ?)",
+                    (eid,),
+                )
+        except Exception:
+            pass # sqlite-vec not loaded
+
+        # Now delete from events
+        placeholders = ",".join(["?"] * len(ids))
+        cursor = await self._db.execute(
+            f"DELETE FROM events WHERE event_id IN ({placeholders})",
+            ids,
+        )
+        count = cursor.rowcount
+        await self._db.commit()
+        return count
 
     async def get_rowid(self, event_id: str) -> int | None:
         async with self._db.execute(

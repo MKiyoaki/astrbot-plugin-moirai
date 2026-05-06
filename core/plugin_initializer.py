@@ -34,6 +34,7 @@ from .repository.sqlite import (
 from .retrieval.hybrid import HybridRetriever
 from .sync.syncer import ReverseSyncer
 from .sync.watcher import FileWatcher
+from .tasks.cleanup import run_memory_cleanup
 from .tasks.scheduler import TaskScheduler
 from .tasks.summary import run_group_summary
 from .tasks.synthesis import run_impression_aggregation, run_persona_synthesis
@@ -149,6 +150,7 @@ class PluginInitializer:
             event_repo=event_repo,
             identity_resolver=resolver,
             detector=detector,
+            context_manager=self.context_manager,
             on_event_close=on_event_close,
         )
 
@@ -163,6 +165,16 @@ class PluginInitializer:
             "salience_decay",
             interval=cfg.decay_interval_seconds,
             fn=lambda: self.memory.apply_decay() if self.memory else None,
+        )
+        self.scheduler.register(
+            "context_cleanup",
+            interval=60,
+            fn=lambda: self.context_manager.cleanup_expired() if self.context_manager else None,
+        )
+        self.scheduler.register(
+            "memory_cleanup",
+            interval=cfg.get_cleanup_config().interval_days * 86400,
+            fn=lambda: run_memory_cleanup(event_repo, cfg.get_cleanup_config()),
         )
 
         async def _projection_and_register() -> None:
@@ -343,5 +355,8 @@ async def _maybe_trigger_impression(
                     )
                 except Exception as exc:
                     logger.warning(
+                        "[ImpressionTrigger] failed for %s→%s: %s", obs[:8], subj[:8], exc
+                    )
+               logger.warning(
                         "[ImpressionTrigger] failed for %s→%s: %s", obs[:8], subj[:8], exc
                     )

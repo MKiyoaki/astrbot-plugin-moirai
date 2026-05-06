@@ -42,6 +42,7 @@ def event_to_dict(event: Event) -> dict[str, Any]:
         "inherit_from": event.inherit_from,
         "participants": event.participants,
         "status": event.status,
+        "is_locked": event.is_locked,
     }
 
 
@@ -89,9 +90,11 @@ async def get_stats(
     personas = await persona_repo.list_all()
     group_ids = await event_repo.list_group_ids()
     event_count = 0
+    locked_count = 0
     for gid in group_ids:
         evs = await event_repo.list_by_group(gid, limit=10_000)
         event_count += len(evs)
+        locked_count += sum(1 for e in evs if e.is_locked)
     impression_count = 0
     for p in personas:
         imps = await impression_repo.list_by_observer(p.uid)
@@ -99,6 +102,7 @@ async def get_stats(
     return {
         "personas": len(personas),
         "events": event_count,
+        "locked_count": locked_count,
         "impressions": impression_count,
         "groups": len(group_ids),
         "version": plugin_version,

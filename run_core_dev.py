@@ -93,6 +93,7 @@ async def main() -> None:
     from core.embedding.encoder import NullEncoder
     from core.managers.memory_manager import MemoryManager
     from core.managers.recall_manager import RecallManager
+    from core.managers.context_manager import ContextManager
     from core.repository.sqlite import (
         SQLiteEventRepository,
         SQLiteImpressionRepository,
@@ -100,15 +101,16 @@ async def main() -> None:
         db_open,
     )
     from core.retrieval.hybrid import HybridRetriever
-    from core.config import DecayConfig, InjectionConfig, RetrievalConfig
+    from core.config import DecayConfig, InjectionConfig, RetrievalConfig, ContextConfig, CleanupConfig
     from core import api as core_api
+    from core.tasks.cleanup import run_memory_cleanup
 
     DEV_DB.parent.mkdir(parents=True, exist_ok=True)
     if DEV_DB.exists():
         DEV_DB.unlink()
 
     print("=" * 60)
-    print("run_core_dev — core smoke test")
+    print("run_core_dev — core smoke test (Enhanced)")
     print("=" * 60)
 
     async with db_open(DEV_DB, migration_auto_backup=False) as db:
@@ -120,6 +122,10 @@ async def main() -> None:
         retriever = HybridRetriever(event_repo, encoder)
         memory = MemoryManager(event_repo, retriever, encoder, DecayConfig())
         recall = RecallManager(retriever, RetrievalConfig(), InjectionConfig())
+        
+        # ContextManager with VCM disabled by default for this test
+        context_cfg = ContextConfig(vcm_enabled=False, max_sessions=2, session_idle_seconds=1)
+        context_manager = ContextManager(context_cfg)
 
         # ── 1. Persona CRUD ───────────────────────────────────────────────
         print("\n[1] Persona CRUD")
@@ -140,9 +146,9 @@ async def main() -> None:
         ev2 = _eid()
         ev3 = _eid()
 
-        await memory.add_event(_make_event(ev1, gid_a, "Python 教程讨论", ["python", "编程"], uid_alice))
-        await memory.add_event(_make_event(ev2, gid_a, "假期旅游计划", ["旅游", "假期"], uid_alice))
-        await memory.add_event(_make_event(ev3, gid_b, "Python 数据分析", ["python", "数据"], uid_bob))
+        await memory.add_event(_make_event(ev1, gid_a, "Python 教程讨论", ["python", "编程"], uid_alice, salience=0.8))
+        await memory.add_event(_make_event(ev2, gid_a, "假期旅游计划", ["旅游", "假期"], uid_alice, salience=0.1))
+        await memory.add_event(_make_event(ev3, gid_b, "Python 数据分析", ["python", "数据"], uid_bob, salience=0.5))
 
         # FTS search with group isolation
         results_a = await event_repo.search_fts("python", limit=10, group_id=gid_a)
@@ -158,8 +164,48 @@ async def main() -> None:
         assert len(results_all) == 2, "cross-group search failed"
         print("    [PASS] group_id isolation OK")
 
-        # ── 3. RecallManager group_id pass-through ────────────────────────
-        print("\n[3] RecallManager group_id pass-through")
+        # ── 3. ContextManager (LRU & TTL) ─────────────────────────────────
+        print("\n[3] ContextManager (LRU & TTL)")
+        # Test LRU: max_sessions=2
+        context_manager.get_window("sid1", create=True)
+        context_manager.get_window("sid2", create=True)
+        assert context_manager.active_sessions_count == 2
+        
+        context_manager.get_window("sid3", create=True) # sid1 should be evicted
+        assert context_manager.active_sessions_count == 2
+        assert context_manager.get_window("sid1") is None
+        print("    [PASS] ContextManager LRU OK")
+        
+        # Test TTL: session_idle_seconds=1
+        print("    waiting for session timeout...")
+        await asyncio.sleep(1.1)
+        evicted = context_manager.cleanup_expired()
+        assert evicted == 2
+        assert context_manager.active_sessions_count == 0
+        print("    [PASS] ContextManager TTL OK")
+
+        # ── 4. Memory Cleanup & Locking ──────────────────────────────────
+        print("\n[4] Memory Cleanup & Locking")
+        # ev1=0.8, ev2=0.1, ev3=0.5. Threshold=0.3
+        # lock ev2 (salience 0.1)
+        await memory.lock_event(ev2)
+        print(f"    event {ev2[:8]} (salience 0.1) locked.")
+        
+        cleanup_cfg = CleanupConfig(enabled=True, threshold=0.3)
+        deleted_count = await run_memory_cleanup(event_repo, cleanup_cfg)
+        print(f"    cleanup deleted: {deleted_count} events (expect 0 because ev2 is locked and others > 0.3)")
+        assert deleted_count == 0
+        
+        await memory.unlock_event(ev2)
+        print(f"    event {ev2[:8]} unlocked.")
+        deleted_count = await run_memory_cleanup(event_repo, cleanup_cfg)
+        print(f"    cleanup deleted: {deleted_count} events (expect 1: ev2)")
+        assert deleted_count == 1
+        assert await event_repo.get(ev2) is None
+        print("    [PASS] Memory Cleanup & Locking OK")
+
+        # ── 5. RecallManager group_id pass-through ────────────────────────
+        print("\n[5] RecallManager group_id pass-through")
         recalled_a = await recall.recall("python", group_id=gid_a)
         recalled_b = await recall.recall("python", group_id=gid_b)
         assert all(e.group_id == gid_a for e in recalled_a), "recall group_A leaked"
@@ -168,8 +214,8 @@ async def main() -> None:
         print(f"    group_B recall: {[e.topic for e in recalled_b]}")
         print("    [PASS] recall isolation OK")
 
-        # ── 4. delete_with_vector atomic delete ───────────────────────────
-        print("\n[4] delete_with_vector atomic delete")
+        # ── 6. delete_with_vector atomic delete ───────────────────────────
+        print("\n[6] delete_with_vector atomic delete")
         ev_tmp = _eid()
         await memory.add_event(_make_event(ev_tmp, gid_a, "临时事件", ["临时"], uid_alice))
         before = await event_repo.get(ev_tmp)
@@ -181,8 +227,8 @@ async def main() -> None:
         assert after is None
         print("    [PASS] delete_with_vector OK")
 
-        # ── 5. PersonaRepository.upsert transaction ───────────────────────
-        print("\n[5] PersonaRepository.upsert transaction integrity")
+        # ── 7. PersonaRepository.upsert transaction ───────────────────────
+        print("\n[7] PersonaRepository.upsert transaction integrity")
         import dataclasses
         alice = await persona_repo.get(uid_alice)
         assert alice is not None
@@ -192,8 +238,8 @@ async def main() -> None:
         assert refetched is not None and refetched.primary_name == "Alice Updated"
         print("    [PASS] upsert transaction OK")
 
-        # ── 6. Impression upsert ──────────────────────────────────────────
-        print("\n[6] Impression upsert")
+        # ── 8. Impression upsert ──────────────────────────────────────────
+        print("\n[8] Impression upsert")
         imp = _make_impression(uid_alice, uid_bob, gid_a, [ev1])
         await impression_repo.upsert(imp)
         fetched_imp = await impression_repo.get(uid_alice, uid_bob, gid_a)
@@ -201,12 +247,14 @@ async def main() -> None:
         print(f"    impression: {fetched_imp.relation_type}, affect={fetched_imp.affect}")
         print("    [PASS] impression upsert OK")
 
-        # ── 7. core/api.py functions ──────────────────────────────────────
-        print("\n[7] core/api.py functions")
+        # ── 9. core/api.py functions ──────────────────────────────────────
+        print("\n[9] core/api.py functions")
 
         stats = await core_api.get_stats(persona_repo, event_repo, impression_repo)
         print(f"    stats: {stats}")
-        assert stats["events"] >= 3
+        # ev1 and ev3 remain. ev2 was deleted.
+        assert stats["events"] == 2
+        assert stats["locked_count"] == 0
 
         events_data = await core_api.list_events(event_repo, gid_a)
         print(f"    list_events(group_A): {len(events_data['items'])} items")
@@ -219,6 +267,10 @@ async def main() -> None:
         print(f"    graph: {len(graph['nodes'])} nodes, {len(graph['edges'])} edges")
         assert len(graph["nodes"]) >= 2
         print("    [PASS] core/api.py OK")
+
+    print("\n" + "=" * 60)
+    print("All checks passed.")
+    print("=" * 60)
 
     print("\n" + "=" * 60)
     print("All checks passed.")

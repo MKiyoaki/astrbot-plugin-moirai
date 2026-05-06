@@ -109,6 +109,21 @@ class ExtractorConfig:
     system_prompt: str = DEFAULT_EXTRACTOR_SYSTEM_PROMPT
 
 
+@dataclass
+class ContextConfig:
+    vcm_enabled: bool = True
+    max_sessions: int = 100
+    session_idle_seconds: int = 3600
+    window_size: int = 50
+
+
+@dataclass
+class CleanupConfig:
+    enabled: bool = True
+    threshold: float = 0.3
+    interval_days: int = 7
+
+
 class PluginConfig:
     """Wraps the raw AstrBot config dict and provides typed, named accessors.
 
@@ -217,9 +232,24 @@ class PluginConfig:
     def get_extractor_config(self) -> ExtractorConfig:
         custom_prompt = self._str("extractor_system_prompt", "").strip()
         return ExtractorConfig(
-            max_context_messages=self._int("extractor_max_context_messages", 20),
+            max_context_messages=self._int("context_window_size", 50),
             llm_timeout=self._float("extractor_llm_timeout_seconds", 30.0),
             system_prompt=custom_prompt or DEFAULT_EXTRACTOR_SYSTEM_PROMPT,
+        )
+
+    def get_context_config(self) -> ContextConfig:
+        return ContextConfig(
+            vcm_enabled=self._bool("vcm_enabled", True),
+            max_sessions=self._int("context_max_sessions", 100),
+            session_idle_seconds=self._int("context_session_idle_seconds", 3600),
+            window_size=self._int("context_window_size", 50),
+        )
+
+    def get_cleanup_config(self) -> CleanupConfig:
+        return CleanupConfig(
+            enabled=self._bool("memory_cleanup_enabled", True),
+            threshold=self._float("memory_cleanup_threshold", 0.3),
+            interval_days=self._int("memory_cleanup_interval_days", 7),
         )
 
     # ------------------------------------------------------------------
@@ -331,6 +361,11 @@ class PluginConfig:
         return self._float("impression_trigger_debounce_hours", 1.0)
 
     # ------------------------------------------------------------------
+    # Raw dict passthrough (for subsystems that need the full dict)
+    # ------------------------------------------------------------------
+
+    def as_dict(self) -> dict:
+        return dict(self._raw)
     # Raw dict passthrough (for subsystems that need the full dict)
     # ------------------------------------------------------------------
 

@@ -148,5 +148,47 @@
         "type": "float",
         "hint": "上次更新距今不足此时长则跳过本次触发，避免高频刷新",
         "default": 1.0
+    },
+    "vcm_enabled": {
+        "description": "启用 VCM 状态机",
+        "type": "bool",
+        "hint": "开启后将启用虚拟上下文管理状态机（Focused/Recall/Eviction/Drift）",
+        "default": true
+    },
+    "context_max_sessions": {
+        "description": "最大缓存会话数",
+        "type": "int",
+        "hint": "在内存中同时保留的最大活跃会话（MessageWindow）数量",
+        "default": 100
+    },
+    "context_session_idle_seconds": {
+        "description": "会话空闲过期时间（秒）",
+        "type": "int",
+        "hint": "会话超过此时长无新消息后，将自动从内存中移除以节省资源",
+        "default": 3600
+    },
+    "context_window_size": {
+        "description": "上下文窗口大小",
+        "type": "int",
+        "hint": "传给 LLM 进行事件总结的最大历史消息条数",
+        "default": 50
+    },
+    "memory_cleanup_enabled": {
+        "description": "启用记忆自动清理",
+        "type": "bool",
+        "hint": "开启后将定期清理重要度低于阈值的记忆",
+        "default": true
+    },
+    "memory_cleanup_threshold": {
+        "description": "记忆清理阈值",
+        "type": "float",
+        "hint": "重要度（salience）低于此值的非锁定记忆将被自动清理",
+        "default": 0.3
+    },
+    "memory_cleanup_interval_days": {
+        "description": "记忆清理周期（天）",
+        "type": "int",
+        "hint": "每隔多少天执行一次自动清理任务",
+        "default": 7
     }
 }

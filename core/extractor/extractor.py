@@ -53,9 +53,10 @@ class EventExtractor:
         self._event_repo = event_repo
         self._provider_getter = provider_getter
         self._encoder: Encoder = encoder or NullEncoder()
-        self._max_context_messages = cfg.max_context_messages
-        self._llm_timeout = cfg.llm_timeout
-        self._system_prompt = cfg.system_prompt
+        self._max_context_messages = extractor_config.max_context_messages if extractor_config else 20
+        # If PluginConfig was passed, we could get it from there. 
+        # But ExtractorConfig is passed here. 
+        # Let's ensure ExtractorConfig is updated if needed or just use it.
 
     async def __call__(self, event: Event, window: MessageWindow) -> None:
         """on_event_close callback: extract fields, persist, then index vector."""

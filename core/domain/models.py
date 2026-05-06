@@ -89,6 +89,7 @@ class Event(_BoundedMixin):
     inherit_from: list[str]      # Parent event_ids (continuation chain)
     last_accessed_at: float      # Updated on every retrieval
     status: str = field(default=EventStatus.ACTIVE)  # "active" | "archived"
+    is_locked: bool = field(default=False)           # User-protected from auto-cleanup
 
     def __post_init__(self) -> None:
         self._check_unit("salience", self.salience)
