@@ -49,7 +49,7 @@ export function TagFilter({ tags, value, onChange }: TagFilterProps) {
   }
 
   return (
-    <div className="border-b px-4 pb-2 pt-2">
+    <div className="px-4 pb-2 pt-2">
       <div className="mb-1.5 flex items-center gap-2">
         <span className="text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">
           {i18n.events.tagFilter}

@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import {
   Users, Building2, Activity, Clock, Search,
   ChevronDown, ChevronRight, Pencil, Trash2,
-  Network, GitBranch
+  Network, GitBranch, RefreshCw
 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
@@ -24,7 +24,8 @@ import {
   PaginationNext, PaginationPrevious
 } from '@/components/ui/pagination'
 import { PageHeader } from '@/components/layout/page-header'
-import { TagFilter } from '@/components/shared/tag-filter'
+import { FilterBar } from '@/components/shared/filter-bar'
+import { DateRange } from 'react-day-picker'
 import { EditPersonaDialog } from '@/components/graph/persona-dialogs'
 import { EditEventDialog, type EventFormData } from '@/components/events/event-dialogs'
 import { useApp } from '@/lib/store'
@@ -43,7 +44,7 @@ const L = {
   deletedOk:      (n: number) => `已删除 ${n} 项`,
 }
 
-// ── Shared Sub-components (DECLARED OUTSIDE TO FIX LINT) ──────────────────
+// ── Shared Sub-components ─────────────────────────────────────────────────
 
 function PaginationFooter({ 
   totalItems, totalPages, pageSize, currentPage, onPageChange, onPageSizeChange 
@@ -135,13 +136,13 @@ function PersonaDetailRow({
           </div>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={() => onGoToGraph(d.id)}>
-              <Network data-icon="inline-start" />{L.viewInGraph}
+              <Network className="mr-1.5 size-3.5" />{L.viewInGraph}
             </Button>
             <Button size="sm" variant="ghost" disabled={!sudoMode} onClick={() => onEdit(node)}>
-              <Pencil data-icon="inline-start" />{i18n.common.edit}
+              <Pencil className="mr-1.5 size-3.5" />{i18n.common.edit}
             </Button>
             <Button size="sm" variant="destructive" disabled={!sudoMode} onClick={() => onDelete(d.id, d.label)}>
-              <Trash2 data-icon="inline-start" />{i18n.common.delete}
+              <Trash2 className="mr-1.5 size-3.5" />{i18n.common.delete}
             </Button>
           </div>
         </div>
@@ -191,13 +192,13 @@ function EventDetailRow({
           </div>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={() => onGoToEvents(ev.id)}>
-              <GitBranch data-icon="inline-start" />{L.viewInEvents}
+              <GitBranch className="mr-1.5 size-3.5" />{L.viewInEvents}
             </Button>
             <Button size="sm" variant="ghost" disabled={!sudoMode} onClick={() => onEdit(ev)}>
-              <Pencil data-icon="inline-start" />{i18n.common.edit}
+              <Pencil className="mr-1.5 size-3.5" />{i18n.common.edit}
             </Button>
             <Button size="sm" variant="destructive" disabled={!sudoMode} onClick={() => onDelete(ev)}>
-              <Trash2 data-icon="inline-start" />{i18n.common.delete}
+              <Trash2 className="mr-1.5 size-3.5" />{i18n.common.delete}
             </Button>
           </div>
         </div>
@@ -213,9 +214,10 @@ function LibraryContent() {
   const router = useRouter()
   const app = useApp()
 
-  const [tab, setTab] = useState(searchParams.get('tab') || 'personas')
+  const [tab, setTab] = useState(searchParams.get('tab') || 'events')
   const [search, setSearch] = useState('')
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set())
+  const [dateRange, setDateRange] = useState<DateRange | undefined>()
   const [tagList, setTagList] = useState<{ name: string; count: number }[]>([])
   const [personaList, setPersonaList] = useState<api.PersonaNode[]>([])
   const [groupList, setGroupList] = useState<{ id: string; event_count: number; last_active?: string }[]>([])
@@ -273,7 +275,7 @@ function LibraryContent() {
       setSelectedIds(new Set())
       setExpandedId(null)
     }, 0)
-  }, [tab, search, activeTags, pageSize])
+  }, [tab, search, activeTags, dateRange, pageSize])
 
   useEffect(() => {
     if (!editMode) setTimeout(() => setSelectedIds(new Set()), 0)
@@ -283,12 +285,24 @@ function LibraryContent() {
   const filteredPersonas = personaList.filter(n => {
     if (q && !(n.data.label || '').toLowerCase().includes(q) && !(n.data.attrs?.description || '').toLowerCase().includes(q)) return false
     if (activeTags.size > 0 && !(n.data.attrs?.content_tags ?? []).some(t => activeTags.has(t))) return false
+    if (dateRange?.from) {
+      const fromTs = dateRange.from.getTime()
+      const toTs = dateRange.to ? dateRange.to.getTime() + 86400000 : fromTs + 86400000
+      const ts = new Date(n.data.last_active_at || 0).getTime()
+      if (ts < fromTs || ts > toTs) return false
+    }
     return true
   })
 
   const filteredEvents = eventList.filter(ev => {
     if (q && !(ev.content || '').toLowerCase().includes(q) && !(ev.topic || '').toLowerCase().includes(q) && !(ev.group || '').toLowerCase().includes(q) && !(ev.tags || []).some(t => t.toLowerCase().includes(q))) return false
     if (activeTags.size > 0 && !(ev.tags || []).some(t => activeTags.has(t))) return false
+    if (dateRange?.from) {
+      const fromTs = dateRange.from.getTime()
+      const toTs = dateRange.to ? dateRange.to.getTime() + 86400000 : fromTs + 86400000
+      const ts = new Date(ev.start).getTime()
+      if (ts < fromTs || ts > toTs) return false
+    }
     return true
   })
 
@@ -391,120 +405,61 @@ function LibraryContent() {
     }
   }
 
+  const actions = (
+    <div className="flex items-center gap-2">
+      <div className="relative">
+        <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
+        <Input
+          className="h-7 w-48 pl-7 text-xs"
+          placeholder={i18n.common.search + '…'}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+      </div>
+      {editMode && selectedIds.size > 0 && (
+        <Button variant="destructive" size="sm" onClick={handleDeleteSelected}>
+          <Trash2 className="mr-1.5 size-3.5" />{L.deleteSelected} ({selectedIds.size})
+        </Button>
+      )}
+      {(tab === 'personas' || tab === 'events') && (
+        <Button variant={editMode ? 'default' : 'outline'} size="sm" onClick={() => setEditMode(v => !v)}>
+          <Pencil className="mr-1.5 size-3.5" />{editMode ? L.exitEditMode : L.editMode}
+        </Button>
+      )}
+      <Button variant="ghost" size="icon" onClick={loadData} title={i18n.common.refresh}>
+        <RefreshCw className="size-4" />
+      </Button>
+    </div>
+  )
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <PageHeader
         title={i18n.page.library.title}
         description={i18n.page.library.description}
-        actions={
-          <div className="flex items-center gap-2">
-            {editMode && selectedIds.size > 0 && (
-              <Button variant="destructive" size="sm" onClick={handleDeleteSelected}>
-                <Trash2 data-icon="inline-start" />{L.deleteSelected} ({selectedIds.size})
-              </Button>
-            )}
-            {(tab === 'personas' || tab === 'events') && (
-              <Button variant={editMode ? 'default' : 'outline'} size="sm" onClick={() => setEditMode(v => !v)}>
-                {editMode ? L.exitEditMode : L.editMode}
-              </Button>
-            )}
-            <div className="relative">
-              <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 -translate-y-1/2" data-icon="inline-start" />
-              <Input
-                className="h-7 w-48 pl-7 text-xs"
-                placeholder={i18n.common.search + '…'}
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-            </div>
-          </div>
-        }
+        actions={actions}
       />
 
-      <TagFilter tags={tagList} value={activeTags} onChange={setActiveTags} />
+      <FilterBar
+        tags={tagList}
+        activeTags={activeTags}
+        onTagsChange={setActiveTags}
+        dateRange={dateRange}
+        onDateRangeChange={setDateRange}
+      />
 
-      <div className="flex flex-1 flex-col overflow-hidden p-6 pt-4">
+      <div className="flex flex-1 flex-col overflow-hidden p-6 pt-2">
         <Tabs value={tab} onValueChange={(t) => { setEditMode(false); setTab(t) }} className="flex flex-1 flex-col overflow-hidden">
           <TabsList className="mb-4 shrink-0">
-            <TabsTrigger value="personas"><Users className="mr-1.5" data-icon="inline-start" />{i18n.library.tabs.personas}</TabsTrigger>
-            <TabsTrigger value="groups"><Building2 className="mr-1.5" data-icon="inline-start" />{i18n.library.tabs.groups}</TabsTrigger>
-            <TabsTrigger value="events"><Activity className="mr-1.5" data-icon="inline-start" />{i18n.library.tabs.events}</TabsTrigger>
-            <TabsTrigger value="time"><Clock className="mr-1.5" data-icon="inline-start" />{i18n.library.tabs.time}</TabsTrigger>
+            <TabsTrigger value="events"><Activity className="mr-1.5 size-3.5" />{i18n.library.tabs.events}</TabsTrigger>
+            <TabsTrigger value="time"><Clock className="mr-1.5 size-3.5" />{i18n.library.tabs.time}</TabsTrigger>
+            <TabsTrigger value="personas"><Users className="mr-1.5 size-3.5" />{i18n.library.tabs.personas}</TabsTrigger>
+            <TabsTrigger value="groups"><Building2 className="mr-1.5 size-3.5" />{i18n.library.tabs.groups}</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="personas" className="flex-1 overflow-hidden flex flex-col">
-            <ScrollArea className="flex-1">
-              <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      {editMode && (
-                        <TableHead className="w-8 pr-0" onClick={toggleAll}>
-                          <Checkbox checked={allSelected ? true : (someSelected ? 'indeterminate' : false)} onCheckedChange={toggleAll} aria-label="选择全部" />
-                        </TableHead>
-                      )}
-                      <TableHead className="w-4"></TableHead>
-                      <TableHead>名称</TableHead>
-                      <TableHead>{i18n.graph.description}</TableHead>
-                      <TableHead>{i18n.graph.affectType}</TableHead>
-                      <TableHead>{i18n.graph.confidence}</TableHead>
-                      <TableHead>{i18n.events.tags}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginatedPersonas.length === 0 ? (
-                      <TableRow><TableCell colSpan={editMode ? 7 : 6} className="text-muted-foreground text-center py-8">{i18n.library.personas.noPersonas}</TableCell></TableRow>
-                    ) : paginatedPersonas.map(n => (
-                      <Fragment key={n.data.id}>
-                        <TableRow className="cursor-pointer" onClick={() => editMode ? toggleSelect(n.data.id) : toggleExpand(n.data.id)}>
-                          {editMode && (
-                            <TableCell className="w-8 pr-0" onClick={e => { e.stopPropagation(); toggleSelect(n.data.id) }}>
-                              <Checkbox checked={selectedIds.has(n.data.id)} onCheckedChange={() => toggleSelect(n.data.id)} aria-label="选择此项" />
-                            </TableCell>
-                          )}
-                          <TableCell className="w-4 pr-0 text-muted-foreground">
-                            {!editMode && (expandedId === n.data.id ? <ChevronDown /> : <ChevronRight />)}
-                          </TableCell>
-                          <TableCell className="font-medium">{n.data.label}{n.data.is_bot && <Badge variant="secondary" className="ml-1.5 text-xs">Bot</Badge>}</TableCell>
-                          <TableCell className="max-w-48 truncate text-sm">{n.data.attrs?.description || '—'}</TableCell>
-                          <TableCell className="text-sm">{n.data.attrs?.affect_type || '—'}</TableCell>
-                          <TableCell className="text-sm">{(n.data.confidence * 100).toFixed(0)}%</TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap gap-1">{(n.data.attrs?.content_tags || []).slice(0, 3).map(t => (
-                              <Badge key={t} variant={activeTags.has(t) ? 'default' : 'secondary'} className="cursor-pointer text-xs" onClick={(e) => { e.stopPropagation(); const next = new Set(activeTags); if (next.has(t)) next.delete(t); else next.add(t); setActiveTags(next) }}>{t}</Badge>
-                            ))}</div>
-                          </TableCell>
-                        </TableRow>
-                        {expandedId === n.data.id && (
-                          <PersonaDetailRow node={n} editMode={editMode} onGoToGraph={goToGraph} onEdit={setEditPersona} onDelete={handleDeletePersona} sudoMode={app.sudo} />
-                        )}
-                      </Fragment>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </ScrollArea>
-            <PaginationFooter totalItems={filteredPersonas.length} totalPages={totalPersonaPages} pageSize={pageSize} currentPage={currentPage} onPageChange={setCurrentPage} onPageSizeChange={setPageSize} />
-          </TabsContent>
-
-          <TabsContent value="groups" className="flex-1 overflow-hidden flex flex-col">
-            <ScrollArea className="flex-1">
-              <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
-                <Table>
-                  <TableHeader><TableRow><TableHead>{i18n.library.groups.groupId}</TableHead><TableHead>{i18n.library.groups.events}</TableHead><TableHead>{i18n.library.groups.lastActive}</TableHead></TableRow></TableHeader>
-                  <TableBody>
-                    {paginatedGroups.length === 0 ? (<TableRow><TableCell colSpan={3} className="text-muted-foreground text-center py-8">{i18n.library.groups.noGroups}</TableCell></TableRow>) 
-                    : paginatedGroups.map(g => (<TableRow key={g.id}><TableCell className="font-mono text-sm">{g.id}</TableCell><TableCell className="text-sm">{g.event_count}</TableCell><TableCell className="text-sm">{g.last_active ? new Date(g.last_active).toLocaleDateString('zh-CN') : '—'}</TableCell></TableRow>))}
-                  </TableBody>
-                </Table>
-              </div>
-            </ScrollArea>
-            <PaginationFooter totalItems={filteredGroups.length} totalPages={totalGroupPages} pageSize={pageSize} currentPage={currentPage} onPageChange={setCurrentPage} onPageSizeChange={setPageSize} />
-          </TabsContent>
 
           <TabsContent value="events" className="flex-1 overflow-hidden flex flex-col">
             <ScrollArea className="flex-1">
-              <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
+              <div className="overflow-hidden border-y">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -531,7 +486,7 @@ function LibraryContent() {
                               <Checkbox checked={selectedIds.has(ev.id)} onCheckedChange={() => toggleSelect(ev.id)} aria-label="选择此项" />
                             </TableCell>
                           )}
-                          <TableCell className="w-4 pr-0 text-muted-foreground">{!editMode && (expandedId === ev.id ? <ChevronDown /> : <ChevronRight />)}</TableCell>
+                          <TableCell className="w-4 pr-0 text-muted-foreground">{!editMode && (expandedId === ev.id ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />)}</TableCell>
                           <TableCell className="max-w-60 truncate font-medium">{ev.content || ev.topic || ev.id}</TableCell>
                           <TableCell className="text-sm">{ev.group || i18n.events.privateChat}</TableCell>
                           <TableCell className="text-sm">{new Date(ev.start).toLocaleDateString('zh-CN')}</TableCell>
@@ -572,6 +527,76 @@ function LibraryContent() {
                 })()}
               </div>
             </ScrollArea>
+          </TabsContent>
+
+          <TabsContent value="personas" className="flex-1 overflow-hidden flex flex-col">
+            <ScrollArea className="flex-1">
+              <div className="overflow-hidden border-y">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {editMode && (
+                        <TableHead className="w-8 pr-0" onClick={toggleAll}>
+                          <Checkbox checked={allSelected ? true : (someSelected ? 'indeterminate' : false)} onCheckedChange={toggleAll} aria-label="选择全部" />
+                        </TableHead>
+                      )}
+                      <TableHead className="w-4"></TableHead>
+                      <TableHead>名称</TableHead>
+                      <TableHead>{i18n.graph.description}</TableHead>
+                      <TableHead>{i18n.graph.affectType}</TableHead>
+                      <TableHead>{i18n.graph.confidence}</TableHead>
+                      <TableHead>{i18n.events.tags}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedPersonas.length === 0 ? (
+                      <TableRow><TableCell colSpan={editMode ? 7 : 6} className="text-muted-foreground text-center py-8">{i18n.library.personas.noPersonas}</TableCell></TableRow>
+                    ) : paginatedPersonas.map(n => (
+                      <Fragment key={n.data.id}>
+                        <TableRow className="cursor-pointer" onClick={() => editMode ? toggleSelect(n.data.id) : toggleExpand(n.data.id)}>
+                          {editMode && (
+                            <TableCell className="w-8 pr-0" onClick={e => { e.stopPropagation(); toggleSelect(n.data.id) }}>
+                              <Checkbox checked={selectedIds.has(n.data.id)} onCheckedChange={() => toggleSelect(n.data.id)} aria-label="选择此项" />
+                            </TableCell>
+                          )}
+                          <TableCell className="w-4 pr-0 text-muted-foreground">
+                            {!editMode && (expandedId === n.data.id ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />)}
+                          </TableCell>
+                          <TableCell className="font-medium">{n.data.label}{n.data.is_bot && <Badge variant="secondary" className="ml-1.5 text-xs">Bot</Badge>}</TableCell>
+                          <TableCell className="max-w-48 truncate text-sm">{n.data.attrs?.description || '—'}</TableCell>
+                          <TableCell className="text-sm">{n.data.attrs?.affect_type || '—'}</TableCell>
+                          <TableCell className="text-sm">{(n.data.confidence * 100).toFixed(0)}%</TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">{(n.data.attrs?.content_tags || []).slice(0, 3).map(t => (
+                              <Badge key={t} variant={activeTags.has(t) ? 'default' : 'secondary'} className="cursor-pointer text-xs" onClick={(e) => { e.stopPropagation(); const next = new Set(activeTags); if (next.has(t)) next.delete(t); else next.add(t); setActiveTags(next) }}>{t}</Badge>
+                            ))}</div>
+                          </TableCell>
+                        </TableRow>
+                        {expandedId === n.data.id && (
+                          <PersonaDetailRow node={n} editMode={editMode} onGoToGraph={goToGraph} onEdit={setEditPersona} onDelete={handleDeletePersona} sudoMode={app.sudo} />
+                        )}
+                      </Fragment>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </ScrollArea>
+            <PaginationFooter totalItems={filteredPersonas.length} totalPages={totalPersonaPages} pageSize={pageSize} currentPage={currentPage} onPageChange={setCurrentPage} onPageSizeChange={setPageSize} />
+          </TabsContent>
+
+          <TabsContent value="groups" className="flex-1 overflow-hidden flex flex-col">
+            <ScrollArea className="flex-1">
+              <div className="overflow-hidden border-y">
+                <Table>
+                  <TableHeader><TableRow><TableHead>{i18n.library.groups.groupId}</TableHead><TableHead>{i18n.library.groups.events}</TableHead><TableHead>{i18n.library.groups.lastActive}</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {paginatedGroups.length === 0 ? (<TableRow><TableCell colSpan={3} className="text-muted-foreground text-center py-8">{i18n.library.groups.noGroups}</TableCell></TableRow>) 
+                    : paginatedGroups.map(g => (<TableRow key={g.id}><TableCell className="font-mono text-sm">{g.id}</TableCell><TableCell className="text-sm">{g.event_count}</TableCell><TableCell className="text-sm">{g.last_active ? new Date(g.last_active).toLocaleDateString('zh-CN') : '—'}</TableCell></TableRow>))}
+                  </TableBody>
+                </Table>
+              </div>
+            </ScrollArea>
+            <PaginationFooter totalItems={filteredGroups.length} totalPages={totalGroupPages} pageSize={pageSize} currentPage={currentPage} onPageChange={setCurrentPage} onPageSizeChange={setPageSize} />
           </TabsContent>
         </Tabs>
       </div>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Search as SearchIcon } from 'lucide-react'
+import { Search, Search as SearchIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -41,15 +41,36 @@ export default function RecallPage() {
     }
   }
 
+  const actions = (
+    <div className="flex items-center gap-2">
+      <div className="relative">
+        <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
+        <Input
+          className="h-7 w-48 pl-7 text-xs"
+          placeholder="快速搜索结果…"
+          disabled={!searched}
+        />
+      </div>
+      <Button
+        size="sm"
+        className="h-7"
+        onClick={handleRecall}
+        disabled={searching}
+      >
+        <SearchIcon className="mr-1.5 size-3.5" />
+        {searching ? '查询中…' : i18n.recall.recall}
+      </Button>
+    </div>
+  )
+
   return (
-    // Removed h-screen. Applied w-full flex-1 h-full min-w-0 to inherit layout constraints safely
     <div className="flex w-full flex-1 h-full flex-col min-w-0 overflow-hidden">
       <PageHeader
         title={i18n.page.recall.title}
         description={i18n.page.recall.description}
+        actions={actions}
       />
 
-      {/* Added min-w-0 to secure inner flex box bounds */}
       <div className="flex flex-1 flex-col gap-4 overflow-hidden p-6 min-w-0">
         <Card>
           <CardHeader>
@@ -87,7 +108,7 @@ export default function RecallPage() {
                     const v = parseInt(e.target.value, 10)
                     if (v > 0) setLimit(v)
                   }}
-                  className="w-24"
+                  className="w-24 h-9"
                 />
               </div>
 
@@ -98,18 +119,9 @@ export default function RecallPage() {
                   value={sessionId}
                   onChange={e => setSessionId(e.target.value)}
                   placeholder="（可选）"
-                  className="font-mono text-xs w-full"
+                  className="font-mono text-xs w-full h-9"
                 />
               </div>
-
-              <Button
-                className="min-w-24"
-                onClick={handleRecall}
-                disabled={searching}
-              >
-                <SearchIcon className="mr-1.5 size-4" />
-                {searching ? '查询中…' : i18n.recall.recall}
-              </Button>
             </div>
           </CardContent>
         </Card>

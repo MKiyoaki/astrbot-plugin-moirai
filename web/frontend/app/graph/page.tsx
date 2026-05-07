@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation'
 import { UserPlus, RefreshCw, ChevronLeft, Maximize2, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/layout/page-header'
-import { TagFilter } from '@/components/shared/tag-filter'
+import { FilterBar } from '@/components/shared/filter-bar'
+import { DateRange } from 'react-day-picker'
 import { CreatePersonaDialog, EditPersonaDialog, EditImpressionDialog } from '@/components/graph/persona-dialogs'
 import { NetworkGraph } from '@/components/graph/network-graph'
 import { ParamsPanel } from '@/components/graph/params-panel'
@@ -31,8 +32,9 @@ export default function GraphPage() {
   const router = useRouter()
   const app = useApp()
 
-  // ── Tag filter ──────────────────────────────────────────────────────────────
+  // ── Tag & Date filter ──────────────────────────────────────────────────────
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set())
+  const [dateRange, setDateRange] = useState<DateRange | undefined>()
   const [tagList, setTagList] = useState<{ name: string; count: number }[]>([])
 
   // ── Feature flag ────────────────────────────────────────────────────────────
@@ -156,15 +158,29 @@ export default function GraphPage() {
     enabled: !!expandedGroupId,
   })
 
-  // ── Tag-filtered group cards ────────────────────────────────────────────────
+  // ── Tag & Date-filtered group cards ─────────────────────────────────────────
   const filteredGroups = useMemo(() => {
-    if (activeTags.size === 0) return groupCards
-    return groupCards.filter(g =>
-      g.nodes.some(n =>
-        (n.data.attrs?.content_tags ?? []).some(t => activeTags.has(t))
+    let gs = groupCards
+    if (activeTags.size > 0) {
+      gs = gs.filter(g =>
+        g.nodes.some(n =>
+          (n.data.attrs?.content_tags ?? []).some(t => activeTags.has(t))
+        )
       )
-    )
-  }, [groupCards, activeTags])
+    }
+    if (dateRange?.from) {
+      const fromTs = dateRange.from.getTime()
+      const toTs = dateRange.to ? dateRange.to.getTime() + 86400000 : fromTs + 86400000
+      gs = gs.filter(g =>
+        g.nodes.some(n => {
+          if (!n.data.last_active_at) return false
+          const ts = new Date(n.data.last_active_at).getTime()
+          return ts >= fromTs && ts <= toTs
+        })
+      )
+    }
+    return gs
+  }, [groupCards, activeTags, dateRange])
 
   // ── Open group ──────────────────────────────────────────────────────────────
   const handleOpenGroup = (groupId: string) => {
@@ -263,7 +279,13 @@ export default function GraphPage() {
             </div>
           }
         />
-        <TagFilter tags={tagList} value={activeTags} onChange={setActiveTags} />
+        <FilterBar 
+          tags={tagList} 
+          activeTags={activeTags} 
+          onTagsChange={setActiveTags} 
+          dateRange={dateRange}
+          onDateRangeChange={setDateRange}
+        />
         <div className="flex-1 overflow-y-auto">
           <GroupCardList groups={filteredGroups} onOpen={handleOpenGroup} loading={loading} />
         </div>

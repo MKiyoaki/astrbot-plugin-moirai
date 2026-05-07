@@ -15,10 +15,25 @@ import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { i18n } from '@/lib/i18n'
 
+import { DateRange } from 'react-day-picker'
+import { DateRangePicker } from '@/components/shared/date-range-picker'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+
+const GAP_OPTIONS = [
+  { label: '30m', value: 1800000 },
+  { label: '1h', value: 3600000 },
+  { label: '2h', value: 7200000 },
+  { label: '4h', value: 14400000 },
+  { label: '8h', value: 28800000 },
+  { label: '24h', value: 86400000 },
+  { label: '7d', value: 604800000 },
+]
+
 export default function EventsPage() {
   const app = useApp()
   const [search, setSearch] = useState('')
-  const [density, setDensity] = useState(200)
+  const [timeGap, setTimeGap] = useState(7200000)
+  const [dateRange, setDateRange] = useState<DateRange | undefined>()
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set())
   const [detailEvent, setDetailEvent] = useState<api.ApiEvent | null>(null)
@@ -54,7 +69,6 @@ export default function EventsPage() {
       const focusId = sessionStorage.getItem('em_focus_event')
       const highlightRaw = sessionStorage.getItem('em_highlight_events')
       
-      // Defer state updates to next tick to avoid synchronous setState warning
       setTimeout(() => {
         if (focusId) {
           sessionStorage.removeItem('em_focus_event')
@@ -72,15 +86,25 @@ export default function EventsPage() {
   }, [app.rawEvents])
 
   const filtered = app.rawEvents.filter(ev => {
-    if (!search) return true
-    const q = search.toLowerCase()
-    return (
-      (ev.content || '').toLowerCase().includes(q) ||
-      (ev.topic || '').toLowerCase().includes(q) ||
-      (ev.group || '').toLowerCase().includes(q) ||
-      (ev.tags || []).some(t => t.toLowerCase().includes(q)) ||
-      (ev.participants || []).some(p => p.toLowerCase().includes(q))
-    )
+    if (search) {
+      const q = search.toLowerCase()
+      const matchSearch = (
+        (ev.content || '').toLowerCase().includes(q) ||
+        (ev.topic || '').toLowerCase().includes(q) ||
+        (ev.group || '').toLowerCase().includes(q) ||
+        (ev.tags || []).some(t => t.toLowerCase().includes(q)) ||
+        (ev.participants || []).some(p => p.toLowerCase().includes(q))
+      )
+      if (!matchSearch) return false
+    }
+
+    if (dateRange?.from) {
+      const start = new Date(ev.start).getTime()
+      if (start < dateRange.from.getTime()) return false
+      if (dateRange.to && start > dateRange.to.getTime() + 86400000) return false
+    }
+
+    return true
   })
 
   const handleDelete = async (ev: api.ApiEvent) => {
@@ -174,9 +198,9 @@ export default function EventsPage() {
   }
 
   const actions = (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex items-center gap-2">
       <div className="relative">
-        <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 -translate-y-1/2" data-icon="inline-start" />
+        <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
         <Input
           className="h-7 w-48 pl-7 text-xs"
           placeholder={i18n.events.search}
@@ -184,30 +208,11 @@ export default function EventsPage() {
           onChange={e => setSearch(e.target.value)}
         />
       </div>
-
-      <div className="flex items-center gap-2">
-        <span className="text-muted-foreground text-xs">{i18n.events.density}</span>
-        <div className="w-24">
-          <Slider
-            value={[density]}
-            onValueChange={(v: SetStateAction<number> | SetStateAction<number>[]) => setDensity(Array.isArray(v) ? v[0] : v)}
-            min={20} max={500} step={10}
-          />
-        </div>
-        <span className="text-muted-foreground w-8 text-xs">{density}</span>
-      </div>
-
-      <Button variant="ghost" size="sm" onClick={openBin} title={i18n.events.recycleBin}>
-        <Trash2 data-icon="inline-start" />
+      <Button variant="ghost" size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo}>
+        <Plus className="mr-1.5 size-3.5" />{i18n.common.create}
       </Button>
-      <Button variant="ghost" size="sm" onClick={handleDeleteSelected} title={i18n.events.deleteSelected}>
-        <CircleMinus data-icon="inline-start" />
-      </Button>
-      <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo}>
-        <Plus data-icon="inline-start" />{i18n.common.create}
-      </Button>
-      <Button variant="ghost" size="sm" onClick={loadEvents} title={i18n.common.refresh}>
-        <RefreshCw data-icon="inline-start" />
+      <Button variant="ghost" size="icon" onClick={loadEvents} title={i18n.common.refresh}>
+        <RefreshCw className="size-4" />
       </Button>
     </div>
   )
@@ -220,11 +225,47 @@ export default function EventsPage() {
         actions={actions}
       />
 
+      {/* Sub-header for page-specific controls */}
+      <div className="flex items-center justify-between border-b bg-muted/5 px-6 py-2">
+        <div className="flex items-center gap-4">
+          <div className="flex w-48 flex-col gap-1.5 px-2">
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase font-bold tracking-tight">
+              <span>时间跨度 (缩放)</span>
+              <span>{GAP_OPTIONS.find(o => o.value === timeGap)?.label}</span>
+            </div>
+            <Slider
+              value={[GAP_OPTIONS.findIndex(o => o.value === timeGap)]}
+              min={0}
+              max={GAP_OPTIONS.length - 1}
+              step={1}
+              onValueChange={([val]) => setTimeGap(GAP_OPTIONS[val].value)}
+              className="py-1"
+            />
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={openBin}>
+            <Trash2 className="mr-1.5 size-3.5" />{i18n.events.recycleBin}
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="h-7 px-2 text-xs text-destructive hover:text-destructive" 
+            onClick={handleDeleteSelected}
+            disabled={selectedIds.size === 0}
+          >
+            <CircleMinus className="mr-1.5 size-3.5" />{i18n.events.deleteSelected} ({selectedIds.size})
+          </Button>
+        </div>
+      </div>
+
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col overflow-hidden">
           <EventTimeline
             events={filtered}
-            maxCount={density}
+            timeGap={timeGap}
+            dateRange={dateRange}
+            onDateRangeChange={setDateRange}
             highlightIds={highlightIds}
             tagList={tagList}
             onEventClick={setDetailEvent}

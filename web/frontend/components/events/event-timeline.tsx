@@ -1,14 +1,17 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import { Pencil, Trash2, Lock } from 'lucide-react'
+import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { Pencil, Trash2, Lock, Calendar as CalendarIcon, X } from 'lucide-react'
+import { format } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { TagFilter } from '@/components/shared/tag-filter'
+import { FilterBar } from '@/components/shared/filter-bar'
 import { type ApiEvent } from '@/lib/api'
 import { i18n } from '@/lib/i18n'
+import { DateRange } from 'react-day-picker'
+import { cn } from '@/lib/utils'
 
 // 使用 Tailwind / Shadcn 语义化图表变量，完美适配明暗模式切换
 const THREAD_COLORS = [
@@ -19,17 +22,14 @@ const THREAD_COLORS = [
   'var(--color-chart-5)',
 ]
 
-// 基础时间合并阈值（不涉及视觉渲染，保持全局常量）
-const MERGE = 7_200_000
-
-// 定义基准绘图指标（桌面端默认值）
+// 基础绘图指标
 const DEFAULT_METRICS = {
   AX: 48,  // 主轴 X 坐标
   FTX: 78, // 第一个线程的 X 坐标
   TW: 14,  // 线程可点击热区宽度
   TG: 16,  // 线程之间的间距
   NR: 5,   // 节点半径
-  RH: 100, // 行高
+  RH: 80,  // 行高 (缩小时会动态调整)
   TP: 40,  // 顶部内边距
   BG: 14,  // 气泡间距
 }
@@ -46,7 +46,11 @@ interface RowInfo {
   tsMs: number
 }
 
-function buildRowMap(threads: Thread[]) {
+/**
+ * 根据 timeGap 聚合行。如果两个事件的时间差小于 timeGap，则可能放在同一行（或紧邻）。
+ * 实际上 timeGap 在这里作为最小视觉间距的参考。
+ */
+function buildRowMap(threads: Thread[], timeGap: number) {
   const evts = threads
     .flatMap(t => t.events.map(ev => ({ ...ev, tsMs: new Date(ev.start).getTime() })))
     .sort((a, b) => a.tsMs - b.tsMs)
@@ -56,7 +60,8 @@ function buildRowMap(threads: Thread[]) {
 
   for (const ev of evts) {
     const last = rows[rows.length - 1]
-    if (last && ev.tsMs - last.tsMs <= MERGE) {
+    // 使用传入的 timeGap 作为行聚合阈值
+    if (last && ev.tsMs - last.tsMs <= timeGap / 2) {
       erm[ev.id] = last.idx
     } else {
       const idx = rows.length
@@ -81,7 +86,9 @@ function fmtTime(ts: string) {
 
 interface EventTimelineProps {
   events: ApiEvent[]
-  maxCount: number
+  timeGap: number
+  dateRange: DateRange | undefined
+  onDateRangeChange: (range: DateRange | undefined) => void
   highlightIds?: Set<string>
   tagList: { name: string; count: number }[]
   onEventClick: (ev: ApiEvent) => void
@@ -91,8 +98,10 @@ interface EventTimelineProps {
 
 export function EventTimeline({
   events,
-  maxCount,
-  highlightIds: _highlightIds,
+  timeGap,
+  dateRange,
+  onDateRangeChange,
+  highlightIds,
   tagList,
   onEventClick,
   onEdit,
@@ -100,15 +109,12 @@ export function EventTimeline({
 }: EventTimelineProps) {
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set())
   const [dimmedIds, setDimmedIds] = useState<Set<string>>(new Set())
-  const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null)
-  
-  // 响应式指标状态
+  const [hoveredEventId, setHoveredEventId] = useState<string | null>(null)
+  const [hoveredStack, setHoveredStack] = useState<{ row: number; tid: string } | null>(null)
   const [metrics, setMetrics] = useState(DEFAULT_METRICS)
   
-  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // 监听容器宽度，动态计算绘制参数（实现真响应式）
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -116,15 +122,11 @@ export function EventTimeline({
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const width = entry.contentRect.width
-        
         if (width < 600) {
-          // 移动端：紧凑模式
-          setMetrics({ AX: 32, FTX: 54, TW: 12, TG: 10, NR: 4, RH: 90, TP: 40, BG: 10 })
+          setMetrics(prev => ({ ...prev, AX: 32, FTX: 54, TW: 12, TG: 10, NR: 4, RH: 70 }))
         } else if (width > 1200) {
-          // 宽屏：舒展模式
-          setMetrics({ AX: 60, FTX: 100, TW: 16, TG: 24, NR: 6, RH: 110, TP: 40, BG: 18 })
+          setMetrics(prev => ({ ...prev, AX: 60, FTX: 100, TW: 16, TG: 24, NR: 6, RH: 90 }))
         } else {
-          // 默认桌面端
           setMetrics(DEFAULT_METRICS)
         }
       }
@@ -134,125 +136,153 @@ export function EventTimeline({
     return () => observer.disconnect()
   }, [])
 
-  const visible = [...events]
-    .sort((a, b) => b.salience - a.salience)
-    .slice(0, maxCount)
-    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+  const visible = useMemo(() => {
+    return [...events].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+  }, [events])
 
-  if (!visible.length) {
-    return (
-      <div className="flex flex-col items-center py-16 text-sm text-muted-foreground">
-        <p>{i18n.events.noData}</p>
-        <p className="mt-1 text-xs">{i18n.events.noDataHint}</p>
-      </div>
-    )
-  }
-
-  const allThreads: Thread[] = []
-  const threadMap: Record<string, Thread> = {}
-  for (const ev of visible) {
-    const key = ev.group || '__pvt__'
-    if (!threadMap[key]) {
-      const thread: Thread = {
-        id: key,
-        label: key === '__pvt__' ? i18n.events.privateChat : key,
-        color: THREAD_COLORS[allThreads.length % THREAD_COLORS.length],
-        events: [],
+  const threads = useMemo(() => {
+    const allThreads: Thread[] = []
+    const threadMap: Record<string, Thread> = {}
+    for (const ev of visible) {
+      const key = ev.group || '__pvt__'
+      if (!threadMap[key]) {
+        const thread: Thread = {
+          id: key,
+          label: key === '__pvt__' ? i18n.events.privateChat : key,
+          color: THREAD_COLORS[allThreads.length % THREAD_COLORS.length],
+          events: [],
+        }
+        threadMap[key] = thread
+        allThreads.push(thread)
       }
-      threadMap[key] = thread
-      allThreads.push(thread)
+      threadMap[key].events.push(ev)
     }
-    threadMap[key].events.push(ev)
-  }
+    return allThreads
+  }, [visible])
 
-  const matchedIds = new Set<string>()
-  if (activeTags.size === 0) {
-    for (const th of allThreads) matchedIds.add(th.id)
-  } else {
-    for (const th of allThreads) {
-      if (th.events.some(ev => (ev.tags ?? []).some(t => activeTags.has(t)))) {
-        matchedIds.add(th.id)
-      }
-    }
-  }
+  const filteredThreads = useMemo(() => {
+    if (activeTags.size === 0) return threads
+    return threads.filter(th => th.events.some(ev => (ev.tags ?? []).some(t => activeTags.has(t))))
+  }, [threads, activeTags])
 
-  const threads = allThreads.filter(th => matchedIds.has(th.id))
-
-  const handleTagsChange = (next: Set<string>) => {
-    setActiveTags(next)
-    setDimmedIds(new Set())
-  }
-
-  const enterHover = (id: string) => {
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
-    setHoveredThreadId(id)
-  }
-
-  const leaveHover = () => {
-    hoverTimerRef.current = setTimeout(() => setHoveredThreadId(null), 150)
-  }
-
-  const keepHover = () => {
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
-  }
-
-  const getOpacity = (thread: Thread) => {
-    if (hoveredThreadId !== null) return hoveredThreadId === thread.id ? 1 : 0.1
-    if (dimmedIds.has(thread.id)) return 0.1
-    return 1
-  }
-
-  const { erm, total, rows } = buildRowMap(threads)
+  const { erm, total, rows } = useMemo(() => buildRowMap(filteredThreads, timeGap), [filteredThreads, timeGap])
   
-  // 动态坐标计算函数
-  const tx = (i: number) => metrics.FTX + i * (metrics.TW + metrics.TG)
-  const ry = (i: number) => metrics.TP + i * metrics.RH
-  const svgH = metrics.TP + total * metrics.RH + 60
+  const threadRowGroups = useMemo(() => {
+    const groups: Record<string, Record<number, ApiEvent[]>> = {}
+    filteredThreads.forEach(thread => {
+      groups[thread.id] = {}
+      thread.events.forEach(ev => {
+        const rowIdx = erm[ev.id]
+        if (rowIdx === undefined) return
+        if (!groups[thread.id][rowIdx]) groups[thread.id][rowIdx] = []
+        groups[thread.id][rowIdx].push(ev)
+      })
+    })
+    return groups
+  }, [filteredThreads, erm])
+
+  const tx = (ti: number) => metrics.FTX + ti * (metrics.TW + metrics.TG)
+  const ry = (idx: number) => metrics.TP + idx * metrics.RH
+  const svgH = Math.max(400, metrics.TP + total * metrics.RH + 60)
+
+  // 辅助函数：绘制继承线
+  const renderInheritanceLines = () => {
+    const lines: React.ReactNode[] = []
+
+    visible.forEach(ev => {
+      if (!ev.inherit_from?.length) return
+      const targetRow = erm[ev.id]
+      if (targetRow === undefined) return
+      
+      const threadIdx = filteredThreads.findIndex(t => (t.id === (ev.group || '__pvt__')))
+      if (threadIdx === -1) return
+      const targetX = tx(threadIdx)
+      const targetY = ry(targetRow)
+
+      ev.inherit_from.forEach(parentEmailId => {
+        const parentEv = visible.find(e => e.id === parentEmailId)
+        const parentRow = erm[parentEmailId]
+        
+        if (parentEv && parentRow !== undefined) {
+          const parentThreadIdx = filteredThreads.findIndex(t => t.id === (parentEv.group || '__pvt__'))
+          if (parentThreadIdx === -1) return
+          const parentX = tx(parentThreadIdx)
+          const parentY = ry(parentRow)
+          lines.push(
+            <path
+              key={`${parentEmailId}-${ev.id}`}
+              d={`M ${parentX} ${parentY} C ${parentX} ${(parentY + targetY) / 2}, ${targetX} ${(parentY + targetY) / 2}, ${targetX} ${targetY}`}
+              stroke="currentColor"
+              strokeWidth={1}
+              strokeOpacity={0.2}
+              fill="none"
+              strokeDasharray="4 2"
+            />
+          )
+        } else {
+          // 父事件被截断或过滤，画出渐弱的虚线
+          lines.push(
+            <g key={`broken-${parentEmailId}-${ev.id}`}>
+              <defs>
+                <linearGradient id={`grad-broken-${ev.id}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stopColor="currentColor" stopOpacity="0" />
+                  <stop offset="100%" stopColor="currentColor" stopOpacity="0.15" />
+                </linearGradient>
+              </defs>
+              <line
+                x1={targetX} y1={targetY} x2={targetX} y2={targetY - 40}
+                stroke={`url(#grad-broken-${ev.id})`}
+                strokeWidth={1.5}
+                strokeDasharray="3 3"
+                className="animate-pulse"
+              />
+            </g>
+          )
+        }
+      })
+    })
+    return lines
+  }
 
   return (
-    // 使用 ref 监听容器宽度
-    <div className="flex flex-col h-full" ref={containerRef}>
-      <TagFilter tags={tagList} value={activeTags} onChange={handleTagsChange} />
+    <div className="flex flex-col h-full overflow-hidden" ref={containerRef}>
+      <FilterBar
+        tags={tagList}
+        activeTags={activeTags}
+        onTagsChange={setActiveTags}
+        dateRange={dateRange}
+        onDateRangeChange={onDateRangeChange}
+      />
 
-      {allThreads.length > 1 && (
-        <div className="border-b px-4 py-2 shrink-0">
+      {threads.length > 1 && (
+        <div className="border-b px-4 py-2 shrink-0 bg-muted/5">
           <p className="mb-1.5 text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {i18n.events.threadAxis}
+            活跃群组轴
           </p>
           <ToggleGroup 
             type="multiple"
             className="flex flex-wrap gap-1.5 justify-start"
-            value={allThreads.filter(th => matchedIds.has(th.id) && !dimmedIds.has(th.id)).map(th => th.id)}
+            value={threads.filter(th => !dimmedIds.has(th.id)).map(th => th.id)}
             onValueChange={(values: string[]) => {
               const newDimmed = new Set<string>()
-              allThreads.forEach(th => {
-                if (matchedIds.has(th.id) && !values.includes(th.id)) {
-                  newDimmed.add(th.id)
-                }
-              })
+              threads.forEach(th => { if (!values.includes(th.id)) newDimmed.add(th.id) })
               setDimmedIds(newDimmed)
             }}
           >
-            {allThreads.map(th => {
-              const matched = matchedIds.has(th.id)
-              const lit = matched && !dimmedIds.has(th.id)
+            {threads.map(th => {
+              const lit = !dimmedIds.has(th.id)
               return (
                 <ToggleGroupItem
                   key={th.id}
                   value={th.id}
-                  disabled={!matched}
                   className="h-6 inline-flex items-center gap-1.5 rounded border px-2.5 py-0.5 text-[10.5px] transition-all data-[state=on]:bg-transparent"
-                  style={matched ? {
-                    // 使用 color-mix 优雅实现 CSS 变量的透明度混合
+                  style={{
                     borderColor: lit ? `color-mix(in srgb, ${th.color} 40%, transparent)` : 'transparent',
                     background: lit ? `color-mix(in srgb, ${th.color} 15%, transparent)` : undefined,
                     color: lit ? th.color : undefined,
-                  } : { opacity: 0.38 }}
+                  }}
                 >
-                  <span
-                    className="inline-block size-1.5 shrink-0 rounded-full"
-                    style={{ background: lit ? th.color : undefined }}
-                  />
+                  <span className="inline-block size-1.5 shrink-0 rounded-full" style={{ background: lit ? th.color : undefined }} />
                   {th.label}
                 </ToggleGroupItem>
               )
@@ -263,176 +293,196 @@ export function EventTimeline({
 
       <ScrollArea className="flex-1">
         <div className="relative w-full" style={{ minHeight: svgH }}>
-          {/* Visual SVG layer */}
-          <svg
-            className="absolute left-0 top-0"
-            style={{ width: '100%', height: svgH, pointerEvents: 'none', overflow: 'visible' }}
-          >
+          <svg className="absolute left-0 top-0" style={{ width: '100%', height: svgH, pointerEvents: 'none', overflow: 'visible' }}>
             {/* Main axis */}
-            <line
-              x1={metrics.AX} y1={metrics.TP - 10} x2={metrics.AX} y2={svgH - metrics.BG}
-              stroke="currentColor" strokeOpacity={0.15} strokeWidth={1.5}
-            />
-            {/* Row ticks + date labels */}
+            <line x1={metrics.AX} y1={metrics.TP - 10} x2={metrics.AX} y2={svgH - 20} stroke="currentColor" strokeOpacity={0.15} strokeWidth={1.5} />
             {rows.map(row => (
               <g key={row.idx}>
-                <line
-                  x1={metrics.AX - 3} y1={ry(row.idx)} x2={metrics.AX + 3} y2={ry(row.idx)}
-                  stroke="currentColor" strokeOpacity={0.1} strokeWidth={1}
-                />
-                <text
-                  x={metrics.AX - 5} y={ry(row.idx) + 3}
-                  textAnchor="end" fill="currentColor" fillOpacity={0.2}
-                  fontSize={9} fontFamily="monospace"
-                >
+                <line x1={metrics.AX - 3} y1={ry(row.idx)} x2={metrics.AX + 3} y2={ry(row.idx)} stroke="currentColor" strokeOpacity={0.1} strokeWidth={1} />
+                <text x={metrics.AX - 5} y={ry(row.idx) + 3} textAnchor="end" fill="currentColor" fillOpacity={0.2} fontSize={9} fontFamily="monospace">
                   {fmtDate(row.tsMs)}
                 </text>
               </g>
             ))}
 
-            {/* Threads */}
-            {threads.map((thread, ti) => {
+            {renderInheritanceLines()}
+
+            {filteredThreads.map((thread, ti) => {
               const x = tx(ti)
-              const op = getOpacity(thread)
-              const evRows = thread.events.map(ev => erm[ev.id])
-              const minR = Math.min(...evRows)
-              const maxR = Math.max(...evRows)
-              const isHov = hoveredThreadId === thread.id
+              const op = dimmedIds.has(thread.id) ? 0.1 : 1
+              const rowIndices = Object.keys(threadRowGroups[thread.id] || {}).map(Number).sort((a, b) => a - b)
+              if (rowIndices.length === 0) return null
+              const minR = rowIndices[0]
+              const maxR = rowIndices[rowIndices.length - 1]
 
               return (
                 <g key={thread.id} style={{ opacity: op, transition: 'opacity 0.15s' }}>
-                  <line
-                    x1={x} y1={ry(minR)} x2={x} y2={ry(maxR)}
-                    stroke={thread.color} strokeWidth={1.5} strokeOpacity={0.7}
-                  />
-                  <line
-                    x1={x - 8} y1={ry(maxR) + 18}
-                    x2={x + 8} y2={ry(maxR) + 18}
-                    stroke={thread.color} strokeWidth={1} strokeOpacity={0.5}
-                  />
-                  <line
-                    x1={metrics.AX + 3} y1={ry(maxR) + 18}
-                    x2={x - 8} y2={ry(maxR) + 18}
-                    stroke={thread.color}
-                    strokeDasharray="3 2" strokeWidth={1}
-                    strokeOpacity={isHov ? 0.6 : 0.15}
-                  />
-                  {thread.events.map(ev => {
-                    const y = ry(erm[ev.id] ?? 0)
-                    return (
-                      <g key={ev.id}>
-                        {isHov && (
-                          <circle cx={x} cy={y} r={metrics.NR * 2} fill={thread.color} fillOpacity={0.08} />
-                        )}
+                  <line x1={x} y1={ry(minR)} x2={x} y2={ry(maxR)} stroke={thread.color} strokeWidth={1.5} strokeOpacity={0.7} />
+                  {rowIndices.map(rowIdx => {
+                    const group = threadRowGroups[thread.id][rowIdx]
+                    const y = ry(rowIdx)
+                    const isStackHovered = hoveredStack?.row === rowIdx && hoveredStack?.tid === thread.id
+                    
+                    if (group.length > 1) {
+                      // Stacked state
+                      return (
+                        <g key={`${thread.id}-${rowIdx}`}>
+                          {group.map((ev, i) => {
+                            const isHov = hoveredEventId === ev.id
+                            // 展开逻辑：hover时水平偏移，否则叠放（大小/强弱递减）
+                            const offset = isStackHovered ? (i - (group.length - 1) / 2) * (metrics.NR * 2.5) : 0
+                            const r = isStackHovered 
+                              ? (isHov ? metrics.NR * 1.5 : metrics.NR) 
+                              : metrics.NR * (1 - i * 0.15)
+                            const circleOp = isStackHovered ? 1 : 1 - i * 0.25
+                            
+                            return (
+                              <circle
+                                key={ev.id}
+                                cx={x + offset}
+                                cy={y}
+                                r={Math.max(2, r)}
+                                fill={isHov ? thread.color : 'var(--background)'}
+                                stroke={thread.color}
+                                strokeWidth={1.5}
+                                strokeOpacity={circleOp}
+                                style={{ transition: 'all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                              />
+                            )
+                          })}
+                        </g>
+                      )
+                    } else {
+                      // Single event
+                      const ev = group[0]
+                      const isHov = hoveredEventId === ev.id
+                      return (
                         <circle
-                          cx={x} cy={y}
-                          r={isHov ? metrics.NR * 1.3 : metrics.NR}
-                          fill={isHov ? thread.color : 'var(--background, #0f172a)'}
+                          key={ev.id} cx={x} cy={y}
+                          r={isHov ? metrics.NR * 1.5 : metrics.NR}
+                          fill={isHov ? thread.color : 'var(--background)'}
                           stroke={thread.color} strokeWidth={1.5}
-                          style={{ transition: 'r 0.1s, fill 0.1s' }}
+                          style={{ transition: 'r 0.15s, fill 0.15s' }}
                         />
-                      </g>
-                    )
+                      )
+                    }
                   })}
                 </g>
               )
             })}
           </svg>
 
-          {/* Hover zones */}
-          {threads.map((thread, ti) => {
+          {/* Interactive areas */}
+          {filteredThreads.map((thread, ti) => {
             const x = tx(ti)
-            const evRows = thread.events.map(ev => erm[ev.id])
-            const minR = Math.min(...evRows)
-            const maxR = Math.max(...evRows)
-            return (
-              <div
-                key={thread.id}
-                className="absolute cursor-pointer"
-                style={{
-                  left: x - (metrics.TW + metrics.TG) / 2,
-                  top: ry(minR) - 20,
-                  width: metrics.TW + metrics.TG,
-                  height: ry(maxR) - ry(minR) + 40,
-                  zIndex: 10,
-                }}
-                onMouseEnter={() => enterHover(thread.id)}
-                onMouseLeave={leaveHover}
-              />
-            )
-          })}
-
-          {/* Bubble cards */}
-          {hoveredThreadId && (() => {
-            const ti = threads.findIndex(t => t.id === hoveredThreadId)
-            const thread = threads[ti]
-            if (!thread) return null
-            const x = tx(ti)
-            return thread.events.map(ev => {
-              const rowIdx = erm[ev.id]
-              if (rowIdx === undefined) return null
+            const rowIndices = Object.keys(threadRowGroups[thread.id] || {}).map(Number)
+            return rowIndices.map(rowIdx => {
+              const group = threadRowGroups[thread.id][rowIdx]
+              const y = ry(rowIdx)
+              const isStackHovered = hoveredStack?.row === rowIdx && hoveredStack?.tid === thread.id
+              
               return (
                 <div
-                  key={ev.id}
-                  className="group absolute z-20 min-w-36 max-w-56 cursor-default rounded-lg border bg-card p-2 shadow-md transition-all hover:z-50 hover:shadow-lg"
+                  key={`${thread.id}-${rowIdx}`}
+                  className="absolute"
                   style={{
-                    top: ry(rowIdx) - 24,
-                    left: x + metrics.NR + metrics.BG,
-                    borderLeftColor: thread.color,
-                    borderLeftWidth: 2,
-                    animation: 'tlBubbleIn 0.13s ease',
+                    left: x - 20,
+                    top: y - 20,
+                    width: 40,
+                    height: 40,
+                    zIndex: 20,
                   }}
-                  onMouseEnter={keepHover}
-                  onMouseLeave={leaveHover}
-                  onClick={() => onEventClick(ev)}
+                  onMouseEnter={() => setHoveredStack({ row: rowIdx, tid: thread.id })}
+                  onMouseLeave={() => { setHoveredStack(null); setHoveredEventId(null) }}
                 >
-                  <div
-                    className="absolute -left-2 top-1/2 h-px w-2 -translate-y-1/2 opacity-50"
-                    style={{ background: thread.color }}
-                  />
-                  <p className="mb-1 truncate text-sm font-semibold leading-snug flex items-center gap-1">
-                    {ev.content || ev.topic || ev.id}
-                    {ev.is_locked && <Lock className="size-3 text-amber-500 shrink-0" />}
-                  </p>
-                  <p className="mb-1.5 font-mono text-[10px] text-muted-foreground">
-                    {fmtTime(ev.start)}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-1">
-                    {(ev.tags ?? []).slice(0, 3).map(tag => (
-                      <Badge
-                        key={tag}
-                        variant="secondary"
-                        className="rounded px-1.5 py-0 font-medium text-[10px] hover:bg-opacity-80"
-                        style={{ 
-                          background: `color-mix(in srgb, ${thread.color} 15%, transparent)`, 
-                          color: thread.color 
-                        }}
-                      >
-                        {tag}
-                      </Badge>
-                    ))}
-                    <span
-                      className="ml-auto rounded px-1 py-0.5 font-mono text-[10px]"
-                      style={{
-                        color: ev.salience >= 0.85 ? 'var(--color-chart-2)'
-                          : ev.salience >= 0.70 ? 'var(--color-chart-1)'
-                          : undefined,
-                      }}
-                    >
-                      {(ev.salience * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                  <div className="mt-1.5 flex justify-end gap-1" onClick={e => e.stopPropagation()}>
-                    <Button variant="ghost" size="icon" onClick={() => onEdit(ev)}>
-                      <Pencil className="size-3" />
-                    </Button>
-                    <Button variant="destructive" size="icon" onClick={() => onDelete(ev)}>
-                      <Trash2 className="size-3" />
-                    </Button>
-                  </div>
+                   {/* 子事件交互区（仅在栈展开或单事件时有效） */}
+                   <div className="relative size-full">
+                     {group.map((ev, i) => {
+                       const offset = isStackHovered ? (i - (group.length - 1) / 2) * (metrics.NR * 2.5) : 0
+                       return (
+                         <div
+                           key={ev.id}
+                           className="absolute cursor-pointer rounded-full"
+                           style={{
+                             left: 20 + offset - 12,
+                             top: 20 - 12,
+                             width: 24,
+                             height: 24,
+                             zIndex: 30,
+                           }}
+                           onMouseEnter={(e) => { e.stopPropagation(); setHoveredEventId(ev.id) }}
+                           onMouseLeave={() => setHoveredEventId(null)}
+                           onClick={() => onEventClick(ev)}
+                         />
+                       )
+                     })}
+                   </div>
                 </div>
               )
             })
+          })}
+
+          {/* Single Event Detail Bubble (per-event hover) */}
+          {hoveredEventId && (() => {
+            const ev = visible.find(e => e.id === hoveredEventId)
+            if (!ev) return null
+            const rowIdx = erm[ev.id]
+            if (rowIdx === undefined) return null
+            const thread = threads.find(t => t.id === (ev.group || '__pvt__'))
+            if (!thread) return null
+            const ti = filteredThreads.findIndex(t => t.id === thread.id)
+            if (ti === -1) return null
+            
+            const group = threadRowGroups[thread.id][rowIdx] || []
+            const i = group.findIndex(e => e.id === ev.id)
+            const isStackHovered = hoveredStack?.row === rowIdx && hoveredStack?.tid === thread.id
+            const offset = isStackHovered ? (i - (group.length - 1) / 2) * (metrics.NR * 2.5) : 0
+            
+            const x = tx(ti)
+
+            return (
+              <div
+                className="absolute z-50 min-w-48 max-w-64 pointer-events-none rounded-lg border bg-card p-3 shadow-xl ring-1 ring-black/5"
+                style={{
+                  top: ry(rowIdx) - 20,
+                  left: x + offset + metrics.NR + metrics.BG,
+                  borderLeftColor: thread.color,
+                  borderLeftWidth: 3,
+                  animation: 'tlBubbleIn 0.15s cubic-bezier(0.16, 1, 0.3, 1)',
+                }}
+              >
+                <p className="mb-1 text-sm font-semibold leading-tight flex items-center gap-1.5">
+                  {ev.content || ev.topic || ev.id}
+                  {ev.is_locked && <Lock className="size-3 text-amber-500" />}
+                </p>
+                <p className="mb-2 font-mono text-[10px] text-muted-foreground">
+                  {fmtTime(ev.start)}
+                </p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(ev.tags ?? []).slice(0, 4).map(tag => (
+                    <Badge key={tag} variant="secondary" className="rounded px-1.5 py-0 text-[10px] font-medium" style={{ background: `color-mix(in srgb, ${thread.color} 12%, transparent)`, color: thread.color }}>
+                      #{tag}
+                    </Badge>
+                  ))}
+                </div>
+                <div className="mt-2.5 pt-2 border-t flex items-center justify-between">
+                   <div className="flex items-center gap-2">
+                     <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Salience</span>
+                     <span className="font-mono text-xs font-bold" style={{ color: ev.salience > 0.8 ? 'var(--color-chart-2)' : 'inherit' }}>
+                       {(ev.salience * 100).toFixed(0)}%
+                     </span>
+                   </div>
+                   <div className="flex gap-1 pointer-events-auto">
+                     <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); onEdit(ev) }}>
+                       <Pencil className="size-3" />
+                     </Button>
+                     <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); onDelete(ev) }}>
+                       <Trash2 className="size-3" />
+                     </Button>
+                   </div>
+                </div>
+              </div>
+            )
           })()}
         </div>
       </ScrollArea>
