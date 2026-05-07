@@ -92,6 +92,8 @@ interface EventTimelineProps {
   highlightIds?: Set<string>
   tagList: { name: string; count: number }[]
   onEventClick: (ev: ApiEvent) => void
+  selectedEventId: string | null
+  onSelectionChange: (id: string | null) => void
   onEdit: (ev: ApiEvent) => void
   onDelete: (ev: ApiEvent) => void
 }
@@ -104,6 +106,8 @@ export function EventTimeline({
   highlightIds,
   tagList,
   onEventClick,
+  selectedEventId,
+  onSelectionChange,
   onEdit,
   onDelete,
 }: EventTimelineProps) {
@@ -115,7 +119,11 @@ export function EventTimeline({
   
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // Sync selection with external detailEvent if needed (though usually it's the other way)
+  // For simplicity, we just manage it internally here.
+
   useEffect(() => {
+    // ... ResizeObserver logic ...
     const container = containerRef.current
     if (!container) return
 
@@ -217,12 +225,13 @@ export function EventTimeline({
               strokeOpacity={0.2}
               fill="none"
               strokeDasharray="4 2"
+              style={{ transition: 'all 0.4s ease-out' }}
             />
           )
         } else {
           // 父事件被截断或过滤，画出渐弱的虚线
           lines.push(
-            <g key={`broken-${parentEmailId}-${ev.id}`}>
+            <g key={`broken-${parentEmailId}-${ev.id}`} style={{ transition: 'all 0.4s ease-out' }}>
               <defs>
                 <linearGradient id={`grad-broken-${ev.id}`} x1="0%" y1="0%" x2="0%" y2="100%">
                   <stop offset="0%" stopColor="currentColor" stopOpacity="0" />
@@ -235,6 +244,7 @@ export function EventTimeline({
                 strokeWidth={1.5}
                 strokeDasharray="3 3"
                 className="animate-pulse"
+                style={{ transition: 'all 0.4s ease-out' }}
               />
             </g>
           )
@@ -291,15 +301,27 @@ export function EventTimeline({
         </div>
       )}
 
-      <ScrollArea className="flex-1">
-        <div className="relative w-full" style={{ minHeight: svgH }}>
-          <svg className="absolute left-0 top-0" style={{ width: '100%', height: svgH, pointerEvents: 'none', overflow: 'visible' }}>
+      <ScrollArea className="flex-1" onClick={() => onSelectionChange(null)}>
+        <div className="relative w-full" style={{ minHeight: svgH, transition: 'min-height 0.4s ease-out' }}>
+          <svg className="absolute left-0 top-0" style={{ width: '100%', height: svgH, pointerEvents: 'none', overflow: 'visible', transition: 'height 0.4s ease-out' }}>
             {/* Main axis */}
-            <line x1={metrics.AX} y1={metrics.TP - 10} x2={metrics.AX} y2={svgH - 20} stroke="currentColor" strokeOpacity={0.15} strokeWidth={1.5} />
+            <line 
+              x1={metrics.AX} y1={metrics.TP - 10} x2={metrics.AX} y2={svgH - 20} 
+              stroke="currentColor" strokeOpacity={0.15} strokeWidth={1.5} 
+              style={{ transition: 'all 0.4s ease-out' }}
+            />
             {rows.map(row => (
-              <g key={row.idx}>
-                <line x1={metrics.AX - 3} y1={ry(row.idx)} x2={metrics.AX + 3} y2={ry(row.idx)} stroke="currentColor" strokeOpacity={0.1} strokeWidth={1} />
-                <text x={metrics.AX - 5} y={ry(row.idx) + 3} textAnchor="end" fill="currentColor" fillOpacity={0.2} fontSize={9} fontFamily="monospace">
+              <g key={row.idx} style={{ transition: 'all 0.4s ease-out' }}>
+                <line 
+                  x1={metrics.AX - 3} y1={ry(row.idx)} x2={metrics.AX + 3} y2={ry(row.idx)} 
+                  stroke="currentColor" strokeOpacity={0.1} strokeWidth={1} 
+                  style={{ transition: 'all 0.4s ease-out' }}
+                />
+                <text 
+                  x={metrics.AX - 5} y={ry(row.idx) + 3} textAnchor="end" 
+                  fill="currentColor" fillOpacity={0.2} fontSize={9} fontFamily="monospace"
+                  style={{ transition: 'all 0.4s ease-out' }}
+                >
                   {fmtDate(row.tsMs)}
                 </text>
               </g>
@@ -316,8 +338,12 @@ export function EventTimeline({
               const maxR = rowIndices[rowIndices.length - 1]
 
               return (
-                <g key={thread.id} style={{ opacity: op, transition: 'opacity 0.15s' }}>
-                  <line x1={x} y1={ry(minR)} x2={x} y2={ry(maxR)} stroke={thread.color} strokeWidth={1.5} strokeOpacity={0.7} />
+                <g key={thread.id} style={{ opacity: op, transition: 'all 0.4s ease-out' }}>
+                  <line 
+                    x1={x} y1={ry(minR)} x2={x} y2={ry(maxR)} 
+                    stroke={thread.color} strokeWidth={1.5} strokeOpacity={0.7} 
+                    style={{ transition: 'all 0.4s ease-out' }}
+                  />
                   {rowIndices.map(rowIdx => {
                     const group = threadRowGroups[thread.id][rowIdx]
                     const y = ry(rowIdx)
@@ -329,10 +355,11 @@ export function EventTimeline({
                         <g key={`${thread.id}-${rowIdx}`}>
                           {group.map((ev, i) => {
                             const isHov = hoveredEventId === ev.id
+                            const isSel = selectedEventId === ev.id
                             // 展开逻辑：hover时水平偏移，否则叠放（大小/强弱递减）
                             const offset = isStackHovered ? (i - (group.length - 1) / 2) * (metrics.NR * 2.5) : 0
                             const r = isStackHovered 
-                              ? (isHov ? metrics.NR * 1.5 : metrics.NR) 
+                              ? (isHov || isSel ? metrics.NR * 1.5 : metrics.NR) 
                               : metrics.NR * (1 - i * 0.15)
                             const circleOp = isStackHovered ? 1 : 1 - i * 0.25
                             
@@ -342,11 +369,11 @@ export function EventTimeline({
                                 cx={x + offset}
                                 cy={y}
                                 r={Math.max(2, r)}
-                                fill={isHov ? thread.color : 'var(--background)'}
+                                fill={isHov || isSel ? thread.color : 'var(--background)'}
                                 stroke={thread.color}
                                 strokeWidth={1.5}
                                 strokeOpacity={circleOp}
-                                style={{ transition: 'all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                                style={{ transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
                               />
                             )
                           })}
@@ -356,13 +383,14 @@ export function EventTimeline({
                       // Single event
                       const ev = group[0]
                       const isHov = hoveredEventId === ev.id
+                      const isSel = selectedEventId === ev.id
                       return (
                         <circle
                           key={ev.id} cx={x} cy={y}
-                          r={isHov ? metrics.NR * 1.5 : metrics.NR}
-                          fill={isHov ? thread.color : 'var(--background)'}
+                          r={isHov || isSel ? metrics.NR * 1.5 : metrics.NR}
+                          fill={isHov || isSel ? thread.color : 'var(--background)'}
                           stroke={thread.color} strokeWidth={1.5}
-                          style={{ transition: 'r 0.15s, fill 0.15s' }}
+                          style={{ transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
                         />
                       )
                     }
@@ -391,6 +419,7 @@ export function EventTimeline({
                     width: 40,
                     height: 40,
                     zIndex: 20,
+                    transition: 'all 0.4s ease-out',
                   }}
                   onMouseEnter={() => setHoveredStack({ row: rowIdx, tid: thread.id })}
                   onMouseLeave={() => { setHoveredStack(null); setHoveredEventId(null) }}
@@ -409,10 +438,19 @@ export function EventTimeline({
                              width: 24,
                              height: 24,
                              zIndex: 30,
+                             transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
                            }}
                            onMouseEnter={(e) => { e.stopPropagation(); setHoveredEventId(ev.id) }}
                            onMouseLeave={() => setHoveredEventId(null)}
-                           onClick={() => onEventClick(ev)}
+                           onClick={(e) => { 
+                             e.stopPropagation(); 
+                             if (selectedEventId === ev.id) {
+                               onSelectionChange(null);
+                             } else {
+                               onSelectionChange(ev.id);
+                               onEventClick(ev);
+                             }
+                           }}
                          />
                        )
                      })}

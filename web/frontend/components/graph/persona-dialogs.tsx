@@ -429,13 +429,15 @@ export function ImpressionDetailCard({
         <div className="flex flex-col gap-1">
           <p className="text-muted-foreground text-xs">{i18n.graph.evidenceEvents}</p>
           {d.evidence_event_ids.map(eid => (
-            <button
+            <Button
               key={eid}
+              variant="ghost"
+              size="sm"
               onClick={() => onJumpToEvent(eid)}
-              className="hover:bg-accent rounded px-2 py-1 text-left text-xs transition-colors"
+              className="w-full justify-start h-8 px-2 font-mono text-[10px]"
             >
               {eid.slice(0, 16)}…
-            </button>
+            </Button>
           ))}
         </div>
       )}

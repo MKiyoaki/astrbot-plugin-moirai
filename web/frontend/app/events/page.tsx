@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, SetStateAction, useRef } from 'react'
-import { Plus, RefreshCw, Trash2, CircleMinus, Search } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
@@ -14,6 +14,7 @@ import {
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { i18n } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 import { DateRange } from 'react-day-picker'
 import { DateRangePicker } from '@/components/shared/date-range-picker'
@@ -34,9 +35,9 @@ export default function EventsPage() {
   const [search, setSearch] = useState('')
   const [timeGap, setTimeGap] = useState(7200000)
   const [dateRange, setDateRange] = useState<DateRange | undefined>()
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set())
   const [detailEvent, setDetailEvent] = useState<api.ApiEvent | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [editEvent, setEditEvent] = useState<api.ApiEvent | null>(null)
   const [binOpen, setBinOpen] = useState(false)
@@ -46,13 +47,16 @@ export default function EventsPage() {
   const [tagList, setTagList] = useState<{ name: string; count: number }[]>([])
 
   const loadEvents = useCallback(async () => {
+    setIsRefreshing(true)
     try {
       const data = await api.events.list(1000)
       app.setRawEvents(data.items)
     } catch {
       app.toast(i18n.events.loadError, 'destructive')
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 600) // Ensure animation is visible
     }
-  }, [app])
+  }, [app.setRawEvents, app.toast])
 
   useEffect(() => {
     loadEvents()
@@ -157,19 +161,6 @@ export default function EventsPage() {
     await loadEvents()
   }
 
-  const handleDeleteSelected = async () => {
-    if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    if (!selectedIds.size) { app.toast('未选择任何事件', 'destructive'); return }
-    if (!confirm(i18n.events.deleteSelectedConfirm.replace('{count}', selectedIds.size.toString()))) return
-    let ok = 0
-    for (const id of selectedIds) {
-      try { await api.events.delete(id); ok++ } catch {}
-    }
-    setSelectedIds(new Set())
-    app.toast(`已删除 ${ok} 条事件`)
-    await loadEvents()
-  }
-
   const openBin = async () => {
     setBinOpen(true)
     setBinLoading(true)
@@ -212,7 +203,7 @@ export default function EventsPage() {
         <Plus className="mr-1.5 size-3.5" />{i18n.common.create}
       </Button>
       <Button variant="ghost" size="icon" onClick={loadEvents} title={i18n.common.refresh}>
-        <RefreshCw className="size-4" />
+        <RefreshCw className={cn("size-4 transition-transform duration-500", isRefreshing && "animate-spin")} />
       </Button>
     </div>
   )
@@ -247,15 +238,6 @@ export default function EventsPage() {
           <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={openBin}>
             <Trash2 className="mr-1.5 size-3.5" />{i18n.events.recycleBin}
           </Button>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="h-7 px-2 text-xs text-destructive hover:text-destructive" 
-            onClick={handleDeleteSelected}
-            disabled={selectedIds.size === 0}
-          >
-            <CircleMinus className="mr-1.5 size-3.5" />{i18n.events.deleteSelected} ({selectedIds.size})
-          </Button>
         </div>
       </div>
 
@@ -269,6 +251,10 @@ export default function EventsPage() {
             highlightIds={highlightIds}
             tagList={tagList}
             onEventClick={setDetailEvent}
+            selectedEventId={detailEvent?.id || null}
+            onSelectionChange={(id) => {
+              if (!id) setDetailEvent(null);
+            }}
             onEdit={ev => { if (app.sudo) setEditEvent(ev); else app.toast(i18n.common.needSudo, 'destructive') }}
             onDelete={handleDelete}
           />

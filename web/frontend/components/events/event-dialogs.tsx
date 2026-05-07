@@ -77,13 +77,15 @@ function GroupPicker({
         </span>
         <div className="flex items-center gap-1">
           {value && (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 hover:text-destructive"
               onClick={e => { e.stopPropagation(); onChange('') }}
-              className="hover:text-destructive"
             >
               <X className="size-3" />
-            </button>
+            </Button>
           )}
           <ChevronsUpDown className="text-muted-foreground shrink-0" data-icon="inline-end" />
         </div>
@@ -98,31 +100,31 @@ function GroupPicker({
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); useCustom() } }}
         />
         {search.trim() && !knownGroups.includes(search.trim()) && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            className="mb-1 w-full justify-start gap-2 h-9 px-2"
             onClick={useCustom}
-            className="hover:bg-accent mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm"
           >
-            <Plus className="shrink-0" data-icon="inline-start" />
+            <Plus className="shrink-0 size-4" />
             <span>使用 &ldquo;{search}&rdquo;</span>
-          </button>
+          </Button>
         )}
         <div className="max-h-40 overflow-y-auto">
           {filtered.length === 0 && !search.trim() ? (
             <p className="text-muted-foreground px-2 py-1.5 text-sm">暂无已知群组</p>
           ) : filtered.map(g => (
-            <button
+            <Button
               key={g}
-              type="button"
-              onClick={() => select(g)}
+              variant="ghost"
               className={cn(
-                'hover:bg-accent flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm',
+                'w-full justify-start gap-2 h-9 px-2 font-normal',
                 value === g && 'bg-accent/50',
               )}
+              onClick={() => select(g)}
             >
-              <Check className={cn('shrink-0', value === g ? 'opacity-100' : 'opacity-0')} data-icon="inline-start" />
+              <Check className={cn('shrink-0 size-4', value === g ? 'opacity-100' : 'opacity-0')} />
               <span className="font-mono">{g}</span>
-            </button>
+            </Button>
           ))}
         </div>
       </PopoverContent>
@@ -180,13 +182,15 @@ function EventInheritPicker({
           {value.map(id => (
             <Badge key={id} variant="secondary" className="gap-1 pr-1 text-xs">
               {labelFor(id)}
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={e => { e.stopPropagation(); remove(id) }}
-                className="hover:text-destructive ml-0.5"
+                className="hover:text-destructive h-4 w-4"
               >
                 <X className="size-2.5" />
-              </button>
+              </Button>
             </Badge>
           ))}
         </div>
@@ -209,16 +213,16 @@ function EventInheritPicker({
             filtered.map(ev => {
               const selected = value.includes(ev.id)
               return (
-                <button
+                <Button
                   key={ev.id}
-                  type="button"
+                  variant="ghost"
                   onClick={() => toggle(ev.id)}
                   className={cn(
-                    'hover:bg-accent flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm',
+                    'w-full justify-start gap-2 h-auto py-2 px-2 font-normal',
                     selected && 'bg-accent/50',
                   )}
                 >
-                  <Check className={cn('shrink-0', selected ? 'opacity-100' : 'opacity-0')} data-icon="inline-start" />
+                  <Check className={cn('shrink-0 size-4', selected ? 'opacity-100' : 'opacity-0')} />
                   <span className="flex flex-col items-start gap-0.5 text-left">
                     <span className="truncate font-medium">
                       {ev.topic || ev.content || ev.id}
@@ -227,7 +231,7 @@ function EventInheritPicker({
                       {ev.id.slice(0, 16)}…
                     </span>
                   </span>
-                </button>
+                </Button>
               )
             })
           )}

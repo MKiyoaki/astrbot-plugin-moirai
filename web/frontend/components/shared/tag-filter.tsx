@@ -1,8 +1,10 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { X } from 'lucide-react'
+import { X, ChevronDown, ChevronUp } from 'lucide-react'
 import { i18n } from '@/lib/i18n'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 // 使用 Tailwind 语义化图表变量
 const THREAD_COLORS = [
@@ -55,13 +57,15 @@ export function TagFilter({ tags, value, onChange }: TagFilterProps) {
           {i18n.events.tagFilter}
         </span>
         {value.size > 0 && (
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => onChange(new Set())}
-            className="flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-[9.5px] text-muted-foreground transition-colors hover:text-foreground"
+            className="h-5 rounded-full px-2 text-[9.5px] text-muted-foreground gap-1"
           >
             <X className="size-2.5" />
             {i18n.events.tagClear}
-          </button>
+          </Button>
         )}
       </div>
       <div
@@ -94,12 +98,24 @@ export function TagFilter({ tags, value, onChange }: TagFilterProps) {
         })}
       </div>
       {overflows && (
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => setExpanded(e => !e)}
-          className="mt-1 rounded border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+          className="mt-1 h-6 rounded border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
         >
-          {expanded ? i18n.events.tagCollapse : i18n.events.tagMore}
-        </button>
+          {expanded ? (
+            <>
+              <ChevronUp className="mr-1 size-3" />
+              {i18n.events.tagCollapse}
+            </>
+          ) : (
+            <>
+              <ChevronDown className="mr-1 size-3" />
+              {i18n.events.tagMore}
+            </>
+          )}
+        </Button>
       )}
     </div>
   )

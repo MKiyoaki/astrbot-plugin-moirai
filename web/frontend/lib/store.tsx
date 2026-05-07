@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react'
 import * as api from './api'
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(interval)
   }, [authenticated, effectiveSudoAlways])
 
-  const ctx: AppState & AppActions = {
+  const ctx = useMemo<AppState & AppActions>(() => ({
     authEnabled, authenticated, sudo, passwordSet,
     sudoGuardEnabled, sudoGuardMinutes,
     defaultPersonaConfidence,
@@ -169,7 +169,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setRawEvents,
     toast,
     dismissToast,
-  }
+  }), [
+    authEnabled, authenticated, sudo, passwordSet,
+    sudoGuardEnabled, sudoGuardMinutes,
+    defaultPersonaConfidence,
+    stats, rawGraph, rawEvents, toasts,
+    refreshAuth, refreshStats, setSudoGuardEnabled, setSudoGuardMinutes, setDefaultPersonaConfidence, toast, dismissToast
+  ])
 
   return <AppContext.Provider value={ctx}>{children}</AppContext.Provider>
 }

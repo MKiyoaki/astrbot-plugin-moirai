@@ -16,6 +16,7 @@ import { GroupCardList } from '@/components/graph/group-card-list'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { i18n } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   DEFAULT_PHYSICS_PARAMS,
@@ -44,6 +45,7 @@ export default function GraphPage() {
   const [groupCards, setGroupCards] = useState<GroupCard[]>([])
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   // ── Graph interaction state ─────────────────────────────────────────────────
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
@@ -69,6 +71,7 @@ export default function GraphPage() {
   // ── Data loading ────────────────────────────────────────────────────────────
   const loadGraph = useCallback(async () => {
     setLoading(true)
+    setIsRefreshing(true)
     try {
       const data = await api.graph.get()
       if (data.enabled === false) {
@@ -83,8 +86,9 @@ export default function GraphPage() {
       app.toast('关系图加载失败', 'destructive')
     } finally {
       setLoading(false)
+      setTimeout(() => setIsRefreshing(false), 600)
     }
-  }, [app, physics.biWeight])
+  }, [app.setRawGraph, app.toast, physics.biWeight])
 
   useEffect(() => {
     loadGraph().then(() => {
@@ -274,7 +278,7 @@ export default function GraphPage() {
                 <UserPlus className="mr-1 size-3.5" />{i18n.graph.createPersona}
               </Button>
               <Button variant="ghost" size="icon" onClick={loadGraph} title={i18n.common.refresh}>
-                <RefreshCw className="size-4" />
+                <RefreshCw className={cn("size-4 transition-transform duration-500", isRefreshing && "animate-spin")} />
               </Button>
             </div>
           }
@@ -382,7 +386,7 @@ export default function GraphPage() {
               <UserPlus className="mr-1 size-3.5" />{i18n.graph.createPersona}
             </Button>
             <Button variant="ghost" size="icon" onClick={loadGraph} title={i18n.common.refresh}>
-              <RefreshCw className="size-4" />
+              <RefreshCw className={cn("size-4 transition-transform duration-500", isRefreshing && "animate-spin")} />
             </Button>
           </div>
         }

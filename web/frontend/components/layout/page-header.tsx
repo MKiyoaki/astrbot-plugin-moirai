@@ -23,10 +23,10 @@ export function PageHeader({ title, description, actions, className }: PageHeade
         <div className="flex flex-1 items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <SidebarTrigger className="-ml-1" />
-            <div className="flex flex-col gap-0.5">
-              <h1 className="text-xl font-semibold tracking-tight leading-none">{title}</h1>
+            <div className="flex flex-col gap-0.5 min-w-0">
+              <h1 className="text-xl font-semibold tracking-tight leading-none truncate whitespace-nowrap">{title}</h1>
               {description && (
-                <p className="text-muted-foreground text-xs">{description}</p>
+                <p className="text-muted-foreground text-xs truncate whitespace-nowrap">{description}</p>
               )}
             </div>
           </div>
