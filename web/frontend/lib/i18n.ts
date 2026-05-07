@@ -361,6 +361,8 @@ export const zh = {
     loading: '加载中…',
     error: '加载失败',
     success: '操作成功',
+    updateOk: '已保存更新',
+    updateFailed: '保存失败',
     needSudo: '需要 Sudo 模式',
     unknown: '未知',
     all: '全部',

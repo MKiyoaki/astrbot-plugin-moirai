@@ -7,11 +7,12 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup } from '@/components/ui/select'
+import { Spinner } from '@/components/ui/spinner'
+import { FieldGroup, Field, FieldLabel, FieldContent, FieldDescription } from '@/components/ui/field'
 import { TagSelector } from '@/components/shared/tag-selector'
 import { type PersonaNode, type ImpressionEdge } from '@/lib/api'
 import { i18n } from '@/lib/i18n'
@@ -33,41 +34,57 @@ function PersonaForm({ data, onChange }: { data: PersonaFormData; onChange: (d: 
     onChange({ ...data, [k]: v })
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="p-name">{i18n.graph.name} *</Label>
-        <Input id="p-name" value={data.name} onChange={e => set('name', e.target.value)} />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="p-desc">{i18n.graph.description}</Label>
-        <Input id="p-desc" value={data.description} onChange={e => set('description', e.target.value)} />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label>{i18n.graph.affectType}</Label>
-        <Select value={data.affect_type} onValueChange={v => set('affect_type', v ?? '')}>
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {AFFECT_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label>{i18n.graph.contentTags}</Label>
-        <TagSelector value={data.tags} onChange={v => set('tags', v)} />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="p-bindings">{i18n.graph.bindings}</Label>
-        <textarea
-          id="p-bindings"
-          className="border-input bg-transparent text-foreground focus-visible:border-ring focus-visible:ring-ring/50 min-h-16 w-full rounded-lg border px-2.5 py-2 text-sm outline-none focus-visible:ring-3"
-          value={data.bindings}
-          onChange={e => set('bindings', e.target.value)}
-          placeholder="platform:id&#10;telegram:12345"
-        />
-      </div>
-    </div>
+    <FieldGroup>
+      <Field>
+        <FieldLabel htmlFor="p-name">{i18n.graph.name} *</FieldLabel>
+        <FieldContent>
+          <Input id="p-name" value={data.name} onChange={e => set('name', e.target.value)} />
+        </FieldContent>
+      </Field>
+
+      <Field>
+        <FieldLabel htmlFor="p-desc">{i18n.graph.description}</FieldLabel>
+        <FieldContent>
+          <Input id="p-desc" value={data.description} onChange={e => set('description', e.target.value)} />
+        </FieldContent>
+      </Field>
+
+      <Field>
+        <FieldLabel>{i18n.graph.affectType}</FieldLabel>
+        <FieldContent>
+          <Select value={data.affect_type} onValueChange={v => set('affect_type', v ?? '')}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {AFFECT_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </FieldContent>
+      </Field>
+
+      <Field>
+        <FieldLabel>{i18n.graph.contentTags}</FieldLabel>
+        <FieldContent>
+          <TagSelector value={data.tags} onChange={v => set('tags', v)} />
+        </FieldContent>
+      </Field>
+
+      <Field>
+        <FieldLabel htmlFor="p-bindings">{i18n.graph.bindings}</FieldLabel>
+        <FieldContent>
+          <textarea
+            id="p-bindings"
+            className="border-input bg-transparent text-foreground focus-visible:border-ring focus-visible:ring-ring/50 min-h-16 w-full rounded-lg border px-2.5 py-2 text-sm outline-none focus-visible:ring-3"
+            value={data.bindings}
+            onChange={e => set('bindings', e.target.value)}
+            placeholder="platform:id&#10;telegram:12345"
+          />
+        </FieldContent>
+      </Field>
+    </FieldGroup>
   )
 }
 
@@ -127,7 +144,10 @@ export function CreatePersonaDialog({
         {error && <p className="text-destructive text-sm">{error}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>{i18n.common.cancel}</Button>
-          <Button onClick={handleSubmit} disabled={loading}>{i18n.common.create}</Button>
+          <Button onClick={handleSubmit} disabled={loading}>
+            {loading && <Spinner data-icon="inline-start" />}
+            {i18n.common.create}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -192,6 +212,7 @@ export function EditPersonaDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{i18n.graph.editTitle}</DialogTitle>
+          <DialogDescription>修改人格信息后点击保存。</DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[60vh]">
           <div className="pr-4"><PersonaForm data={data} onChange={setData} /></div>
@@ -199,7 +220,10 @@ export function EditPersonaDialog({
         {error && <p className="text-destructive text-sm">{error}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>{i18n.common.cancel}</Button>
-          <Button onClick={handleSubmit} disabled={loading}>{i18n.common.save}</Button>
+          <Button onClick={handleSubmit} disabled={loading}>
+            {loading && <Spinner data-icon="inline-start" />}
+            {i18n.common.save}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -217,9 +241,11 @@ export function EditImpressionDialog({
   onSubmit: (observer: string, subject: string, scope: string, data: Record<string, unknown>) => Promise<void>
 }) {
   const existingConfidenceRef = useRef<number>(0.8)
-  const [relation, setRelation] = useState('')
-  const [affect, setAffect] = useState(0)
+  const [orientation, setOrientation] = useState('')
+  const [benevolence, setBenevolence] = useState(0)
+  const [power, setPower] = useState(0)
   const [intensity, setIntensity] = useState(0.5)
+  const [rSquared, setRSquared] = useState(0.7)
   const [evidence, setEvidence] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -227,9 +253,11 @@ export function EditImpressionDialog({
   useEffect(() => {
     if (edge) {
       existingConfidenceRef.current = edge.data.confidence
-      setRelation(edge.data.label || '')
-      setAffect(edge.data.affect)
+      setOrientation(edge.data.label || '')
+      setBenevolence(edge.data.affect)
+      setPower(edge.data.power)
       setIntensity(edge.data.intensity)
+      setRSquared(edge.data.r_squared)
       setEvidence((edge.data.evidence_event_ids || []).join(', '))
       setError('')
     }
@@ -240,8 +268,11 @@ export function EditImpressionDialog({
     setLoading(true); setError('')
     try {
       await onSubmit(edge.data.source, edge.data.target, edge.data.scope, {
-        relation_type: relation.trim(),
-        affect, intensity,
+        relation_type: orientation.trim(),
+        affect: benevolence,
+        power: power,
+        intensity: intensity,
+        r_squared: rSquared,
         confidence: existingConfidenceRef.current,
         scope: edge.data.scope,
         evidence_event_ids: evidence.split(',').map(s => s.trim()).filter(Boolean),
@@ -259,35 +290,49 @@ export function EditImpressionDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{i18n.graph.editImpression}</DialogTitle>
+          <DialogDescription>修改人际环性模型参数。</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label>{i18n.graph.relationType}</Label>
-            <Input value={relation} onChange={e => setRelation(e.target.value)} />
-          </div>
+        <FieldGroup>
+          <Field>
+            <FieldLabel>{i18n.graph.relationType}</FieldLabel>
+            <FieldContent>
+              <Input value={orientation} onChange={e => setOrientation(e.target.value)} />
+            </FieldContent>
+          </Field>
+          
           {[
-            { label: i18n.graph.affect, val: affect, set: setAffect, min: -1, max: 1 },
+            { label: i18n.graph.affect, val: benevolence, set: setBenevolence, min: -1, max: 1 },
+            { label: "权力/支配轴 (Power)", val: power, set: setPower, min: -1, max: 1 },
             { label: i18n.graph.intensity, val: intensity, set: setIntensity, min: 0, max: 1 },
+            { label: "拟合置信度 (R²)", val: rSquared, set: setRSquared, min: 0, max: 1 },
           ].map(({ label, val, set: setter, min, max }) => (
-            <div key={label} className="flex flex-col gap-1.5">
+            <Field key={label}>
               <div className="flex justify-between">
-                <Label>{label}</Label>
+                <FieldLabel>{label}</FieldLabel>
                 <span className="text-muted-foreground text-xs">
                   {val >= 0 ? '+' : ''}{val.toFixed(2)}
                 </span>
               </div>
-              <Slider value={[val]} onValueChange={v => setter(Array.isArray(v) ? v[0] : v)} min={min} max={max} step={0.01} />
-            </div>
+              <FieldContent>
+                <Slider value={[val]} onValueChange={v => setter(Array.isArray(v) ? v[0] : v)} min={min} max={max} step={0.01} />
+              </FieldContent>
+            </Field>
           ))}
-          <div className="flex flex-col gap-1.5">
-            <Label>{i18n.graph.evidence}</Label>
-            <Input value={evidence} onChange={e => setEvidence(e.target.value)} placeholder="event_id_1, event_id_2" />
-          </div>
-        </div>
+
+          <Field>
+            <FieldLabel>{i18n.graph.evidence}</FieldLabel>
+            <FieldContent>
+              <Input value={evidence} onChange={e => setEvidence(e.target.value)} placeholder="event_id_1, event_id_2" />
+            </FieldContent>
+          </Field>
+        </FieldGroup>
         {error && <p className="text-destructive text-sm">{error}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>{i18n.common.cancel}</Button>
-          <Button onClick={handleSubmit} disabled={loading}>{i18n.common.save}</Button>
+          <Button onClick={handleSubmit} disabled={loading}>
+            {loading && <Spinner data-icon="inline-start" />}
+            {i18n.common.save}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -338,10 +383,10 @@ export function PersonaDetailCard({
       )}
       <div className="flex gap-2 pt-2">
         <Button size="sm" variant="outline" disabled={!sudoMode} onClick={() => onEdit(node)}>
-          <Pencil className="mr-1 size-3.5" />{i18n.common.edit}
+          <Pencil data-icon="inline-start" />{i18n.common.edit}
         </Button>
         <Button size="sm" variant="destructive" disabled={!sudoMode} onClick={() => onDelete(d.id, d.label)}>
-          <Trash2 className="mr-1 size-3.5" />{i18n.common.delete}
+          <Trash2 data-icon="inline-start" />{i18n.common.delete}
         </Button>
       </div>
     </div>
@@ -396,7 +441,7 @@ export function ImpressionDetailCard({
       )}
       <div className="flex gap-2 pt-2">
         <Button size="sm" variant="outline" disabled={!sudoMode} onClick={() => onEdit(edge)}>
-          <Pencil className="mr-1 size-3.5" />{i18n.common.edit}
+          <Pencil data-icon="inline-start" />{i18n.common.edit}
         </Button>
       </div>
     </div>

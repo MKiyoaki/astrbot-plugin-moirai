@@ -7,12 +7,13 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Spinner } from '@/components/ui/spinner'
+import { FieldGroup, Field, FieldLabel, FieldContent, FieldDescription } from '@/components/ui/field'
 import { TagSelector } from '@/components/shared/tag-selector'
 import { type ApiEvent } from '@/lib/api'
 import { i18n } from '@/lib/i18n'
@@ -33,9 +34,7 @@ export interface EventFormData {
 const toLocalIso = (ts: number) =>
   new Date(ts * 1000).toISOString().slice(0, 16)
 
-const fromLocalIso = (s: string) =>
-  Math.floor(new Date(s).getTime() / 1000)
-
+// ── Helpers ───────────────────────────────────────────────────────────────
 
 function GroupPicker({
   value,
@@ -86,7 +85,7 @@ function GroupPicker({
               <X className="size-3" />
             </button>
           )}
-          <ChevronsUpDown className="text-muted-foreground size-3.5 shrink-0" />
+          <ChevronsUpDown className="text-muted-foreground shrink-0" data-icon="inline-end" />
         </div>
       </PopoverTrigger>
       <PopoverContent className="w-72 p-2" align="start">
@@ -104,7 +103,7 @@ function GroupPicker({
             onClick={useCustom}
             className="hover:bg-accent mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm"
           >
-            <Plus className="size-3.5 shrink-0" />
+            <Plus className="shrink-0" data-icon="inline-start" />
             <span>使用 &ldquo;{search}&rdquo;</span>
           </button>
         )}
@@ -121,7 +120,7 @@ function GroupPicker({
                 value === g && 'bg-accent/50',
               )}
             >
-              <Check className={cn('size-3.5 shrink-0', value === g ? 'opacity-100' : 'opacity-0')} />
+              <Check className={cn('shrink-0', value === g ? 'opacity-100' : 'opacity-0')} data-icon="inline-start" />
               <span className="font-mono">{g}</span>
             </button>
           ))}
@@ -130,8 +129,6 @@ function GroupPicker({
     </Popover>
   )
 }
-
-// ── Inherit picker ────────────────────────────────────────────────────────
 
 function EventInheritPicker({
   value,
@@ -193,7 +190,7 @@ function EventInheritPicker({
             </Badge>
           ))}
         </div>
-        <ChevronsUpDown className="text-muted-foreground ml-2 size-4 shrink-0" />
+        <ChevronsUpDown className="text-muted-foreground ml-2 shrink-0" data-icon="inline-end" />
       </PopoverTrigger>
       <PopoverContent className="w-80 p-2" align="start">
         <Input
@@ -221,7 +218,7 @@ function EventInheritPicker({
                     selected && 'bg-accent/50',
                   )}
                 >
-                  <Check className={cn('size-3.5 shrink-0', selected ? 'opacity-100' : 'opacity-0')} />
+                  <Check className={cn('shrink-0', selected ? 'opacity-100' : 'opacity-0')} data-icon="inline-start" />
                   <span className="flex flex-col items-start gap-0.5 text-left">
                     <span className="truncate font-medium">
                       {ev.topic || ev.content || ev.id}
@@ -257,96 +254,119 @@ function EventForm({
     onChange({ ...data, [k]: v })
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ev-topic">{i18n.events.topic} *</Label>
-        <Input
-          id="ev-topic"
-          value={data.topic}
-          onChange={e => set('topic', e.target.value)}
-          placeholder="话题内容"
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label>{i18n.events.group}</Label>
-        <GroupPicker
-          value={data.group_id}
-          onChange={v => set('group_id', v)}
-          events={events}
-        />
-      </div>
+    <FieldGroup>
+      <Field>
+        <FieldLabel htmlFor="ev-topic">{i18n.events.topic} *</FieldLabel>
+        <FieldContent>
+          <Input
+            id="ev-topic"
+            value={data.topic}
+            onChange={e => set('topic', e.target.value)}
+            placeholder="话题内容"
+          />
+        </FieldContent>
+      </Field>
+
+      <Field>
+        <FieldLabel>{i18n.events.group}</FieldLabel>
+        <FieldContent>
+          <GroupPicker
+            value={data.group_id}
+            onChange={v => set('group_id', v)}
+            events={events}
+          />
+        </FieldContent>
+      </Field>
+
       <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ev-start">{i18n.events.start}</Label>
-          <Input
-            id="ev-start"
-            type="datetime-local"
-            value={data.start_time}
-            onChange={e => set('start_time', e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ev-end">{i18n.events.end}</Label>
-          <Input
-            id="ev-end"
-            type="datetime-local"
-            value={data.end_time}
-            onChange={e => set('end_time', e.target.value)}
-          />
-        </div>
+        <Field>
+          <FieldLabel htmlFor="ev-start">{i18n.events.start}</FieldLabel>
+          <FieldContent>
+            <Input
+              id="ev-start"
+              type="datetime-local"
+              value={data.start_time}
+              onChange={e => set('start_time', e.target.value)}
+            />
+          </FieldContent>
+        </Field>
+
+        <Field>
+          <FieldLabel htmlFor="ev-end">{i18n.events.end}</FieldLabel>
+          <FieldContent>
+            <Input
+              id="ev-end"
+              type="datetime-local"
+              value={data.end_time}
+              onChange={e => set('end_time', e.target.value)}
+            />
+          </FieldContent>
+        </Field>
       </div>
-      <div className="flex flex-col gap-1.5">
+
+      <Field>
         <div className="flex justify-between">
-          <Label>{i18n.events.salience}</Label>
+          <FieldLabel>{i18n.events.salience}</FieldLabel>
           <span className="text-muted-foreground text-xs">{data.salience.toFixed(2)}</span>
         </div>
-        <Slider
-          value={[data.salience]}
-          onValueChange={(v: number | number[]) => set('salience', Array.isArray(v) ? v[0] : v)}
-          min={0} max={1} step={0.01}
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label>{i18n.events.tags}</Label>
-        <TagSelector
-          value={data.tags}
-          onChange={v => set('tags', v)}
-          suggestions={tagSuggestions}
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label>{i18n.events.participants}</Label>
-        <TagSelector
-          value={data.participants}
-          onChange={v => set('participants', v)}
-          suggestions={[]}
-          placeholder="输入 UID，按 Enter 确认"
-        />
-      </div>
-      <div className="flex items-center justify-between py-1">
-        <div className="flex flex-col gap-0.5">
-          <Label htmlFor="ev-locked" className="flex items-center gap-1.5 cursor-pointer">
-            {data.is_locked ? <Lock className="size-3.5" /> : <Unlock className="size-3.5" />}
+        <FieldContent>
+          <Slider
+            value={[data.salience]}
+            onValueChange={(v: number | number[]) => set('salience', Array.isArray(v) ? v[0] : v)}
+            min={0} max={1} step={0.01}
+          />
+        </FieldContent>
+      </Field>
+
+      <Field>
+        <FieldLabel>{i18n.events.tags}</FieldLabel>
+        <FieldContent>
+          <TagSelector
+            value={data.tags}
+            onChange={v => set('tags', v)}
+            suggestions={tagSuggestions}
+          />
+        </FieldContent>
+      </Field>
+
+      <Field>
+        <FieldLabel>{i18n.events.participants}</FieldLabel>
+        <FieldContent>
+          <TagSelector
+            value={data.participants}
+            onChange={v => set('participants', v)}
+            suggestions={[]}
+            placeholder="输入 UID，按 Enter 确认"
+          />
+        </FieldContent>
+      </Field>
+
+      <Field orientation="horizontal" className="justify-between py-1">
+        <FieldContent>
+          <FieldLabel htmlFor="ev-locked" className="flex items-center gap-1.5 cursor-pointer">
+            {data.is_locked ? <Lock data-icon="inline-start" /> : <Unlock data-icon="inline-start" />}
             锁定记忆
-          </Label>
-          <p className="text-[11px] text-muted-foreground">锁定后，此记忆不会被自动清理任务删除。</p>
-        </div>
+          </FieldLabel>
+          <FieldDescription>锁定后，此记忆不会被自动清理任务删除。</FieldDescription>
+        </FieldContent>
         <Switch
           id="ev-locked"
           checked={data.is_locked}
           onCheckedChange={v => set('is_locked', v)}
         />
-      </div>
+      </Field>
 
-      <div className="flex flex-col gap-1.5">
-        <Label>{i18n.events.inheritFrom}</Label>
-        <EventInheritPicker
-          value={data.inherit_from}
-          onChange={v => set('inherit_from', v)}
-          events={events}
-        />
-      </div>
-    </div>
+      <Field>
+        <FieldLabel>{i18n.events.inheritFrom}</FieldLabel>
+        <FieldContent>
+          <EventInheritPicker
+            value={data.inherit_from}
+            onChange={v => set('inherit_from', v)}
+            events={events}
+          />
+        </FieldContent>
+      </Field>
+    </FieldGroup>
   )
 }
 
@@ -386,7 +406,7 @@ export function CreateEventDialog({ open, onClose, onSubmit, tagSuggestions, eve
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v: any) => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v: boolean) => !v && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{i18n.events.createTitle}</DialogTitle>
@@ -400,7 +420,10 @@ export function CreateEventDialog({ open, onClose, onSubmit, tagSuggestions, eve
         {error && <p className="text-destructive text-sm">{error}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>{i18n.common.cancel}</Button>
-          <Button onClick={handleSubmit} disabled={loading}>{i18n.common.create}</Button>
+          <Button onClick={handleSubmit} disabled={loading}>
+            {loading && <Spinner data-icon="inline-start" />}
+            {i18n.common.create}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -419,7 +442,6 @@ interface EditEventDialogProps {
 }
 
 export function EditEventDialog({ open, event, onClose, onSubmit, tagSuggestions, events }: EditEventDialogProps) {
-  const existingConfidenceRef = useRef<number>(0.8)
   const [data, setData] = useState<EventFormData>({
     topic: '', group_id: '', start_time: '', end_time: '',
     salience: 0.5, tags: [], participants: [], inherit_from: [], is_locked: false,
@@ -429,7 +451,6 @@ export function EditEventDialog({ open, event, onClose, onSubmit, tagSuggestions
 
   useEffect(() => {
     if (event) {
-      existingConfidenceRef.current = event.confidence
       setData({
         topic:       event.topic || event.content || '',
         group_id:    event.group || '',
@@ -459,11 +480,10 @@ export function EditEventDialog({ open, event, onClose, onSubmit, tagSuggestions
     }
   }
 
-  // Filter out the currently-edited event from the inherit candidates
   const inheritCandidates = events.filter(ev => ev.id !== event?.id)
 
   return (
-    <Dialog open={open} onOpenChange={(v: any) => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v: boolean) => !v && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{i18n.events.editTitle}</DialogTitle>
@@ -477,7 +497,10 @@ export function EditEventDialog({ open, event, onClose, onSubmit, tagSuggestions
         {error && <p className="text-destructive text-sm">{error}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>{i18n.common.cancel}</Button>
-          <Button onClick={handleSubmit} disabled={loading}>{i18n.common.save}</Button>
+          <Button onClick={handleSubmit} disabled={loading}>
+            {loading && <Spinner data-icon="inline-start" />}
+            {i18n.common.save}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -500,7 +523,7 @@ interface RecycleBinDialogProps {
 
 export function RecycleBinDialog({ open, items, loading, onClose, onRestore, onClear, sudoMode }: RecycleBinDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={(v: any) => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v: boolean) => !v && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{i18n.events.recycleBin}</DialogTitle>
@@ -508,7 +531,9 @@ export function RecycleBinDialog({ open, items, loading, onClose, onRestore, onC
         </DialogHeader>
         <ScrollArea className="max-h-[50vh]">
           {loading ? (
-            <p className="text-muted-foreground py-8 text-center text-sm">{i18n.common.loading}</p>
+            <div className="flex justify-center py-8">
+              <Spinner />
+            </div>
           ) : items.length === 0 ? (
             <p className="text-muted-foreground py-8 text-center text-sm">{i18n.events.recycleBinEmpty}</p>
           ) : (
@@ -528,7 +553,7 @@ export function RecycleBinDialog({ open, items, loading, onClose, onRestore, onC
                     disabled={!sudoMode}
                     onClick={() => onRestore(ev.id)}
                   >
-                    <Undo2 className="mr-1 size-3.5" />
+                    <Undo2 data-icon="inline-start" />
                     {i18n.events.restore}
                   </Button>
                 </div>
@@ -543,7 +568,7 @@ export function RecycleBinDialog({ open, items, loading, onClose, onRestore, onC
             disabled={!sudoMode || items.length === 0}
             onClick={onClear}
           >
-            <Trash2 className="mr-1 size-3.5" />
+            <Trash2 data-icon="inline-start" />
             {i18n.events.clearBin}
           </Button>
           <Button variant="outline" onClick={onClose}>{i18n.common.close}</Button>
@@ -581,7 +606,7 @@ export function EventDetailCard({ event, onEdit, onDelete, sudoMode }: EventDeta
             <span className="text-muted-foreground">{k}</span>
             <span className="truncate font-medium flex items-center gap-1.5">
               {v}
-              {k === i18n.events.topic && event.is_locked && <Lock className="size-3 text-amber-500" />}
+              {k === i18n.events.topic && event.is_locked && <Lock className="text-amber-500" data-icon="inline-end" />}
             </span>
           </div>
         ))}
@@ -593,10 +618,10 @@ export function EventDetailCard({ event, onEdit, onDelete, sudoMode }: EventDeta
       )}
       <div className="flex gap-2 pt-2">
         <Button size="sm" variant="outline" disabled={!sudoMode} onClick={() => onEdit(event)}>
-          <Pencil className="mr-1 size-3.5" />{i18n.common.edit}
+          <Pencil data-icon="inline-start" />{i18n.common.edit}
         </Button>
         <Button size="sm" variant="destructive" disabled={!sudoMode} onClick={() => onDelete(event)}>
-          <Trash2 className="mr-1 size-3.5" />{i18n.common.delete}
+          <Trash2 data-icon="inline-start" />{i18n.common.delete}
         </Button>
       </div>
     </div>

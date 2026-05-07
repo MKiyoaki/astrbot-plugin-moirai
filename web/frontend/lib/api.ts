@@ -107,6 +107,8 @@ export interface ImpressionEdge {
     label: string
     affect: number
     intensity: number
+    power: number
+    r_squared: number
     confidence: number
     scope: string
     evidence_event_ids: string[]

@@ -19,6 +19,7 @@ interface EdgeDetailProps {
   onBack: () => void
   onEditForward: (edge: ImpressionEdge) => void
   onEditBackward: (edge: ImpressionEdge) => void
+  onJumpToEvent: (eventId: string) => void
   sudoMode: boolean
 }
 
@@ -29,6 +30,7 @@ export function EdgeDetail({
   onBack,
   onEditForward,
   onEditBackward,
+  onJumpToEvent,
   sudoMode,
 }: EdgeDetailProps) {
   const pair = edgePairs.find(p => p.pairKey === pairKey)
@@ -78,6 +80,7 @@ export function EdgeDetail({
             label={`${srcLabel} → ${tgtLabel}`}
             edge={pair.fwd}
             onEdit={sudoMode ? () => onEditForward(pair.fwd) : undefined}
+            onJumpToEvent={onJumpToEvent}
           />
 
           {/* B → A section (bidirectional only) */}
@@ -88,6 +91,7 @@ export function EdgeDetail({
                 label={`${tgtLabel} → ${srcLabel}`}
                 edge={pair.bwd}
                 onEdit={sudoMode ? () => onEditBackward(pair.bwd!) : undefined}
+                onJumpToEvent={onJumpToEvent}
               />
             </>
           )}
@@ -114,15 +118,18 @@ function ImpressionSection({
   label,
   edge,
   onEdit,
+  onJumpToEvent,
 }: {
   label: string
   edge: ImpressionEdge
   onEdit?: () => void
+  onJumpToEvent: (eventId: string) => void
 }) {
   const msgCount = (edge.data as { msg_count?: number }).msg_count
   const lastReinforced = edge.data.last_reinforced_at
     ? new Date(edge.data.last_reinforced_at).toLocaleDateString('zh-CN', { dateStyle: 'short' })
     : '—'
+  const evidenceIds = edge.data.evidence_event_ids || []
 
   return (
     <div className="space-y-2">
@@ -145,6 +152,24 @@ function ImpressionSection({
       </div>
 
       <AffectBar value={edge.data.affect} label={t.affect} />
+
+      {evidenceIds.length > 0 && (
+        <div className="space-y-1 pt-1">
+          <p className="text-[10px] text-muted-foreground">{t.evidenceEvents}</p>
+          <div className="flex flex-wrap gap-1">
+            {evidenceIds.map(id => (
+              <Button
+                key={id}
+                variant="outline"
+                className="h-5 px-1.5 text-[10px] font-mono"
+                onClick={() => onJumpToEvent(id)}
+              >
+                {id.slice(0, 8)}
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

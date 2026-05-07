@@ -207,7 +207,7 @@ export default function ConfigPage() {
     }
   }
 
-  useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setTimeout(() => load(), 0) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleChange = (key: string, val: unknown) => {
     setDirty(prev => ({ ...prev, [key]: val }))

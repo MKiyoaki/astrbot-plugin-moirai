@@ -303,6 +303,7 @@ export default function GraphPage() {
           onBack={() => setSelectedPairKey(null)}
           onEditForward={edge => { if (app.sudo) setEditEdge(edge); else app.toast(i18n.common.needSudo, 'destructive') }}
           onEditBackward={edge => { if (app.sudo) setEditEdge(edge); else app.toast(i18n.common.needSudo, 'destructive') }}
+          onJumpToEvent={handleJumpToEvent}
           sudoMode={app.sudo}
         />
       )

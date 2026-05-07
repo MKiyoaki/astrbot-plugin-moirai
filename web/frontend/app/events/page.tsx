@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback, SetStateAction } from 'react'
-import { Plus, RefreshCw, Trash2, CircleMinus } from 'lucide-react'
+import { useEffect, useState, useCallback, SetStateAction, useRef } from 'react'
+import { Plus, RefreshCw, Trash2, CircleMinus, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
@@ -14,7 +14,6 @@ import {
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { i18n } from '@/lib/i18n'
-import { cn } from '@/lib/utils'
 
 export default function EventsPage() {
   const app = useApp()
@@ -33,34 +32,44 @@ export default function EventsPage() {
 
   const loadEvents = useCallback(async () => {
     try {
-      const data = await api.events.list(500)
+      const data = await api.events.list(1000)
       app.setRawEvents(data.items)
     } catch {
-      app.toast('事件流加载失败', 'destructive')
+      app.toast(i18n.events.loadError, 'destructive')
     }
   }, [app])
 
   useEffect(() => {
-    loadEvents().then(() => {
-      const focusId = sessionStorage.getItem('em_focus_event')
-      if (focusId) {
-        sessionStorage.removeItem('em_focus_event')
-        setHighlightIds(new Set([focusId]))
-        const ev = app.rawEvents.find(e => e.id === focusId)
-        if (ev) setDetailEvent(ev)
-      }
-      const highlightRaw = sessionStorage.getItem('em_highlight_events')
-      if (highlightRaw) {
-        sessionStorage.removeItem('em_highlight_events')
-        try { setHighlightIds(new Set(JSON.parse(highlightRaw))) } catch {}
-      }
-    })
+    loadEvents()
     api.tags.list().then(r => {
       setTagList(r.tags)
       setTagSuggestions(r.tags.map(t => t.name))
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const hasHandledFocusRef = useRef(false)
+  useEffect(() => {
+    if (app.rawEvents.length > 0 && !hasHandledFocusRef.current) {
+      const focusId = sessionStorage.getItem('em_focus_event')
+      const highlightRaw = sessionStorage.getItem('em_highlight_events')
+      
+      // Defer state updates to next tick to avoid synchronous setState warning
+      setTimeout(() => {
+        if (focusId) {
+          sessionStorage.removeItem('em_focus_event')
+          setHighlightIds(new Set([focusId]))
+          const ev = app.rawEvents.find(e => e.id === focusId)
+          if (ev) setDetailEvent(ev)
+        }
+        if (highlightRaw) {
+          sessionStorage.removeItem('em_highlight_events')
+          try { setHighlightIds(new Set(JSON.parse(highlightRaw))) } catch {}
+        }
+      }, 0)
+      hasHandledFocusRef.current = true
+    }
+  }, [app.rawEvents])
 
   const filtered = app.rawEvents.filter(ev => {
     if (!search) return true
@@ -76,7 +85,7 @@ export default function EventsPage() {
 
   const handleDelete = async (ev: api.ApiEvent) => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    if (!confirm(`确认删除事件「${ev.content}」？将移入回收站。`)) return
+    if (!confirm(i18n.events.deleteConfirm.replace('{name}', ev.content || ev.topic || ev.id))) return
     try {
       await api.events.delete(ev.id)
       setDetailEvent(null)
@@ -116,9 +125,10 @@ export default function EventsPage() {
       chat_content_tags: data.tags,
       participants:      data.participants,
       inherit_from:      data.inherit_from,
+      is_locked:         data.is_locked,
     }
     await api.events.update(id, body)
-    app.toast('事件已更新')
+    app.toast(i18n.common.updateOk)
     setDetailEvent(null)
     await loadEvents()
   }
@@ -126,7 +136,7 @@ export default function EventsPage() {
   const handleDeleteSelected = async () => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
     if (!selectedIds.size) { app.toast('未选择任何事件', 'destructive'); return }
-    if (!confirm(`确认删除选中的 ${selectedIds.size} 条事件？`)) return
+    if (!confirm(i18n.events.deleteSelectedConfirm.replace('{count}', selectedIds.size.toString()))) return
     let ok = 0
     for (const id of selectedIds) {
       try { await api.events.delete(id); ok++ } catch {}
@@ -149,7 +159,7 @@ export default function EventsPage() {
   const handleRestore = async (id: string) => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
     await api.events.restore(id)
-    app.toast('事件已还原')
+    app.toast(i18n.events.restoreSuccess)
     await loadEvents()
     const d = await api.events.recycleBin()
     setBinItems(d.items)
@@ -157,32 +167,24 @@ export default function EventsPage() {
 
   const handleClearBin = async () => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    if (!confirm('确认清空回收站？此操作不可撤销。')) return
+    if (!confirm(i18n.events.clearBinConfirm)) return
     await api.events.clearBin()
     app.toast('回收站已清空')
     setBinItems([])
   }
 
-  const toggleSelect = (id: string) => {
-    const next = new Set(selectedIds)
-    if (next.has(id)) next.delete(id); else next.add(id)
-    setSelectedIds(next)
-  }
-
   const actions = (
     <div className="flex flex-wrap items-center gap-2">
-      {/* Search */}
       <div className="relative">
+        <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 -translate-y-1/2" data-icon="inline-start" />
         <Input
           className="h-7 w-48 pl-7 text-xs"
           placeholder={i18n.events.search}
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <span className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs">🔍</span>
       </div>
 
-      {/* Density */}
       <div className="flex items-center gap-2">
         <span className="text-muted-foreground text-xs">{i18n.events.density}</span>
         <div className="w-24">
@@ -195,18 +197,17 @@ export default function EventsPage() {
         <span className="text-muted-foreground w-8 text-xs">{density}</span>
       </div>
 
-      {/* Actions */}
       <Button variant="ghost" size="sm" onClick={openBin} title={i18n.events.recycleBin}>
-        <Trash2 />
+        <Trash2 data-icon="inline-start" />
       </Button>
       <Button variant="ghost" size="sm" onClick={handleDeleteSelected} title={i18n.events.deleteSelected}>
-        <CircleMinus />
+        <CircleMinus data-icon="inline-start" />
       </Button>
       <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo}>
-        <Plus className="mr-1 size-3.5" />{i18n.common.create}
+        <Plus data-icon="inline-start" />{i18n.common.create}
       </Button>
       <Button variant="ghost" size="sm" onClick={loadEvents} title={i18n.common.refresh}>
-        <RefreshCw />
+        <RefreshCw data-icon="inline-start" />
       </Button>
     </div>
   )
@@ -220,7 +221,6 @@ export default function EventsPage() {
       />
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Main content */}
         <div className="flex flex-1 flex-col overflow-hidden">
           <EventTimeline
             events={filtered}
@@ -233,11 +233,10 @@ export default function EventsPage() {
           />
         </div>
 
-        {/* Detail side panel */}
         {detailEvent && (
           <div className="bg-card ring-foreground/10 flex h-full w-72 shrink-0 flex-col gap-3 overflow-y-auto border-l p-4 ring-1">
             <div className="flex items-center justify-between">
-              <h3 className="font-medium">{i18n.events.detailTitle}</h3>
+              <h3 className="font-medium text-sm">{i18n.events.detailTitle}</h3>
               <Button variant="ghost" size="icon" onClick={() => setDetailEvent(null)}>✕</Button>
             </div>
             <EventDetailCard
