@@ -7,6 +7,7 @@ jinja2>=3.1
 aiohttp>=3.9
 # WebUI auth; 未安装时降级为 sha256（仅开发期可接受）
 bcrypt>=4.0
+httpx>=0.27.0
 
 # ── Optional runtime (install for full feature set) ───────────────────────────
 # Vector semantic search — ~100 MB download on first use (Phase 5+)

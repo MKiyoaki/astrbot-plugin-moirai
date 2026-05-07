@@ -311,6 +311,13 @@ class SQLiteEventRepository(EventRepository):
             row = await cur.fetchone()
         return _row_to_event(row) if row else None
 
+    async def list_all(self, limit: int = 100) -> list[Event]:
+        async with self._db.execute(
+            f"{_EVENT_SELECT} ORDER BY start_time DESC LIMIT ?", (limit,)
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_event(r) for r in rows]
+
     async def list_by_group(self, group_id: str | None, limit: int = 100) -> list[Event]:
         # IS ? correctly handles NULL comparison (group_id IS NULL)
         async with self._db.execute(

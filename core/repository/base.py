@@ -38,6 +38,11 @@ class EventRepository(ABC):
     async def get(self, event_id: str) -> Event | None: ...
 
     @abstractmethod
+    async def list_all(self, limit: int = 100) -> list[Event]:
+        """Return all events, sorted by start_time DESC."""
+        ...
+
+    @abstractmethod
     async def list_by_group(self, group_id: str | None, limit: int = 100) -> list[Event]:
         """Return events for a group, sorted by start_time DESC.
         group_id=None returns private-chat events.

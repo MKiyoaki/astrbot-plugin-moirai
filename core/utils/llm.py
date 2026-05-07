@@ -39,6 +39,8 @@ class SimpleLLMClient:
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 response = await client.post(url, headers=headers, json=payload)
+                if response.status_code != 200:
+                    logger.error(f"LLM request failed with status {response.status_code}: {response.text}")
                 response.raise_for_status()
                 data = response.json()
                 text = data["choices"][0]["message"]["content"]

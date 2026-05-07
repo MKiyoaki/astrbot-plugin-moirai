@@ -17,14 +17,14 @@ from datetime import datetime
 
 # --- LLM CONFIGURATION ---
 # Default to LMStudio. Change these to test with DeepSeek or other providers.
-LLM_API_URL = "http://localhost:1234/v1"
-LLM_API_KEY = "lm-studio"
-LLM_MODEL = "any"
+# LLM_API_URL = "http://localhost:1234/v1"
+# LLM_API_KEY = "lm-studio"
+# LLM_MODEL = "any"
 
 # Example DeepSeek Config (Uncomment to use):
-# LLM_API_URL = "https://api.deepseek.com"
-# LLM_API_KEY = "sk-xxxxxxxxxxxxxxxxxxxxxxxx"
-# LLM_MODEL = "deepseek-chat"
+LLM_API_URL = "https://api.deepseek.com"
+LLM_API_KEY = "KEY"
+LLM_MODEL = "deepseek-v4-flash"
 # -------------------------
 
 DEV_DB = Path(".dev_data") / "dataflow_test.db"
@@ -45,7 +45,13 @@ async def main():
     from core.embedding.encoder import NullEncoder # Use local encoder if available
     from core.config import PluginConfig, RetrievalConfig, InjectionConfig, ContextConfig
     from core.domain.models import Event
-    from astrbot.api.provider import ProviderRequest
+    
+    class ProviderRequest:
+        def __init__(self, prompt: str, system_prompt: str = "", messages: list = None):
+            self.prompt = prompt
+            self.system_prompt = system_prompt
+            self.messages = messages or []
+            self.contexts = []
 
     # 0. Setup Environment
     DEV_DB.parent.mkdir(parents=True, exist_ok=True)

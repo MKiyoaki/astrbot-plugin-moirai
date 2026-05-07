@@ -70,6 +70,11 @@ class InMemoryEventRepository(EventRepository):
         event = self._store.get(event_id)
         return deepcopy(event) if event is not None else None
 
+    async def list_all(self, limit: int = 100) -> list[Event]:
+        events = [deepcopy(e) for e in self._store.values()]
+        events.sort(key=lambda e: e.start_time, reverse=True)
+        return events[:limit]
+
     async def list_by_group(self, group_id: str | None, limit: int = 100) -> list[Event]:
         events = [
             deepcopy(e) for e in self._store.values() if e.group_id == group_id
