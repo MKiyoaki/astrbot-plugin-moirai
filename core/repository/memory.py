@@ -193,6 +193,23 @@ class InMemoryEventRepository(EventRepository):
             return None
         return deepcopy(self._store[keys[rowid]])
 
+    async def count_messages_by_uid_bulk(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for event in self._store.values():
+            for msg in event.interaction_flow:
+                counts[msg.sender_uid] = counts.get(msg.sender_uid, 0) + 1
+        return counts
+
+    async def count_edge_messages(self, uid1: str, uid2: str, scope: str) -> int:
+        count = 0
+        for event in self._store.values():
+            if scope != "global" and event.group_id != scope:
+                continue
+            for msg in event.interaction_flow:
+                if msg.sender_uid in (uid1, uid2):
+                    count += 1
+        return count
+
 
 class InMemoryImpressionRepository(ImpressionRepository):
     def __init__(self) -> None:

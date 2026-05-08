@@ -4,6 +4,30 @@
 
 ---
 
+## [v0.4.3] — 2026-05-08
+
+### 核心变更：关系图参数全接入
+
+#### 1. msg_count 接入（节点 & 边）
+- **后端**：`EventRepository` 新增 `count_messages_by_uid_bulk()`（单次聚合查询，返回全量 `{uid: count}`）和 `count_edge_messages(uid1, uid2, scope)`（按 scope 过滤），SQLite 实现使用 `json_each(events.interaction_flow)` 遍历；In-memory 实现用于测试。
+- **后端**：`graph_data()` 重写，为每个 PersonaNode 注入 `msg_count`，为每条 ImpressionEdge 注入 `msg_count`（按 scope 过滤）。
+- **前端**：修复 `params-panel.tsx` 的成员列表排序——`msgs-desc` / `msgs-asc` 现在真正按 `msg_count` 降序/升序排列（之前落空为 `return 0`）。
+- **前端**：NodeDetail、EdgeDetail 的 "消息数" 字段和 Detail header 的 "总消息" 条目现在有真实数据显示。
+- **前端**：`edgeWidthSource = 'msgs'` 和 `gravSource = 'msgs'` 物理参数选项现在使用真实 `totalMsgs` 值（通过 `msg_count` 计算），不再退化为常量 1。
+
+#### 2. 情感映射维度选择器（benevolence ↔ power）
+- **前端**：`VisualParams` 新增 `sentimentAxis: 'benevolence' | 'power'`，默认 `'benevolence'`。
+- **前端**：`params-panel.tsx` 在"情感着色"开关开启时显示"情感映射维度"选择器（共融轴 B / 支配轴 P）。
+- **前端**：`network-graph.tsx` 的 `edgeColor()` 根据 `sentimentAxis` 决定用 `affect`（benevolence）还是 `power` 值来着色边。
+- **前端**：`edge-detail.tsx` ImpressionSection 同时显示两条 AffectBar（共融轴和支配轴），AffectBar 支持自定义 `axisLabels`（支配轴端文字为"服从 / 支配"）。
+- **前端**：双向综合面板新增"支配性 (P)" AffectBar，与"共融性 (B)"并列显示。
+- **前端**：`node-detail.tsx` 连接关系列表中每条边同时展示 B 和 P 两个数值（title 属性标注轴名）。
+
+#### 3. r_squared 可视化
+- **前端**：`edge-detail.tsx` ImpressionSection 在两条 AffectBar 下方显示 `IPC 拟合 R² = X.XX`，共享同一个值描述 2D 向量的象限拟合质量。
+
+---
+
 ## [v0.4.2] — 2026-05-08
 
 ### 核心变更：响应式细节与交互规范化

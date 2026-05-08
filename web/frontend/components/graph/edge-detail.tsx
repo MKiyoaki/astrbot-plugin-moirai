@@ -51,6 +51,10 @@ export function EdgeDetail({
     ? (pair.fwd.data.affect + pair.bwd.data.affect) / 2
     : pair.fwd.data.affect
 
+  const combinedPower = pair.isBidirectional && pair.bwd
+    ? (pair.fwd.data.power + pair.bwd.data.power) / 2
+    : pair.fwd.data.power
+
   return (
     <div className="flex h-full flex-col overflow-hidden text-sm">
       {/* Header */}
@@ -96,13 +100,19 @@ export function EdgeDetail({
             </>
           )}
 
-          {/* Combined affect (bidirectional only) */}
+          {/* Combined affect & power (bidirectional only) */}
           {pair.isBidirectional && (
             <>
               <Separator />
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">{td.combinedAffect}</p>
-                <AffectBar value={combinedAffect} />
+              <div className="space-y-2">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">{td.combinedAffect}</p>
+                  <AffectBar value={combinedAffect} axisLabels={['消极', '积极']} />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">{td.combinedPower}</p>
+                  <AffectBar value={combinedPower} axisLabels={['服从', '支配']} />
+                </div>
               </div>
             </>
           )}
@@ -151,7 +161,13 @@ function ImpressionSection({
         <Field label={i18n.graph.detail.lastActive} value={lastReinforced} />
       </div>
 
-      <AffectBar value={edge.data.affect} label={t.affect} />
+      <AffectBar value={edge.data.affect} label={t.affect} axisLabels={['消极', '积极']} />
+      <AffectBar value={edge.data.power} label={t.power} axisLabels={['服从', '支配']} />
+      {edge.data.r_squared != null && (
+        <p className="text-[10px] text-muted-foreground">
+          {t.ipcFit} = {edge.data.r_squared.toFixed(2)}
+        </p>
+      )}
 
       {evidenceIds.length > 0 && (
         <div className="space-y-1 pt-1">
@@ -176,7 +192,7 @@ function ImpressionSection({
 
 // ── AffectBar ────────────────────────────────────────────────────────────────
 
-function AffectBar({ value, label }: { value: number; label?: string }) {
+function AffectBar({ value, label, axisLabels }: { value: number; label?: string; axisLabels?: [string, string] }) {
   const clampedVal = Math.max(-1, Math.min(1, value))
   const color = clampedVal > 0.15
     ? 'bg-green-500'
@@ -201,13 +217,13 @@ function AffectBar({ value, label }: { value: number; label?: string }) {
         <div className="absolute top-0 h-full w-px bg-border left-1/2" />
       </div>
       <div className="flex justify-between mt-0.5">
-        <span className="text-[8px] text-red-500">消极</span>
+        <span className="text-[8px] text-red-500">{axisLabels?.[0] ?? '消极'}</span>
         <span
           className={`text-[9px] font-mono ${clampedVal > 0.15 ? 'text-green-600' : clampedVal < -0.05 ? 'text-red-500' : 'text-muted-foreground'}`}
         >
           {clampedVal >= 0 ? '+' : ''}{clampedVal.toFixed(2)}
         </span>
-        <span className="text-[8px] text-green-500">积极</span>
+        <span className="text-[8px] text-green-500">{axisLabels?.[1] ?? '积极'}</span>
       </div>
     </div>
   )

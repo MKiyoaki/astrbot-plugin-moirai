@@ -437,11 +437,23 @@ class WebuiServer:
 
     async def graph_data(self) -> dict[str, Any]:
         personas = await self._persona_repo.list_all()
-        nodes = [persona_to_node(p) for p in personas]
+        uid_msg_counts = await self._event_repo.count_messages_by_uid_bulk()
+
+        nodes = []
+        for p in personas:
+            node = persona_to_node(p)
+            node["data"]["msg_count"] = uid_msg_counts.get(p.uid, 0)
+            nodes.append(node)
+
         edges: list[dict[str, Any]] = []
         for persona in personas:
             imps = await self._impression_repo.list_by_observer(persona.uid)
-            edges.extend(impression_to_edge(imp) for imp in imps)
+            for imp in imps:
+                edge = impression_to_edge(imp)
+                edge["data"]["msg_count"] = await self._event_repo.count_edge_messages(
+                    imp.observer_uid, imp.subject_uid, imp.scope
+                )
+                edges.append(edge)
         return {"nodes": nodes, "edges": edges}
 
     async def summaries_data(self) -> list[dict[str, str | None]]:

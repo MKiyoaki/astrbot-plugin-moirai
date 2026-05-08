@@ -609,6 +609,38 @@ class SQLiteEventRepository(EventRepository):
         await self._db.commit()
         return count
 
+    async def count_messages_by_uid_bulk(self) -> dict[str, int]:
+        """Single-pass aggregate: {uid: total_message_count} across ALL events."""
+        async with self._db.execute(
+            "SELECT json_extract(msg.value, '$.sender_uid'), COUNT(*) "
+            "FROM events, json_each(events.interaction_flow) AS msg "
+            "GROUP BY json_extract(msg.value, '$.sender_uid')"
+        ) as cur:
+            rows = await cur.fetchall()
+        return {row[0]: row[1] for row in rows if row[0] is not None}
+
+    async def count_edge_messages(self, uid1: str, uid2: str, scope: str) -> int:
+        """Count messages from uid1 OR uid2 within a scope.
+
+        scope='global' counts across all groups; other values filter by group_id.
+        """
+        if scope == "global":
+            sql = (
+                "SELECT COUNT(*) FROM events, json_each(events.interaction_flow) AS msg "
+                "WHERE json_extract(msg.value, '$.sender_uid') IN (?, ?)"
+            )
+            params: tuple = (uid1, uid2)
+        else:
+            sql = (
+                "SELECT COUNT(*) FROM events, json_each(events.interaction_flow) AS msg "
+                "WHERE events.group_id = ? "
+                "AND json_extract(msg.value, '$.sender_uid') IN (?, ?)"
+            )
+            params = (scope, uid1, uid2)
+        async with self._db.execute(sql, params) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else 0
+
 
 # ---------------------------------------------------------------------------
 # ImpressionRepository

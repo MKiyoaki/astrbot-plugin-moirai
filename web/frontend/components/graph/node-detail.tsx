@@ -129,15 +129,20 @@ export function NodeDetail({ node, allNodes, edgePairs, onBack, onEdit, onDelete
                     const dirSymbol = pair.isBidirectional ? '⇄' : (pair.srcId === node.data.id ? '→' : '←')
                     const label = pair.fwd.data.label
                     const affect = pair.fwd.data.affect
+                    const power  = pair.fwd.data.power
                     const affectColor = affect > 0.3 ? 'text-green-600' : affect < -0.1 ? 'text-red-500' : 'text-muted-foreground'
+                    const powerColor  = power  > 0.3 ? 'text-green-600' : power  < -0.1 ? 'text-red-500' : 'text-muted-foreground'
 
                     return (
                       <div key={pair.pairKey} className="flex items-center gap-1.5 text-xs">
                         <span className="text-muted-foreground">{dirSymbol}</span>
                         <span className="flex-1 truncate">{other?.data.label ?? otherId}</span>
                         <Badge variant="outline" className="text-[9px] h-3.5 px-1">{label}</Badge>
-                        <span className={`font-mono text-[10px] ${affectColor}`}>
+                        <span className={`font-mono text-[10px] ${affectColor}`} title="B">
                           {affect >= 0 ? '+' : ''}{affect.toFixed(2)}
+                        </span>
+                        <span className={`font-mono text-[10px] ${powerColor}`} title="P">
+                          {power >= 0 ? '+' : ''}{power.toFixed(2)}
                         </span>
                       </div>
                     )

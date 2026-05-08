@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import type { PersonaNode } from '@/lib/api'
+import type { PersonaNode, ImpressionEdge } from '@/lib/api'
 import type { EdgePair, PhysicsParams, VisualParams, PositionMap } from '@/lib/graph-types'
 import { computeNodeRadius, mockCluster } from '@/lib/graph-utils'
 
@@ -194,15 +194,19 @@ export function NetworkGraph({
 
   // ── Edge color ──────────────────────────────────────────────────────────────
 
+  const pickAxis = useCallback((edge: ImpressionEdge): number =>
+    params.sentimentAxis === 'power' ? edge.data.power : edge.data.affect
+  , [params.sentimentAxis])
+
   const edgeColor = useCallback((pair: EdgePair): string => {
     if (!params.sentimentEnabled) return EDGE_NEU_COLOR
     const avg = pair.isBidirectional && pair.bwd
-      ? (pair.fwd.data.affect + pair.bwd.data.affect) / 2
-      : pair.fwd.data.affect
+      ? (pickAxis(pair.fwd) + pickAxis(pair.bwd)) / 2
+      : pickAxis(pair.fwd)
     if (avg > 0.3) return EDGE_POS_COLOR
     if (avg < -0.1) return EDGE_NEG_COLOR
     return EDGE_NEU_COLOR
-  }, [params.sentimentEnabled])
+  }, [params.sentimentEnabled, params.sentimentAxis, pickAxis])
 
   const edgeWidth = useCallback((pair: EdgePair): number => {
     if (params.edgeWidthSource === 'affinity') return Math.max(1, pair.affinity * 5)

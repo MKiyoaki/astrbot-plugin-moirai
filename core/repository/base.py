@@ -169,6 +169,19 @@ class EventRepository(ABC):
         await self.delete_vector(event_id)
         return await self.delete(event_id)
 
+    @abstractmethod
+    async def count_messages_by_uid_bulk(self) -> dict[str, int]:
+        """Return {uid: total_message_count} for every sender across ALL events."""
+        ...
+
+    @abstractmethod
+    async def count_edge_messages(self, uid1: str, uid2: str, scope: str) -> int:
+        """Count messages sent by uid1 OR uid2 within a scope.
+
+        scope='global' counts across all groups; any other value filters by group_id.
+        """
+        ...
+
 
 class ImpressionRepository(ABC):
     @abstractmethod

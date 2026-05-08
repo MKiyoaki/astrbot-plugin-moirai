@@ -71,6 +71,10 @@ export function ParamsPanel({
   const sortedMembers = useMemo(() => {
     const members = groupNodes.filter(n => !n.data.is_bot)
     return [...members].sort((a, b) => {
+      const am = (a.data as { msg_count?: number }).msg_count ?? 0
+      const bm = (b.data as { msg_count?: number }).msg_count ?? 0
+      if (memberSort === 'msgs-desc') return bm - am
+      if (memberSort === 'msgs-asc')  return am - bm
       if (memberSort === 'az') return a.data.label.localeCompare(b.data.label)
       if (memberSort === 'za') return b.data.label.localeCompare(a.data.label)
       return 0
@@ -400,6 +404,23 @@ export function ParamsPanel({
             {/* Sentiment color */}
             <SwitchRow label={t.sentimentColor} checked={visual.sentimentEnabled}
               onChange={v => onVisual('sentimentEnabled', v)} />
+
+            {visual.sentimentEnabled && (
+              <ParamRow label={t.sentimentAxis}>
+                <Select
+                  value={visual.sentimentAxis}
+                  onValueChange={v => onVisual('sentimentAxis', v as VisualParams['sentimentAxis'])}
+                >
+                  <SelectTrigger className="h-7 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="benevolence">{t.axisBenevolence}</SelectItem>
+                    <SelectItem value="power">{t.axisPower}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </ParamRow>
+            )}
 
             <Button size="sm" variant="outline" className="w-full text-xs h-8"
               onClick={() => {

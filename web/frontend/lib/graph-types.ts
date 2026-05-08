@@ -58,6 +58,7 @@ export interface VisualParams {
   leidenEnabled: boolean
   leidenResolution: number    // 0.001 – 10
   sentimentEnabled: boolean
+  sentimentAxis: 'benevolence' | 'power'
 }
 
 // ── View / Position ───────────────────────────────────────────────────────────
@@ -93,4 +94,5 @@ export const DEFAULT_VISUAL_PARAMS: VisualParams = {
   leidenEnabled: false,
   leidenResolution: 1.0,
   sentimentEnabled: true,
+  sentimentAxis: 'benevolence',
 }

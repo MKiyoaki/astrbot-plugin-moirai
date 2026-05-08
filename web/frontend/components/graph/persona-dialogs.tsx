@@ -302,7 +302,7 @@ export function EditImpressionDialog({
           
           {[
             { label: i18n.graph.affect, val: benevolence, set: setBenevolence, min: -1, max: 1 },
-            { label: "权力/支配轴 (Power)", val: power, set: setPower, min: -1, max: 1 },
+            { label: i18n.graph.power, val: power, set: setPower, min: -1, max: 1 },
             { label: i18n.graph.intensity, val: intensity, set: setIntensity, min: 0, max: 1 },
             { label: "拟合置信度 (R²)", val: rSquared, set: setRSquared, min: 0, max: 1 },
           ].map(({ label, val, set: setter, min, max }) => (
