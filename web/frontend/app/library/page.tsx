@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import {
   Users, Building2, Activity, Clock, Search,
   ChevronDown, ChevronRight, Pencil, Trash2,
-  Network, GitBranch, RefreshCw
+  Network, GitBranch, RefreshCw, Lock, Unlock
 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
@@ -157,10 +157,11 @@ function PersonaDetailRow({
 }
 
 function EventDetailRow({ 
-  ev, editMode, onGoToEvents, onEdit, onDelete, sudoMode 
+  ev, editMode, onGoToEvents, onEdit, onDelete, onLockToggle, sudoMode 
 }: { 
   ev: api.ApiEvent, editMode: boolean, onGoToEvents: (id: string) => void,
   onEdit: (e: api.ApiEvent) => void, onDelete: (e: api.ApiEvent) => void,
+  onLockToggle: (e: api.ApiEvent) => void,
   sudoMode: boolean
 }) {
   const { i18n, lang } = useApp()
@@ -172,44 +173,58 @@ function EventDetailRow({
     <TableRow className="bg-muted/40 hover:bg-muted/40">
       <TableCell colSpan={editMode ? 8 : 7} className="py-3">
         <div className="flex flex-col gap-3 px-2">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
-            <div>
-              <span className="text-muted-foreground text-xs">ID</span>
-              <p className="font-mono text-xs">{ev.id}</p>
-            </div>
-            <div>
-              <span className="text-muted-foreground text-xs">{i18n.events.confidence}</span>
-              <p className="text-sm">{(ev.confidence * 100).toFixed(0)}%</p>
-            </div>
-            {(ev.participants?.length ?? 0) > 0 && (
-              <div className="col-span-2">
-                <span className="text-muted-foreground text-xs">{i18n.events.participants}</span>
-                <p className="text-sm">{ev.participants!.join(', ')}</p>
+          {/* Accent Bar */}
+          <div className="flex flex-col gap-3 border-l-2 border-primary/30 pl-3">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
+              <div>
+                <span className="text-muted-foreground text-xs">ID</span>
+                <p className="font-mono text-xs">{ev.id}</p>
               </div>
-            )}
-            {(ev.inherit_from?.length ?? 0) > 0 && (
-              <div className="col-span-2">
-                <span className="text-muted-foreground text-xs">{i18n.events.inheritFrom}</span>
-                <div className="mt-0.5 flex flex-wrap gap-1">
-                  {ev.inherit_from!.map(id => (
-                    <Badge key={id} variant="outline" className="cursor-pointer text-xs" onClick={() => onGoToEvents(id)}>
-                      {id.slice(0, 12)}…
-                    </Badge>
-                  ))}
+              <div>
+                <span className="text-muted-foreground text-xs">{i18n.events.confidence}</span>
+                <p className="text-sm">{(ev.confidence * 100).toFixed(0)}%</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground text-xs">{i18n.common.status}</span>
+                <p className="text-sm flex items-center gap-1">
+                  {ev.is_locked && <Lock className="size-3 text-primary" />}
+                  {ev.is_locked ? i18n.events.lockedMemory : i18n.common.all}
+                </p>
+              </div>
+              {(ev.participants?.length ?? 0) > 0 && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground text-xs">{i18n.events.participants}</span>
+                  <p className="text-sm">{ev.participants!.join(', ')}</p>
                 </div>
-              </div>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => onGoToEvents(ev.id)}>
-              <GitBranch className="mr-2 h-4 w-4" />{L.viewInEvents}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={!sudoMode} onClick={() => onEdit(ev)}>
-              <Pencil className="mr-2 h-4 w-4" />{i18n.common.edit}
-            </Button>
-            <Button size="sm" variant="destructive" disabled={!sudoMode} onClick={() => onDelete(ev)}>
-              <Trash2 className="mr-2 h-4 w-4" />{i18n.common.delete}
-            </Button>
+              )}
+              {(ev.inherit_from?.length ?? 0) > 0 && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground text-xs">{i18n.events.inheritFrom}</span>
+                  <div className="mt-0.5 flex flex-wrap gap-1">
+                    {ev.inherit_from!.map(id => (
+                      <Badge key={id} variant="outline" className="cursor-pointer text-xs" onClick={() => onGoToEvents(id)}>
+                        {id.slice(0, 12)}…
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => onGoToEvents(ev.id)}>
+                <GitBranch className="mr-2 h-4 w-4" />{L.viewInEvents}
+              </Button>
+              <Button size="sm" variant="outline" disabled={!sudoMode} onClick={() => onLockToggle(ev)}>
+                {ev.is_locked ? <Unlock className="mr-2 h-4 w-4" /> : <Lock className="mr-2 h-4 w-4" />}
+                {ev.is_locked ? i18n.events.unlock : i18n.events.lock}
+              </Button>
+              <Button size="sm" variant="ghost" disabled={!sudoMode} onClick={() => onEdit(ev)}>
+                <Pencil className="mr-2 h-4 w-4" />{i18n.common.edit}
+              </Button>
+              <Button size="sm" variant="destructive" disabled={!sudoMode} onClick={() => onDelete(ev)}>
+                <Trash2 className="mr-2 h-4 w-4" />{i18n.common.delete}
+              </Button>
+            </div>
           </div>
         </div>
       </TableCell>
@@ -391,11 +406,25 @@ function LibraryContent() {
       participants:      data.participants,
       inherit_from:      data.inherit_from,
       is_locked:         data.is_locked,
+      status:            data.status,
       confidence:        editEvent?.confidence ?? 0.8,
     })
     toast(i18n.common.updateOk)
     loadData()
     setEditEvent(null)
+  }
+
+  const handleLockToggle = async (ev: api.ApiEvent) => {
+    if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
+    try {
+      const res = await api.events.update(ev.id, { is_locked: !ev.is_locked }) as any
+      const updated = res.event || { ...ev, is_locked: !ev.is_locked }
+      toast((updated.is_locked ? i18n.events.lock : i18n.events.unlock) + ' ' + i18n.common.success)
+      setEventList(prev => prev.map(e => e.id === ev.id ? updated : e))
+      refreshStats()
+    } catch (e: unknown) {
+      toast(i18n.common.updateFailed + '：' + (e as api.ApiError).body, 'destructive')
+    }
   }
 
   const goToGraph = (uid: string) => { sessionStorage.setItem('em_focus_persona', uid); router.push('/graph') }
@@ -526,14 +555,17 @@ function LibraryContent() {
                     {paginatedEvents.length === 0 ? (<TableRow><TableCell colSpan={editMode ? 8 : 7} className="text-muted-foreground text-center py-8">{i18n.common.noData}</TableCell></TableRow>)
                     : paginatedEvents.map(ev => (
                       <Fragment key={ev.id}>
-                        <TableRow className="cursor-pointer" onClick={() => editMode ? toggleSelect(ev.id) : toggleExpand(ev.id)}>
+                        <TableRow className={cn("cursor-pointer transition-colors", ev.is_locked && "bg-primary/[0.03] hover:bg-primary/[0.05]")} onClick={() => editMode ? toggleSelect(ev.id) : toggleExpand(ev.id)}>
                           {editMode && (
                             <TableCell className="w-8 pr-0" onClick={e => { e.stopPropagation(); toggleSelect(ev.id) }}>
                               <Checkbox checked={selectedIds.has(ev.id)} onCheckedChange={() => toggleSelect(ev.id)} aria-label="选择此项" />
                             </TableCell>
                           )}
                           <TableCell className="w-4 pr-0 text-muted-foreground">{!editMode && (expandedId === ev.id ? <ChevronDown /> : <ChevronRight />)}</TableCell>
-                          <TableCell className="max-w-60 truncate font-medium">{ev.content || ev.topic || ev.id}</TableCell>
+                          <TableCell className="max-w-60 truncate font-medium flex items-center gap-2">
+                            {ev.is_locked && <Lock className="size-3 text-primary shrink-0" />}
+                            {ev.content || ev.topic || ev.id}
+                          </TableCell>
                           <TableCell className="text-sm">{ev.group || i18n.events.privateChat}</TableCell>
                           <TableCell className="text-sm">{new Date(ev.start).toLocaleDateString('zh-CN')}</TableCell>
                           <TableCell className="text-sm">{(ev.salience * 100).toFixed(0)}%</TableCell>
@@ -544,14 +576,14 @@ function LibraryContent() {
                           </TableCell>
                           {!editMode && (
                             <TableCell className="text-right">
-                              <Button variant="ghost" size="icon" className="size-8" onClick={(e) => { e.stopPropagation(); handleDeleteEvent(ev) }}>
-                                <Trash2 />
+                              <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-foreground" onClick={(e) => { e.stopPropagation(); handleDeleteEvent(ev) }}>
+                                <Trash2 className="size-4" />
                               </Button>
                             </TableCell>
                           )}
                         </TableRow>
                         {expandedId === ev.id && (
-                          <EventDetailRow ev={ev} editMode={editMode} onGoToEvents={goToEvents} onEdit={setEditEvent} onDelete={handleDeleteEvent} sudoMode={sudo} />
+                          <EventDetailRow ev={ev} editMode={editMode} onGoToEvents={goToEvents} onEdit={setEditEvent} onDelete={handleDeleteEvent} onLockToggle={handleLockToggle} sudoMode={sudo} />
                         )}
                       </Fragment>
                     ))}

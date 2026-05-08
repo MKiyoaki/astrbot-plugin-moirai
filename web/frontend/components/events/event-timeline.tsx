@@ -302,16 +302,28 @@ export function EventTimeline({
                           {group.map((ev, i) => {
                             const isHov = hoveredEventId === ev.id
                             const isSel = selectedEventId === ev.id
+                            const isArchived = ev.status === 'archived'
                             const offset = isStackHovered ? (i - (group.length - 1) / 2) * (metrics.NR * 2.5) : 0
                             const r = isStackHovered ? (isHov || isSel ? metrics.NR * 1.5 : metrics.NR) : metrics.NR * (1 - i * 0.15)
                             const circleOp = isStackHovered ? 1 : 1 - i * 0.25
+                            const finalR = ev.is_locked && !isStackHovered ? r * 1.2 : r
                             return (
-                              <circle
-                                key={ev.id} cx={x + offset} cy={y} r={Math.max(2, r)}
-                                fill={isHov || isSel ? thread.color : 'var(--background)'}
-                                stroke={thread.color} strokeWidth={1.5} strokeOpacity={circleOp}
-                                style={{ transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
-                              />
+                              <g key={ev.id}>
+                                <circle
+                                  cx={x + offset} cy={y} r={Math.max(2, finalR)}
+                                  fill={isHov || isSel || ev.is_locked ? thread.color : 'var(--background)'}
+                                  stroke={thread.color} strokeWidth={ev.is_locked ? 2 : 1.5} strokeOpacity={circleOp}
+                                  strokeDasharray={isArchived ? "2,1" : undefined}
+                                  style={{ transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)', opacity: isArchived ? 0.5 : 1 }}
+                                />
+                                {ev.is_locked && (
+                                  <circle 
+                                    cx={x + offset} cy={y} r={Math.max(1, finalR / 3)} 
+                                    fill="white" pointerEvents="none"
+                                    style={{ transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }} 
+                                  />
+                                )}
+                              </g>
                             )
                           })}
                         </g>
@@ -320,14 +332,26 @@ export function EventTimeline({
                       const ev = group[0]
                       const isHov = hoveredEventId === ev.id
                       const isSel = selectedEventId === ev.id
+                      const isArchived = ev.status === 'archived'
+                      const r = isHov || isSel ? metrics.NR * 1.5 : metrics.NR
+                      const finalR = ev.is_locked ? r * 1.2 : r
                       return (
-                        <circle
-                          key={ev.id} cx={x} cy={y}
-                          r={isHov || isSel ? metrics.NR * 1.5 : metrics.NR}
-                          fill={isHov || isSel ? thread.color : 'var(--background)'}
-                          stroke={thread.color} strokeWidth={1.5}
-                          style={{ transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
-                        />
+                        <g key={ev.id}>
+                          <circle
+                            cx={x} cy={y} r={finalR}
+                            fill={isHov || isSel || ev.is_locked ? thread.color : 'var(--background)'}
+                            stroke={thread.color} strokeWidth={ev.is_locked ? 2 : 1.5}
+                            strokeDasharray={isArchived ? "2,1" : undefined}
+                            style={{ transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)', opacity: isArchived ? 0.5 : 1 }}
+                          />
+                          {ev.is_locked && (
+                            <circle 
+                              cx={x} cy={y} r={finalR / 3} 
+                              fill="white" pointerEvents="none"
+                              style={{ transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }} 
+                            />
+                          )}
+                        </g>
                       )
                     }
                   })}

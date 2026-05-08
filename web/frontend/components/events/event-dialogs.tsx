@@ -29,6 +29,7 @@ export interface EventFormData {
   participants: string[]
   inherit_from: string[]
   is_locked: boolean
+  status: 'active' | 'archived'
 }
 
 const toLocalIso = (ts: number) =>
@@ -396,6 +397,7 @@ export function CreateEventDialog({ open, onClose, onSubmit, tagSuggestions, eve
   const [data, setData] = useState<EventFormData>({
     topic: '', group_id: '', start_time: isoNow, end_time: isoEnd,
     salience: 0.5, tags: [], participants: [], inherit_from: [], is_locked: false,
+    status: 'active',
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -454,6 +456,7 @@ export function EditEventDialog({ open, event, onClose, onSubmit, tagSuggestions
   const [data, setData] = useState<EventFormData>({
     topic: '', group_id: '', start_time: '', end_time: '',
     salience: 0.5, tags: [], participants: [], inherit_from: [], is_locked: false,
+    status: 'active',
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -469,8 +472,10 @@ export function EditEventDialog({ open, event, onClose, onSubmit, tagSuggestions
         tags:        event.tags || [],
         participants: event.participants || [],
         inherit_from: event.inherit_from || [],
-        is_locked:    event.is_locked || false,
-      })
+        is_locked: event.is_locked || false,
+        status: event.status || 'active',
+        })
+
       setError('')
     }
   }, [event])
@@ -594,15 +599,29 @@ interface EventDetailProps {
   event: ApiEvent | null
   onEdit: (ev: ApiEvent) => void
   onDelete: (ev: ApiEvent) => void
+  onLockToggle: (ev: ApiEvent) => void
   sudoMode: boolean
 }
 
-export function EventDetailCard({ event, onEdit, onDelete, sudoMode }: EventDetailProps) {
+export function EventDetailCard({ event, onEdit, onDelete, onLockToggle, sudoMode }: EventDetailProps) {
   const { i18n } = useApp()
   if (!event) return null
+  const isArchived = event.status === 'archived'
+
   return (
-    <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+    <div className={cn(
+      "relative flex flex-col gap-3 rounded-lg border bg-card p-4 transition-opacity",
+      isArchived && "opacity-60 grayscale-[0.5]"
+    )}>
+      {/* Accent Bar */}
+      <div 
+        className={cn(
+          "absolute left-0 top-2 bottom-2 w-1 rounded-r-full transition-colors",
+          event.is_locked ? "bg-primary" : "bg-muted"
+        )} 
+      />
+
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm pl-2">
         {[
           [i18n.events.topic,      event.content],
           [i18n.events.id,         event.id.slice(0, 12) + '…'],
@@ -617,21 +636,32 @@ export function EventDetailCard({ event, onEdit, onDelete, sudoMode }: EventDeta
             <span className="text-muted-foreground">{k}</span>
             <span className="truncate font-medium flex items-center gap-1.5">
               {v}
-              {k === i18n.events.topic && event.is_locked && <Lock className="text-amber-500" data-icon="inline-end" />}
+              {k === i18n.events.topic && event.is_locked && <Lock className="size-3 text-primary" data-icon="inline-end" />}
             </span>
           </div>
         ))}
       </div>
       {event.tags?.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1 pl-2">
           {event.tags.map(t => <Badge key={t} variant="secondary" className="text-xs">{t}</Badge>)}
         </div>
       )}
-      <div className="flex gap-2 pt-2">
-        <Button size="sm" variant="outline" disabled={!sudoMode} onClick={() => onEdit(event)}>
+      <div className="flex gap-2 pt-2 pl-2">
+        <Button size="sm" variant="outline" className="h-8" disabled={!sudoMode} onClick={() => onEdit(event)}>
           <Pencil data-icon="inline-start" />{i18n.common.edit}
         </Button>
-        <Button size="sm" variant="destructive" disabled={!sudoMode} onClick={() => onDelete(event)}>
+        <Button 
+          size="sm" 
+          variant="outline" 
+          className={cn("h-8", event.is_locked && "text-primary border-primary/30 bg-primary/5")}
+          disabled={!sudoMode} 
+          onClick={() => onLockToggle(event)}
+        >
+          {event.is_locked ? <Lock data-icon="inline-start" /> : <Unlock data-icon="inline-start" />}
+          {event.is_locked ? i18n.events.unlock : i18n.events.lock}
+        </Button>
+        <div className="flex-1" />
+        <Button size="sm" variant="destructive" className="h-8" disabled={!sudoMode} onClick={() => onDelete(event)}>
           <Trash2 data-icon="inline-start" />{i18n.common.delete}
         </Button>
       </div>

@@ -885,6 +885,8 @@ class WebuiServer:
                 confidence=float(body.get("confidence", 0.8)),
                 inherit_from=body.get("inherit_from", []),
                 last_accessed_at=now,
+                is_locked=bool(body.get("is_locked", False)),
+                status=body.get("status", "active"),
             )
         except (ValueError, TypeError) as exc:
             return _json({"error": str(exc)}, status=400)
@@ -913,6 +915,8 @@ class WebuiServer:
                 confidence=float(body.get("confidence", existing.confidence)),
                 inherit_from=body.get("inherit_from", existing.inherit_from),
                 last_accessed_at=now,
+                is_locked=bool(body.get("is_locked", existing.is_locked)),
+                status=body.get("status", existing.status),
             )
         except (ValueError, TypeError) as exc:
             return _json({"error": str(exc)}, status=400)

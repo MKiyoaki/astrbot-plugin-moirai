@@ -156,6 +156,8 @@ async def update_event(
         changes["participants"] = [str(p) for p in patch["participants"]]
     if "status" in patch and patch["status"] in (EventStatus.ACTIVE, EventStatus.ARCHIVED):
         changes["status"] = patch["status"]
+    if "is_locked" in patch:
+        changes["is_locked"] = bool(patch["is_locked"])
     updated = dataclasses.replace(event, **changes)
     await memory.update_event(updated)
     return event_to_dict(updated)

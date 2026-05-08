@@ -70,6 +70,7 @@ export interface ApiEvent {
   inherit_from: string[]
   participants: string[]
   is_locked: boolean
+  status: 'active' | 'archived'
 }
 export interface EventsResponse { items: ApiEvent[]; total: number }
 export const events = {

@@ -161,11 +161,33 @@ export default function EventsPage() {
       participants:      data.participants,
       inherit_from:      data.inherit_from,
       is_locked:         data.is_locked,
+      status:            data.status,
     }
     await api.events.update(id, body)
     app.toast(i18n.common.updateOk)
     setDetailEvent(null)
     await loadEvents()
+  }
+
+  const handleLockToggle = async (ev: api.ApiEvent) => {
+    if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
+    try {
+      const res = await api.events.update(ev.id, { is_locked: !ev.is_locked }) as any
+      const updatedEvent = res.event || ev
+      
+      app.toast((updatedEvent.is_locked ? i18n.events.lock : i18n.events.unlock) + ' ' + i18n.common.success)
+      
+      // Update local state with the actual data from server
+      if (detailEvent?.id === ev.id) {
+        setDetailEvent(updatedEvent)
+      }
+      
+      // Update the main list immediately without waiting for full reload
+      app.setRawEvents(app.rawEvents.map(e => e.id === ev.id ? updatedEvent : e))
+      
+    } catch (e: unknown) {
+      app.toast(i18n.common.updateFailed + '：' + (e as api.ApiError).body, 'destructive')
+    }
   }
 
   const openBin = async () => {
@@ -285,6 +307,7 @@ export default function EventsPage() {
                     event={detailEvent}
                     onEdit={ev => setEditEvent(ev)}
                     onDelete={handleDelete}
+                    onLockToggle={handleLockToggle}
                     sudoMode={app.sudo}
                   />
                 </div>
