@@ -371,12 +371,17 @@ class WebuiServer:
         if target_file.is_file():
             return web.FileResponse(target_file)
 
-        # 2. Next.js trailingSlash adaptation: /login -> /login.html
+        # 2. Next.js trailingSlash export: /events -> events/index.html
+        dir_index = _STATIC_DIR / path / "index.html"
+        if dir_index.is_file():
+            return web.FileResponse(dir_index)
+
+        # 3. Non-trailingSlash export fallback: /login -> /login.html
         html_file = _STATIC_DIR / f"{path}.html"
         if html_file.is_file():
             return web.FileResponse(html_file)
 
-        # 3. Final fallback: hand over SPA routing to index.html internally
+        # 4. Final fallback: hand over SPA routing to index.html
         index_file = _STATIC_DIR / "index.html"
         if index_file.is_file():
             return web.FileResponse(index_file)
@@ -442,7 +447,7 @@ class WebuiServer:
             for gid in group_ids:
                 events.extend(await self._event_repo.list_by_group(gid, limit=per_group))
             events = events[:limit]
-        return {"items": [event_to_dict(e) for e in events]}
+        return {"items": [event_to_dict(e) for e in events], "total": len(events)}
 
     async def graph_data(self) -> dict[str, Any]:
         personas = await self._persona_repo.list_all()
@@ -497,9 +502,11 @@ class WebuiServer:
         personas = await self._persona_repo.list_all()
         group_ids = await self._event_repo.list_group_ids()
         event_count = 0
+        locked_count = 0
         for gid in group_ids:
             evs = await self._event_repo.list_by_group(gid, limit=10_000)
             event_count += len(evs)
+            locked_count += sum(1 for e in evs if e.is_locked)
         impression_count = 0
         for p in personas:
             imps = await self._impression_repo.list_by_observer(p.uid)
@@ -507,6 +514,7 @@ class WebuiServer:
         return {
             "personas": len(personas),
             "events": event_count,
+            "locked_count": locked_count,
             "impressions": impression_count,
             "groups": len(group_ids),
             "version": self._plugin_version,
@@ -792,7 +800,8 @@ class WebuiServer:
         impressions = [
             Impression(
                 observer_uid="demo_uid_bot", subject_uid="demo_uid_alice",
-                relation_type="friend", affect=0.7, intensity=0.6, confidence=0.85,
+                ipc_orientation="友好", benevolence=0.7, power=0.0,
+                affect_intensity=0.5, r_squared=0.8, confidence=0.85,
                 scope="global",
                 evidence_event_ids=["demo_evt_001",
                                     "demo_evt_002", "demo_evt_005"],
@@ -800,28 +809,32 @@ class WebuiServer:
             ),
             Impression(
                 observer_uid="demo_uid_bot", subject_uid="demo_uid_bob",
-                relation_type="colleague", affect=0.2, intensity=0.4, confidence=0.78,
+                ipc_orientation="主导友好", benevolence=0.2, power=0.3,
+                affect_intensity=0.25, r_squared=0.7, confidence=0.78,
                 scope="global",
                 evidence_event_ids=["demo_evt_001", "demo_evt_004"],
                 last_reinforced_at=now - 2 * DAY,
             ),
             Impression(
                 observer_uid="demo_uid_alice", subject_uid="demo_uid_bot",
-                relation_type="friend", affect=0.8, intensity=0.7, confidence=0.80,
+                ipc_orientation="友好", benevolence=0.8, power=0.0,
+                affect_intensity=0.6, r_squared=0.9, confidence=0.80,
                 scope="global",
                 evidence_event_ids=["demo_evt_001", "demo_evt_002"],
                 last_reinforced_at=now - DAY,
             ),
             Impression(
                 observer_uid="demo_uid_bob", subject_uid="demo_uid_alice",
-                relation_type="friend", affect=0.5, intensity=0.5, confidence=0.72,
+                ipc_orientation="友好", benevolence=0.5, power=0.0,
+                affect_intensity=0.35, r_squared=0.75, confidence=0.72,
                 scope="demo_group_001",
                 evidence_event_ids=["demo_evt_002"],
                 last_reinforced_at=now - 6 * DAY,
             ),
             Impression(
                 observer_uid="demo_uid_charlie", subject_uid="demo_uid_bob",
-                relation_type="stranger", affect=-0.2, intensity=0.3, confidence=0.60,
+                ipc_orientation="友好", benevolence=0.0, power=0.0,
+                affect_intensity=0.1, r_squared=0.5, confidence=0.60,
                 scope="demo_group_001",
                 evidence_event_ids=["demo_evt_004"],
                 last_reinforced_at=now - 3 * DAY,
@@ -1314,35 +1327,40 @@ async def _seed(
     for imp in [
         Impression(
             observer_uid="demo_uid_bot", subject_uid="demo_uid_alice",
-            relation_type="friend", affect=0.7, intensity=0.6, confidence=0.85,
+            ipc_orientation="友好", benevolence=0.7, power=0.0,
+            affect_intensity=0.5, r_squared=0.8, confidence=0.85,
             scope="global",
             evidence_event_ids=["demo_evt_001", "demo_evt_002", "demo_evt_005"],
             last_reinforced_at=now - DAY,
         ),
         Impression(
             observer_uid="demo_uid_bot", subject_uid="demo_uid_bob",
-            relation_type="colleague", affect=0.2, intensity=0.4, confidence=0.78,
+            ipc_orientation="主导友好", benevolence=0.2, power=0.3,
+            affect_intensity=0.25, r_squared=0.7, confidence=0.78,
             scope="global",
             evidence_event_ids=["demo_evt_001", "demo_evt_004"],
             last_reinforced_at=now - 2 * DAY,
         ),
         Impression(
             observer_uid="demo_uid_alice", subject_uid="demo_uid_bot",
-            relation_type="friend", affect=0.8, intensity=0.7, confidence=0.80,
+            ipc_orientation="友好", benevolence=0.8, power=0.0,
+            affect_intensity=0.6, r_squared=0.9, confidence=0.80,
             scope="global",
             evidence_event_ids=["demo_evt_001", "demo_evt_002"],
             last_reinforced_at=now - DAY,
         ),
         Impression(
             observer_uid="demo_uid_bob", subject_uid="demo_uid_alice",
-            relation_type="friend", affect=0.5, intensity=0.5, confidence=0.72,
+            ipc_orientation="友好", benevolence=0.5, power=0.0,
+            affect_intensity=0.35, r_squared=0.75, confidence=0.72,
             scope="demo_group_001",
             evidence_event_ids=["demo_evt_002"],
             last_reinforced_at=now - 6 * DAY,
         ),
         Impression(
             observer_uid="demo_uid_charlie", subject_uid="demo_uid_bob",
-            relation_type="stranger", affect=-0.2, intensity=0.3, confidence=0.60,
+            ipc_orientation="友好", benevolence=0.0, power=0.0,
+            affect_intensity=0.1, r_squared=0.5, confidence=0.60,
             scope="demo_group_001",
             evidence_event_ids=["demo_evt_004"],
             last_reinforced_at=now - 3 * DAY,

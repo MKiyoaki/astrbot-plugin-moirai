@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [v0.5.3] — 2026-05-09
+
+### Bug 修复
+
+- **修复 WebUI `_handle_demo` 500 错误**：`Impression` 构造调用使用了已废弃的旧字段名（`relation_type/affect/intensity`），导致注入演示数据时返回 500。已更新为当前字段名（`ipc_orientation/benevolence/affect_intensity`），并补充了 `power` 与 `r_squared` 参数。
+- **修复 `server.py` 内置 `_seed` 同名问题**：底部开发脚本的 `_seed` 函数存在相同的旧字段问题，直接运行 `python web/server.py` 时会立即崩溃。
+- **`stats_data()` 补充 `locked_count` 字段**：后端响应缺少前端类型所要求的 `locked_count`，现已在遍历事件时同步统计锁定数量。
+- **`events_data()` 补充 `total` 字段**：响应中补充 `total` 以符合前端 `EventsResponse` 类型定义。
+- **修复 `next.config.mjs` dev 模式 API 代理失效**：`output: 'export'` 在 dev 模式下禁用了 rewrites，导致所有 `/api/*` 请求返回 "Internal Server Error"。现通过环境变量判断，在 `next dev` 时跳过 `output: 'export'` 并启用 `skipTrailingSlashRedirect`，确保 API 代理正常工作；`next build` 行为不变。
+- **修复 `_handle_spa_fallback` 不识别 Next.js trailingSlash 导出格式**：补充 `{path}/index.html` 检测，正确响应 `/events/` → `output/events/index.html`，避免所有子路由都降级为根页面。
+
+---
+
 ## [v0.5.2] — 2026-05-09
 
 ### 统计分析与架构增强
