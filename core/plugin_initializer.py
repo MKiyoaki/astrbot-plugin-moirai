@@ -168,16 +168,12 @@ class PluginInitializer:
             big_five_buffer=big_five_buffer,
             orientation_analyzer=orientation_analyzer,
             ipc_enabled=ipc_cfg.enabled,
+            impression_repo=impression_repo,
+            plugin_config=cfg,
         )
 
-        async def on_event_close(event: Event, window: MessageWindow) -> None:
-            asyncio.create_task(extractor(event, window))
-            if cfg.relation_enabled and cfg.impression_event_trigger_enabled:
-                asyncio.create_task(
-                    _maybe_trigger_impression(
-                        event, impression_repo, event_repo, cfg
-                    )
-                )
+        async def on_event_close(window: MessageWindow) -> None:
+            asyncio.create_task(extractor(window))
 
         resolver = IdentityResolver(persona_repo)
         detector = EventBoundaryDetector(cfg.get_boundary_config())
@@ -302,7 +298,7 @@ def _get_plugin_version() -> str:
         from importlib.metadata import version
         return version("astrbot-plugin-enhanced-memory")
     except Exception:
-        return "0.1.0"
+        return "0.5.0"
 
 
 async def _maybe_trigger_impression(
@@ -375,7 +371,7 @@ async def _maybe_trigger_impression(
                     r_squared = 0.3  # low confidence — rule-based signal only
 
                     if existing:
-                        alpha = 0.3
+                        alpha = cfg.impression_update_alpha
                         new_imp = dataclasses.replace(
                             existing,
                             ipc_orientation=ipc_orientation,

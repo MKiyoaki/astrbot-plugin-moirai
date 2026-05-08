@@ -18,6 +18,7 @@ from core.tasks.decay import run_salience_decay
 from core.tasks.scheduler import TaskScheduler
 from core.tasks.summary import run_group_summary
 from core.tasks.synthesis import run_impression_aggregation, run_persona_synthesis
+from core.config import DecayConfig
 
 
 # ---------------------------------------------------------------------------
@@ -72,9 +73,11 @@ def make_impression(observer: str, subject: str, evidence: list[str] | None = No
     return Impression(
         observer_uid=observer,
         subject_uid=subject,
-        relation_type="stranger",
-        affect=0.0,
-        intensity=0.3,
+        ipc_orientation="友好",
+        benevolence=0.0,
+        power=0.0,
+        affect_intensity=0.3,
+        r_squared=0.5,
         confidence=0.5,
         scope="global",
         evidence_event_ids=evidence or [],
@@ -170,7 +173,7 @@ async def test_scheduler_does_not_rerun_before_interval() -> None:
 async def test_decay_reduces_salience() -> None:
     er = InMemoryEventRepository()
     await er.upsert(make_event("e1"))
-    await run_salience_decay(er, lambda_=0.5)
+    await run_salience_decay(er, decay_config=DecayConfig(lambda_=0.5))
     event = await er.get("e1")
     assert event is not None
     assert event.salience < 0.5
@@ -187,7 +190,7 @@ async def test_decay_returns_count() -> None:
 async def test_decay_lambda_zero_no_change() -> None:
     er = InMemoryEventRepository()
     await er.upsert(make_event("e1"))
-    await run_salience_decay(er, lambda_=0.0)
+    await run_salience_decay(er, decay_config=DecayConfig(lambda_=0.0))
     event = await er.get("e1")
     assert event is not None
     assert abs(event.salience - 0.5) < 1e-9
@@ -293,7 +296,7 @@ async def test_impression_aggregation_skips_no_evidence() -> None:
     ir = InMemoryImpressionRepository()
     await pr.upsert(make_persona("u1"))
     await ir.upsert(make_impression("u1", "u2", evidence=[]))
-    provider = _MockProvider('{"relation_type":"friend","affect":0.8,"intensity":0.9,"confidence":0.7}')
+    provider = _MockProvider('{"ipc_orientation":"友好","benevolence":0.8,"power":0.0,"affect_intensity":0.9,"r_squared":0.7,"confidence":0.7}')
     count = await run_impression_aggregation(pr, er, ir, provider_getter=lambda: provider)
     assert count == 0
     assert provider.calls == []
@@ -306,13 +309,13 @@ async def test_impression_aggregation_updates_impression() -> None:
     await pr.upsert(make_persona("u1"))
     await er.upsert(make_event("ev1", topic="合作项目", uid="u1"))
     await ir.upsert(make_impression("u1", "u2", evidence=["ev1"]))
-    provider = _MockProvider('{"relation_type":"colleague","affect":0.6,"intensity":0.8,"confidence":0.75}')
+    provider = _MockProvider('{"ipc_orientation":"主导友好","benevolence":0.6,"power":0.4,"affect_intensity":0.8,"r_squared":0.75,"confidence":0.75}')
     count = await run_impression_aggregation(pr, er, ir, provider_getter=lambda: provider)
     assert count == 1
     updated = await ir.get("u1", "u2", "global")
     assert updated is not None
-    assert updated.relation_type == "colleague"
-    assert abs(updated.affect - 0.6) < 0.01
+    assert updated.ipc_orientation == "主导友好"
+    assert abs(updated.benevolence - 0.6) < 0.01
 
 
 async def test_impression_aggregation_rejects_invalid_relation() -> None:
@@ -322,11 +325,11 @@ async def test_impression_aggregation_rejects_invalid_relation() -> None:
     await pr.upsert(make_persona("u1"))
     await er.upsert(make_event("ev1", uid="u1"))
     await ir.upsert(make_impression("u1", "u2", evidence=["ev1"]))
-    provider = _MockProvider('{"relation_type":"INVALID","affect":0.5,"intensity":0.5,"confidence":0.5}')
+    provider = _MockProvider('{"ipc_orientation":"INVALID","benevolence":0.5,"power":0.0,"affect_intensity":0.5,"r_squared":0.5,"confidence":0.5}')
     await run_impression_aggregation(pr, er, ir, provider_getter=lambda: provider)
     updated = await ir.get("u1", "u2", "global")
     assert updated is not None
-    assert updated.relation_type == "stranger"  # original unchanged
+    assert updated.ipc_orientation == "友好"  # original unchanged
 
 
 async def test_impression_aggregation_clamps_affect() -> None:
@@ -336,12 +339,12 @@ async def test_impression_aggregation_clamps_affect() -> None:
     await pr.upsert(make_persona("u1"))
     await er.upsert(make_event("ev1", uid="u1"))
     await ir.upsert(make_impression("u1", "u2", evidence=["ev1"]))
-    provider = _MockProvider('{"relation_type":"friend","affect":99.0,"intensity":99.0,"confidence":99.0}')
+    provider = _MockProvider('{"ipc_orientation":"友好","benevolence":99.0,"power":99.0,"affect_intensity":99.0,"r_squared":99.0,"confidence":99.0}')
     await run_impression_aggregation(pr, er, ir, provider_getter=lambda: provider)
     updated = await ir.get("u1", "u2", "global")
     assert updated is not None
-    assert updated.affect <= 1.0
-    assert updated.intensity <= 1.0
+    assert updated.benevolence <= 1.0
+    assert updated.affect_intensity <= 1.0
     assert updated.confidence <= 1.0
 
 

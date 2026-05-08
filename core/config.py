@@ -16,14 +16,24 @@ from core.boundary.detector import BoundaryConfig
 # reference the same text as the factory default).
 # ---------------------------------------------------------------------------
 DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
-    "你是一个聊天记录分析助手。根据对话内容提取结构化信息，严格按照指定 JSON 格式输出，不输出任何其他文字。\n\n"
-    "输出格式（仅输出此 JSON，无前缀、无后缀、无 markdown 代码块）：\n"
-    '{"topic": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8}\n\n'
+    "你是一个聊天记录分析助手。你的任务是将一段连续的对话记录划分为一个或多个逻辑事件，并提取结构化信息。\n\n"
+    "划分逻辑：\n"
+    "1. 话题转换：当对话主题发生明显变化时，划分为新事件。\n"
+    "2. 时间大跨度：当两条消息之间的时间间隔非常大（如超过数小时或数天）时，通常应划分为新事件。\n"
+    "3. 连续性：如果对话虽然中断但随后继续讨论同一话题，可以视为同一事件的延续（设置 inherit 为 true）。\n\n"
+    "输出格式（仅输出一个 JSON Array，包含一个或多个对象，不输出任何其他文字或 markdown 代码块）：\n"
+    '[\n'
+    '  {"start_idx": 0, "end_idx": 10, "topic": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false},\n'
+    '  {"start_idx": 11, "end_idx": 19, "topic": "...", "chat_content_tags": ["...", "..."], "salience": 0.3, "confidence": 0.9, "inherit": true}\n'
+    ']\n\n'
     "字段说明：\n"
-    "- topic: 对话核心主题，简洁明了，30字以内\n"
-    "- chat_content_tags: 2~5个关键词标签，用于检索和分类\n"
-    "- salience: 重要性分值 0.0~1.0（重要事件/情绪事件偏高，日常闲聊偏低）\n"
-    "- confidence: 本次提取结果的置信度 0.0~1.0"
+    "- start_idx: 该事件在提供的对话记录中的起始索引（从0开始）\n"
+    "- end_idx: 该事件在提供的对话记录中的结束索引（包含）\n"
+    "- topic: 该段对话的核心主题，简洁明了，30字以内\n"
+    "- chat_content_tags: 2~5个关键词标签\n"
+    "- salience: 重要性分值 0.0~1.0\n"
+    "- confidence: 本次提取结果的置信度 0.0~1.0\n"
+    "- inherit: 是否继承上一个已知事件的主题（即本段是上段的延续）"
 )
 
 
@@ -198,10 +208,8 @@ class PluginConfig:
     def get_boundary_config(self) -> BoundaryConfig:
         return BoundaryConfig(
             time_gap_minutes=self._float("boundary_time_gap_minutes", 30.0),
-            max_messages=self._int("boundary_max_messages", 50),
+            max_messages=self._int("boundary_max_messages", 20),
             max_duration_minutes=self._float("boundary_max_duration_minutes", 60.0),
-            topic_drift_threshold=self._float("boundary_topic_drift_threshold", 0.6),
-            topic_check_message_count=self._int("boundary_topic_check_message_count", 20),
         )
 
     def get_decay_config(self) -> DecayConfig:
@@ -408,12 +416,11 @@ class PluginConfig:
     def impression_trigger_debounce_hours(self) -> float:
         return self._float("impression_trigger_debounce_hours", 1.0)
 
-    # ------------------------------------------------------------------
-    # Raw dict passthrough (for subsystems that need the full dict)
-    # ------------------------------------------------------------------
+    @property
+    def impression_update_alpha(self) -> float:
+        return self._float("impression_update_alpha", 0.3)
 
-    def as_dict(self) -> dict:
-        return dict(self._raw)
+    # ------------------------------------------------------------------
     # Raw dict passthrough (for subsystems that need the full dict)
     # ------------------------------------------------------------------
 

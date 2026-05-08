@@ -1,61 +1,60 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { Activity, Share2, BookOpen, Search, Database } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useApp } from '@/lib/store'
-import { i18n } from '@/lib/i18n'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Separator } from '@/components/ui/separator'
 
-const PANELS = [
-  {
-    href: '/events',
-    icon: Activity,
-    title: i18n.nav.events,
-    desc: i18n.page.events.description,
-  },
-  {
-    href: '/graph',
-    icon: Share2,
-    title: i18n.nav.graph,
-    desc: i18n.page.graph.description,
-  },
-  {
-    href: '/summary',
-    icon: BookOpen,
-    title: i18n.nav.summary,
-    desc: i18n.page.summary.description,
-  },
-  {
-    href: '/recall',
-    icon: Search,
-    title: i18n.nav.recall,
-    desc: i18n.page.recall.description,
-  },
-  {
-    href: '/library',
-    icon: Database,
-    title: i18n.nav.library,
-    desc: i18n.page.library.description,
-  },
-]
-
 export default function HomePage() {
-  const app = useApp()
+  const { i18n, stats, refreshStats } = useApp()
 
   useEffect(() => {
-    app.refreshStats()
+    refreshStats()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const PANELS = useMemo(() => [
+    {
+      href: '/events',
+      icon: Activity,
+      title: i18n.nav.events,
+      desc: i18n.page.events.description,
+    },
+    {
+      href: '/graph',
+      icon: Share2,
+      title: i18n.nav.graph,
+      desc: i18n.page.graph.description,
+    },
+    {
+      href: '/summary',
+      icon: BookOpen,
+      title: i18n.nav.summary,
+      desc: i18n.page.summary.description,
+    },
+    {
+      href: '/recall',
+      icon: Search,
+      title: i18n.nav.recall,
+      desc: i18n.page.recall.description,
+    },
+    {
+      href: '/library',
+      icon: Database,
+      title: i18n.nav.library,
+      desc: i18n.page.library.description,
+    },
+  ], [i18n])
+
   const STATS = [
-    { label: i18n.stats.personas,    val: app.stats.personas    },
-    { label: i18n.stats.events,      val: app.stats.events      },
-    { label: i18n.stats.locked,      val: app.stats.locked_count },
-    { label: i18n.stats.impressions, val: app.stats.impressions },
-    { label: i18n.stats.groups,      val: app.stats.groups      },
+    { label: i18n.stats.personas,    val: stats.personas    },
+    { label: i18n.stats.events,      val: stats.events      },
+    { label: i18n.stats.locked,      val: stats.locked_count },
+    { label: i18n.stats.impressions, val: stats.impressions },
+    { label: i18n.stats.groups,      val: stats.groups      },
   ]
 
   return (

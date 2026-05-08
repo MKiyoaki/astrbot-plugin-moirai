@@ -4,9 +4,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { MiniGraph } from './mini-graph'
 import type { GroupCard } from '@/lib/graph-types'
-import { i18n } from '@/lib/i18n'
-
-const t = i18n.graph
+import { useApp } from '@/lib/store'
 
 interface GroupCardProps {
   group: GroupCard
@@ -14,6 +12,8 @@ interface GroupCardProps {
 }
 
 export function GroupCardItem({ group, onClick }: GroupCardProps) {
+  const { i18n } = useApp()
+  const t = i18n.graph
   const extraTags = group.top_tags.length > 4 ? group.top_tags.length - 4 : 0
   const visibleTags = group.top_tags.slice(0, 4)
 

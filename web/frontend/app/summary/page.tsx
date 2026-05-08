@@ -11,7 +11,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { PageHeader } from '@/components/layout/page-header'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
-import { i18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 interface SummaryState {
@@ -22,6 +21,7 @@ interface SummaryState {
 
 export default function SummaryPage() {
   const app = useApp()
+  const { i18n } = app
   const [summaries, setSummaries] = useState<api.SummaryMeta[]>([])
   const [current, setCurrent] = useState<SummaryState>({ groupId: null, date: '', content: '' })
   const [editing, setEditing] = useState(false)

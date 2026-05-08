@@ -15,7 +15,6 @@ import { EdgeDetail } from '@/components/graph/edge-detail'
 import { GroupCardList } from '@/components/graph/group-card-list'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
-import { i18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -32,6 +31,7 @@ import { useForceSimulation } from '@/hooks/use-force-simulation'
 export default function GraphPage() {
   const router = useRouter()
   const app = useApp()
+  const { i18n } = app
 
   // ── Tag & Date filter ──────────────────────────────────────────────────────
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set())

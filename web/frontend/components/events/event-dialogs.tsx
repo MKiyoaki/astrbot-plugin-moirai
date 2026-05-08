@@ -16,7 +16,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { FieldGroup, Field, FieldLabel, FieldContent, FieldDescription } from '@/components/ui/field'
 import { TagSelector } from '@/components/shared/tag-selector'
 import { type ApiEvent } from '@/lib/api'
-import { i18n } from '@/lib/i18n'
+import { useApp } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
 export interface EventFormData {
@@ -45,6 +45,7 @@ function GroupPicker({
   onChange: (v: string) => void
   events: ApiEvent[]
 }) {
+  const { i18n } = useApp()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -141,6 +142,7 @@ function EventInheritPicker({
   onChange: (ids: string[]) => void
   events: ApiEvent[]
 }) {
+  const { i18n } = useApp()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -254,6 +256,7 @@ function EventForm({
   tagSuggestions: string[]
   events: ApiEvent[]
 }) {
+  const { i18n } = useApp()
   const set = <K extends keyof EventFormData>(k: K, v: EventFormData[K]) =>
     onChange({ ...data, [k]: v })
 
@@ -349,9 +352,9 @@ function EventForm({
         <FieldContent>
           <FieldLabel htmlFor="ev-locked" className="flex items-center gap-1.5 cursor-pointer">
             {data.is_locked ? <Lock data-icon="inline-start" /> : <Unlock data-icon="inline-start" />}
-            锁定记忆
+            {i18n.events.lockedMemory}
           </FieldLabel>
-          <FieldDescription>锁定后，此记忆不会被自动清理任务删除。</FieldDescription>
+          <FieldDescription>{i18n.events.lockedMemoryDesc}</FieldDescription>
         </FieldContent>
         <Switch
           id="ev-locked"
@@ -385,6 +388,7 @@ interface CreateEventDialogProps {
 }
 
 export function CreateEventDialog({ open, onClose, onSubmit, tagSuggestions, events }: CreateEventDialogProps) {
+  const { i18n } = useApp()
   const now = new Date()
   const isoNow = now.toISOString().slice(0, 16)
   const isoEnd = new Date(now.getTime() + 1800000).toISOString().slice(0, 16)
@@ -446,6 +450,7 @@ interface EditEventDialogProps {
 }
 
 export function EditEventDialog({ open, event, onClose, onSubmit, tagSuggestions, events }: EditEventDialogProps) {
+  const { i18n } = useApp()
   const [data, setData] = useState<EventFormData>({
     topic: '', group_id: '', start_time: '', end_time: '',
     salience: 0.5, tags: [], participants: [], inherit_from: [], is_locked: false,
@@ -524,10 +529,11 @@ interface RecycleBinDialogProps {
   onClear: () => Promise<void>
   sudoMode: boolean
 }
-
 export function RecycleBinDialog({ open, items, loading, onClose, onRestore, onClear, sudoMode }: RecycleBinDialogProps) {
+  const { i18n } = useApp()
   return (
     <Dialog open={open} onOpenChange={(v: boolean) => !v && onClose()}>
+...
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{i18n.events.recycleBin}</DialogTitle>
@@ -592,6 +598,7 @@ interface EventDetailProps {
 }
 
 export function EventDetailCard({ event, onEdit, onDelete, sudoMode }: EventDetailProps) {
+  const { i18n } = useApp()
   if (!event) return null
   return (
     <div className="flex flex-col gap-3">

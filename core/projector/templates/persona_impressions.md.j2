@@ -10,9 +10,11 @@
 
 | 字段 | 值 |
 |------|----|
-| 关系类型 | {{ imp.relation_type }} |
-| 情感倾向 | {{ imp.affect | format_affect }} |
-| 强度 | {{ (imp.intensity * 100) | int }}% |
+| 社交取向 | {{ imp.ipc_orientation }} |
+| 亲和度 | {{ imp.benevolence | format_affect }} |
+| 支配度 | {{ imp.power | format_affect }} |
+| 情感强度 | {{ (imp.affect_intensity * 100) | int }}% |
+| 拟合优度 | {{ (imp.r_squared * 100) | int }}% |
 | 置信度 | {{ (imp.confidence * 100) | int }}% |
 | 最近强化 | {{ imp.last_reinforced_at | format_time }} |
 

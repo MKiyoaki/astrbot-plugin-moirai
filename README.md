@@ -1,6 +1,6 @@
 # Astrbot Plugin - Enhanced Memory
 
-Version: `0.0.1`
+Version: `0.5.0`
 
 Author: `MKiyoaki`, `Gariton`
 

@@ -126,19 +126,16 @@ def test_detector_max_duration_fires() -> None:
     assert reason == "max_duration"
 
 
-def test_detector_topic_drift_stub_never_fires() -> None:
-    cfg = BoundaryConfig(topic_check_message_count=5, topic_drift_threshold=0.1)
-    det = EventBoundaryDetector(cfg)
-    w = _fill_window(20, start=1000.0)
-    # Even with very low threshold, stub returns 0.0 drift
-    should_close, reason = det.should_close(w, now=1001.0)
-    assert not should_close or reason != "topic_drift"
+def test_detector_topic_drift_removed() -> None:
+    # Topic drift was removed in favor of LLM-based partitioning
+    det = EventBoundaryDetector()
+    assert not hasattr(det.config, "topic_drift_threshold")
 
 
 def test_detector_defaults_are_reasonable() -> None:
     det = EventBoundaryDetector()
     assert det.config.time_gap_minutes == 30.0
-    assert det.config.max_messages == 50
+    assert det.config.max_messages == 20
     assert det.config.max_duration_minutes == 60.0
 
 

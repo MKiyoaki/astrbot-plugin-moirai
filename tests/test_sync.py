@@ -30,9 +30,11 @@ _SAMPLE_MD = """\
 
 | 字段 | 值 |
 |------|----|
-| 关系类型 | friend |
-| 情感倾向 | 正面（+0.70） |
-| 强度 | 80% |
+| 社交取向 | 友好 |
+| 亲和度 | 正面（+0.70） |
+| 支配度 | 中性（+0.00） |
+| 情感强度 | 80% |
+| 拟合优度 | 90% |
 | 置信度 | 75% |
 | 最近强化 | 2024-01-01 00:00 UTC |
 
@@ -44,9 +46,11 @@ _SAMPLE_MD = """\
 
 | 字段 | 值 |
 |------|----|
-| 关系类型 | colleague |
-| 情感倾向 | 中性（+0.10） |
-| 强度 | 40% |
+| 社交取向 | 服从 |
+| 亲和度 | 中性（+0.10） |
+| 支配度 | 负面（-0.50） |
+| 情感强度 | 40% |
+| 拟合优度 | 50% |
 | 置信度 | 60% |
 | 最近强化 | 2024-01-02 00:00 UTC |
 
@@ -75,9 +79,11 @@ def test_parse_first_impression_fields() -> None:
     imp = imps[0]
     assert imp.observer_uid == "observer-uid-001"
     assert imp.subject_uid == "subject-uid-001"
-    assert imp.relation_type == "friend"
-    assert imp.affect == pytest.approx(0.70, abs=0.001)
-    assert imp.intensity == pytest.approx(0.80, abs=0.001)
+    assert imp.ipc_orientation == "友好"
+    assert imp.benevolence == pytest.approx(0.70, abs=0.001)
+    assert imp.power == pytest.approx(0.00, abs=0.001)
+    assert imp.affect_intensity == pytest.approx(0.80, abs=0.001)
+    assert imp.r_squared == pytest.approx(0.90, abs=0.001)
     assert imp.confidence == pytest.approx(0.75, abs=0.001)
     assert imp.scope == "global"
     assert "ev001" in imp.evidence_event_ids
@@ -89,9 +95,10 @@ def test_parse_second_impression_fields() -> None:
     imp = imps[1]
     assert imp.observer_uid == "observer-uid-002"
     assert imp.scope == "g1"
-    assert imp.relation_type == "colleague"
-    assert imp.affect == pytest.approx(0.10, abs=0.001)
-    assert imp.intensity == pytest.approx(0.40, abs=0.001)
+    assert imp.ipc_orientation == "服从"
+    assert imp.benevolence == pytest.approx(0.10, abs=0.001)
+    assert imp.power == pytest.approx(-0.50, abs=0.001)
+    assert imp.affect_intensity == pytest.approx(0.40, abs=0.001)
 
 
 def test_parse_empty_impressions_section() -> None:
@@ -108,19 +115,19 @@ def test_parse_no_evidence_events() -> None:
 def test_parse_negative_affect() -> None:
     md = _SAMPLE_MD.replace("正面（+0.70）", "负面（-0.80）")
     imps = parse_impressions_md(md, "s1")
-    assert imps[0].affect == pytest.approx(-0.80, abs=0.001)
+    assert imps[0].benevolence == pytest.approx(-0.80, abs=0.001)
 
 
 def test_parse_neutral_affect() -> None:
     md = _SAMPLE_MD.replace("正面（+0.70）", "中性（+0.05）")
     imps = parse_impressions_md(md, "s1")
-    assert imps[0].affect == pytest.approx(0.05, abs=0.001)
+    assert imps[0].benevolence == pytest.approx(0.05, abs=0.001)
 
 
 def test_parse_clamps_intensity_over_100() -> None:
-    md = _SAMPLE_MD.replace("| 强度 | 80% |", "| 强度 | 150% |")
+    md = _SAMPLE_MD.replace("| 情感强度 | 80% |", "| 情感强度 | 150% |")
     imps = parse_impressions_md(md, "s1")
-    assert imps[0].intensity == pytest.approx(1.0, abs=0.001)
+    assert imps[0].affect_intensity == pytest.approx(1.0, abs=0.001)
 
 
 def test_parse_clamps_confidence_over_100() -> None:
@@ -130,8 +137,8 @@ def test_parse_clamps_confidence_over_100() -> None:
 
 
 def test_parse_incomplete_block_skipped() -> None:
-    # Remove the affect row — that block should be skipped
-    md = _SAMPLE_MD.replace("| 情感倾向 | 正面（+0.70） |\n", "")
+    # Remove the benevolence row — that block should be skipped
+    md = _SAMPLE_MD.replace("| 亲和度 | 正面（+0.70） |\n", "")
     imps = parse_impressions_md(md, "s1")
     assert len(imps) == 1
     assert imps[0].observer_uid == "observer-uid-002"
@@ -391,11 +398,11 @@ async def test_syncer_integration_watcher_triggers_upsert(tmp_path: Path) -> Non
 
     # Simulate user edit
     time.sleep(0.05)
-    new_md = _SAMPLE_MD.replace("| 关系类型 | friend |", "| 关系类型 | rival |")
+    new_md = _SAMPLE_MD.replace("| 社交取向 | 友好 |", "| 社交取向 | 敌意 |")
     imp_file.write_text(new_md, encoding="utf-8")
 
     await watcher._check_once()
 
     imps = await ir.list_by_observer("observer-uid-001")
     assert len(imps) == 1
-    assert imps[0].relation_type == "rival"
+    assert imps[0].ipc_orientation == "敌意"

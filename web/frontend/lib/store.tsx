@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react'
 import * as api from './api'
+import * as i18n_lib from './i18n'
 
 // ── Types ─────────────────────────────────────────────────────────────────
 export interface ToastMessage { id: string; message: string; variant?: 'default' | 'destructive' }
@@ -17,6 +18,9 @@ interface AppState {
   sudoGuardMinutes: number
   // Persona defaults (localStorage-backed)
   defaultPersonaConfidence: number
+  // i18n
+  lang: 'zh' | 'en' | 'ja'
+  i18n: i18n_lib.I18n
   // Stats
   stats: api.Stats
   // Graph data
@@ -36,6 +40,7 @@ interface AppActions {
   setSudoGuardEnabled: (v: boolean) => void
   setSudoGuardMinutes: (v: number) => void
   setDefaultPersonaConfidence: (v: number) => void
+  setLang: (l: 'zh' | 'en' | 'ja') => void
   refreshStats: () => Promise<void>
   setRawGraph: (g: api.GraphData) => void
   setRawEvents: (e: api.ApiEvent[]) => void
@@ -56,6 +61,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [rawGraph, setRawGraph] = useState<api.GraphData>({ nodes: [], edges: [] })
   const [rawEvents, setRawEvents] = useState<api.ApiEvent[]>([])
   const [toasts, setToasts] = useState<ToastMessage[]>([])
+
+  // i18n
+  const [lang, _setLang] = useState<'zh' | 'en' | 'ja'>(() => {
+    if (typeof window === 'undefined') return 'zh'
+    const v = localStorage.getItem('em_lang')
+    return (v === 'en' || v === 'zh' || v === 'ja') ? v : 'zh'
+  })
+
+  const setLang = useCallback((l: 'zh' | 'en' | 'ja') => {
+    _setLang(l)
+    localStorage.setItem('em_lang', l)
+  }, [])
+
+  const i18n = useMemo(() => {
+    if (lang === 'en') return i18n_lib.en
+    if (lang === 'ja') return i18n_lib.ja
+    return i18n_lib.zh
+  }, [lang])
 
   // Sudo guard settings — persisted in localStorage
   const [sudoGuardEnabled, _setSudoGuardEnabled] = useState(() => {
@@ -171,6 +194,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     authEnabled, authenticated, sudo, passwordSet,
     sudoGuardEnabled, sudoGuardMinutes,
     defaultPersonaConfidence,
+    lang, i18n,
     stats, rawGraph, rawEvents, toasts,
     refreshAuth,
     setSudo,
@@ -180,6 +204,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSudoGuardEnabled,
     setSudoGuardMinutes,
     setDefaultPersonaConfidence,
+    setLang,
     refreshStats,
     setRawGraph,
     setRawEvents,
@@ -189,8 +214,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     authEnabled, authenticated, sudo, passwordSet,
     sudoGuardEnabled, sudoGuardMinutes,
     defaultPersonaConfidence,
+    lang, i18n,
     stats, rawGraph, rawEvents, toasts,
-    refreshAuth, refreshStats, setSudoGuardEnabled, setSudoGuardMinutes, setDefaultPersonaConfidence, toast, dismissToast
+    refreshAuth, refreshStats, setSudoGuardEnabled, setSudoGuardMinutes, setDefaultPersonaConfidence, setLang, toast, dismissToast
   ])
 
   return <AppContext.Provider value={ctx}>{children}</AppContext.Provider>

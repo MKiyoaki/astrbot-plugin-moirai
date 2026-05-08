@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { format } from 'date-fns'
+import { format, isSameYear } from 'date-fns'
 import { Calendar as CalendarIcon, X } from 'lucide-react'
 import { DateRange } from 'react-day-picker'
 
@@ -13,6 +13,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { useApp } from '@/lib/store'
 
 interface DateRangePickerProps {
   value: DateRange | undefined
@@ -25,6 +26,35 @@ export function DateRangePicker({
   onChange,
   className,
 }: DateRangePickerProps) {
+  const { rawEvents } = useApp()
+
+  const eventDates = React.useMemo(() => {
+    const dates = new Set<string>()
+    rawEvents.forEach(ev => {
+      try {
+        const d = new Date(ev.start)
+        dates.add(format(d, 'yyyy-MM-dd'))
+      } catch {}
+    })
+    return Array.from(dates).map(d => new Date(d))
+  }, [rawEvents])
+
+  const formatDateRange = (range: DateRange) => {
+    const from = range.from
+    const to = range.to
+    if (!from) return '选择日期范围'
+    
+    const yearFormat = 'yy/MM/dd'
+    const shortFormat = 'MM/dd'
+    
+    if (!to) return format(from, yearFormat)
+    
+    if (isSameYear(from, to)) {
+      return `${format(from, yearFormat)} - ${format(to, shortFormat)}`
+    }
+    return `${format(from, yearFormat)} - ${format(to, yearFormat)}`
+  }
+
   return (
     <div className={cn('grid gap-2', className)}>
       <Popover>
@@ -33,34 +63,28 @@ export function DateRangePicker({
             id="date"
             variant={'outline'}
             className={cn(
-              'h-9 justify-start text-left font-normal text-xs px-3 min-w-[240px]',
+              'h-9 justify-start text-left font-normal text-xs px-2.5 min-w-[200px] w-auto transition-all',
               !value && 'text-muted-foreground'
             )}
           >
-            <CalendarIcon className="mr-2 h-3.5 w-3.5" />
-            {value?.from ? (
-              value.to ? (
-                <>
-                  {format(value.from, 'y/MM/dd')} - {format(value.to, 'y/MM/dd')}
-                </>
-              ) : (
-                format(value.from, 'y/MM/dd')
-              )
-            ) : (
-              <span>选择日期范围</span>
-            )}
+            <CalendarIcon className="mr-2 h-3.5 w-3.5 opacity-60" />
+            <span className="truncate mr-1">
+              {value ? formatDateRange(value) : '选择日期'}
+            </span>
             {value && (
-              <X 
-                className="ml-auto h-3.5 w-3.5 hover:text-destructive transition-colors" 
+              <div 
+                className="ml-auto rounded-full p-0.5 hover:bg-muted transition-colors cursor-pointer"
                 onClick={(e) => {
                   e.stopPropagation()
                   onChange(undefined)
                 }}
-              />
+              >
+                <X className="h-3 w-3 opacity-60 hover:opacity-100" />
+              </div>
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="end">
+        <PopoverContent className="w-auto p-0 shadow-2xl" align="end">
           <Calendar
             initialFocus
             mode="range"
@@ -68,6 +92,12 @@ export function DateRangePicker({
             selected={value}
             onSelect={onChange}
             numberOfMonths={2}
+            modifiers={{
+              hasEvent: eventDates
+            }}
+            modifiersClassNames={{
+              hasEvent: "bg-muted/40 font-bold text-foreground relative after:absolute after:bottom-1 after:left-1/2 after:-translate-x-1/2 after:size-0.5 after:rounded-full after:bg-primary/50"
+            }}
           />
         </PopoverContent>
       </Popover>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { Save, RefreshCw, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,56 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { PageHeader } from '@/components/layout/page-header'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
-import { i18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-
-const SECTIONS: { label: string; keys: string[] }[] = [
-  {
-    label: i18n.config.sections.webui,
-    keys: ['webui_enabled', 'webui_port', 'webui_auth_enabled', 'webui_session_hours', 'webui_sudo_minutes'],
-  },
-  {
-    label: i18n.config.sections.embedding,
-    keys: [
-      'embedding_enabled', 
-      'embedding_provider', 
-      'embedding_model', 
-      'embedding_api_url', 
-      'embedding_api_key',
-      'embedding_batch_size',
-      'embedding_concurrency',
-      'embedding_batch_interval_ms',
-      'embedding_request_interval_ms',
-      'embedding_failure_tolerance_ratio',
-      'embedding_retry_max',
-      'embedding_retry_delay_ms'
-    ],
-  },
-  {
-    label: i18n.config.sections.retrieval,
-    keys: ['retrieval_top_k', 'retrieval_token_budget', 'memory_isolation_enabled'],
-  },
-  {
-    label: i18n.config.sections.vcm,
-    keys: ['vcm_enabled', 'context_max_sessions', 'context_session_idle_seconds', 'context_window_size'],
-  },
-  {
-    label: i18n.config.sections.cleanup,
-    keys: ['memory_cleanup_enabled', 'memory_cleanup_threshold', 'memory_cleanup_interval_days'],
-  },
-  {
-    label: i18n.config.sections.boundary,
-    keys: ['boundary_time_gap_minutes', 'boundary_max_messages', 'boundary_max_duration_minutes', 'boundary_topic_drift_threshold'],
-  },
-  {
-    label: i18n.config.sections.relation,
-    keys: ['relation_enabled', 'persona_isolation_enabled', 'impression_event_trigger_enabled', 'impression_event_trigger_threshold', 'impression_trigger_debounce_hours'],
-  },
-  {
-    label: i18n.config.sections.tasks,
-    keys: ['decay_interval_hours', 'summary_interval_hours', 'persona_synthesis_interval_hours', 'impression_aggregation_interval_hours', 'file_watcher_poll_seconds'],
-  },
-]
 
 const FIELD_DEPENDENCIES: Record<string, string> = {
   // Embedding
@@ -221,12 +172,60 @@ function ConfigField({
 }
 
 export default function ConfigPage() {
-  const app = useApp()
+  const { i18n, sudo, toast } = useApp()
   const [schema, setSchema] = useState<Record<string, api.ConfSchemaField>>({})
   const [values, setValues] = useState<Record<string, unknown>>({})
   const [dirty, setDirty] = useState<Record<string, unknown>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+
+  const SECTIONS = useMemo(() => [
+    {
+      label: i18n.config.sections.webui,
+      keys: ['webui_enabled', 'webui_port', 'webui_auth_enabled', 'webui_session_hours', 'webui_sudo_minutes'],
+    },
+    {
+      label: i18n.config.sections.embedding,
+      keys: [
+        'embedding_enabled', 
+        'embedding_provider', 
+        'embedding_model', 
+        'embedding_api_url', 
+        'embedding_api_key',
+        'embedding_batch_size',
+        'embedding_concurrency',
+        'embedding_batch_interval_ms',
+        'embedding_request_interval_ms',
+        'embedding_failure_tolerance_ratio',
+        'embedding_retry_max',
+        'embedding_retry_delay_ms'
+      ],
+    },
+    {
+      label: i18n.config.sections.retrieval,
+      keys: ['retrieval_top_k', 'retrieval_token_budget', 'memory_isolation_enabled'],
+    },
+    {
+      label: i18n.config.sections.vcm,
+      keys: ['vcm_enabled', 'context_max_sessions', 'context_session_idle_seconds', 'context_window_size'],
+    },
+    {
+      label: i18n.config.sections.cleanup,
+      keys: ['memory_cleanup_enabled', 'memory_cleanup_threshold', 'memory_cleanup_interval_days'],
+    },
+    {
+      label: i18n.config.sections.boundary,
+      keys: ['boundary_time_gap_minutes', 'boundary_max_messages', 'boundary_max_duration_minutes', 'boundary_topic_drift_threshold'],
+    },
+    {
+      label: i18n.config.sections.relation,
+      keys: ['relation_enabled', 'persona_isolation_enabled', 'impression_event_trigger_enabled', 'impression_event_trigger_threshold', 'impression_trigger_debounce_hours'],
+    },
+    {
+      label: i18n.config.sections.tasks,
+      keys: ['decay_interval_hours', 'summary_interval_hours', 'persona_synthesis_interval_hours', 'impression_aggregation_interval_hours', 'file_watcher_poll_seconds'],
+    },
+  ], [i18n])
 
   const load = async () => {
     setLoading(true)
@@ -236,7 +235,7 @@ export default function ConfigPage() {
       setValues(data.values)
       setDirty({})
     } catch {
-      app.toast(i18n.config.loadError, 'destructive')
+      toast(i18n.config.loadError, 'destructive')
     } finally {
       setLoading(false)
     }
@@ -250,15 +249,15 @@ export default function ConfigPage() {
   }
 
   const handleSave = async () => {
-    if (!app.sudo) { app.toast(i18n.config.needSudo, 'destructive'); return }
+    if (!sudo) { toast(i18n.config.needSudo, 'destructive'); return }
     if (!Object.keys(dirty).length) return
     setSaving(true)
     try {
       await api.pluginConfig.update(dirty)
-      app.toast(i18n.config.saved)
+      toast(i18n.config.saved)
       setDirty({})
     } catch (e: unknown) {
-      app.toast(`${i18n.config.saveError}：${(e as api.ApiError).body}`, 'destructive', 4000)
+      toast(`${i18n.config.saveError}：${(e as api.ApiError).body}`, 'destructive', 4000)
     } finally {
       setSaving(false)
     }
@@ -270,7 +269,7 @@ export default function ConfigPage() {
     <div className="flex items-center gap-2">
       {dirtyCount > 0 && (
         <Badge variant="secondary" className="text-xs">
-          {dirtyCount} 项已修改
+          {i18n.config.modifiedItems.replace('{count}', String(dirtyCount))}
         </Badge>
       )}
       <Button variant="ghost" size="icon" onClick={load} title={i18n.common.refresh}>
@@ -279,7 +278,7 @@ export default function ConfigPage() {
       <Button
         size="sm"
         onClick={handleSave}
-        disabled={!app.sudo || saving || dirtyCount === 0}
+        disabled={!sudo || saving || dirtyCount === 0}
       >
         <Save className="mr-1 size-3.5" />{i18n.config.save}
       </Button>
@@ -287,7 +286,6 @@ export default function ConfigPage() {
   )
 
   return (
-    // 添加了 w-full flex-1 min-w-0 收束边界宽度
     <div className="flex w-full flex-1 h-full flex-col min-w-0 overflow-hidden">
       <PageHeader
         title={i18n.page.config.title}
@@ -313,14 +311,14 @@ export default function ConfigPage() {
                   <CardHeader>
                     <CardTitle>{section.label}</CardTitle>
                     <CardDescription>
-                      {fields.length} 项配置
+                      {i18n.config.configCount.replace('{count}', String(fields.length))}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="divide-y">
                     {fields.map(key => {
                       const parentKey = FIELD_DEPENDENCIES[key]
                       const isParentOff = parentKey && !values[parentKey]
-                      const fieldDisabled = !app.sudo || saving || Boolean(isParentOff)
+                      const fieldDisabled = !sudo || saving || Boolean(isParentOff)
                       
                       return (
                         <ConfigField

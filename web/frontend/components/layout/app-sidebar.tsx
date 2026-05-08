@@ -22,27 +22,30 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useApp } from '@/lib/store'
-import { i18n } from '@/lib/i18n'
 import * as api from '@/lib/api'
-
-const NAV_VISUALIZATION = [
-  { href: '/events', icon: Activity,  label: i18n.nav.events },
-  { href: '/graph',  icon: Share2,    label: i18n.nav.graph },
-  { href: '/summary',icon: BookOpen,  label: i18n.nav.summary },
-]
-const NAV_TOOLS = [
-  { href: '/recall', icon: Search,   label: i18n.nav.recall },
-]
-const NAV_ADMIN = [
-  { href: '/library',  icon: Database,           label: i18n.nav.library },
-  { href: '/config',   icon: SlidersHorizontal,  label: i18n.nav.config },
-  { href: '/settings', icon: Settings,           label: i18n.nav.settings },
-]
 
 export function AppSidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const app = useApp()
+  const { i18n } = app
+
+  const NAV_VISUALIZATION = React.useMemo(() => [
+    { href: '/events', icon: Activity,  label: i18n.nav.events },
+    { href: '/graph',  icon: Share2,    label: i18n.nav.graph },
+    { href: '/summary',icon: BookOpen,  label: i18n.nav.summary },
+  ], [i18n])
+
+  const NAV_TOOLS = React.useMemo(() => [
+    { href: '/recall', icon: Search,   label: i18n.nav.recall },
+  ], [i18n])
+
+  const NAV_ADMIN = React.useMemo(() => [
+    { href: '/library',  icon: Database,           label: i18n.nav.library },
+    { href: '/config',   icon: SlidersHorizontal,  label: i18n.nav.config },
+    { href: '/settings', icon: Settings,           label: i18n.nav.settings },
+  ], [i18n])
+
   const { resolvedTheme, setTheme } = useTheme()
   const isDark = resolvedTheme === 'dark'
   
@@ -56,7 +59,7 @@ export function AppSidebar() {
     if (app.sudo && !effectiveSudoAlways) {
       await api.auth.exitSudo().catch(() => {})
       app.setSudo(false)
-      app.toast('已退出 Sudo')
+      app.toast(i18n.auth.exitSudo)
       return
     }
     if (effectiveSudoAlways) return
@@ -71,11 +74,11 @@ export function AppSidebar() {
     try {
       await api.auth.sudo(sudoPassword)
       app.setSudo(true)
-      app.toast('已进入 Sudo 模式')
+      app.toast(i18n.auth.enterSudo)
       setSudoDialogOpen(false)
     } catch (e: unknown) {
       const err = e as api.ApiError
-      app.toast(`Sudo 失败：${err.body || err.status}`, 'destructive', 4000)
+      app.toast(`${i18n.auth.sudoMode}${i18n.common.error}：${err.body || err.status}`, 'destructive', 4000)
     } finally {
       setSudoLoading(false)
     }
@@ -206,11 +209,11 @@ export function AppSidebar() {
                 <SidebarMenuButton 
                   onClick={handleSudoClick} 
                   disabled={sudoLoading}
-                  tooltip={app.sudo ? '退出 Sudo' : '进入 Sudo 模式'}
+                  tooltip={app.sudo ? i18n.auth.exitSudo : i18n.auth.enterSudo}
                   className="cursor-pointer"
                 >
                   {app.sudo ? <Unlock /> : <Lock />}
-                  <span>{app.sudo ? '退出 Sudo' : '进入 Sudo'}</span>
+                  <span>{app.sudo ? i18n.auth.exitSudo : i18n.auth.enterSudo}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             )}
@@ -226,17 +229,17 @@ export function AppSidebar() {
             )}
 
             <SidebarMenuItem>
-              <SidebarMenuButton onClick={toggleTheme} tooltip="切换主题" className="cursor-pointer">
+              <SidebarMenuButton onClick={toggleTheme} tooltip={i18n.settings.toggle} className="cursor-pointer">
                 {isDark ? <Sun /> : <Moon />}
-                <span>切换主题</span>
+                <span>{i18n.settings.toggle}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
 
             {app.authEnabled && (
               <SidebarMenuItem>
-                <SidebarMenuButton onClick={handleLogout} tooltip="退出登录" className="cursor-pointer">
+                <SidebarMenuButton onClick={handleLogout} tooltip={i18n.auth.logout} className="cursor-pointer">
                   <LogOut />
-                  <span>退出登录</span>
+                  <span>{i18n.auth.logout}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             )}
@@ -247,19 +250,19 @@ export function AppSidebar() {
       <Dialog open={sudoDialogOpen} onOpenChange={setSudoDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>身份验证</DialogTitle>
+            <DialogTitle>{i18n.auth.sudoMode}</DialogTitle>
             <DialogDescription>
-              请输入管理密码以进入 Sudo 模式获取最高操作权限。
+              {i18n.auth.sudoPrompt}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="sudo-password">管理密码</Label>
+              <Label htmlFor="sudo-password">{i18n.auth.password}</Label>
               <Input
                 id="sudo-password"
                 type="password"
                 autoFocus
-                placeholder="在此输入密码..."
+                placeholder="..."
                 value={sudoPassword}
                 onChange={(e) => setSudoPassword(e.target.value)}
                 onKeyDown={(e) => {
@@ -270,10 +273,10 @@ export function AppSidebar() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSudoDialogOpen(false)} disabled={sudoLoading}>
-              {i18n.common.cancel || "取消"}
+              {i18n.common.cancel}
             </Button>
             <Button onClick={submitSudo} disabled={sudoLoading || !sudoPassword}>
-              {sudoLoading ? '验证中...' : (i18n.common.confirm || "确认")}
+              {sudoLoading ? i18n.common.loading : i18n.common.confirm}
             </Button>
           </DialogFooter>
         </DialogContent>

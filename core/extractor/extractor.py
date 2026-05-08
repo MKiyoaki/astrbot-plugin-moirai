@@ -59,10 +59,14 @@ class EventExtractor:
         big_five_buffer: BigFiveBuffer | None = None,
         orientation_analyzer: SocialOrientationAnalyzer | None = None,
         ipc_enabled: bool = True,
+        impression_repo = None,
+        plugin_config = None,
     ) -> None:
         from ..config import ExtractorConfig as _EC
         cfg = extractor_config or _EC()
         self._event_repo = event_repo
+        self._impression_repo = impression_repo
+        self._plugin_config = plugin_config
         self._provider_getter = provider_getter
         self._encoder: Encoder = encoder or NullEncoder()
         self._max_context_messages = cfg.max_context_messages
@@ -72,16 +76,81 @@ class EventExtractor:
         self._orientation_analyzer = orientation_analyzer
         self._ipc_enabled = ipc_enabled and (big_five_buffer is not None) and (orientation_analyzer is not None)
 
-    async def __call__(self, event: Event, window: MessageWindow) -> None:
-        """on_event_close callback: extract fields, persist, then index vector."""
-        fields = await self._extract(window)
-        updated = dataclasses.replace(event, **fields)
-        await self._event_repo.upsert(updated)
-        await self._index_vector(updated)
-        if self._ipc_enabled:
-            asyncio.create_task(self._run_ipc_analysis(updated, window))
+    async def __call__(self, window: MessageWindow) -> None:
+        """on_event_close callback: extract fields, partition into multiple events, persist, then index vector."""
+        results = await self._extract(window)
+        
+        from ..domain.models import Event, MessageRef
+        import uuid
 
-    async def _extract(self, window: MessageWindow) -> dict:
+        for res in results:
+            # Map index-based range back to messages
+            start_idx = res["start_idx"]
+            end_idx = res["end_idx"]
+            sub_messages = window.messages[start_idx : end_idx + 1]
+            if not sub_messages:
+                continue
+
+            # Handle inherit_from logic
+            inherit_from = []
+            if res.get("inherit") and window.group_id:
+                last_events = await self._event_repo.list_by_group(window.group_id, limit=1)
+                if last_events:
+                    inherit_from.append(last_events[0].event_id)
+            elif res.get("inherit") and not window.group_id:
+                # For private chats, list by participant (bot + user)
+                # This is a bit more complex, for now we just use the group_id=None list
+                last_events = await self._event_repo.list_by_group(None, limit=1)
+                if last_events:
+                    # Check if it involves the same participant
+                    if sub_messages[0].uid in last_events[0].participants:
+                        inherit_from.append(last_events[0].event_id)
+
+            event = Event(
+                event_id=str(uuid.uuid4()),
+                group_id=window.group_id,
+                start_time=sub_messages[0].timestamp,
+                end_time=sub_messages[-1].timestamp,
+                participants=list(set(m.uid for m in sub_messages)),
+                interaction_flow=[
+                    MessageRef(
+                        sender_uid=m.uid,
+                        timestamp=m.timestamp,
+                        content_hash="",
+                        content_preview=m.text[:100],
+                    )
+                    for m in sub_messages
+                ],
+                topic=res["topic"],
+                chat_content_tags=res["chat_content_tags"],
+                salience=res["salience"],
+                confidence=res["confidence"],
+                inherit_from=inherit_from,
+                last_accessed_at=sub_messages[-1].timestamp,
+            )
+
+            await self._event_repo.upsert(event)
+            await self._index_vector(event)
+
+            # Rule-based impression trigger
+            if self._plugin_config and self._plugin_config.relation_enabled and \
+               self._plugin_config.impression_event_trigger_enabled and self._impression_repo:
+                from ..plugin_initializer import _maybe_trigger_impression
+                asyncio.create_task(
+                    _maybe_trigger_impression(
+                        event, self._impression_repo, self._event_repo, self._plugin_config
+                    )
+                )
+
+            if self._ipc_enabled:
+                # We use a sub-window representation for IPC if possible, 
+                # or just the original window messages filtered by time.
+                # For simplicity, we pass the original window but it might 
+                # lead to over-scoring. 
+                # TODO: refine IPC analysis scope if needed
+                asyncio.create_task(self._run_ipc_analysis(event, window))
+
+    async def _extract(self, window: MessageWindow) -> list[dict]:
         provider = self._provider_getter()
         if provider is None:
             logger.debug("[EventExtractor] no provider — using fallback")
@@ -93,7 +162,7 @@ class EventExtractor:
                 provider.text_chat(prompt=prompt, system_prompt=self._system_prompt),
                 timeout=self._llm_timeout,
             )
-            result = parse_llm_output(resp.completion_text)
+            result = parse_llm_output(resp.completion_text, len(window.messages) - 1)
             if result is not None:
                 return result
             logger.warning(

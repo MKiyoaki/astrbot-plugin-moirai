@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, Suspense, Fragment } from 'react'
+import { useEffect, useState, useCallback, useMemo, Suspense, Fragment } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import {
   Users, Building2, Activity, Clock, Search,
@@ -41,20 +41,7 @@ import {
 import { buttonVariants } from '@/components/ui/button'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
-import { i18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-
-// ── Local UI strings ──────────────────────────────────────────────────────
-const L = {
-  editMode:       '编辑模式',
-  exitEditMode:   '退出编辑',
-  deleteSelected: '删除所选',
-  viewInGraph:    '关系图',
-  viewInEvents:   '事件流',
-  noSelected:     '未选择任何项目',
-  confirmDelete:  (n: number) => `确认删除选中的 ${n} 项？`,
-  deletedOk:      (n: number) => `已删除 ${n} 项`,
-}
 
 // ── Shared Sub-components ─────────────────────────────────────────────────
 
@@ -116,8 +103,14 @@ function PersonaDetailRow({
   onEdit: (n: api.PersonaNode) => void, onDelete: (id: string, label: string) => void,
   sudoMode: boolean
 }) {
+  const { i18n, lang } = useApp()
   const d = node.data
   const attrs = d.attrs || {}
+  
+  const L = {
+    viewInGraph: lang === 'zh' ? '关系图' : 'Graph',
+  }
+
   return (
     <TableRow className="bg-muted/40 hover:bg-muted/40">
       <TableCell colSpan={editMode ? 8 : 7} className="py-3">
@@ -148,13 +141,13 @@ function PersonaDetailRow({
           </div>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={() => onGoToGraph(d.id)}>
-              <Network />{L.viewInGraph}
+              <Network className="mr-2 h-4 w-4" />{L.viewInGraph}
             </Button>
             <Button size="sm" variant="ghost" disabled={!sudoMode} onClick={() => onEdit(node)}>
-              <Pencil />{i18n.common.edit}
+              <Pencil className="mr-2 h-4 w-4" />{i18n.common.edit}
             </Button>
             <Button size="sm" variant="destructive" disabled={!sudoMode} onClick={() => onDelete(d.id, d.label)}>
-              <Trash2 />{i18n.common.delete}
+              <Trash2 className="mr-2 h-4 w-4" />{i18n.common.delete}
             </Button>
           </div>
         </div>
@@ -170,6 +163,11 @@ function EventDetailRow({
   onEdit: (e: api.ApiEvent) => void, onDelete: (e: api.ApiEvent) => void,
   sudoMode: boolean
 }) {
+  const { i18n, lang } = useApp()
+  const L = {
+    viewInEvents: lang === 'zh' ? '事件流' : 'Events',
+  }
+
   return (
     <TableRow className="bg-muted/40 hover:bg-muted/40">
       <TableCell colSpan={editMode ? 8 : 7} className="py-3">
@@ -204,13 +202,13 @@ function EventDetailRow({
           </div>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={() => onGoToEvents(ev.id)}>
-              <GitBranch />{L.viewInEvents}
+              <GitBranch className="mr-2 h-4 w-4" />{L.viewInEvents}
             </Button>
             <Button size="sm" variant="ghost" disabled={!sudoMode} onClick={() => onEdit(ev)}>
-              <Pencil />{i18n.common.edit}
+              <Pencil className="mr-2 h-4 w-4" />{i18n.common.edit}
             </Button>
             <Button size="sm" variant="destructive" disabled={!sudoMode} onClick={() => onDelete(ev)}>
-              <Trash2 />{i18n.common.delete}
+              <Trash2 className="mr-2 h-4 w-4" />{i18n.common.delete}
             </Button>
           </div>
         </div>
@@ -224,7 +222,18 @@ function EventDetailRow({
 function LibraryContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const { refreshStats, setRawEvents, setRawGraph, toast, sudo } = useApp()
+  const { i18n, lang, refreshStats, setRawEvents, setRawGraph, toast, sudo } = useApp()
+
+  const L = useMemo(() => ({
+    editMode:       lang === 'zh' ? '编辑模式' : 'Edit Mode',
+    exitEditMode:   lang === 'zh' ? '退出编辑' : 'Exit Edit',
+    deleteSelected: lang === 'zh' ? '删除所选' : 'Delete Selected',
+    viewInGraph:    lang === 'zh' ? '关系图' : 'Graph',
+    viewInEvents:   lang === 'zh' ? '事件流' : 'Events',
+    noSelected:     lang === 'zh' ? '未选择任何项目' : 'No items selected',
+    confirmDelete:  (n: number) => lang === 'zh' ? `确认删除选中的 ${n} 项？` : `Confirm deleting ${n} items?`,
+    deletedOk:      (n: number) => lang === 'zh' ? `已删除 ${n} 项` : `Deleted ${n} items`,
+  }), [lang])
 
   const [tab, setTab] = useState(searchParams.get('tab') || 'events')
   const [search, setSearch] = useState('')

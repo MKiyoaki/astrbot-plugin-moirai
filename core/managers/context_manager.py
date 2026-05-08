@@ -31,9 +31,9 @@ class ContextManager:
         # session_id -> last_active_time
         self._last_active: dict[str, float] = {}
 
-    def get_window(self, session_id: str, create: bool = False, group_id: str | None = None) -> MessageWindow | None:
+    def get_window(self, session_id: str, create: bool = False, group_id: str | None = None, now: float | None = None) -> MessageWindow | None:
         """Retrieve a window from cache, updating LRU order."""
-        now = time.time()
+        now = now if now is not None else time.time()
         if session_id in self._windows:
             window = self._windows.pop(session_id)
             self._windows[session_id] = window # Move to end (most recent)

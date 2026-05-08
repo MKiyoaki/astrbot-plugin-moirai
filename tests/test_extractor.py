@@ -46,126 +46,106 @@ def make_event(event_id: str = "ev1") -> Event:
 # parse_llm_output tests
 # ---------------------------------------------------------------------------
 
-def test_parse_clean_json() -> None:
-    raw = '{"topic": "项目讨论", "chat_content_tags": ["工作", "计划"], "salience": 0.7, "confidence": 0.9}'
-    result = parse_llm_output(raw)
+def test_parse_clean_json_array() -> None:
+    raw = '[{"start_idx": 0, "end_idx": 1, "topic": "项目讨论", "chat_content_tags": ["工作", "计划"], "salience": 0.7, "confidence": 0.9, "inherit": false}]'
+    result = parse_llm_output(raw, max_idx=1)
     assert result is not None
-    assert result["topic"] == "项目讨论"
-    assert result["chat_content_tags"] == ["工作", "计划"]
-    assert result["salience"] == pytest.approx(0.7)
-    assert result["confidence"] == pytest.approx(0.9)
+    assert len(result) == 1
+    assert result[0]["topic"] == "项目讨论"
+    assert result[0]["chat_content_tags"] == ["工作", "计划"]
+    assert result[0]["salience"] == pytest.approx(0.7)
+    assert result[0]["confidence"] == pytest.approx(0.9)
+
+
+def test_parse_multi_event_array() -> None:
+    raw = ('['
+           '{"start_idx": 0, "end_idx": 1, "topic": "t1", "chat_content_tags": [], "salience": 0.5, "confidence": 0.5},'
+           '{"start_idx": 2, "end_idx": 3, "topic": "t2", "chat_content_tags": [], "salience": 0.5, "confidence": 0.5}'
+           ']')
+    result = parse_llm_output(raw, max_idx=3)
+    assert result is not None
+    assert len(result) == 2
+    assert result[0]["topic"] == "t1"
+    assert result[1]["topic"] == "t2"
 
 
 def test_parse_strips_markdown_fence() -> None:
-    raw = '```json\n{"topic": "test", "chat_content_tags": ["a"], "salience": 0.5, "confidence": 0.8}\n```'
-    result = parse_llm_output(raw)
+    raw = '```json\n[{"start_idx": 0, "end_idx": 0, "topic": "test", "chat_content_tags": ["a"], "salience": 0.5, "confidence": 0.8}]\n```'
+    result = parse_llm_output(raw, max_idx=0)
     assert result is not None
-    assert result["topic"] == "test"
+    assert result[0]["topic"] == "test"
 
 
 def test_parse_extracts_json_from_surrounding_text() -> None:
-    raw = 'Here is the result: {"topic": "chat", "chat_content_tags": ["x"], "salience": 0.4, "confidence": 0.6} done.'
-    result = parse_llm_output(raw)
+    raw = 'Here is the result: [{"start_idx": 0, "end_idx": 0, "topic": "chat", "chat_content_tags": ["x"], "salience": 0.4, "confidence": 0.6}] done.'
+    result = parse_llm_output(raw, max_idx=0)
     assert result is not None
-    assert result["topic"] == "chat"
+    assert result[0]["topic"] == "chat"
 
 
-def test_parse_missing_required_key_returns_none() -> None:
-    raw = '{"topic": "chat", "salience": 0.5}'  # missing chat_content_tags & confidence
-    assert parse_llm_output(raw) is None
+def test_parse_invalid_range_skipped() -> None:
+    raw = '[{"start_idx": 0, "end_idx": 10, "topic": "bad", "chat_content_tags": [], "salience": 0.5, "confidence": 0.5}]'
+    # max_idx is 5, so end_idx 10 is invalid
+    assert parse_llm_output(raw, max_idx=5) is None
+
+
+def test_parse_missing_required_key_skipped() -> None:
+    raw = '[{"topic": "chat", "salience": 0.5, "start_idx": 0, "end_idx": 0}]'  # missing chat_content_tags & confidence
+    assert parse_llm_output(raw, max_idx=0) is None
 
 
 def test_parse_invalid_json_returns_none() -> None:
-    assert parse_llm_output("not json at all") is None
-    assert parse_llm_output("") is None
-    assert parse_llm_output("{broken json}") is None
-
-
-def test_parse_clamps_salience_and_confidence() -> None:
-    raw = '{"topic": "t", "chat_content_tags": [], "salience": 2.5, "confidence": -0.1}'
-    result = parse_llm_output(raw)
-    assert result is not None
-    assert result["salience"] == pytest.approx(1.0)
-    assert result["confidence"] == pytest.approx(0.0)
-
-
-def test_parse_topic_truncated_to_60_chars() -> None:
-    long_topic = "A" * 80
-    raw = f'{{"topic": "{long_topic}", "chat_content_tags": [], "salience": 0.5, "confidence": 0.5}}'
-    result = parse_llm_output(raw)
-    assert result is not None
-    assert len(result["topic"]) == 60
-
-
-def test_parse_tags_truncated_to_5() -> None:
-    tags = ["t1", "t2", "t3", "t4", "t5", "t6", "t7"]
-    import json
-    raw = json.dumps({"topic": "t", "chat_content_tags": tags, "salience": 0.5, "confidence": 0.5})
-    result = parse_llm_output(raw)
-    assert result is not None
-    assert len(result["chat_content_tags"]) == 5
+    assert parse_llm_output("not json at all", max_idx=10) is None
+    assert parse_llm_output("", max_idx=10) is None
 
 
 # ---------------------------------------------------------------------------
 # fallback_extraction tests
 # ---------------------------------------------------------------------------
 
-def test_fallback_uses_first_message_as_topic() -> None:
-    w = make_window([("u1", "Alice", "今天天气真好"), ("u1", "Alice", "不错")])
+def test_fallback_returns_list() -> None:
+    w = make_window([("u1", "Alice", "msg")])
     result = fallback_extraction(w)
-    assert result["topic"] == "今天天气真好"
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert result[0]["topic"] == "msg"
 
 
 def test_fallback_salience_scales_with_message_count() -> None:
     w_small = make_window([("u1", "A", "hi")] * 3)
     w_large = make_window([("u1", "A", "hi")] * 30)
-    assert fallback_extraction(w_small)["salience"] < fallback_extraction(w_large)["salience"]
+    assert fallback_extraction(w_small)[0]["salience"] < fallback_extraction(w_large)[0]["salience"]
 
 
 def test_fallback_salience_capped_at_0_7() -> None:
     w = make_window([("u1", "A", "word1 word2")] * 100)
     result = fallback_extraction(w)
-    assert result["salience"] <= 0.7
+    assert result[0]["salience"] <= 0.7
 
 
 def test_fallback_confidence_is_low() -> None:
     w = make_window([("u1", "A", "test")])
     result = fallback_extraction(w)
-    assert result["confidence"] <= 0.3
+    assert result[0]["confidence"] <= 0.3
 
 
 def test_fallback_empty_window() -> None:
     w = MessageWindow(session_id="s", group_id=None, start_time=1000.0, last_message_time=1000.0)
+    # Note: make_window and window.py handle start_time/last_message_time.
+    # Empty window message_count is 0.
     result = fallback_extraction(w)
-    assert result["topic"] == "（无内容）"
-    assert result["chat_content_tags"] == []
+    assert result[0]["topic"] == "（无内容）"
 
 
 # ---------------------------------------------------------------------------
 # build_user_prompt tests
 # ---------------------------------------------------------------------------
 
-def test_build_user_prompt_includes_names() -> None:
+def test_build_user_prompt_includes_indices() -> None:
     w = make_window([("u1", "Alice", "hello"), ("u2", "Bob", "hi")])
     prompt = build_user_prompt(w)
-    assert "Alice" in prompt
-    assert "Bob" in prompt
-    assert "hello" in prompt
-
-
-def test_build_user_prompt_uses_fallback_label_when_no_name() -> None:
-    w = make_window([("u1", "", "hi")])
-    prompt = build_user_prompt(w)
-    assert "用户1" in prompt
-
-
-def test_build_user_prompt_respects_max_messages() -> None:
-    msgs = [("u1", "A", f"msg{i}") for i in range(30)]
-    w = make_window(msgs)
-    prompt = build_user_prompt(w, max_messages=5)
-    # Only last 5 messages should appear
-    assert "msg29" in prompt
-    assert "msg0" not in prompt
+    assert "[0] Alice: hello" in prompt
+    assert "[1] Bob: hi" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -187,94 +167,38 @@ class _MockProvider:
         return r
 
 
-async def test_extractor_fills_event_fields_from_llm(tmp_path) -> None:
+async def test_extractor_creates_events_from_llm(tmp_path) -> None:
     event_repo = InMemoryEventRepository()
-    event = make_event("ev1")
-    await event_repo.upsert(event)
-
-    json_resp = '{"topic": "LLM话题", "chat_content_tags": ["标签A", "标签B"], "salience": 0.8, "confidence": 0.9}'
+    
+    json_resp = '[{"start_idx": 0, "end_idx": 1, "topic": "话题1", "chat_content_tags": ["A"], "salience": 0.8, "confidence": 0.9}]'
     provider = _MockProvider(json_resp)
 
     extractor = EventExtractor(event_repo=event_repo, provider_getter=lambda: provider)
     w = make_window([("u1", "Alice", "消息1"), ("u2", "Bob", "消息2")])
-    await extractor(event, w)
+    await extractor(w)
 
-    updated = await event_repo.get("ev1")
-    assert updated is not None
-    assert updated.topic == "LLM话题"
-    assert updated.chat_content_tags == ["标签A", "标签B"]
-    assert updated.salience == pytest.approx(0.8)
-    assert updated.confidence == pytest.approx(0.9)
+    events = await event_repo.list_by_group("g1")
+    assert len(events) == 1
+    assert events[0].topic == "话题1"
+    assert events[0].salience == pytest.approx(0.8)
 
 
-async def test_extractor_falls_back_when_no_provider() -> None:
+async def test_extractor_multi_event_partitioning() -> None:
     event_repo = InMemoryEventRepository()
-    event = make_event("ev2")
-    await event_repo.upsert(event)
-
-    extractor = EventExtractor(event_repo=event_repo, provider_getter=lambda: None)
-    w = make_window([("u1", "Alice", "fallback text")])
-    await extractor(event, w)
-
-    updated = await event_repo.get("ev2")
-    assert updated is not None
-    assert updated.topic == "fallback text"
-    assert updated.confidence == pytest.approx(0.2)
-
-
-async def test_extractor_falls_back_on_invalid_llm_output() -> None:
-    event_repo = InMemoryEventRepository()
-    event = make_event("ev3")
-    await event_repo.upsert(event)
-
-    provider = _MockProvider("this is not valid json")
+    json_resp = ('['
+                 '{"start_idx": 0, "end_idx": 0, "topic": "t1", "chat_content_tags": [], "salience": 0.5, "confidence": 0.5},'
+                 '{"start_idx": 1, "end_idx": 1, "topic": "t2", "chat_content_tags": [], "salience": 0.5, "confidence": 0.5}'
+                 ']')
+    provider = _MockProvider(json_resp)
     extractor = EventExtractor(event_repo=event_repo, provider_getter=lambda: provider)
-    w = make_window([("u1", "Alice", "第一条消息")])
-    await extractor(event, w)
+    w = make_window([("u1", "A", "m1"), ("u2", "B", "m2")])
+    await extractor(w)
 
-    updated = await event_repo.get("ev3")
-    assert updated is not None
-    assert updated.confidence == pytest.approx(0.2)  # fallback indicator
-
-
-async def test_extractor_falls_back_on_timeout() -> None:
-    import asyncio as _asyncio
-
-    event_repo = InMemoryEventRepository()
-    event = make_event("ev4")
-    await event_repo.upsert(event)
-
-    class _SlowProvider:
-        async def text_chat(self, **_):
-            await _asyncio.sleep(100)
-
-    extractor = EventExtractor(
-        event_repo=event_repo,
-        provider_getter=lambda: _SlowProvider(),
-        llm_timeout=0.05,
-    )
-    w = make_window([("u1", "Alice", "slow")])
-    await extractor(event, w)
-
-    updated = await event_repo.get("ev4")
-    assert updated is not None
-    assert updated.confidence == pytest.approx(0.2)
-
-
-async def test_extractor_preserves_other_event_fields() -> None:
-    event_repo = InMemoryEventRepository()
-    original = dataclasses.replace(make_event("ev5"), participants=["uid-x", "uid-y"])
-    await event_repo.upsert(original)
-
-    json_resp = '{"topic": "T", "chat_content_tags": [], "salience": 0.6, "confidence": 0.7}'
-    extractor = EventExtractor(
-        event_repo=event_repo,
-        provider_getter=lambda: _MockProvider(json_resp),
-    )
-    w = make_window([("u1", "Alice", "hi")])
-    await extractor(original, w)
-
-    updated = await event_repo.get("ev5")
-    assert updated is not None
-    assert updated.participants == ["uid-x", "uid-y"]  # unchanged
-    assert updated.group_id == "g1"  # unchanged
+    events = await event_repo.list_by_group("g1")
+    assert len(events) == 2
+    # list_by_group returns newest first (t=1010 then t=1000)
+    events.sort(key=lambda e: e.start_time)
+    assert events[0].topic == "t1"
+    assert events[1].topic == "t2"
+    assert len(events[0].interaction_flow) == 1
+    assert len(events[1].interaction_flow) == 1

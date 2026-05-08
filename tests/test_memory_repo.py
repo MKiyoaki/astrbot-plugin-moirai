@@ -71,9 +71,11 @@ def make_impression(
     return Impression(
         observer_uid=observer,
         subject_uid=subject,
-        relation_type="friend",
-        affect=affect,
-        intensity=0.7,
+        ipc_orientation="友好",
+        benevolence=affect,
+        power=0.0,
+        affect_intensity=0.7,
+        r_squared=0.9,
         confidence=0.8,
         scope=scope,
         evidence_event_ids=evidence or [],
@@ -368,7 +370,7 @@ async def test_impression_upsert_and_get() -> None:
     await repo.upsert(imp)
     result = await repo.get(imp.observer_uid, imp.subject_uid, imp.scope)
     assert result is not None
-    assert result.affect == imp.affect
+    assert result.benevolence == imp.benevolence
 
 
 @pytest.mark.asyncio
@@ -380,7 +382,7 @@ async def test_impression_upsert_overwrites() -> None:
     await repo.upsert(imp_v2)
 
     result = await repo.get(imp_v1.observer_uid, imp_v1.subject_uid, imp_v1.scope)
-    assert result is not None and result.affect == pytest.approx(0.9)
+    assert result is not None and result.benevolence == pytest.approx(0.9)
 
 
 @pytest.mark.asyncio
@@ -393,8 +395,8 @@ async def test_impression_directional_asymmetry() -> None:
 
     r_fwd = await repo.get("uid-a", "uid-b", "global")
     r_rev = await repo.get("uid-b", "uid-a", "global")
-    assert r_fwd.affect == pytest.approx(0.8)   # type: ignore[union-attr]
-    assert r_rev.affect == pytest.approx(-0.2)  # type: ignore[union-attr]
+    assert r_fwd.benevolence == pytest.approx(0.8)   # type: ignore[union-attr]
+    assert r_rev.benevolence == pytest.approx(-0.2)  # type: ignore[union-attr]
 
 
 @pytest.mark.asyncio
@@ -459,5 +461,5 @@ async def test_impression_scope_isolation() -> None:
 
     r_global = await repo.get("uid-bot", "uid-a", "global")
     r_grp = await repo.get("uid-bot", "uid-a", "grp-1")
-    assert r_global.affect == pytest.approx(0.5)   # type: ignore[union-attr]
-    assert r_grp.affect == pytest.approx(-0.3)     # type: ignore[union-attr]
+    assert r_global.benevolence == pytest.approx(0.5)   # type: ignore[union-attr]
+    assert r_grp.benevolence == pytest.approx(-0.3)     # type: ignore[union-attr]

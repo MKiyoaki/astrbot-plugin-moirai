@@ -16,9 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Badge } from '@/components/ui/badge'
 import type { PersonaNode } from '@/lib/api'
 import type { PhysicsParams, VisualParams, ViewMode } from '@/lib/graph-types'
-import { i18n } from '@/lib/i18n'
-
-const t = i18n.graph.params
+import { useApp } from '@/lib/store'
 
 interface ParamsPanelProps {
   physics: PhysicsParams
@@ -53,6 +51,8 @@ export function ParamsPanel({
   onRefreshLayout,
   svgEl,
 }: ParamsPanelProps) {
+  const { i18n } = useApp()
+  const t = i18n.graph.params
   const isCircular = physics.layoutMode === 'circular'
   const isLocked = physics.locked
   const physDisabled = isLocked || isCircular

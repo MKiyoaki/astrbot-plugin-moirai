@@ -213,6 +213,12 @@
         "hint": "上次更新距今不足此时长则跳过本次触发，避免高频刷新",
         "default": 1.0
     },
+    "impression_update_alpha": {
+        "description": "印象更新平滑系数 (Alpha)",
+        "type": "float",
+        "hint": "数值越大则越快接受新印象，数值越小越倾向于维持旧印象。0.3 表示新信息占比 30%，旧记忆占比 70%。",
+        "default": 0.3
+    },
     "vcm_enabled": {
         "description": "启用 VCM 状态机",
         "type": "bool",

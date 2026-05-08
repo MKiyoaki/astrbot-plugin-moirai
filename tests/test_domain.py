@@ -51,9 +51,11 @@ def make_impression(**overrides) -> Impression:
     defaults: dict = dict(
         observer_uid="uid-bot",
         subject_uid="uid-alice",
-        relation_type="friend",
-        affect=0.6,
-        intensity=0.8,
+        ipc_orientation="友好",
+        benevolence=0.6,
+        power=0.0,
+        affect_intensity=0.8,
+        r_squared=0.7,
         confidence=0.75,
         scope="global",
         evidence_event_ids=["evt-001"],
@@ -182,7 +184,7 @@ def test_impression_valid() -> None:
     imp = make_impression()
     assert imp.observer_uid == "uid-bot"
     assert imp.subject_uid == "uid-alice"
-    assert imp.affect == 0.6
+    assert imp.benevolence == 0.6
 
 
 def test_impression_directional_asymmetry() -> None:
@@ -191,22 +193,28 @@ def test_impression_directional_asymmetry() -> None:
     assert fwd.observer_uid != rev.observer_uid
 
 
-def test_impression_affect_extremes_valid() -> None:
-    make_impression(affect=-1.0)
-    make_impression(affect=1.0)
-    make_impression(affect=0.0)
+def test_impression_benevolence_extremes_valid() -> None:
+    make_impression(benevolence=-1.0)
+    make_impression(benevolence=1.0)
+    make_impression(benevolence=0.0)
 
 
-@pytest.mark.parametrize("bad_affect", [-1.01, 1.01, 2.0])
-def test_impression_affect_out_of_range(bad_affect: float) -> None:
-    with pytest.raises(ValueError, match="affect"):
-        make_impression(affect=bad_affect)
+@pytest.mark.parametrize("bad_ben", [-1.01, 1.01, 2.0])
+def test_impression_benevolence_out_of_range(bad_ben: float) -> None:
+    with pytest.raises(ValueError, match="benevolence"):
+        make_impression(benevolence=bad_ben)
+
+
+@pytest.mark.parametrize("bad_pow", [-1.01, 1.01])
+def test_impression_power_out_of_range(bad_pow: float) -> None:
+    with pytest.raises(ValueError, match="power"):
+        make_impression(power=bad_pow)
 
 
 @pytest.mark.parametrize("bad_intensity", [-0.01, 1.01])
-def test_impression_intensity_out_of_range(bad_intensity: float) -> None:
-    with pytest.raises(ValueError, match="intensity"):
-        make_impression(intensity=bad_intensity)
+def test_impression_affect_intensity_out_of_range(bad_intensity: float) -> None:
+    with pytest.raises(ValueError, match="affect_intensity"):
+        make_impression(affect_intensity=bad_intensity)
 
 
 @pytest.mark.parametrize("bad_conf", [-0.01, 1.01])

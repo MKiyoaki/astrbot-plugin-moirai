@@ -48,13 +48,15 @@ def make_event(event_id: str, topic: str = "test topic", uid: str = "u1") -> Eve
     )
 
 
-def make_impression(observer: str, subject: str, relation: str = "friend") -> Impression:
+def make_impression(observer: str, subject: str, orientation: str = "友好") -> Impression:
     return Impression(
         observer_uid=observer,
         subject_uid=subject,
-        relation_type=relation,
-        affect=0.8,
-        intensity=0.7,
+        ipc_orientation=orientation,
+        benevolence=0.8,
+        power=0.0,
+        affect_intensity=0.7,
+        r_squared=0.6,
         confidence=0.85,
         scope="global",
         evidence_event_ids=["ev1", "ev2"],
@@ -165,15 +167,15 @@ async def test_profile_event_tags_included(tmp_path: Path) -> None:
 # IMPRESSIONS.md content
 # ---------------------------------------------------------------------------
 
-async def test_impressions_contains_relation_type(tmp_path: Path) -> None:
+async def test_impressions_contains_ipc_orientation(tmp_path: Path) -> None:
     pr = InMemoryPersonaRepository()
     ir = InMemoryImpressionRepository()
     await pr.upsert(make_persona("uid1"))
-    await ir.upsert(make_impression("bot", "uid1", relation="colleague"))
+    await ir.upsert(make_impression("bot", "uid1", orientation="主导友好"))
     p = _projector(tmp_path, persona_repo=pr, impression_repo=ir)
     await p.render_persona("uid1")
     content = (tmp_path / "personas" / "uid1" / "IMPRESSIONS.md").read_text(encoding="utf-8")
-    assert "colleague" in content
+    assert "主导友好" in content
 
 
 async def test_impressions_no_impressions_shows_placeholder(tmp_path: Path) -> None:

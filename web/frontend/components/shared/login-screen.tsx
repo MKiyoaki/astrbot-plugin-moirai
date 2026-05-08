@@ -7,7 +7,6 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { useApp } from '@/lib/store'
-import { i18n } from '@/lib/i18n'
 import * as api from '@/lib/api'
 
 interface LoginScreenProps {
@@ -16,6 +15,7 @@ interface LoginScreenProps {
 
 export function LoginScreen({ onSuccess }: LoginScreenProps) {
   const app = useApp()
+  const { i18n } = app
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -31,7 +31,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
       onSuccess()
     } catch (e: unknown) {
       const err = e as api.ApiError
-      setError(err.body || '登录失败')
+      setError(err.body || i18n.common.error)
     } finally {
       setLoading(false)
     }
@@ -71,7 +71,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
             </div>
             {error && <p className="text-destructive text-sm">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? '处理中…' : i18n.auth.login}
+              {loading ? i18n.common.loading : i18n.auth.login}
             </Button>
           </form>
         </CardContent>

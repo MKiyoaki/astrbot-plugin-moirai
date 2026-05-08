@@ -3,7 +3,7 @@
 import { Skeleton } from '@/components/ui/skeleton'
 import { GroupCardItem } from './group-card'
 import type { GroupCard } from '@/lib/graph-types'
-import { i18n } from '@/lib/i18n'
+import { useApp } from '@/lib/store'
 
 interface GroupCardListProps {
   groups: GroupCard[]
@@ -12,6 +12,7 @@ interface GroupCardListProps {
 }
 
 export function GroupCardList({ groups, onOpen, loading }: GroupCardListProps) {
+  const { i18n } = useApp()
   if (loading) {
     return (
       <div

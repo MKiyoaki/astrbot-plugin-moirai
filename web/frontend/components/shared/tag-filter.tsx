@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { X, ChevronDown, ChevronUp } from 'lucide-react'
-import { i18n } from '@/lib/i18n'
+import { useApp } from '@/lib/store'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -28,6 +28,7 @@ interface TagFilterProps {
 }
 
 export function TagFilter({ tags, value, onChange }: TagFilterProps) {
+  const { i18n } = useApp()
   const [expanded, setExpanded] = useState(false)
   const chipsRef = useRef<HTMLDivElement>(null)
   const [overflows, setOverflows] = useState(false)

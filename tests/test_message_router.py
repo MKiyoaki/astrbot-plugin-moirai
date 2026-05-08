@@ -8,6 +8,8 @@ from core.adapters.identity import IdentityResolver
 from core.boundary.detector import BoundaryConfig, EventBoundaryDetector
 from core.domain.models import Event
 from core.repository.memory import InMemoryEventRepository, InMemoryPersonaRepository
+from core.managers.context_manager import ContextManager
+from core.config import ContextConfig
 
 
 def make_router(
@@ -20,10 +22,35 @@ def make_router(
     detector = EventBoundaryDetector(
         BoundaryConfig(time_gap_minutes=time_gap_minutes, max_messages=max_messages)
     )
+
+    async def mock_on_event_close(window: MessageWindow):
+        from core.domain.models import Event, MessageRef
+        import uuid
+        event = Event(
+            event_id=str(uuid.uuid4()),
+            group_id=window.group_id,
+            start_time=window.start_time,
+            end_time=window.last_message_time,
+            participants=window.participants,
+            interaction_flow=[
+                MessageRef(sender_uid=m.uid, timestamp=m.timestamp, content_hash="", content_preview=m.text[:100])
+                for m in window.messages
+            ],
+            topic="test",
+            chat_content_tags=[],
+            salience=0.5,
+            confidence=0.5,
+            inherit_from=[],
+            last_accessed_at=window.last_message_time,
+        )
+        await event_repo.upsert(event)
+
     router = MessageRouter(
         event_repo=event_repo,
         identity_resolver=resolver,
         detector=detector,
+        context_manager=ContextManager(ContextConfig()),
+        on_event_close=mock_on_event_close,
     )
     return router, event_repo
 
@@ -101,10 +128,11 @@ async def test_router_event_contains_correct_participants() -> None:
 
 
 async def test_router_on_event_close_callback_called() -> None:
-    closed: list[Event] = []
+    from core.boundary.window import MessageWindow
+    closed: list[MessageWindow] = []
 
-    async def capture(event, window):
-        closed.append(event)
+    async def capture(window: MessageWindow):
+        closed.append(window)
 
     persona_repo = InMemoryPersonaRepository()
     event_repo = InMemoryEventRepository()
@@ -112,6 +140,7 @@ async def test_router_on_event_close_callback_called() -> None:
         event_repo=event_repo,
         identity_resolver=IdentityResolver(persona_repo),
         detector=EventBoundaryDetector(BoundaryConfig(max_messages=2)),
+        context_manager=ContextManager(ContextConfig()),
         on_event_close=capture,
     )
     t = 1000.0
@@ -120,15 +149,15 @@ async def test_router_on_event_close_callback_called() -> None:
     # 3rd message triggers close of 2-message window
     await router.process("qq", "u1", "Alice", "msg3", "g1", now=t + 2)
     assert len(closed) == 1
-    assert len(closed[0].interaction_flow) == 2
+    assert closed[0].message_count == 2
 
 
 async def test_router_flush_all_clears_windows() -> None:
     router, event_repo = make_router()
     await router.process("qq", "u1", "Alice", "hi", "g1", now=1000.0)
-    assert len(router._windows) == 1
+    assert len(router._context_manager._windows) == 1
     await router.flush_all()
-    assert len(router._windows) == 0
+    assert len(router._context_manager._windows) == 0
 
 
 async def test_router_same_platform_different_users_share_group_window() -> None:

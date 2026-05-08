@@ -27,7 +27,7 @@ class MessageRouter:
         identity_resolver: IdentityResolver,
         detector: EventBoundaryDetector,
         context_manager: ContextManager,
-        on_event_close: Callable[[Event, MessageWindow], Awaitable[None]] | None = None,
+        on_event_close: Callable[[MessageWindow], Awaitable[None]] | None = None,
     ) -> None:
         self._event_repo = event_repo
         self._resolver = identity_resolver
@@ -59,7 +59,7 @@ class MessageRouter:
 
         uid = await self._resolver.get_or_create_uid(platform, physical_id, display_name)
 
-        window = self._context_manager.get_window(session_id)
+        window = self._context_manager.get_window(session_id, now=now)
         drift_detected = False
         if window is not None:
             should_close, reason = self._detector.should_close(window, now)
@@ -69,7 +69,7 @@ class MessageRouter:
                 window = None
 
         if window is None:
-            window = self._context_manager.get_window(session_id, create=True, group_id=group_id)
+            window = self._context_manager.get_window(session_id, create=True, group_id=group_id, now=now)
 
         window.add_message(uid, text, now, display_name)
         self._context_manager.update_state(session_id, drift_detected=drift_detected)
@@ -83,29 +83,6 @@ class MessageRouter:
                 await self._flush_window(window)
 
     async def _flush_window(self, window: MessageWindow) -> None:
-        event = Event(
-            event_id=str(uuid.uuid4()),
-            group_id=window.group_id,
-            start_time=window.start_time,
-            end_time=window.last_message_time,
-            participants=window.participants,
-            interaction_flow=[
-                MessageRef(
-                    sender_uid=m.uid,
-                    timestamp=m.timestamp,
-                    content_hash="",
-                    content_preview=m.text[:100],
-                )
-                for m in window.messages
-            ],
-            topic="",  # filled by LLM extractor in Phase 4
-            chat_content_tags=[],
-            salience=0.5,
-            confidence=0.5,
-            inherit_from=[],
-            last_accessed_at=window.last_message_time,
-        )
-        await self._event_repo.upsert(event)
         if self._on_event_close is not None:
-            await self._on_event_close(event, window)
+            await self._on_event_close(window)
         self._context_manager.pop_window(window.session_id)

@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTheme } from 'next-themes'
-import { Moon, Sun, Check, Play, Sparkles } from 'lucide-react'
+import { Moon, Sun, Check, Play, Sparkles, Languages } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,11 +11,11 @@ import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageHeader } from '@/components/layout/page-header'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
-import { i18n } from '@/lib/i18n'
 
 // Standard shadcn/ui theme definitions
 const SHADCN_THEMES = [
@@ -29,16 +29,8 @@ const SHADCN_THEMES = [
   { id: 'violet', label: 'Violet' },
 ]
 
-const TASKS = [
-  { id: 'salience_decay',       icon: '📉', label: i18n.settings.taskSalienceDecay    },
-  { id: 'projection',           icon: '📄', label: i18n.settings.taskProjection        },
-  { id: 'persona_synthesis',    icon: '🧠', label: i18n.settings.taskPersonaSynthesis  },
-  { id: 'impression_aggregation',icon: '👥', label: i18n.settings.taskImpressionAgg   },
-  { id: 'group_summary',        icon: '📋', label: i18n.settings.taskGroupSummary      },
-]
-
 export default function SettingsPage() {
-  const app = useApp()
+  const { i18n, lang, setLang, ...app } = useApp()
   const { resolvedTheme, setTheme } = useTheme()
   const isDark = resolvedTheme === 'dark'
   
@@ -46,6 +38,14 @@ export default function SettingsPage() {
   const [colorScheme, setColorScheme] = useState(() =>
     typeof localStorage !== 'undefined' ? (localStorage.getItem('em_color_scheme') || 'zinc') : 'zinc',
   )
+
+  const TASKS = useMemo(() => [
+    { id: 'salience_decay',       icon: '📉', label: i18n.settings.taskSalienceDecay    },
+    { id: 'projection',           icon: '📄', label: i18n.settings.taskProjection        },
+    { id: 'persona_synthesis',    icon: '🧠', label: i18n.settings.taskPersonaSynthesis  },
+    { id: 'impression_aggregation',icon: '👥', label: i18n.settings.taskImpressionAgg   },
+    { id: 'group_summary',        icon: '📋', label: i18n.settings.taskGroupSummary      },
+  ], [i18n])
 
   useEffect(() => {
     const root = document.documentElement
@@ -80,42 +80,42 @@ export default function SettingsPage() {
 
   const changePassword = async () => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    if (!oldPw || !newPw) { app.toast('请填写两个字段', 'destructive'); return }
+    if (!oldPw || !newPw) { app.toast(i18n.common.error, 'destructive'); return }
     try {
       await api.auth.changePassword(oldPw, newPw)
-      app.toast('密码已更新，请重新登录')
+      app.toast(i18n.common.success)
       setOldPw(''); setNewPw('')
       setTimeout(() => location.reload(), 1500)
     } catch (e: unknown) {
-      app.toast('修改失败：' + (e as api.ApiError).body, 'destructive', 4000)
+      app.toast(i18n.common.error + ': ' + (e as api.ApiError).body, 'destructive', 4000)
     }
   }
 
   const runTask = async (name: string) => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
     setTaskStatus(prev => ({ ...prev, [name]: 'running' }))
-    app.toast(`触发 ${name}…`)
+    app.toast(`${i18n.common.loading} ${name}…`)
     try {
       const r = await api.admin.runTask(name)
       setTaskStatus(prev => ({ ...prev, [name]: r.ok ? 'ok' : 'fail' }))
-      app.toast(r.ok ? `${name} 已完成` : `${name} 失败`)
+      app.toast(r.ok ? `${name} ${i18n.common.success}` : `${name} ${i18n.common.error}`)
       await app.refreshStats()
     } catch (e: unknown) {
       setTaskStatus(prev => ({ ...prev, [name]: 'fail' }))
-      app.toast(`${name} 错误：${(e as api.ApiError).body || ''}`, 'destructive', 4000)
+      app.toast(`${name} ${i18n.common.error}: ${(e as api.ApiError).body || ''}`, 'destructive', 4000)
     }
   }
 
   const injectDemo = async () => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    app.toast('注入演示数据…')
+    app.toast(i18n.common.loading + '…')
     try {
       const r = await api.admin.injectDemo()
       const s = r.seeded
-      app.toast(`注入成功：${s.personas} 人格, ${s.events} 事件, ${s.impressions} 印象`)
+      app.toast(`${i18n.common.success}: ${s.personas} , ${s.events}, ${s.impressions}`)
       await app.refreshStats()
     } catch (e: unknown) {
-      app.toast('注入失败：' + (e as api.ApiError).body, 'destructive', 4000)
+      app.toast(i18n.common.error + ': ' + (e as api.ApiError).body, 'destructive', 4000)
     }
   }
 
@@ -137,6 +137,27 @@ export default function SettingsPage() {
 
           <Card>
             <CardHeader>
+              <CardTitle>{i18n.settings.language}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Languages className="size-4 text-muted-foreground" />
+                  <Label>{i18n.settings.language}</Label>
+                </div>
+                <Tabs value={lang} onValueChange={(v: string) => setLang(v as 'zh' | 'en' | 'ja')}>
+                  <TabsList className="grid w-60 grid-cols-3">
+                    <TabsTrigger value="zh">中文</TabsTrigger>
+                    <TabsTrigger value="en">EN</TabsTrigger>
+                    <TabsTrigger value="ja">日本語</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>{i18n.settings.theme}</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
@@ -148,7 +169,6 @@ export default function SettingsPage() {
                 </Button>
               </div>
               
-              {/* Replaced color circles with shadcn Select component */}
               <div className="flex items-center justify-between">
                 <Label>{i18n.settings.accentColor}</Label>
                 <Select value={colorScheme} onValueChange={applyColor}>
@@ -275,7 +295,7 @@ export default function SettingsPage() {
                     onClick={() => runTask(task.id)}
                   >
                     {taskStatus[task.id] === 'running' ? (
-                      '运行中…'
+                      i18n.common.loading
                     ) : taskStatus[task.id] === 'ok' ? (
                       <><Check className="mr-1 size-3.5 text-green-500" />{i18n.settings.run}</>
                     ) : (

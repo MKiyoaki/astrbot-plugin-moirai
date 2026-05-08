@@ -102,9 +102,11 @@ def make_impression(
     return Impression(
         observer_uid=observer,
         subject_uid=subject,
-        relation_type="friend",
-        affect=affect,
-        intensity=0.7,
+        ipc_orientation="友好",
+        benevolence=affect,
+        power=0.0,
+        affect_intensity=0.7,
+        r_squared=0.9,
         confidence=0.8,
         scope=scope,
         evidence_event_ids=evidence or [],
@@ -349,14 +351,14 @@ async def test_impression_upsert_and_get(impression_repo) -> None:
     await impression_repo.upsert(imp)
     result = await impression_repo.get(imp.observer_uid, imp.subject_uid, imp.scope)
     assert result is not None
-    assert result.affect == imp.affect
+    assert result.benevolence == imp.benevolence
 
 
 async def test_impression_upsert_overwrites(impression_repo) -> None:
     await impression_repo.upsert(make_impression(affect=0.3))
     await impression_repo.upsert(make_impression(affect=0.9))
     result = await impression_repo.get("uid-bot", "uid-a", "global")
-    assert result.affect == pytest.approx(0.9)
+    assert result.benevolence == pytest.approx(0.9)
 
 
 async def test_impression_directional_asymmetry(impression_repo) -> None:
@@ -365,8 +367,8 @@ async def test_impression_directional_asymmetry(impression_repo) -> None:
 
     r_fwd = await impression_repo.get("uid-a", "uid-b", "global")
     r_rev = await impression_repo.get("uid-b", "uid-a", "global")
-    assert r_fwd.affect == pytest.approx(0.8)
-    assert r_rev.affect == pytest.approx(-0.2)
+    assert r_fwd.benevolence == pytest.approx(0.8)
+    assert r_rev.benevolence == pytest.approx(-0.2)
 
 
 async def test_impression_list_by_observer(impression_repo) -> None:
@@ -414,8 +416,8 @@ async def test_impression_scope_isolation(impression_repo) -> None:
 
     r_global = await impression_repo.get("uid-bot", "uid-a", "global")
     r_grp = await impression_repo.get("uid-bot", "uid-a", "grp-1")
-    assert r_global.affect == pytest.approx(0.5)
-    assert r_grp.affect == pytest.approx(-0.3)
+    assert r_global.benevolence == pytest.approx(0.5)
+    assert r_grp.benevolence == pytest.approx(-0.3)
 
 
 # ===========================================================================

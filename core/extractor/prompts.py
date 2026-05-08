@@ -27,8 +27,8 @@ def build_user_prompt(window: MessageWindow, max_messages: int = 20) -> str:
         f"对话记录（共{len(messages)}条消息，时间跨度约{duration_min}分钟）：",
         "",
     ]
-    for m in messages:
+    for i, m in enumerate(messages):
         label = uid_label[m.uid]
-        lines.append(f"{label}: {m.text}")
+        lines.append(f"[{i}] {label}: {m.text}")
 
     return "\n".join(lines)

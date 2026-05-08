@@ -7,10 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import type { PersonaNode, ImpressionEdge } from '@/lib/api'
 import type { EdgePair } from '@/lib/graph-types'
-import { i18n } from '@/lib/i18n'
-
-const t = i18n.graph
-const td = i18n.graph.detail
+import { useApp } from '@/lib/store'
 
 interface EdgeDetailProps {
   pairKey: string
@@ -33,6 +30,9 @@ export function EdgeDetail({
   onJumpToEvent,
   sudoMode,
 }: EdgeDetailProps) {
+  const { i18n } = useApp()
+  const t = i18n.graph
+  const td = i18n.graph.detail
   const pair = edgePairs.find(p => p.pairKey === pairKey)
   const nodeMap = new Map(allNodes.map(n => [n.data.id, n]))
 
@@ -85,6 +85,8 @@ export function EdgeDetail({
             edge={pair.fwd}
             onEdit={sudoMode ? () => onEditForward(pair.fwd) : undefined}
             onJumpToEvent={onJumpToEvent}
+            t={t}
+            i18n={i18n}
           />
 
           {/* B → A section (bidirectional only) */}
@@ -96,6 +98,8 @@ export function EdgeDetail({
                 edge={pair.bwd}
                 onEdit={sudoMode ? () => onEditBackward(pair.bwd!) : undefined}
                 onJumpToEvent={onJumpToEvent}
+                t={t}
+                i18n={i18n}
               />
             </>
           )}
@@ -129,11 +133,15 @@ function ImpressionSection({
   edge,
   onEdit,
   onJumpToEvent,
+  t,
+  i18n,
 }: {
   label: string
   edge: ImpressionEdge
   onEdit?: () => void
   onJumpToEvent: (eventId: string) => void
+  t: any
+  i18n: any
 }) {
   const msgCount = (edge.data as { msg_count?: number }).msg_count
   const lastReinforced = edge.data.last_reinforced_at

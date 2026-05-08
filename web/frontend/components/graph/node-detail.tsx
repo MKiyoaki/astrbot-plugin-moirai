@@ -7,10 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import type { PersonaNode } from '@/lib/api'
 import type { EdgePair } from '@/lib/graph-types'
-import { i18n } from '@/lib/i18n'
-
-const t = i18n.graph
-const td = i18n.graph.detail
+import { useApp } from '@/lib/store'
 
 interface NodeDetailProps {
   node: PersonaNode
@@ -23,6 +20,9 @@ interface NodeDetailProps {
 }
 
 export function NodeDetail({ node, allNodes, edgePairs, onBack, onEdit, onDelete, sudoMode }: NodeDetailProps) {
+  const { i18n } = useApp()
+  const t = i18n.graph
+  const td = i18n.graph.detail
   const nodeMap = new Map(allNodes.map(n => [n.data.id, n]))
 
   const connectedEdges = edgePairs.filter(p => p.srcId === node.data.id || p.tgtId === node.data.id)

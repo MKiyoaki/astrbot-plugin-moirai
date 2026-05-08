@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { Plus, RefreshCw, Trash2, Search, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,15 +8,14 @@ import { Slider } from '@/components/ui/slider'
 import { Separator } from '@/components/ui/separator'
 import { PageHeader } from '@/components/layout/page-header'
 import { EventTimeline } from '@/components/events/event-timeline'
+import { FilterBar } from '@/components/shared/filter-bar'
 import {
   CreateEventDialog, EditEventDialog, RecycleBinDialog, EventDetailCard,
   type EventFormData,
 } from '@/components/events/event-dialogs'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
-import { i18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { ScrollArea } from '@/components/ui/scroll-area'
 
 import { DateRange } from 'react-day-picker'
 
@@ -32,9 +31,11 @@ const GAP_OPTIONS = [
 
 export default function EventsPage() {
   const app = useApp()
+  const { i18n } = app
   const [search, setSearch] = useState('')
   const [timeGap, setTimeGap] = useState(7200000)
   const [dateRange, setDateRange] = useState<DateRange | undefined>()
+  const [activeTags, setActiveTags] = useState<Set<string>>(new Set())
   const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set())
   const [detailEvent, setDetailEvent] = useState<api.ApiEvent | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -89,27 +90,33 @@ export default function EventsPage() {
     }
   }, [app.rawEvents])
 
-  const filtered = app.rawEvents.filter(ev => {
-    if (search) {
-      const q = search.toLowerCase()
-      const matchSearch = (
-        (ev.content || '').toLowerCase().includes(q) ||
-        (ev.topic || '').toLowerCase().includes(q) ||
-        (ev.group || '').toLowerCase().includes(q) ||
-        (ev.tags || []).some(t => t.toLowerCase().includes(q)) ||
-        (ev.participants || []).some(p => p.toLowerCase().includes(q))
-      )
-      if (!matchSearch) return false
-    }
+  const filtered = useMemo(() => {
+    return app.rawEvents.filter(ev => {
+      if (search) {
+        const q = search.toLowerCase()
+        const matchSearch = (
+          (ev.content || '').toLowerCase().includes(q) ||
+          (ev.topic || '').toLowerCase().includes(q) ||
+          (ev.group || '').toLowerCase().includes(q) ||
+          (ev.tags || []).some(t => t.toLowerCase().includes(q)) ||
+          (ev.participants || []).some(p => p.toLowerCase().includes(q))
+        )
+        if (!matchSearch) return false
+      }
 
-    if (dateRange?.from) {
-      const start = new Date(ev.start).getTime()
-      if (start < dateRange.from.getTime()) return false
-      if (dateRange.to && start > dateRange.to.getTime() + 86400000) return false
-    }
+      if (dateRange?.from) {
+        const start = new Date(ev.start).getTime()
+        if (start < dateRange.from.getTime()) return false
+        if (dateRange.to && start > dateRange.to.getTime() + 86400000) return false
+      }
 
-    return true
-  })
+      if (activeTags.size > 0) {
+        if (!(ev.tags ?? []).some(t => activeTags.has(t))) return false
+      }
+
+      return true
+    })
+  }, [app.rawEvents, search, dateRange, activeTags])
 
   const handleDelete = async (ev: api.ApiEvent) => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
@@ -117,10 +124,10 @@ export default function EventsPage() {
     try {
       await api.events.delete(ev.id)
       setDetailEvent(null)
-      app.toast('事件已移入回收站')
+      app.toast(i18n.events.moveBinSuccess)
       await loadEvents()
     } catch (e: unknown) {
-      app.toast('删除失败：' + (e as api.ApiError).body, 'destructive')
+      app.toast(i18n.events.deleteFailed + '：' + (e as api.ApiError).body, 'destructive')
     }
   }
 
@@ -137,7 +144,7 @@ export default function EventsPage() {
       inherit_from:      data.inherit_from,
     }
     await api.events.create(body)
-    app.toast('事件已创建')
+    app.toast(i18n.events.createSuccess)
     await loadEvents()
     await app.refreshStats()
   }
@@ -167,7 +174,7 @@ export default function EventsPage() {
     try {
       const d = await api.events.recycleBin()
       setBinItems(d.items)
-    } catch { app.toast('回收站加载失败', 'destructive') }
+    } catch { app.toast(i18n.events.binLoadError, 'destructive') }
     finally { setBinLoading(false) }
   }
 
@@ -184,7 +191,7 @@ export default function EventsPage() {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
     if (!confirm(i18n.events.clearBinConfirm)) return
     await api.events.clearBin()
-    app.toast('回收站已清空')
+    app.toast(i18n.events.binClearSuccess)
     setBinItems([])
   }
 
@@ -216,16 +223,22 @@ export default function EventsPage() {
         actions={actions}
       />
 
-      <div className="flex flex-1 overflow-hidden relative border-t">
+      {/* Full-width Filter Bar */}
+      <FilterBar
+        tags={tagList}
+        activeTags={activeTags}
+        onTagsChange={setActiveTags}
+        dateRange={dateRange}
+        onDateRangeChange={setDateRange}
+      />
+
+      <div className="flex flex-1 overflow-hidden relative">
         {/* Main Timeline View */}
         <div className="flex flex-1 flex-col overflow-hidden">
           <EventTimeline
             events={filtered}
             timeGap={timeGap}
-            dateRange={dateRange}
-            onDateRangeChange={setDateRange}
             highlightIds={highlightIds}
-            tagList={tagList}
             onEventClick={setDetailEvent}
             selectedEventId={detailEvent?.id || null}
             onSelectionChange={(id) => {
@@ -242,7 +255,7 @@ export default function EventsPage() {
             {/* Timeline Controls */}
             <div className="space-y-3">
               <div className="flex items-center justify-between text-[11px] text-muted-foreground uppercase font-bold tracking-tight px-1">
-                <span>{i18n.events.threadAxis} 缩放</span>
+                <span>{i18n.events.threadScale}</span>
                 <span className="text-primary">{GAP_OPTIONS.find(o => o.value === timeGap)?.label}</span>
               </div>
               <Slider

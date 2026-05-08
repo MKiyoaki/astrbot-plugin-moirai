@@ -12,12 +12,11 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { PageHeader } from '@/components/layout/page-header'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
-import { i18n } from '@/lib/i18n'
 
 interface RecallItem extends api.ApiEvent {}
 
 export default function RecallPage() {
-  const app = useApp()
+  const { i18n, toast } = useApp()
   const [query, setQuery] = useState('')
   const [limit, setLimit] = useState(5)
   const [sessionId, setSessionId] = useState('')
@@ -27,7 +26,7 @@ export default function RecallPage() {
   const [searched, setSearched] = useState(false)
 
   const handleRecall = async () => {
-    if (!query.trim()) { app.toast('请输入查询内容', 'destructive'); return }
+    if (!query.trim()) { toast('请输入查询内容', 'destructive'); return }
     setSearching(true)
     try {
       const data = await api.recall.query(query.trim(), limit, sessionId.trim() || undefined)
@@ -35,7 +34,7 @@ export default function RecallPage() {
       setMeta({ count: data.count, algorithm: data.algorithm })
       setSearched(true)
     } catch (e: unknown) {
-      app.toast(i18n.recall.error + '：' + (e as api.ApiError).body, 'destructive')
+      toast(i18n.recall.error + '：' + (e as api.ApiError).body, 'destructive')
     } finally {
       setSearching(false)
     }

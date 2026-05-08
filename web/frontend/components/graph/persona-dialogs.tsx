@@ -15,7 +15,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { FieldGroup, Field, FieldLabel, FieldContent, FieldDescription } from '@/components/ui/field'
 import { TagSelector } from '@/components/shared/tag-selector'
 import { type PersonaNode, type ImpressionEdge } from '@/lib/api'
-import { i18n } from '@/lib/i18n'
+import { useApp } from '@/lib/store'
 
 // ── Persona Form ─────────────────────────────────────────────────────────
 
@@ -30,6 +30,7 @@ interface PersonaFormData {
 const AFFECT_TYPES = ['积极', '中性', '消极', '复杂']
 
 function PersonaForm({ data, onChange }: { data: PersonaFormData; onChange: (d: PersonaFormData) => void }) {
+  const { i18n } = useApp()
   const set = <K extends keyof PersonaFormData>(k: K, v: PersonaFormData[K]) =>
     onChange({ ...data, [k]: v })
 
@@ -105,6 +106,7 @@ export function CreatePersonaDialog({
   onSubmit: (data: Record<string, unknown>) => Promise<void>
   defaultConfidence: number
 }) {
+  const { i18n } = useApp()
   const [data, setData] = useState<PersonaFormData>({
     name: '', description: '', affect_type: '中性', tags: [], bindings: '',
   })
@@ -164,6 +166,7 @@ export function EditPersonaDialog({
   onClose: () => void
   onSubmit: (uid: string, data: Record<string, unknown>) => Promise<void>
 }) {
+  const { i18n } = useApp()
   const [data, setData] = useState<PersonaFormData>({
     name: '', description: '', affect_type: '中性', tags: [], bindings: '',
   })
@@ -240,6 +243,7 @@ export function EditImpressionDialog({
   onClose: () => void
   onSubmit: (observer: string, subject: string, scope: string, data: Record<string, unknown>) => Promise<void>
 }) {
+  const { i18n } = useApp()
   const existingConfidenceRef = useRef<number>(0.8)
   const [orientation, setOrientation] = useState('')
   const [benevolence, setBenevolence] = useState(0)
@@ -349,6 +353,7 @@ export function PersonaDetailCard({
   onDelete: (uid: string, name: string) => void
   sudoMode: boolean
 }) {
+  const { i18n } = useApp()
   if (!node) return null
   const d = node.data
   const attrs = d.attrs || {}
@@ -403,6 +408,7 @@ export function ImpressionDetailCard({
   onJumpToEvent: (eventId: string) => void
   sudoMode: boolean
 }) {
+  const { i18n } = useApp()
   if (!edge) return null
   const d = edge.data
   const affColor = d.affect > 0 ? 'text-green-500' : d.affect < 0 ? 'text-red-500' : 'text-muted-foreground'

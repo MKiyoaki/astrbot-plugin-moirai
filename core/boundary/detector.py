@@ -18,10 +18,8 @@ from .window import MessageWindow
 @dataclass
 class BoundaryConfig:
     time_gap_minutes: float = 30.0
-    max_messages: int = 50
+    max_messages: int = 20
     max_duration_minutes: float = 60.0
-    topic_drift_threshold: float = 0.6
-    topic_check_message_count: int = 20
 
 
 class EventBoundaryDetector:
@@ -34,7 +32,7 @@ class EventBoundaryDetector:
         """Return (should_close, reason).
 
         reason is one of: "time_gap", "max_messages", "max_duration",
-        "topic_drift", or "" (no close).
+        or "" (no close).
         """
         cfg = self.config
 
@@ -47,17 +45,4 @@ class EventBoundaryDetector:
         if window.duration_seconds >= cfg.max_duration_minutes * 60:
             return True, "max_duration"
 
-        if (
-            window.message_count >= cfg.topic_check_message_count
-            and self._topic_drift(window) > cfg.topic_drift_threshold
-        ):
-            return True, "topic_drift"
-
         return False, ""
-
-    def _topic_drift(self, window: MessageWindow) -> float:
-        """Cosine distance between first and latest message embeddings.
-
-        Returns 0.0 (no drift detected) until Phase 5 injects an embedding model.
-        """
-        return 0.0
