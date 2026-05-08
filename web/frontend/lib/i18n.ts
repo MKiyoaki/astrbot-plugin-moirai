@@ -15,6 +15,7 @@ export const zh = {
     library: '信息库',
     config: '插件配置',
     settings: '设置',
+    stats: '数据统计',
     landing: '首页',
   },
   page: {
@@ -47,6 +48,10 @@ export const zh = {
     config: {
       title: '插件配置',
       description: '配置插件运行参数（检索、边界检测、任务间隔等），修改后重启插件生效。',
+    },
+    stats: {
+      title: '数据统计',
+      description: '查看记忆库的运行状态与数据洞察。',
     },
   },
   auth: {
@@ -399,6 +404,13 @@ export const zh = {
     locked: '已锁定',
     impressions: '印象',
     groups: '活跃群组',
+    activity30d: '近 30 日活跃趋势',
+    avgMetrics: '平均指标 (每事件)',
+    avgParticipants: '平均参与者',
+    avgTags: '平均标签数',
+    avgSalience: '平均重要度',
+    avgNodes: '平均节点',
+    avgEdges: '平均边对',
   },
 } as const
 
@@ -417,11 +429,13 @@ export const ja = {
     summary: '要約',
     recall: '想起',
     library: 'ライブラリ',
-    config: '設定',
+    config: 'プラグイン構成',
     settings: 'システム設定',
+    stats: 'データ統計',
     landing: 'ホーム',
-  },
-  page: {
+    },
+    page: {
+
     events: {
       title: 'イベントフロー',
       description: 'タイムライン形式で対話イベントを表示。検索、作成、編集、ゴミ箱に対応。',
@@ -452,7 +466,12 @@ export const ja = {
       title: 'プラグイン構成',
       description: 'プラグインの動作パラメータを設定。変更を保存して再起動すると反映されます。',
     },
-  },
+    stats: {
+      title: 'データ統計',
+      description: '記憶バンクの运行ステータスとデータインサイトを表示します。',
+    },
+    },
+
   auth: {
     loginTitle: 'ログイン',
     setupTitle: '初期設定',
@@ -804,6 +823,13 @@ export const ja = {
     locked: 'ロック済み',
     impressions: '印象',
     groups: 'アクティブグループ',
+    activity30d: '過去 30 日間のアクティビティ',
+    avgMetrics: '平均指標 (イベントごと)',
+    avgParticipants: '平均参加者数',
+    avgTags: '平均タグ数',
+    avgSalience: '平均重要度',
+    avgNodes: '平均ノード数',
+    avgEdges: '平均エッジペア数',
   },
 } as const
 
@@ -824,6 +850,7 @@ export const en = {
     library: 'Library',
     config: 'Config',
     settings: 'Settings',
+    stats: 'Statistics',
     landing: 'Home',
   },
   page: {
@@ -856,6 +883,10 @@ export const en = {
     config: {
       title: 'Plugin Config',
       description: 'Configure plugin parameters (retrieval, boundaries, tasks). Restart required after changes.',
+    },
+    stats: {
+      title: 'Statistics',
+      description: 'View the operational status and data insights of the memory bank.',
     },
   },
   auth: {
@@ -1208,6 +1239,13 @@ export const en = {
     locked: 'Locked',
     impressions: 'Impressions',
     groups: 'Groups',
+    activity30d: 'Activity (Last 30 Days)',
+    avgMetrics: 'Average Metrics (per Event)',
+    avgParticipants: 'Avg Participants',
+    avgTags: 'Avg Tags',
+    avgSalience: 'Avg Salience',
+    avgNodes: 'Avg Nodes',
+    avgEdges: 'Avg Edges',
   },
 } as const
 

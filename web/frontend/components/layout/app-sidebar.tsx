@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import {
   Activity, Share2, BookOpen, Search, Database, Settings, SlidersHorizontal,
-  Lock, Unlock, Moon, Sun, LogOut,
+  Lock, Unlock, Moon, Sun, LogOut, BarChart3,
 } from 'lucide-react'
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
@@ -28,7 +28,7 @@ export function AppSidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const app = useApp()
-  const { i18n } = app
+  const { i18n, lang } = app
 
   const NAV_VISUALIZATION = React.useMemo(() => [
     { href: '/events', icon: Activity,  label: i18n.nav.events },
@@ -37,8 +37,9 @@ export function AppSidebar() {
   ], [i18n])
 
   const NAV_TOOLS = React.useMemo(() => [
-    { href: '/recall', icon: Search,   label: i18n.nav.recall },
-  ], [i18n])
+    { href: '/recall', icon: Search,    label: i18n.nav.recall },
+    { href: '/stats',  icon: BarChart3, label: lang === 'zh' ? '数据统计' : (lang === 'ja' ? '統計' : 'Statistics') },
+  ], [i18n, lang])
 
   const NAV_ADMIN = React.useMemo(() => [
     { href: '/library',  icon: Database,           label: i18n.nav.library },
