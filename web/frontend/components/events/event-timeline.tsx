@@ -302,25 +302,22 @@ export function EventTimeline({
       )}
 
       <ScrollArea className="flex-1" onClick={() => onSelectionChange(null)}>
-        <div className="relative w-full" style={{ minHeight: svgH, transition: 'min-height 0.4s ease-out' }}>
-          <svg className="absolute left-0 top-0" style={{ width: '100%', height: svgH, pointerEvents: 'none', overflow: 'visible', transition: 'height 0.4s ease-out' }}>
+        <div className="relative w-full" style={{ minHeight: svgH }}>
+          <svg className="absolute left-0 top-0" style={{ width: '100%', height: svgH, pointerEvents: 'none', overflow: 'visible' }}>
             {/* Main axis */}
             <line 
               x1={metrics.AX} y1={metrics.TP - 10} x2={metrics.AX} y2={svgH - 20} 
               stroke="currentColor" strokeOpacity={0.15} strokeWidth={1.5} 
-              style={{ transition: 'all 0.4s ease-out' }}
             />
             {rows.map(row => (
-              <g key={row.idx} style={{ transition: 'all 0.4s ease-out' }}>
+              <g key={row.idx}>
                 <line 
                   x1={metrics.AX - 3} y1={ry(row.idx)} x2={metrics.AX + 3} y2={ry(row.idx)} 
                   stroke="currentColor" strokeOpacity={0.1} strokeWidth={1} 
-                  style={{ transition: 'all 0.4s ease-out' }}
                 />
                 <text 
                   x={metrics.AX - 5} y={ry(row.idx) + 3} textAnchor="end" 
                   fill="currentColor" fillOpacity={0.2} fontSize={9} fontFamily="monospace"
-                  style={{ transition: 'all 0.4s ease-out' }}
                 >
                   {fmtDate(row.tsMs)}
                 </text>

@@ -94,6 +94,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const refreshAuth = useCallback(async () => {
     try {
+      // Auto login if token is provided in URL
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search)
+        const token = params.get('token')
+        if (token) {
+          try {
+            await api.auth.login(token)
+            const url = new URL(window.location.href)
+            url.searchParams.delete('token')
+            window.history.replaceState({}, '', url.pathname + url.search)
+          } catch (e) {
+            console.error('Auto-login failed:', e)
+          }
+        }
+      }
+
       const s = await api.auth.status()
       setAuthEnabled(s.auth_enabled)
       setAuthenticated(s.authenticated)

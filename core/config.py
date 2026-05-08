@@ -313,6 +313,10 @@ class PluginConfig:
         return self._bool("webui_auth_enabled", True)
 
     @property
+    def webui_password(self) -> str:
+        return self._str("webui_password", "").strip()
+
+    @property
     def webui_session_hours(self) -> int:
         return self._int("webui_session_hours", 24)
 

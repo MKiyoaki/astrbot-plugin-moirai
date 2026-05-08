@@ -2,7 +2,7 @@
 
 设计要点：
   - 密码哈希文件存于 data_dir/.webui_password（bcrypt $2b$ 格式）
-  - 首次访问无密码时进入"setup 模式"，由用户设置初始密码
+  - 若配置中未指定密码，则由服务器生成随机访问 Token
   - 登录成功后颁发 session token（默认 24h），存入响应 cookie
   - 写操作（重置任务、清空缓存等）需要二级 sudo 验证（默认 30min 超时）
   - bcrypt 依赖通过软导入兼容：未安装时降级为 sha256（仅开发期）
@@ -79,20 +79,21 @@ class AuthManager:
         data_dir: Path,
         session_hours: int = _DEFAULT_SESSION_HOURS,
         sudo_minutes: int = _DEFAULT_SUDO_MINUTES,
+        secret_token: str | None = None,
     ) -> None:
         self._password_file = data_dir / _PASSWORD_FILENAME
         self._session_seconds = session_hours * 3600
         self._sudo_seconds = sudo_minutes * 60
         self._sessions: dict[str, _Session] = {}
+        self._secret_token = secret_token
 
     # ------------------------------------------------------------------
     # 密码管理
     # ------------------------------------------------------------------
 
     def is_password_set(self) -> bool:
-        return self._password_file.exists() and self._password_file.read_text(
-            encoding="utf-8"
-        ).strip() != ""
+        """Now always returns True because either a manual password or a secret token is available."""
+        return True
 
     def setup_password(self, password: str) -> None:
         """首次设置密码，仅在未设置时可用；调用方负责前置检查。"""
@@ -116,10 +117,17 @@ class AuthManager:
         return True
 
     def verify_password(self, password: str) -> bool:
-        if not self.is_password_set():
+        if not password:
             return False
-        current = self._password_file.read_text(encoding="utf-8").strip()
-        return _verify_password(password, current)
+        # 1. Check against memory-only secret token (if generated or configured)
+        if self._secret_token and password == self._secret_token:
+            return True
+        # 2. Check against persistent password file
+        if self._password_file.exists():
+            current = self._password_file.read_text(encoding="utf-8").strip()
+            if current and _verify_password(password, current):
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # 会话管理

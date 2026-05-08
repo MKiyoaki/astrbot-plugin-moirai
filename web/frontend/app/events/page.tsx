@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState, useCallback, SetStateAction, useRef } from 'react'
-import { Plus, RefreshCw, Trash2, Search } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { Plus, RefreshCw, Trash2, Search, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
+import { Separator } from '@/components/ui/separator'
 import { PageHeader } from '@/components/layout/page-header'
 import { EventTimeline } from '@/components/events/event-timeline'
 import {
@@ -15,10 +16,9 @@ import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { i18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { ScrollArea } from '@/components/ui/scroll-area'
 
 import { DateRange } from 'react-day-picker'
-import { DateRangePicker } from '@/components/shared/date-range-picker'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 const GAP_OPTIONS = [
   { label: '30m', value: 1800000 },
@@ -54,7 +54,7 @@ export default function EventsPage() {
     } catch {
       app.toast(i18n.events.loadError, 'destructive')
     } finally {
-      setTimeout(() => setIsRefreshing(false), 600) // Ensure animation is visible
+      setTimeout(() => setIsRefreshing(false), 600)
     }
   }, [app.setRawEvents, app.toast])
 
@@ -193,17 +193,17 @@ export default function EventsPage() {
       <div className="relative">
         <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
         <Input
-          className="h-7 w-48 pl-7 text-xs"
+          className="h-8 w-48 pl-8 text-xs sm:w-64"
           placeholder={i18n.events.search}
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
       </div>
-      <Button variant="ghost" size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo}>
+      <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo} className="h-8">
         <Plus className="mr-1.5 size-3.5" />{i18n.common.create}
       </Button>
-      <Button variant="ghost" size="icon" onClick={loadEvents} title={i18n.common.refresh}>
-        <RefreshCw className={cn("size-4 transition-transform duration-500", isRefreshing && "animate-spin")} />
+      <Button variant="outline" size="icon" onClick={loadEvents} title={i18n.common.refresh} className="h-8 w-8">
+        <RefreshCw className={cn("size-3.5 transition-transform duration-500", isRefreshing && "animate-spin")} />
       </Button>
     </div>
   )
@@ -216,32 +216,8 @@ export default function EventsPage() {
         actions={actions}
       />
 
-      {/* Sub-header for page-specific controls */}
-      <div className="flex items-center justify-between border-b bg-muted/5 px-6 py-2">
-        <div className="flex items-center gap-4">
-          <div className="flex w-48 flex-col gap-1.5 px-2">
-            <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase font-bold tracking-tight">
-              <span>时间跨度 (缩放)</span>
-              <span>{GAP_OPTIONS.find(o => o.value === timeGap)?.label}</span>
-            </div>
-            <Slider
-              value={[GAP_OPTIONS.findIndex(o => o.value === timeGap)]}
-              min={0}
-              max={GAP_OPTIONS.length - 1}
-              step={1}
-              onValueChange={([val]) => setTimeGap(GAP_OPTIONS[val].value)}
-              className="py-1"
-            />
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={openBin}>
-            <Trash2 className="mr-1.5 size-3.5" />{i18n.events.recycleBin}
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative border-t">
+        {/* Main Timeline View */}
         <div className="flex flex-1 flex-col overflow-hidden">
           <EventTimeline
             events={filtered}
@@ -260,20 +236,59 @@ export default function EventsPage() {
           />
         </div>
 
-        {detailEvent && (
-          <div className="bg-card ring-foreground/10 flex h-full w-72 shrink-0 flex-col gap-3 overflow-y-auto border-l p-4 ring-1">
-            <div className="flex items-center justify-between">
-              <h3 className="font-medium text-sm">{i18n.events.detailTitle}</h3>
-              <Button variant="ghost" size="icon" onClick={() => setDetailEvent(null)}>✕</Button>
+        {/* Permanent Control & Info Sidebar */}
+        <aside className="w-80 flex flex-col border-l bg-muted/5">
+          <div className="p-4 space-y-6">
+            {/* Timeline Controls */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground uppercase font-bold tracking-tight px-1">
+                <span>{i18n.events.threadAxis} 缩放</span>
+                <span className="text-primary">{GAP_OPTIONS.find(o => o.value === timeGap)?.label}</span>
+              </div>
+              <Slider
+                value={[GAP_OPTIONS.findIndex(o => o.value === timeGap)]}
+                min={0}
+                max={GAP_OPTIONS.length - 1}
+                step={1}
+                onValueChange={([val]) => setTimeGap(GAP_OPTIONS[val].value)}
+                className="py-1"
+              />
+              <Button variant="outline" size="sm" className="w-full h-8 text-xs" onClick={openBin}>
+                <Trash2 className="mr-1.5 size-3.5" />{i18n.events.recycleBin}
+              </Button>
             </div>
-            <EventDetailCard
-              event={detailEvent}
-              onEdit={ev => setEditEvent(ev)}
-              onDelete={handleDelete}
-              sudoMode={app.sudo}
-            />
+
+            <Separator />
+
+            {/* Event Detail / Selection View */}
+            <div className="flex-1">
+              {detailEvent ? (
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold text-sm">{i18n.events.detailTitle}</h3>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setDetailEvent(null)}>✕</Button>
+                  </div>
+                  <EventDetailCard
+                    event={detailEvent}
+                    onEdit={ev => setEditEvent(ev)}
+                    onDelete={handleDelete}
+                    sudoMode={app.sudo}
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 px-6 text-center text-muted-foreground animate-in fade-in duration-500">
+                  <div className="bg-muted rounded-full p-4 mb-4">
+                    <Info className="size-8 opacity-40" />
+                  </div>
+                  <h3 className="font-medium text-sm mb-1">{i18n.events.detailTitle}</h3>
+                  <p className="text-xs leading-relaxed opacity-60">
+                    {i18n.events.selectEventHint}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
-        )}
+        </aside>
       </div>
 
       <CreateEventDialog

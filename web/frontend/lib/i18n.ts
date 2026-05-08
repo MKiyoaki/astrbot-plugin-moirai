@@ -122,6 +122,7 @@ export const zh = {
     inheritSearch: '搜索事件话题…',
     inheritEmpty: '暂无可选事件',
     inheritNoMatch: '无匹配事件',
+    selectEventHint: '从左侧选择一个事件以查看详细信息。',
   },
   graph: {
     search: '搜索人格、关系…',

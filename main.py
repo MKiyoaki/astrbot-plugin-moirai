@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from astrbot.api.provider import ProviderRequest
     from astrbot.api.star import Context, Star
 
-_PLUGIN_VERSION = "0.1.0"
+_PLUGIN_VERSION = "0.4.4"
 
 
 @register(

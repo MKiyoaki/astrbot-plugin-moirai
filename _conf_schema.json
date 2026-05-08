@@ -44,7 +44,10 @@
     "embedding_provider": {
         "description": "向量嵌入提供者",
         "type": "select",
-        "options": ["local", "api"],
+        "options": [
+            "local",
+            "api"
+        ],
         "hint": "选择使用本地模型还是远程 API",
         "default": "local"
     },
@@ -251,5 +254,11 @@
         "type": "int",
         "hint": "每隔多少天执行一次自动清理任务",
         "default": 7
+    },
+    "webui_password": {
+        "description": "WebUI 访问密码",
+        "type": "string",
+        "hint": "手动配置 WebUI 访问密码。留空则启动时自动生成随机访问 Token 并在控制台打印。",
+        "default": ""
     }
 }

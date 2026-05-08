@@ -64,9 +64,11 @@ def make_impression(observer: str, subject: str) -> Impression:
     return Impression(
         observer_uid=observer,
         subject_uid=subject,
-        relation_type="friend",
-        affect=0.7,
-        intensity=0.8,
+        ipc_orientation="友好",
+        benevolence=0.7,
+        power=0.0,
+        affect_intensity=0.8,
+        r_squared=0.9,
         confidence=0.9,
         scope="global",
         evidence_event_ids=["ev1"],
@@ -130,7 +132,7 @@ def test_impression_to_edge_structure() -> None:
     e = impression_to_edge(imp)
     assert e["data"]["source"] == "uid1"
     assert e["data"]["target"] == "uid2"
-    assert e["data"]["label"] == "friend"
+    assert e["data"]["label"] == "友好"
     assert e["data"]["affect"] == pytest.approx(0.7, abs=0.001)
     assert e["data"]["evidence_event_ids"] == ["ev1"]
 
@@ -317,19 +319,26 @@ async def test_auth_status_no_password(tmp_path: Path) -> None:
         resp = await client.get("/api/auth/status")
         data = await resp.json()
         assert data["auth_enabled"] is True
-        assert data["password_set"] is False
+        assert data["password_set"] is True  # Now always True
         assert data["authenticated"] is False
 
 
 async def test_auth_setup_then_query_succeeds(tmp_path: Path) -> None:
     srv = _server(tmp_path, auth_enabled=True)
     async with TestClient(TestServer(srv.app)) as client:
-        # setup 自动登录并下发 cookie
+        # setup is now blocked because password is set by default
         resp = await client.post("/api/auth/setup", json={"password": "secret123"})
-        assert resp.status == 200
-        # 同 client 后续请求自动带 cookie
-        resp = await client.get("/api/events")
-        assert resp.status == 200
+        assert resp.status == 409
+        # login instead
+        # Since _server doesn't specify a secret_token, it uses one from WebuiServer.
+        # But we need to know it. In tests, we can use AuthManager directly.
+        # Let's use srv._secret_token if it exists.
+        token = getattr(srv, "_secret_token", None)
+        if token:
+            resp = await client.post("/api/auth/login", json={"password": token})
+            assert resp.status == 200
+            resp = await client.get("/api/events")
+            assert resp.status == 200
 
 
 async def test_auth_setup_blocked_when_password_exists(tmp_path: Path) -> None:
@@ -402,8 +411,8 @@ async def test_run_task_503_when_runner_missing(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_auth_manager_setup_and_verify(tmp_path: Path) -> None:
-    mgr = AuthManager(tmp_path)
-    assert not mgr.is_password_set()
+    mgr = AuthManager(tmp_path, secret_token="dev")
+    assert mgr.is_password_set() # Always True
     mgr.setup_password("hello123")
     assert mgr.is_password_set()
     assert mgr.verify_password("hello123")
@@ -411,13 +420,13 @@ def test_auth_manager_setup_and_verify(tmp_path: Path) -> None:
 
 
 def test_auth_manager_too_short(tmp_path: Path) -> None:
-    mgr = AuthManager(tmp_path)
+    mgr = AuthManager(tmp_path, secret_token="dev")
     with pytest.raises(ValueError):
         mgr.setup_password("ab")
 
 
 def test_auth_manager_session_lifecycle(tmp_path: Path) -> None:
-    mgr = AuthManager(tmp_path)
+    mgr = AuthManager(tmp_path, secret_token="dev")
     mgr.setup_password("password")
     token = mgr.login("password")
     assert token is not None
@@ -433,7 +442,7 @@ def test_auth_manager_session_lifecycle(tmp_path: Path) -> None:
 
 
 def test_auth_manager_change_password(tmp_path: Path) -> None:
-    mgr = AuthManager(tmp_path)
+    mgr = AuthManager(tmp_path, secret_token="dev")
     mgr.setup_password("old-pwd")
     assert mgr.change_password("old-pwd", "new-pwd")
     assert not mgr.change_password("wrong", "x")

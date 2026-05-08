@@ -14,6 +14,7 @@ import { PageHeader } from '@/components/layout/page-header'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { i18n } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 const SECTIONS: { label: string; keys: string[] }[] = [
   {
@@ -63,6 +64,43 @@ const SECTIONS: { label: string; keys: string[] }[] = [
   },
 ]
 
+const FIELD_DEPENDENCIES: Record<string, string> = {
+  // Embedding
+  'embedding_provider': 'embedding_enabled',
+  'embedding_model': 'embedding_enabled',
+  'embedding_api_url': 'embedding_enabled',
+  'embedding_api_key': 'embedding_enabled',
+  'embedding_batch_size': 'embedding_enabled',
+  'embedding_concurrency': 'embedding_enabled',
+  'embedding_batch_interval_ms': 'embedding_enabled',
+  'embedding_request_interval_ms': 'embedding_enabled',
+  'embedding_failure_tolerance_ratio': 'embedding_enabled',
+  'embedding_retry_max': 'embedding_enabled',
+  'embedding_retry_delay_ms': 'embedding_enabled',
+  
+  // VCM
+  'context_max_sessions': 'vcm_enabled',
+  'context_session_idle_seconds': 'vcm_enabled',
+  'context_window_size': 'vcm_enabled',
+  
+  // Cleanup
+  'memory_cleanup_threshold': 'memory_cleanup_enabled',
+  'memory_cleanup_interval_days': 'memory_cleanup_enabled',
+  
+  // Relation
+  'persona_isolation_enabled': 'relation_enabled',
+  'impression_event_trigger_enabled': 'relation_enabled',
+  'impression_event_trigger_threshold': 'relation_enabled',
+  'impression_trigger_debounce_hours': 'relation_enabled',
+  
+  // WebUI
+  'webui_port': 'webui_enabled',
+  'webui_auth_enabled': 'webui_enabled',
+  'webui_session_hours': 'webui_enabled',
+  'webui_sudo_minutes': 'webui_enabled',
+  'webui_password': 'webui_enabled',
+}
+
 function ConfigField({
   fieldKey,
   schema,
@@ -78,109 +116,106 @@ function ConfigField({
 }) {
   const id = `cfg-${fieldKey}`
 
-  if (schema.type === 'bool') {
-    return (
-      <div className="flex items-center justify-between py-2">
-        <div className="flex-1 pr-4 min-w-0">
+  return (
+    <div className={cn("transition-opacity duration-200", disabled && "opacity-40 pointer-events-none")}>
+      {schema.type === 'bool' && (
+        <div className="flex items-center justify-between py-2">
+          <div className="flex-1 pr-4 min-w-0">
+            <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
+              {schema.description}
+            </Label>
+            {schema.hint && (
+              <p className="mt-0.5 text-xs text-muted-foreground break-words whitespace-normal">
+                {schema.hint}
+              </p>
+            )}
+          </div>
+          <Switch
+            id={id}
+            checked={Boolean(value)}
+            onCheckedChange={(v: unknown) => onChange(v)}
+            disabled={disabled}
+          />
+        </div>
+      )}
+
+      {schema.type === 'select' && schema.options && (
+        <div className="py-2 min-w-0">
           <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
             {schema.description}
           </Label>
           {schema.hint && (
-            <p className="mt-0.5 text-xs text-muted-foreground break-words whitespace-normal">
+            <p className="mt-0.5 mb-1.5 text-xs text-muted-foreground break-words whitespace-normal">
               {schema.hint}
             </p>
           )}
+          <Select
+            disabled={disabled}
+            value={String(value)}
+            onValueChange={v => onChange(v)}
+          >
+            <SelectTrigger id={id} className="h-8 text-sm w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {schema.options.map(opt => (
+                <SelectItem key={opt} value={opt}>
+                  {opt}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <Switch
-          id={id}
-          checked={Boolean(value)}
-          onCheckedChange={(v: unknown) => onChange(v)}
-          disabled={disabled}
-        />
-      </div>
-    )
-  }
+      )}
 
-  if (schema.type === 'select' && schema.options) {
-    return (
-      <div className="py-2 min-w-0">
-        <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
-          {schema.description}
-        </Label>
-        {schema.hint && (
-          <p className="mt-0.5 mb-1.5 text-xs text-muted-foreground break-words whitespace-normal">
-            {schema.hint}
-          </p>
-        )}
-        <Select
-          disabled={disabled}
-          value={String(value)}
-          onValueChange={v => onChange(v)}
-        >
-          <SelectTrigger id={id} className="h-8 text-sm w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {schema.options.map(opt => (
-              <SelectItem key={opt} value={opt}>
-                {opt}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-    )
-  }
+      {schema.type === 'float' && (
+        <div className="py-2 min-w-0">
+          <div className="mb-2 flex items-start justify-between gap-4">
+            <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal flex-1">
+              {schema.description}
+            </Label>
+            <span className="w-12 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
+              {(typeof value === 'number' ? value : parseFloat(String(value)) || 0).toFixed(2)}
+            </span>
+          </div>
+          {schema.hint && (
+            <p className="mb-2 text-xs text-muted-foreground break-words whitespace-normal">
+              {schema.hint}
+            </p>
+          )}
+          <Slider
+            id={id}
+            value={[typeof value === 'number' ? value : parseFloat(String(value)) || 0]}
+            onValueChange={(v: unknown) => onChange(Array.isArray(v) ? v[0] : v)}
+            min={0} max={1} step={0.01}
+            disabled={disabled}
+          />
+        </div>
+      )}
 
-  if (schema.type === 'float') {
-    const num = typeof value === 'number' ? value : parseFloat(String(value)) || 0
-    return (
-      <div className="py-2 min-w-0">
-        <div className="mb-2 flex items-start justify-between gap-4">
-          <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal flex-1">
+      {(schema.type === 'int' || schema.type === 'string') && (
+        <div className="py-2 min-w-0">
+          <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
             {schema.description}
           </Label>
-          <span className="w-12 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
-            {num.toFixed(2)}
-          </span>
+          {schema.hint && (
+            <p className="mt-0.5 mb-1.5 text-xs text-muted-foreground break-words whitespace-normal">
+              {schema.hint}
+            </p>
+          )}
+          <Input
+            id={id}
+            type={schema.type === 'int' ? 'number' : 'text'}
+            value={String(value ?? '')}
+            onChange={e => {
+              const raw = e.target.value
+              onChange(schema.type === 'int' ? (parseInt(raw, 10) || 0) : raw)
+            }}
+            disabled={disabled}
+            className="h-8 text-sm w-full"
+          />
         </div>
-        {schema.hint && (
-          <p className="mb-2 text-xs text-muted-foreground break-words whitespace-normal">
-            {schema.hint}
-          </p>
-        )}
-        <Slider
-          id={id}
-          value={[num]}
-          onValueChange={(v: unknown) => onChange(Array.isArray(v) ? v[0] : v)}
-          min={0} max={1} step={0.01}
-          disabled={disabled}
-        />
-      </div>
-    )
-  }
-
-  return (
-    <div className="py-2 min-w-0">
-      <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
-        {schema.description}
-      </Label>
-      {schema.hint && (
-        <p className="mt-0.5 mb-1.5 text-xs text-muted-foreground break-words whitespace-normal">
-          {schema.hint}
-        </p>
       )}
-      <Input
-        id={id}
-        type={schema.type === 'int' ? 'number' : 'text'}
-        value={String(value ?? '')}
-        onChange={e => {
-          const raw = e.target.value
-          onChange(schema.type === 'int' ? (parseInt(raw, 10) || 0) : raw)
-        }}
-        disabled={disabled}
-        className="h-8 text-sm w-full"
-      />
     </div>
   )
 }
@@ -282,16 +317,22 @@ export default function ConfigPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="divide-y">
-                    {fields.map(key => (
-                      <ConfigField
-                        key={key}
-                        fieldKey={key}
-                        schema={schema[key]}
-                        value={values[key] ?? schema[key].default}
-                        onChange={val => handleChange(key, val)}
-                        disabled={!app.sudo || saving}
-                      />
-                    ))}
+                    {fields.map(key => {
+                      const parentKey = FIELD_DEPENDENCIES[key]
+                      const isParentOff = parentKey && !values[parentKey]
+                      const fieldDisabled = !app.sudo || saving || Boolean(isParentOff)
+                      
+                      return (
+                        <ConfigField
+                          key={key}
+                          fieldKey={key}
+                          schema={schema[key]}
+                          value={values[key] ?? schema[key].default}
+                          onChange={val => handleChange(key, val)}
+                          disabled={fieldDisabled}
+                        />
+                      )
+                    })}
                   </CardContent>
                 </Card>
               )

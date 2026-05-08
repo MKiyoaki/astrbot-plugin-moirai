@@ -219,7 +219,7 @@ async def main() -> None:
     await srv.start()
 
     print(f"\n  Enhanced Memory — 调试界面已启动")
-    print(f"  http://localhost:{port}")
+    print(f"  http://localhost:{port}/?token=dev")
     print(f"  数据目录: {data_dir}")
     print(f"  认证: 已关闭（本地调试模式）")
     print(f"  演示数据: 已注入（4 人格 / 5 事件 / 5 印象 / 2 摘要）")

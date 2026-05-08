@@ -37,7 +37,6 @@ function Shell({ children }: { children: ReactNode }) {
     return (
       <>
         <LoginScreen
-          setupMode={!app.passwordSet}
           onSuccess={() => app.refreshStats()}
         />
         <Toaster />

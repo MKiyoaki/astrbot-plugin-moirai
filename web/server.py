@@ -1,14 +1,15 @@
+from __future__ import annotations
+import secrets
 """aiohttp WebUI Server — Three-axis Memory Panel + Unified Management + Third-party Panel Mount.
 
 Route permission levels:
   - public: No login required (/login, /api/auth/setup, /api/auth/status)
   - auth: Session required (GET read-only interfaces)
-  - sudo: Secondary password verification required (POST write operations, sensitive configurations)
+  - sudo: Secondary password verification required (use configured password or auto-generated token) (POST write operations, sensitive configurations)
 
 Data construction logic (events_data / graph_data / summaries_data) is kept purely asynchronous
 and independent of the HTTP context for easier direct testing.
 """
-from __future__ import annotations
 
 import asyncio
 import json
@@ -186,7 +187,15 @@ class WebuiServer:
         self._data_dir = data_dir
         self._port = port
         self._auth_enabled = auth_enabled
-        self._auth = AuthManager(data_dir)
+        
+        # Determine secret token or configured password
+        cfg_password = (initial_config or {}).get("webui_password", "").strip()
+        if not cfg_password and auth_enabled:
+            self._secret_token = secrets.token_urlsafe(16)
+        else:
+            self._secret_token = cfg_password or None
+            
+        self._auth = AuthManager(data_dir, secret_token=self._secret_token)
         self.registry = registry or PanelRegistry()
         self._task_runner = task_runner
         self._plugin_version = plugin_version
