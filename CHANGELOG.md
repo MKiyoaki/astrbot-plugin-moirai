@@ -1,5 +1,68 @@
 # CHANGELOG
 
+## [v0.6.9] — 2026-05-09
+
+### 测试数据集整理 (Test Dataset Reorganization)
+
+- **文件重命名**：`Mock_Data.md` → `Mock_Realtime_Data.md`，明确区分实时测试数据集与其他 mock 数据。
+- **路径统一**：将数据集移入 `tests/mock_data/Mock_Realtime_Data.md`，与 `mock_chat.json` 同目录管理，`run_realtime_dev.py` 引用路径同步更新。
+- **LLM 超时调整**：`extractor_llm_timeout_seconds` 及 `SummaryConfig.llm_timeout` 由 150 s 上调至 **300 s**，`_RealtimeProviderBridge` 的 httpx 层由 180 s 上调至 **330 s**，为 Gemma 26B 在高负载下提供更充足的响应窗口。
+
+---
+
+## [v0.6.8] — 2026-05-09
+
+### 测试工具链完整性修复 (Dev Toolchain Completeness Fixes)
+
+#### `reset_realtime_dev.py` — 新增摘要目录还原逻辑
+- **根因**：`run_realtime_dev._archive_step()` 启动时会将 `.dev_data/groups/`（由 `run_webui_dev.py` 写入的演示摘要文件）通过 `shutil.move` 移入 `archive/groups_<ts>/`；而原 `reset_realtime_dev.py` 完全未处理该目录，导致异常结束后摘要文件无法恢复。
+- **新增 Step 3**：删除本次实时测试生成的 `.dev_data/groups/` 目录。
+- **新增 Step 4**：按修改时间定位 `archive/groups_<ts>/` 中最新的备份，通过 `shutil.move` 还原至 `.dev_data/groups/`，恢复 `run_webui_dev.py` 的演示摘要状态。
+- **修复后覆盖范围**：`reset_realtime_dev.py` 现在完整镜像 `_archive_step()` 的所有三项状态变更（`realtime_test.db` / `dataflow_test.db` / `groups/`），可在任意异常退出后将环境恢复至测试前状态。
+
+#### `run_realtime_dev.py` — 摘要目录归档方式修正
+- 将对 `.dev_data/groups/` 的 `shutil.rmtree`（不可恢复）改为 `shutil.move` 到 `archive/groups_<ts>/`，并通过模块级变量 `_archived_groups` 记录归档路径，供正常退出时的 `_cleanup()` 还原使用。
+
+---
+
+## [v0.6.7] — 2026-05-09
+
+### 实时测试脚本运行时修复 (run_realtime_dev.py Runtime Fixes)
+
+#### 1. LLM 提取超时修复
+- **根因**：`ExtractorConfig.llm_timeout` 默认 30 s，`asyncio.wait_for` 对 Gemma 26B（thinking 模式下单次调用 60-90 s）必然超时；`asyncio.TimeoutError.__str__()` 为空字符串，导致日志显示 `LLM distillation failed:` 但无报错内容。
+- **修复**：`_build_config()` 中新增 `extractor_llm_timeout_seconds`（初始值 150 s，后于 v0.6.9 调整为 300 s），使 asyncio 层超时晚于模型响应。
+- **新增 `_RealtimeProviderBridge`**：替代 `MockProviderBridge`，将 httpx 超时扩展至 330 s（初始 180 s，v0.6.9 上调），并在返回前用正则剥离 Gemma/Qwen3 thinking 模式产生的 `<think>…</think>` 标签，防止 JSON 解析器在推理文本中误匹配括号边界。
+
+#### 2. 摘要记忆残留修复
+- **根因**：`run_webui_dev.py` 会在 `.dev_data/groups/demo_group_001/summaries/` 写入演示 Markdown 文件，`run_realtime_dev.py` 启动时未清除，导致 WebUI 摘要面板仍显示旧的 demo 内容。
+- **修复**：`_archive_step()` 中将 `.dev_data/groups/` 移出（初版用 `shutil.rmtree`，v0.6.8 修正为 `shutil.move` 以支持退出还原），确保每次实时测试启动后摘要面板只显示本次注入生成的内容。
+
+---
+
+## [v0.6.6] — 2026-05-09
+
+### 实时聊天模拟测试工具链 (Realtime Chat Simulation Dev Tools)
+
+#### 1. `run_realtime_dev.py` — 实时数据注入测试脚本
+- **数据来源**：解析 `tests/mock_data/Mock_Realtime_Data.md`（Discord 真实聊天记录，包含多个群组），将所有消息通过完整管道（`MessageRouter` → `EventBoundaryDetector` → `EventExtractor` + LLM → 三张数据库表）注入全新的 SQLite 实例（`.dev_data/realtime_test.db`）。
+- **归档机制**：启动时自动将已有的 `dataflow_test.db` 复制到 `.dev_data/archive/dataflow_test_<时间戳>.db`；若存在上次崩溃遗留的 `realtime_test.db`，也会被移入归档目录，确保数据不丢失。
+- **双阶段进度条**：阶段一显示消息注入进度（单位：msg），阶段二显示 LLM 提取任务进度（单位：task），均支持 `tqdm`；若未安装则回退至内置最小化进度 shim。
+- **WebUI 集成**：所有数据注入完成后，在 **2656 端口**启动 `WebuiServer`（`auth_enabled=False`，使用 SQLite 实体库），开发者可直接访问事件流、关系图、摘要记忆三个 UI 界面查看真实数据渲染效果。
+- **热键退出**：后台线程监听 Ctrl+Q（Windows `msvcrt`，ASCII 17）；非 Windows 或非 TTY 环境下回退为 `q` + Enter 输入模式。退出时自动停止 WebUI 服务器并删除 `realtime_test.db`，恢复干净状态。
+- **LLM 配置**：与 `run_dataflow_dev.py` 完全一致，支持 LMStudio 本地模型（默认）或 DeepSeek 云端模型，`MODE` 变量控制 `encoder` / `llm` 提取策略。
+- **零侵入性**：脚本仅调用已有公开 API，不修改 `core/`、`web/` 或 `tests/` 中的任何文件，不影响插件正常功能。
+
+#### 2. `reset_realtime_dev.py` — 紧急状态恢复脚本
+- **强制清理**：同步删除残留的 `realtime_test.db`（适用于 `run_realtime_dev.py` 异常崩溃的场景）。
+- **自动还原**：按修改时间定位 `archive/` 目录中最新的 `dataflow_test_*.db` 备份，并还原至 `.dev_data/dataflow_test.db`。
+- **幂等安全**：使用 `shutil.copy2`（非移动），归档文件始终保留；可多次安全执行。
+
+#### 3. `TODOPLAN.MD` — 实现规划文档
+- 在根目录新增实现设计文档，记录两个脚本的架构决策、解析器正则、异步模式与验证步骤，供后续参考。
+
+---
+
 ## [v0.6.5] — 2026-05-09
 
 ### 摘要架构升级与全量本地化适配 (Summary & Global Localization)
