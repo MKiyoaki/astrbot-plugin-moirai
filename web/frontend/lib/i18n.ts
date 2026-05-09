@@ -503,6 +503,7 @@ export const zh = {
     avgDistill: '平均总结',
     avgRetrieval: '平均检索',
     avgRecall: '平均召回',
+    avgResponse: '平均响应时间',
   },
 } as const
 
@@ -1014,6 +1015,7 @@ export const ja = {
     avgDistill: '平均要約',
     avgRetrieval: '平均検索',
     avgRecall: '平均想起',
+    avgResponse: '平均応答時間',
   },
 } as const
 
@@ -1522,6 +1524,7 @@ export const en = {
     avgDistill: 'Avg Distill',
     avgRetrieval: 'Avg Retrieval',
     avgRecall: 'Avg Recall',
+    avgResponse: 'Avg Response Time',
   },
 } as const
 

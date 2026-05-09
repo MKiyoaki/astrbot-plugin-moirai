@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import {
   Activity, Users, Share2, Lock,
-  TrendingUp, Hash, Zap, BarChart3, Search
+  TrendingUp, Hash, Zap, BarChart3, Search, Clock
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageHeader } from '@/components/layout/page-header'
@@ -24,12 +24,13 @@ import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 export default function StatsPage() {
-  const { i18n, stats, lang } = useApp()
+  const { i18n, stats, lang, refreshStats } = useApp()
   const [events, setEvents] = useState<api.ApiEvent[]>([])
   const [graph, setGraph] = useState<api.GraphData | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    refreshStats()
     Promise.all([
       api.events.list(2000),
       api.graph.get()
@@ -97,8 +98,7 @@ export default function StatsPage() {
       />
 
       <div className="flex-1 overflow-y-auto p-6 pt-2">
-        {/* Basic Stats Grid */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5 mb-6">
           <Card className="relative overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">{i18n.stats.personas}</CardTitle>
@@ -132,6 +132,18 @@ export default function StatsPage() {
               <div className="text-2xl font-bold">{stats.impressions}</div>
               <p className="text-xs text-muted-foreground mt-1 opacity-80">
                 {lang === 'zh' ? '已推断的人际关系' : (lang === 'ja' ? '推論された対人関係' : 'Interpersonal relations')}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="relative overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">{i18n.stats.avgResponse}</CardTitle>
+              <Clock className="h-4 w-4 text-amber-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.perf?.avg_response_time ?? '0.000'}s</div>
+              <p className="text-xs text-muted-foreground mt-1 opacity-80">
+                {lang === 'zh' ? '核心任务平均耗时' : (lang === 'ja' ? 'コアタスク平均時間' : 'Avg core task duration')}
               </p>
             </CardContent>
           </Card>
@@ -232,53 +244,57 @@ export default function StatsPage() {
         </div>
 
         {/* Performance Metrics */}
-        {stats.perf && (
-          <Card className="mt-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Zap className="h-5 w-5 text-amber-500" />
-                {i18n.stats.perf}
-              </CardTitle>
-              <CardDescription>
-                {lang === 'zh' ? '核心引擎任务平均执行耗时' : (lang === 'ja' ? 'コアエンジンのタスク平均実行時間' : 'Average execution time for core engine tasks')}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5 mt-2">
-                  <MetricItem 
-                    icon={Activity} 
-                    label={i18n.stats.avgExtraction} 
-                    value={stats.perf.avg_extraction_time + 's'} 
-                    sub={lang === 'zh' ? '从消息中提取情节' : (lang === 'ja' ? 'メッセージからの抽出' : 'Extracting episodes')}
-                  />
-                  <MetricItem 
-                    icon={Zap} 
-                    label={i18n.stats.avgPartition} 
-                    value={stats.perf.avg_partition_time + 's'} 
-                    sub={lang === 'zh' ? '自动对话边界检测' : (lang === 'ja' ? '会話境界の検出' : 'Boundary detection')}
-                  />
-                  <MetricItem 
-                    icon={TrendingUp} 
-                    label={i18n.stats.avgDistill} 
-                    value={stats.perf.avg_distill_time + 's'} 
-                    sub={lang === 'zh' ? '长对话精简提炼' : (lang === 'ja' ? '要約と精緻化' : 'Condensing dialogues')}
-                  />
-                  <MetricItem 
-                    icon={Share2} 
-                    label={i18n.stats.avgRetrieval} 
-                    value={stats.perf.avg_retrieval_time + 's'} 
-                    sub={lang === 'zh' ? 'Prompt 记忆注入' : (lang === 'ja' ? 'プロンプト注入' : 'Context injection')}
-                  />
-                  <MetricItem 
-                    icon={Search} 
-                    label={i18n.stats.avgRecall} 
-                    value={stats.perf.avg_recall_time + 's'} 
-                    sub={lang === 'zh' ? '全文与向量混合搜索' : (lang === 'ja' ? 'ハイブリッド検索' : 'Hybrid search')}
-                  />
-               </div>
-            </CardContent>
-          </Card>
-        )}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Zap className="h-5 w-5 text-amber-500" />
+              {i18n.stats.perf}
+            </CardTitle>
+            <CardDescription>
+              {lang === 'zh' ? '核心引擎任务执行耗时分析' : (lang === 'ja' ? 'コアエンジンのタスク実行時間分析' : 'Execution time analysis for core engine tasks')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-6 mt-2">
+                <MetricItem 
+                  icon={Clock} 
+                  label={i18n.stats.avgResponse} 
+                  value={(stats.perf?.avg_response_time ?? 0) + 's'} 
+                  sub={lang === 'zh' ? '总平均处理时长' : (lang === 'ja' ? '総平均処理時間' : 'Total avg duration')}
+                />
+                <MetricItem 
+                  icon={Activity} 
+                  label={i18n.stats.avgExtraction} 
+                  value={(stats.perf?.avg_extraction_time ?? 0) + 's'} 
+                  sub={lang === 'zh' ? '从消息中提取情节' : (lang === 'ja' ? 'メッセージからの抽出' : 'Extracting episodes')}
+                />
+                <MetricItem 
+                  icon={Zap} 
+                  label={i18n.stats.avgPartition} 
+                  value={(stats.perf?.avg_partition_time ?? 0) + 's'} 
+                  sub={lang === 'zh' ? '自动对话边界检测' : (lang === 'ja' ? '会話境界の検出' : 'Boundary detection')}
+                />
+                <MetricItem 
+                  icon={TrendingUp} 
+                  label={i18n.stats.avgDistill} 
+                  value={(stats.perf?.avg_distill_time ?? 0) + 's'} 
+                  sub={lang === 'zh' ? '长对话精简提炼' : (lang === 'ja' ? '要約と精緻化' : 'Condensing dialogues')}
+                />
+                <MetricItem 
+                  icon={Share2} 
+                  label={i18n.stats.avgRetrieval} 
+                  value={(stats.perf?.avg_retrieval_time ?? 0) + 's'} 
+                  sub={lang === 'zh' ? 'Prompt 记忆注入' : (lang === 'ja' ? 'プロンプト注入' : 'Context injection')}
+                />
+                <MetricItem 
+                  icon={Search} 
+                  label={i18n.stats.avgRecall} 
+                  value={(stats.perf?.avg_recall_time ?? 0) + 's'} 
+                  sub={lang === 'zh' ? '全文与向量混合搜索' : (lang === 'ja' ? 'ハイブリッド検索' : 'Hybrid search')}
+                />
+             </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

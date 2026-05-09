@@ -55,6 +55,7 @@ export interface Stats {
     avg_distill_time: number
     avg_retrieval_time: number
     avg_recall_time: number
+    avg_response_time: number
   }
 }
 export const stats = {
