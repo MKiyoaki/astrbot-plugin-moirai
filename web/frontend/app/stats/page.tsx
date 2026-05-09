@@ -85,7 +85,7 @@ export default function StatsPage() {
   const chartConfig = {
     count: {
       label: i18n.stats.events,
-      color: "hsl(var(--primary))",
+      color: "var(--primary)",
     },
   }
 
