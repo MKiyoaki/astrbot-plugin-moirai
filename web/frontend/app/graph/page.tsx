@@ -350,6 +350,7 @@ export default function GraphPage() {
         onFocusNode={setFocusNodeId}
         onRefreshLayout={refreshLayout}
         svgEl={svgRef.current}
+        groupName={currentGroup?.name}
       />
     )
   })()

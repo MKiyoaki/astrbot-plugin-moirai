@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import type { PersonaNode } from '@/lib/api'
 import type { EdgePair } from '@/lib/graph-types'
 import { useApp } from '@/lib/store'
+import { getLocalizedOrientation } from '@/lib/i18n'
 
 interface NodeDetailProps {
   node: PersonaNode
@@ -127,7 +128,7 @@ export function NodeDetail({ node, allNodes, edgePairs, onBack, onEdit, onDelete
                     const otherId = pair.srcId === node.data.id ? pair.tgtId : pair.srcId
                     const other = nodeMap.get(otherId)
                     const dirSymbol = pair.isBidirectional ? '⇄' : (pair.srcId === node.data.id ? '→' : '←')
-                    const label = pair.fwd.data.label
+                    const label = getLocalizedOrientation(pair.fwd.data.label, i18n)
                     const affect = pair.fwd.data.affect
                     const power  = pair.fwd.data.power
                     const affectColor = affect > 0.3 ? 'text-green-600' : affect < -0.1 ? 'text-red-500' : 'text-muted-foreground'

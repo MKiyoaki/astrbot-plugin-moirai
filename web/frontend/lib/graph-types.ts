@@ -36,8 +36,8 @@ export interface GroupCard {
 export interface PhysicsParams {
   layoutMode: 'circular' | 'force'
   locked: boolean
-  scalingRatio: number      // 0.1 – 15: global repulsion strength
-  gravity: number           // 0 – 5: center gravity
+  scalingRatio: number      // 0.1 – 30: global repulsion strength
+  gravity: number           // 0 – 10: center gravity
   edgeWeightInfluence: number  // 0 – 2: edge weight on attraction
   damping: number           // 0.1 – 1: velocity damping per step
   iterations: number        // 40 – 400
@@ -51,10 +51,13 @@ export interface PhysicsParams {
 export interface VisualParams {
   showBot: boolean
   edgeOpacity: number         // 0.05 – 1
+  defaultEdgeWidth: number    // 0.5 – 6 (base 1.8)
   labelZoomThreshold: number  // minimum node radius to show label
   showArrows: boolean
   arrowSize: number
   edgeWidthSource: 'equal' | 'affinity' | 'msgs'
+  showEdgeLabels: boolean     // Toggle for relationship type labels
+  edgeLabelFontSize: number   // 6 – 24
   leidenEnabled: boolean
   leidenResolution: number    // 0.001 – 10
   sentimentEnabled: boolean
@@ -72,25 +75,28 @@ export type PositionMap = Record<string, { x: number; y: number }>
 export const DEFAULT_PHYSICS_PARAMS: PhysicsParams = {
   layoutMode: 'circular',
   locked: false,
-  scalingRatio: 2.5,
-  gravity: 1.0,
-  edgeWeightInfluence: 1.0,
-  damping: 0.4,
-  iterations: 120,
+  scalingRatio: 0.1,
+  gravity: 0.0,
+  edgeWeightInfluence: 0.0,
+  damping: 0.1,
+  iterations: 100,
   linLog: false,
   preventOverlap: true,
   dissuadeHubs: false,
   gravSource: 'affinity',
-  biWeight: 1.5,
+  biWeight: 1.0,
 }
 
 export const DEFAULT_VISUAL_PARAMS: VisualParams = {
   showBot: true,
   edgeOpacity: 0.7,
+  defaultEdgeWidth: 1.8,
   labelZoomThreshold: 0,
   showArrows: true,
   arrowSize: 6,
   edgeWidthSource: 'equal',
+  showEdgeLabels: true,
+  edgeLabelFontSize: 10,
   leidenEnabled: false,
   leidenResolution: 1.0,
   sentimentEnabled: true,

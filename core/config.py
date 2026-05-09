@@ -51,7 +51,7 @@ _DEFAULT_PERSONA_SYSTEM_PROMPT = (
 
 _DEFAULT_IMPRESSION_SYSTEM_PROMPT = (
     "你是一个社交关系分析助手。根据对话事件，更新对某人的印象。"
-    "只输出单行JSON，字段：ipc_orientation（以下8种之一：友好/主导友好/主导/主导敌意/敌意/服从敌意/服从/服从友好）、"
+    "只输出单行JSON，字段：ipc_orientation（以下8种之一：友好/支配友好/支配/支配敌意/敌意/服从敌意/服从/服从友好）、"
     "benevolence（亲和度，-1.0到1.0的浮点数）、power（支配度，-1.0到1.0的浮点数）、"
     "confidence（0.0到1.0的浮点数）。不要输出任何其他内容。"
 )

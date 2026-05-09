@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import type { PersonaNode, ImpressionEdge } from '@/lib/api'
 import type { EdgePair } from '@/lib/graph-types'
 import { useApp } from '@/lib/store'
+import { getLocalizedOrientation } from '@/lib/i18n'
 
 interface EdgeDetailProps {
   pairKey: string
@@ -161,7 +162,7 @@ function ImpressionSection({
       </div>
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-        <Field label={t.relationType} value={edge.data.label} />
+        <Field label={t.relationType} value={getLocalizedOrientation(edge.data.label, i18n)} />
         <Field label={t.confidence} value={`${(edge.data.confidence * 100).toFixed(0)}%`} />
         <Field label={t.intensity} value={`${(edge.data.intensity * 100).toFixed(0)}%`} />
         <Field label={t.scope} value={edge.data.scope} />

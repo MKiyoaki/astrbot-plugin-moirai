@@ -171,11 +171,11 @@ async def test_impressions_contains_ipc_orientation(tmp_path: Path) -> None:
     pr = InMemoryPersonaRepository()
     ir = InMemoryImpressionRepository()
     await pr.upsert(make_persona("uid1"))
-    await ir.upsert(make_impression("bot", "uid1", orientation="主导友好"))
+    await ir.upsert(make_impression("bot", "uid1", orientation="支配友好"))
     p = _projector(tmp_path, persona_repo=pr, impression_repo=ir)
     await p.render_persona("uid1")
     content = (tmp_path / "personas" / "uid1" / "IMPRESSIONS.md").read_text(encoding="utf-8")
-    assert "主导友好" in content
+    assert "支配友好" in content
 
 
 async def test_impressions_no_impressions_shows_placeholder(tmp_path: Path) -> None:

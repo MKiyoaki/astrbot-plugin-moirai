@@ -151,7 +151,7 @@ _DEMO_SUMMARY_2 = """\
 
 ## 关键事件
 1. **游戏约定**（重要度 68%）— Alice 与 Charlie 确定周末安排
-2. **技术交流**（重要度 85%）— Bob 主导的编程讨论，内容丰富
+2. **技术交流**（重要度 85%）— Bob 支配的编程讨论，内容丰富
 
 ## 关系变化
 - Bob ↔ Charlie：从陌生人升级为技术话题上的讨论伙伴
@@ -809,7 +809,7 @@ class WebuiServer:
             ),
             Impression(
                 observer_uid="demo_uid_bot", subject_uid="demo_uid_bob",
-                ipc_orientation="主导友好", benevolence=0.2, power=0.3,
+                ipc_orientation="支配友好", benevolence=0.2, power=0.3,
                 affect_intensity=0.25, r_squared=0.7, confidence=0.78,
                 scope="global",
                 evidence_event_ids=["demo_evt_001", "demo_evt_004"],
@@ -1335,7 +1335,7 @@ async def _seed(
         ),
         Impression(
             observer_uid="demo_uid_bot", subject_uid="demo_uid_bob",
-            ipc_orientation="主导友好", benevolence=0.2, power=0.3,
+            ipc_orientation="支配友好", benevolence=0.2, power=0.3,
             affect_intensity=0.25, r_squared=0.7, confidence=0.78,
             scope="global",
             evidence_event_ids=["demo_evt_001", "demo_evt_004"],

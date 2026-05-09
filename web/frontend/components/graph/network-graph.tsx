@@ -209,10 +209,11 @@ export function NetworkGraph({
   }, [params.sentimentEnabled, params.sentimentAxis, pickAxis])
 
   const edgeWidth = useCallback((pair: EdgePair): number => {
-    if (params.edgeWidthSource === 'affinity') return Math.max(1, pair.affinity * 5)
-    if (params.edgeWidthSource === 'msgs') return Math.max(1, pair.totalMsgs / 40)
-    return 1.8
-  }, [params.edgeWidthSource])
+    const base = params.defaultEdgeWidth
+    if (params.edgeWidthSource === 'affinity') return Math.max(1, pair.affinity * base * 2.8)
+    if (params.edgeWidthSource === 'msgs') return Math.max(1, (pair.totalMsgs / 40) * base)
+    return base
+  }, [params.edgeWidthSource, params.defaultEdgeWidth])
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -234,14 +235,41 @@ export function NetworkGraph({
         onMouseLeave={handleMouseUp}
       >
         <defs>
-          <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-            <path d="M0,0 L8,3 L0,6 Z" fill={EDGE_NEU_COLOR} />
+          <marker
+            id="arr"
+            markerWidth={params.arrowSize} markerHeight={params.arrowSize * 0.75}
+            refX={params.arrowSize} refY={params.arrowSize * 0.375}
+            orient="auto"
+            markerUnits="userSpaceOnUse"
+          >
+            <path
+              d={`M0,0 L${params.arrowSize},${params.arrowSize * 0.375} L0,${params.arrowSize * 0.75} Z`}
+              fill={EDGE_NEU_COLOR}
+            />
           </marker>
-          <marker id="arr-pos" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-            <path d="M0,0 L8,3 L0,6 Z" fill={EDGE_POS_COLOR} />
+          <marker
+            id="arr-pos"
+            markerWidth={params.arrowSize} markerHeight={params.arrowSize * 0.75}
+            refX={params.arrowSize} refY={params.arrowSize * 0.375}
+            orient="auto"
+            markerUnits="userSpaceOnUse"
+          >
+            <path
+              d={`M0,0 L${params.arrowSize},${params.arrowSize * 0.375} L0,${params.arrowSize * 0.75} Z`}
+              fill={EDGE_POS_COLOR}
+            />
           </marker>
-          <marker id="arr-neg" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-            <path d="M0,0 L8,3 L0,6 Z" fill={EDGE_NEG_COLOR} />
+          <marker
+            id="arr-neg"
+            markerWidth={params.arrowSize} markerHeight={params.arrowSize * 0.75}
+            refX={params.arrowSize} refY={params.arrowSize * 0.375}
+            orient="auto"
+            markerUnits="userSpaceOnUse"
+          >
+            <path
+              d={`M0,0 L${params.arrowSize},${params.arrowSize * 0.375} L0,${params.arrowSize * 0.75} Z`}
+              fill={EDGE_NEG_COLOR}
+            />
           </marker>
         </defs>
 
@@ -259,6 +287,12 @@ export function NetworkGraph({
             const pa = positions[pair.srcId]
             const pb = positions[pair.tgtId]
             if (!pa || !pb) return null
+
+            const nodeA = nodes.find(n => n.data.id === pair.srcId)
+            const nodeB = nodes.find(n => n.data.id === pair.tgtId)
+            const rA = nodeA ? nodeRadius(nodeA) : 10
+            const rB = nodeB ? nodeRadius(nodeB) : 10
+
             const color = edgeColor(pair)
             const w = edgeWidth(pair)
             const isSelected = selectedPairKey === pair.pairKey
@@ -268,9 +302,21 @@ export function NetworkGraph({
             const dx = pb.x - pa.x
             const dy = pb.y - pa.y
             const dist = Math.sqrt(dx * dx + dy * dy) || 0.01
+            const unitX = dx / dist
+            const unitY = dy / dist
             const perpX = -dy / dist
             const perpY = dx / dist
-            const PERP = 1.0
+            
+            // Standard separation distance (inner gap)
+            const GAP = 1.2
+            // Shift center of line outwards by half-width + half-gap
+            const offset = (w / 2) + GAP
+
+            // Adjust endpoints to stop at node boundaries
+            const x1 = pa.x + unitX * rA
+            const y1 = pa.y + unitY * rA
+            const x2 = pb.x - unitX * rB
+            const y2 = pb.y - unitY * rB
 
             const arrowId = color === EDGE_POS_COLOR ? 'arr-pos' : color === EDGE_NEG_COLOR ? 'arr-neg' : 'arr'
             const showEdgeLabel = transform.scale > 0.7
@@ -289,36 +335,36 @@ export function NetworkGraph({
                 {pair.isBidirectional ? (
                   <>
                     <line
-                      x1={pa.x + perpX * PERP} y1={pa.y + perpY * PERP}
-                      x2={pb.x + perpX * PERP} y2={pb.y + perpY * PERP}
-                      stroke={color} strokeWidth={isSelected ? strokeW / 1.5 + 1 : strokeW / 1.5}
+                      x1={x1 + perpX * offset} y1={y1 + perpY * offset}
+                      x2={x2 + perpX * offset} y2={y2 + perpY * offset}
+                      stroke={color} strokeWidth={w}
                       strokeOpacity={opacity}
                     />
                     <line
-                      x1={pb.x - perpX * PERP} y1={pb.y - perpY * PERP}
-                      x2={pa.x - perpX * PERP} y2={pa.y - perpY * PERP}
-                      stroke={color} strokeWidth={isSelected ? strokeW / 1.5 + 1 : strokeW / 1.5}
+                      x1={x2 - perpX * offset} y1={y2 - perpY * offset}
+                      x2={x1 - perpX * offset} y2={y1 - perpY * offset}
+                      stroke={color} strokeWidth={w}
                       strokeOpacity={opacity}
                     />
                   </>
                 ) : (
                   <line
-                    x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y}
+                    x1={x1} y1={y1} x2={x2} y2={y2}
                     stroke={color} strokeWidth={strokeW}
                     strokeOpacity={opacity}
                     markerEnd={params.showArrows ? `url(#${arrowId})` : undefined}
                   />
                 )}
-                {/* Transparent wide hit area */}
+                {/* Transparent wide hit area (using full length for better interaction) */}
                 <line
                   x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y}
                   stroke="transparent" strokeWidth={14}
                 />
                 {/* Edge label */}
-                {showEdgeLabel && (
+                {params.showEdgeLabels && showEdgeLabel && (
                   <text
                     x={midX} y={midY}
-                    fontSize={10 / transform.scale}
+                    fontSize={params.edgeLabelFontSize / transform.scale}
                     fill="var(--muted-foreground)"
                     textAnchor="middle"
                     dominantBaseline="middle"

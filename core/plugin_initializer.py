@@ -315,7 +315,7 @@ async def _maybe_trigger_impression(
     - shared event count in this scope < threshold
 
     On trigger: maps heuristic signals to IPC coordinates (no LLM, no ML).
-    colleague (≥10 shared events) → 主导友好 (B=0.4, P=0.2)
+    colleague (≥10 shared events) → 支配友好 (B=0.4, P=0.2)
     stranger  (<10 shared events) → 友好      (B=0.2, P=0.0)
     """
     import math
@@ -358,9 +358,9 @@ async def _maybe_trigger_impression(
                     # Rule-based IPC heuristics
                     count = len(shared)
                     avg_salience = sum(e.salience for e in shared) / count
-                    # colleague → 主导友好 (B=0.4, P=0.2); stranger → 友好 (B=0.2, P=0.0)
+                    # colleague → 支配友好 (B=0.4, P=0.2); stranger → 友好 (B=0.2, P=0.0)
                     if count >= 10:
-                        ipc_orientation = "主导友好"
+                        ipc_orientation = "支配友好"
                         benevolence = min(1.0, 0.3 + avg_salience * 0.4)
                         power = 0.2
                     else:

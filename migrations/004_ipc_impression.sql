@@ -13,7 +13,7 @@
 --
 -- Historical relation_type value guidance (for manual correction if needed):
 --   friend     → 友好   rival    → 敌意   stranger → 友好 (low confidence)
---   family     → 服从友好          colleague → 主导友好
+--   family     → 服从友好          colleague → 支配友好
 ALTER TABLE impressions RENAME COLUMN relation_type TO ipc_orientation;
 ALTER TABLE impressions RENAME COLUMN affect TO benevolence;
 ALTER TABLE impressions RENAME COLUMN intensity TO affect_intensity;

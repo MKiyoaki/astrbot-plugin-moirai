@@ -33,6 +33,7 @@ interface ParamsPanelProps {
   onFocusNode: (id: string) => void
   onRefreshLayout: () => void
   svgEl?: SVGSVGElement | null
+  groupName?: string
 }
 
 export function ParamsPanel({
@@ -50,6 +51,7 @@ export function ParamsPanel({
   onFocusNode,
   onRefreshLayout,
   svgEl,
+  groupName,
 }: ParamsPanelProps) {
   const { i18n } = useApp()
   const t = i18n.graph.params
@@ -89,7 +91,8 @@ export function ParamsPanel({
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'relation-graph.svg'
+    const filename = groupName ? `RelationGraph_[${groupName}].svg` : 'relation-graph.svg'
+    a.download = filename
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -241,11 +244,11 @@ export function ParamsPanel({
             <Separator />
 
             {/* Bi-weight with tooltip */}
-            <div className="space-y-1">
+            <div className={`space-y-1 ${isLocked ? 'opacity-50 grayscale-[0.5]' : ''}`}>
               <div className="flex items-center gap-1">
                 <span className="text-xs text-muted-foreground flex-1">{t.biWeight}</span>
                 <Tooltip>
-                  <TooltipTrigger>
+                  <TooltipTrigger asChild>
                     <Badge variant="outline" className="h-4 w-4 cursor-help text-[9px] p-0 flex items-center justify-center">?</Badge>
                   </TooltipTrigger>
                   <TooltipContent side="left" className="max-w-56 text-xs">{t.biWeightTip}</TooltipContent>
@@ -261,48 +264,53 @@ export function ParamsPanel({
             </div>
 
             <Separator />
-            <p className="text-xs text-muted-foreground font-medium">{t.physParams}</p>
+            <p className={`text-xs text-muted-foreground font-medium ${physDisabled ? 'opacity-50' : ''}`}>{t.physParams}</p>
 
             <SliderParam
               label={t.scalingRatio}
-              value={physics.scalingRatio} min={0.1} max={15} step={0.1}
+              value={physics.scalingRatio} min={0.1} max={30} step={0.1}
               disabled={physDisabled}
               onChange={v => onPhysics('scalingRatio', v)}
+              tooltip={t.scalingRatioTip}
             />
             <SliderParam
               label={t.gravity}
-              value={physics.gravity} min={0} max={5} step={0.1}
+              value={physics.gravity} min={0} max={10} step={0.1}
               disabled={physDisabled}
               onChange={v => onPhysics('gravity', v)}
+              tooltip={t.gravityTip}
             />
             <SliderParam
               label={t.edgeWeightInfluence}
               value={physics.edgeWeightInfluence} min={0} max={2} step={0.05}
               disabled={physDisabled}
               onChange={v => onPhysics('edgeWeightInfluence', v)}
+              tooltip={t.edgeWeightInfluenceTip}
             />
             <SliderParam
               label={t.damping}
               value={physics.damping} min={0.1} max={1} step={0.05}
               disabled={physDisabled}
               onChange={v => onPhysics('damping', v)}
+              tooltip={t.dampingTip}
             />
             <SliderParam
               label={t.iterations}
               value={physics.iterations} min={40} max={400} step={10}
               disabled={physDisabled}
               onChange={v => onPhysics('iterations', Math.round(v))}
+              tooltip={t.iterationsTip}
             />
 
             <Separator />
-            <p className="text-xs text-muted-foreground font-medium">{t.switches}</p>
+            <p className={`text-xs text-muted-foreground font-medium ${physDisabled ? 'opacity-50' : ''}`}>{t.switches}</p>
 
             <SwitchRow label={t.preventOverlap} checked={physics.preventOverlap} disabled={physDisabled}
-              onChange={v => onPhysics('preventOverlap', v)} />
+              onChange={v => onPhysics('preventOverlap', v)} tooltip={t.preventOverlapTip} />
             <SwitchRow label={t.linLog} checked={physics.linLog} disabled={physDisabled}
-              onChange={v => onPhysics('linLog', v)} />
+              onChange={v => onPhysics('linLog', v)} tooltip={t.linLogTip} />
             <SwitchRow label={t.dissuadeHubs} checked={physics.dissuadeHubs} disabled={physDisabled}
-              onChange={v => onPhysics('dissuadeHubs', v)} />
+              onChange={v => onPhysics('dissuadeHubs', v)} tooltip={t.dissuadeHubsTip} />
 
             <Button
               size="sm" variant="outline" className="w-full text-xs h-8"
@@ -323,13 +331,29 @@ export function ParamsPanel({
               value={visual.edgeOpacity} min={0.05} max={1} step={0.05}
               onChange={v => onVisual('edgeOpacity', v)}
             />
+            <SliderParam
+              label={t.defaultEdgeWidth}
+              value={visual.defaultEdgeWidth} min={0.5} max={5.4} step={0.1}
+              onChange={v => onVisual('defaultEdgeWidth', v)}
+            />
             <SwitchRow label={t.showArrows} checked={visual.showArrows}
               onChange={v => onVisual('showArrows', v)} />
             {visual.showArrows && (
               <SliderParam
                 label={t.arrowSize}
-                value={visual.arrowSize} min={3} max={16} step={1}
+                value={visual.arrowSize} min={3} max={64} step={1}
                 onChange={v => onVisual('arrowSize', v)}
+              />
+            )}
+
+            <Separator />
+            <SwitchRow label={t.showEdgeLabels} checked={visual.showEdgeLabels}
+              onChange={v => onVisual('showEdgeLabels', v)} />
+            {visual.showEdgeLabels && (
+              <SliderParam
+                label={t.fontSize}
+                value={visual.edgeLabelFontSize} min={6} max={24} step={1}
+                onChange={v => onVisual('edgeLabelFontSize', v)}
               />
             )}
 
@@ -339,7 +363,7 @@ export function ParamsPanel({
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground font-medium">{t.searchNode}</p>
               <Popover open={searchOpen && searchResults.length > 0} onOpenChange={setSearchOpen}>
-                <PopoverTrigger>
+                <PopoverTrigger asChild>
                   <Input
                     className="h-7 text-xs"
                     placeholder={t.searchPlaceholder}
@@ -385,7 +409,7 @@ export function ParamsPanel({
                   <div className="flex items-center gap-1">
                     <span className="text-xs text-muted-foreground flex-1">{t.leidenResolution}</span>
                     <Tooltip>
-                      <TooltipTrigger>
+                      <TooltipTrigger asChild>
                         <Badge variant="outline" className="h-4 w-4 cursor-help text-[9px] p-0 flex items-center justify-center">?</Badge>
                       </TooltipTrigger>
                       <TooltipContent side="left" className="max-w-56 text-xs">{t.leidenResolutionTip}</TooltipContent>
@@ -456,9 +480,9 @@ export function ParamsPanel({
 
 // ── Internal helper components ────────────────────────────────────────────────
 
-function ParamRow({ label, children }: { label: string; children: React.ReactNode }) {
+function ParamRow({ label, children, disabled = false }: { label: string; children: React.ReactNode, disabled?: boolean }) {
   return (
-    <div className="space-y-1">
+    <div className={`space-y-1 ${disabled ? 'opacity-50 grayscale-[0.5]' : ''}`}>
       <Label className="text-xs text-muted-foreground">{label}</Label>
       {children}
     </div>
@@ -466,7 +490,7 @@ function ParamRow({ label, children }: { label: string; children: React.ReactNod
 }
 
 function SliderParam({
-  label, value, min, max, step, disabled = false, onChange,
+  label, value, min, max, step, disabled = false, onChange, tooltip,
 }: {
   label: string
   value: number
@@ -475,11 +499,20 @@ function SliderParam({
   step: number
   disabled?: boolean
   onChange: (v: number) => void
+  tooltip?: string
 }) {
   return (
-    <div className="space-y-1">
-      <div className="flex items-center">
+    <div className={`space-y-1 transition-opacity ${disabled ? 'opacity-40 grayscale-[0.6]' : ''}`}>
+      <div className="flex items-center gap-1">
         <span className="text-xs text-muted-foreground flex-1">{label}</span>
+        {tooltip && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="h-3.5 w-3.5 cursor-help text-[9px] p-0 flex items-center justify-center opacity-70 hover:opacity-100 transition-opacity">?</Badge>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="max-w-56 text-xs">{tooltip}</TooltipContent>
+          </Tooltip>
+        )}
         <span className="text-xs font-mono w-10 text-right">{value % 1 === 0 ? value : value.toFixed(2)}</span>
       </div>
       <Slider
@@ -493,16 +526,27 @@ function SliderParam({
 }
 
 function SwitchRow({
-  label, checked, disabled = false, onChange,
+  label, checked, disabled = false, onChange, tooltip,
 }: {
   label: string
   checked: boolean
   disabled?: boolean
   onChange: (v: boolean) => void
+  tooltip?: string
 }) {
   return (
-    <div className="flex items-center justify-between">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
+    <div className={`flex items-center justify-between transition-opacity ${disabled ? 'opacity-40 grayscale-[0.6]' : ''}`}>
+      <div className="flex items-center gap-1">
+        <Label className="text-xs text-muted-foreground">{label}</Label>
+        {tooltip && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="h-3.5 w-3.5 cursor-help text-[9px] p-0 flex items-center justify-center opacity-70 hover:opacity-100 transition-opacity">?</Badge>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="max-w-56 text-xs">{tooltip}</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
       <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} />
     </div>
   )

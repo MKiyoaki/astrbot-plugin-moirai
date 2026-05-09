@@ -309,12 +309,12 @@ async def test_impression_aggregation_updates_impression() -> None:
     await pr.upsert(make_persona("u1"))
     await er.upsert(make_event("ev1", topic="合作项目", uid="u1"))
     await ir.upsert(make_impression("u1", "u2", evidence=["ev1"]))
-    provider = _MockProvider('{"ipc_orientation":"主导友好","benevolence":0.6,"power":0.4,"affect_intensity":0.8,"r_squared":0.75,"confidence":0.75}')
+    provider = _MockProvider('{"ipc_orientation":"支配友好","benevolence":0.6,"power":0.4,"affect_intensity":0.8,"r_squared":0.75,"confidence":0.75}')
     count = await run_impression_aggregation(pr, er, ir, provider_getter=lambda: provider)
     assert count == 1
     updated = await ir.get("u1", "u2", "global")
     assert updated is not None
-    assert updated.ipc_orientation == "主导友好"
+    assert updated.ipc_orientation == "支配友好"
     assert abs(updated.benevolence - 0.6) < 0.01
 
 
