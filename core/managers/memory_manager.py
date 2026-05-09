@@ -66,7 +66,7 @@ class MemoryManager(BaseMemoryManager):
         # Step 1: INSERT into DocumentStorage (SQLite); FTS5 trigger fires here.
         await self._repo.upsert(event)
         # Step 2: store vector (no-op if NullEncoder or no embedding given).
-        vec = embedding if embedding is not None else self._encode(event)
+        vec = embedding if embedding is not None else await self._encode(event)
         if vec:
             await self._repo.upsert_vector(event.event_id, vec)
 
@@ -85,7 +85,7 @@ class MemoryManager(BaseMemoryManager):
         # Step 1: UPSERT into DocumentStorage; FTS5 update trigger fires here.
         await self._repo.upsert(event)
         # Step 2: re-index vector only when embedding is explicitly provided.
-        vec = embedding if embedding is not None else self._encode(event)
+        vec = embedding if embedding is not None else await self._encode(event)
         if vec:
             await self._repo.upsert_vector(event.event_id, vec)
 
@@ -170,7 +170,7 @@ class MemoryManager(BaseMemoryManager):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _encode(self, event: Event) -> list[float]:
+    async def _encode(self, event: Event) -> list[float]:
         """Produce an embedding for an event's topic + tags. Returns [] on failure."""
         if self._encoder.dim == 0:
             return []
@@ -180,7 +180,7 @@ class MemoryManager(BaseMemoryManager):
         if not text.strip():
             return []
         try:
-            return self._encoder.encode(text)
+            return await self._encoder.encode(text)
         except Exception as exc:
             logger.warning("[MemoryManager] encoding failed: %s", exc)
             return []

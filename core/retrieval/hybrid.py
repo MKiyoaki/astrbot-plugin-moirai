@@ -47,7 +47,7 @@ class HybridRetriever:
         )
         vec: list[Event] = []
         if self._encoder.dim > 0:
-            embedding = await asyncio.to_thread(self._encoder.encode, query)
+            embedding = await self._encoder.encode(query)
             vec = await self._event_repo.search_vector(
                 embedding, limit=self._vec_limit, active_only=active_only, group_id=group_id,
             )
@@ -75,5 +75,5 @@ class HybridRetriever:
             text += " " + " ".join(event.chat_content_tags)
         if not text.strip():
             return
-        embedding = self._encoder.encode(text)
+        embedding = await self._encoder.encode(text)
         await self._event_repo.upsert_vector(event.event_id, embedding)

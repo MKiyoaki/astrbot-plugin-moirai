@@ -6,7 +6,7 @@ import math
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..boundary.window import MessageWindow
+    from ..boundary.window import MessageWindow, RawMessage
 
 
 def build_user_prompt(window: MessageWindow, max_messages: int = 20) -> str:
@@ -43,5 +43,9 @@ def build_distillation_prompt(messages: list[RawMessage]) -> str:
     for i, m in enumerate(messages):
         lines.append(f"[{i}] {m.display_name or m.uid}: {m.text}")
 
-    lines.append("\n请为这段对话提炼一个核心主题（topic）和一段简洁的摘要（summary）。")
+    lines.append(
+        "\n请为这段对话提炼结构化信息，输出单个 JSON 对象，包含以下字段：\n"
+        '{"topic": "核心主题(≤30字)", "summary": "摘要(≤200字)", '
+        '"chat_content_tags": ["标签1", "标签2"], "salience": 0.5, "confidence": 0.8, "inherit": false}'
+    )
     return "\n".join(lines)

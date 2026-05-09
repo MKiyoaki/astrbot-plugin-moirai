@@ -53,11 +53,10 @@ async def main():
     from core.domain.models import Event
     
     class ProviderRequest:
-        def __init__(self, prompt: str, system_prompt: str = "", messages: list = None):
+        def __init__(self, prompt: str, system_prompt: str = ""):
             self.prompt = prompt
             self.system_prompt = system_prompt
-            self.messages = messages or []
-            self.contexts = []
+            self.contexts: list = []
 
     # 0. Setup Environment
     DEV_DB.parent.mkdir(parents=True, exist_ok=True)
@@ -74,7 +73,7 @@ async def main():
         if mode == "encoder":
             raw.update({
                 "extraction_strategy": "semantic",
-                "semantic_clustering_eps": 0.35,
+                "semantic_clustering_eps": 0.45,
                 "embedding_provider": "local",
                 "embedding_model": "BAAI/bge-small-zh-v1.5",
             })
@@ -190,13 +189,12 @@ async def main():
         
         query = "之前那个叫 Rain 的人是不是含沪量很高？他都说了些什么？"
         sid_rag = "test:group_1"
-        group_id = "group_1"
+        test_group_id = "group_1"
 
         # Mock a ProviderRequest (what AstrBot gives us)
         req = ProviderRequest(
             prompt="You are now in a chatroom. The user asks: " + query,
             system_prompt="You are a helpful assistant.",
-            messages=[]
         )
 
         # 1. Inference BEFORE memory injection
@@ -210,15 +208,16 @@ async def main():
 
         # 2. Perform Recall and Injection
         print("\n[System] Performing recall and injection...")
+        # FORCE RECALL STATE for testing injection
+        from core.managers.context_manager import VCMState
+        context_manager._states[sid_rag] = VCMState.RECALL
+        
         await recall.recall_and_inject(
             query=query,
             req=req,
             session_id=sid_rag,
-            group_id=group_id
+            group_id=test_group_id
         )
-        # Manually signal recall hit to VCM for demonstration
-        context_manager.update_state(sid_rag, recall_hit=True)
-
         # --- CHECKPOINT 2: Final Prompt & Response Comparison ---
         print("\n" + "-"*30 + " CHECKPOINT 2: PROMPT & STATE " + "-"*30)
         print(f"Current VCM State: {context_manager.get_state(sid_rag).value.upper()}")

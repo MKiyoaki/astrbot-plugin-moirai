@@ -15,6 +15,19 @@ from core.boundary.detector import BoundaryConfig
 # Default extractor system prompt (kept here so _conf_schema.json can
 # reference the same text as the factory default).
 # ---------------------------------------------------------------------------
+DEFAULT_DISTILLATION_SYSTEM_PROMPT = (
+    "你是一个聊天记录分析助手。你的任务是为一段已经语义聚类好的对话片段提炼结构化信息。\n\n"
+    "只输出单个 JSON 对象，不输出任何其他文字或 markdown 代码块，格式如下：\n"
+    '{"topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false}\n\n'
+    "字段说明：\n"
+    "- topic: 该段对话的核心主题，简洁明了，30字以内\n"
+    "- summary: 该段对话的摘要，提炼关键结论和信息，过滤口水话，200字以内\n"
+    "- chat_content_tags: 2~5个关键词标签\n"
+    "- salience: 重要性分值 0.0~1.0\n"
+    "- confidence: 本次提取结果的置信度 0.0~1.0\n"
+    "- inherit: 是否是上一个事件的直接延续（true/false）"
+)
+
 DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
     "你是一个聊天记录分析助手。你的任务是将一段连续的对话记录划分为一个或多个逻辑事件，并提取结构化信息。\n\n"
     "划分逻辑：\n"
@@ -125,7 +138,10 @@ class ExtractorConfig:
     max_context_messages: int = 20
     llm_timeout: float = 30.0
     system_prompt: str = DEFAULT_EXTRACTOR_SYSTEM_PROMPT
+    distillation_system_prompt: str = DEFAULT_DISTILLATION_SYSTEM_PROMPT
     strategy: str = "llm"  # "llm" or "semantic"
+    semantic_clustering_eps: float = 0.45
+    semantic_clustering_min_samples: int = 2
 
 
 @dataclass
@@ -270,11 +286,15 @@ class PluginConfig:
 
     def get_extractor_config(self) -> ExtractorConfig:
         custom_prompt = self._str("extractor_system_prompt", "").strip()
+        custom_distill_prompt = self._str("distillation_system_prompt", "").strip()
         return ExtractorConfig(
             max_context_messages=self._int("context_window_size", 50),
             llm_timeout=self._float("extractor_llm_timeout_seconds", 30.0),
             system_prompt=custom_prompt or DEFAULT_EXTRACTOR_SYSTEM_PROMPT,
+            distillation_system_prompt=custom_distill_prompt or DEFAULT_DISTILLATION_SYSTEM_PROMPT,
             strategy=self._str("extraction_strategy", "llm"),
+            semantic_clustering_eps=self._float("semantic_clustering_eps", 0.45),
+            semantic_clustering_min_samples=self._int("semantic_clustering_min_samples", 2),
         )
 
     def get_context_config(self) -> ContextConfig:

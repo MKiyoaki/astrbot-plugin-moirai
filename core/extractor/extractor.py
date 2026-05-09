@@ -72,6 +72,7 @@ class EventExtractor:
         self._encoder: Encoder = encoder or NullEncoder()
         self._max_context_messages = cfg.max_context_messages
         self._system_prompt = cfg.system_prompt
+        self._distillation_system_prompt = cfg.distillation_system_prompt
         self._llm_timeout = cfg.llm_timeout
         self._strategy = cfg.strategy
         self._big_five_buffer = big_five_buffer
@@ -80,37 +81,43 @@ class EventExtractor:
 
         # Initialize partitioner
         if self._strategy == "semantic":
-            eps = 0.35
-            if plugin_config:
-                eps = plugin_config._float("semantic_clustering_eps", 0.35)
-            self._partitioner = SemanticPartitioner(self._encoder, eps=eps)
+            eps = cfg.semantic_clustering_eps
+            min_samples = cfg.semantic_clustering_min_samples
+            self._partitioner = SemanticPartitioner(
+                self._encoder, eps=eps, min_samples=min_samples
+            )
         else:
             self._partitioner = LlmPartitioner()
 
     async def __call__(self, window: MessageWindow) -> None:
-        """on_event_close callback: partition, distill/extract, persist, then index vector."""
+        """on_event_close callback: partition, distill/extract, persist, then index vector.
+
+        Both strategies share the same post-partition pipeline:
+          - "llm":      LlmPartitioner returns the whole window as one partition;
+                        _extract_batch does ONE LLM call that splits and extracts
+                        multiple events simultaneously (most token-efficient for LLM mode).
+          - "semantic": SemanticPartitioner returns N pre-clustered partitions;
+                        _distill does ONE LLM call per partition using the dedicated
+                        distillation prompt (consistent single-object output format).
+        """
         from ..utils.perf import performance_timer
-        
+
         # 1. Partitioning
         async with performance_timer("partition"):
             partitions = await self._partitioner.partition(window)
 
-        # 2. Extract Fields (Batch or per-partition)
-        # If strategy is "llm", we do ONE call for the whole window and get multiple results.
-        # If strategy is "semantic", we do ONE call PER partition.
-        
-        extracted_results: list[tuple[list[int], dict]] = [] # list of (indices, result_dict)
+        # 2. Extract fields
+        extracted_results: list[tuple[list[int], dict]] = []  # (indices, result_dict)
 
         if self._strategy == "llm":
+            # One batch call: LLM handles both splitting and field extraction.
             async with performance_timer("extraction"):
                 batch_results = await self._extract_batch(window)
-                # Map batch results back to message indices
                 for res in batch_results:
                     start, end = res["start_idx"], res["end_idx"]
-                    indices = list(range(start, end + 1))
-                    extracted_results.append((indices, res))
+                    extracted_results.append((list(range(start, end + 1)), res))
         else:
-            # Semantic strategy: process each partition individually
+            # Per-partition distillation: partitioner already handled splitting.
             for part in partitions:
                 sub_messages = [window.messages[i] for i in part.indices]
                 if not sub_messages:
@@ -222,7 +229,7 @@ class EventExtractor:
         prompt = build_distillation_prompt(messages)
         try:
             resp = await asyncio.wait_for(
-                provider.text_chat(prompt=prompt, system_prompt=self._system_prompt),
+                provider.text_chat(prompt=prompt, system_prompt=self._distillation_system_prompt),
                 timeout=self._llm_timeout,
             )
             result = parse_single_item(resp.completion_text)
@@ -270,7 +277,7 @@ class EventExtractor:
         if not text.strip():
             return
         try:
-            embedding = self._encoder.encode(text)
+            embedding = await self._encoder.encode(text)
             await self._event_repo.upsert_vector(event.event_id, embedding)
         except Exception as exc:
             logger.warning("[EventExtractor] vector indexing failed: %s", exc)

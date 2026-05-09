@@ -280,7 +280,13 @@
     "semantic_clustering_eps": {
         "description": "语义聚类敏感度 (Eps)",
         "type": "float",
-        "default": 0.35,
-        "hint": "仅在 Semantic 策略下生效。数值越小，划分的话题越细。"
+        "default": 0.45,
+        "hint": "仅在 Semantic 策略下生效。数值越小，划分的话题越细。建议 0.4-0.6 之间。"
+    },
+    "semantic_clustering_min_samples": {
+        "description": "语义聚类最小消息数",
+        "type": "int",
+        "default": 2,
+        "hint": "仅在 Semantic 策略下生效。话题包含的最少消息数量，设为 2 可避免生成大量单条消息事件。"
     }
 }

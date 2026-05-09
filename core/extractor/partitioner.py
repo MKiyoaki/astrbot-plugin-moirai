@@ -38,8 +38,8 @@ class SemanticPartitioner(BasePartitioner):
     def __init__(
         self, 
         encoder: Encoder, 
-        eps: float = 0.35, 
-        min_samples: int = 1,
+        eps: float = 0.45, 
+        min_samples: int = 2,
         time_penalty_factor: float = 0.05
     ):
         self._encoder = encoder
@@ -64,13 +64,10 @@ class SemanticPartitioner(BasePartitioner):
         from sklearn.metrics.pairwise import cosine_distances
 
         # 2. Compute semantic distances
-        # dists[i, j] = 1 - cos_sim(i, j)
         dists = cosine_distances(embeddings)
         
-        # 3. (Optional) Apply time penalty to distances to prefer temporal contiguity
-        # For each pair (i, j), increase distance based on time gap
+        # 3. Apply time penalty
         times = np.array([m.timestamp for m in window.messages])
-        # Normalise time gaps to roughly [0, 1] within the window
         if len(times) > 1:
             time_range = times.max() - times.min()
             if time_range > 0:
@@ -80,28 +77,29 @@ class SemanticPartitioner(BasePartitioner):
                         dists[i, j] += gap_ratio * self._time_penalty
 
         # 4. Perform clustering
-        # We use precomputed metric because we added time penalty
         clustering = DBSCAN(eps=self._eps, min_samples=self._min_samples, metric="precomputed").fit(dists)
         labels = clustering.labels_
         
         clusters: Dict[int, List[int]] = {}
+        noise_indices: List[int] = []
+        
         for idx, label in enumerate(labels):
-            if label not in clusters:
-                clusters[label] = []
-            clusters[label].append(idx)
+            if label == -1:
+                noise_indices.append(idx)
+            else:
+                if label not in clusters:
+                    clusters[label] = []
+                clusters[label].append(idx)
             
         results = []
-        # -1 in DBSCAN means noise. We treat noise messages as individual partitions 
-        # OR we could discard them. For now, let's group noise by sequential proximity 
-        # or just treat them as individual events if they are meaningful.
-        # Actually, let's just keep them for the LLM to decide.
-        
-        for label, indices in clusters.items():
-            if label == -1:
-                # Individual noise items -> separate partitions
-                for i in indices:
-                    results.append(Partition(indices=[i], metadata={"is_noise": True}))
-            else:
-                results.append(Partition(indices=indices))
+        # Normal clusters
+        for indices in clusters.values():
+            results.append(Partition(indices=indices))
+            
+        # Group all noise into one 'catch-all' partition if it's not too large, 
+        # or just ignore it to keep memory clean.
+        # For reliability, let's keep noise messages but group them to avoid 20+ events.
+        if noise_indices:
+            results.append(Partition(indices=noise_indices, metadata={"is_noise": True}))
                 
-        return results
+        return results if results else [Partition(indices=list(range(len(window.messages))))]

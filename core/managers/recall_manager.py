@@ -61,6 +61,13 @@ class RecallManager(BaseRecallManager):
         bm25, vec = await self._retriever.search_raw(
             query, active_only=cfg.active_only, group_id=group_id
         )
+        
+        import logging
+        _log = logging.getLogger(__name__)
+        _log.debug("[RecallManager] query: %r, group_id: %r", query, group_id)
+        _log.debug("[RecallManager] BM25 hits: %d, Vec hits: %d", len(bm25), len(vec))
+        if vec:
+            _log.debug("[RecallManager] Top Vec Topic: %r", vec[0].topic)
 
         # Vector fallback: if BM25 returned nothing and fallback is enabled, use vec only.
         if not bm25 and cfg.vector_fallback_enabled and vec:
