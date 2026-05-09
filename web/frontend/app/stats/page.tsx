@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import {
   Activity, Users, Share2, Lock,
-  TrendingUp, Hash, Zap, BarChart3
+  TrendingUp, Hash, Zap, BarChart3, Search
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageHeader } from '@/components/layout/page-header'
@@ -107,7 +107,7 @@ export default function StatsPage() {
             <CardContent>
               <div className="text-2xl font-bold">{stats.personas}</div>
               <p className="text-xs text-muted-foreground mt-1 opacity-80">
-                {lang === 'zh' ? '网络中的活跃人格' : 'Active personas in network'}
+                {lang === 'zh' ? '网络中的活跃人格' : (lang === 'ja' ? 'ネットワーク内の有効なパーソナ' : 'Active personas in network')}
               </p>
             </CardContent>
           </Card>
@@ -119,7 +119,7 @@ export default function StatsPage() {
             <CardContent>
               <div className="text-2xl font-bold">{stats.events}</div>
               <p className="text-xs text-muted-foreground mt-1 opacity-80">
-                {lang === 'zh' ? '总幕插情节记忆' : 'Total episodic memories'}
+                {lang === 'zh' ? '总情节记忆数量' : (lang === 'ja' ? 'エピソード記憶の総数' : 'Total episodic memories')}
               </p>
             </CardContent>
           </Card>
@@ -131,7 +131,7 @@ export default function StatsPage() {
             <CardContent>
               <div className="text-2xl font-bold">{stats.impressions}</div>
               <p className="text-xs text-muted-foreground mt-1 opacity-80">
-                {lang === 'zh' ? '推断出的社交关系' : 'Interpersonal relations'}
+                {lang === 'zh' ? '已推断的人际关系' : (lang === 'ja' ? '推論された対人関係' : 'Interpersonal relations')}
               </p>
             </CardContent>
           </Card>
@@ -143,7 +143,7 @@ export default function StatsPage() {
             <CardContent>
               <div className="text-2xl font-bold text-primary">{stats.locked_count}</div>
               <p className="text-xs text-muted-foreground mt-1 opacity-80">
-                {lang === 'zh' ? '受保护不被清理' : 'Protected from cleanup'}
+                {lang === 'zh' ? '受保护不被清理' : (lang === 'ja' ? 'クリーンアップから保護' : 'Protected from cleanup')}
               </p>
             </CardContent>
           </Card>
@@ -197,7 +197,7 @@ export default function StatsPage() {
                 {i18n.stats.avgMetrics}
               </CardTitle>
               <CardDescription>
-                {lang === 'zh' ? '记忆结构的定性分析' : 'Qualitative analysis of memory structure'}
+                {lang === 'zh' ? '记忆结构的定性分析' : (lang === 'ja' ? '記憶構造の定性的分析' : 'Qualitative analysis of memory structure')}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -206,30 +206,79 @@ export default function StatsPage() {
                   icon={Users} 
                   label={i18n.stats.avgNodes} 
                   value={averages.participants} 
-                  sub={lang === 'zh' ? '平均每次互动的角色规模' : 'Average size of interaction groups'}
+                  sub={lang === 'zh' ? '平均每次互动的角色规模' : (lang === 'ja' ? '平均的なやり取りの参加者数' : 'Average size of interaction groups')}
                 />
                 <MetricItem 
                   icon={Share2} 
                   label={i18n.stats.avgEdges} 
                   value={averages.edges} 
-                  sub={lang === 'zh' ? '每事件触发的关系推断数' : 'Inferred relations per event'}
+                  sub={lang === 'zh' ? '每事件触发的关系推断数' : (lang === 'ja' ? 'イベントごとの推論された関係数' : 'Inferred relations per event')}
                 />
                 <MetricItem 
                   icon={TrendingUp} 
                   label={i18n.stats.avgSalience} 
                   value={averages.salience} 
-                  sub={lang === 'zh' ? '库中记忆的平均重要程度' : 'Mean importance across storage'}
+                  sub={lang === 'zh' ? '库中记忆的平均重要程度' : (lang === 'ja' ? 'メモリ内の平均重要度' : 'Mean importance across storage')}
                 />
                 <MetricItem 
                   icon={Zap} 
-                  label={lang === 'zh' ? '处理负荷' : 'Processing Load'} 
+                  label={lang === 'zh' ? '处理负荷' : (lang === 'ja' ? '処理負荷' : 'Processing Load')} 
                   value={events.reduce((acc, ev) => acc + (ev.participants?.length || 0) * 2, 0)} 
-                  sub={lang === 'zh' ? '已处理的历史消息估算总量' : 'Total estimated messages processed'}
+                  sub={lang === 'zh' ? '已处理的历史消息估算总量' : (lang === 'ja' ? '処理された履歴メッセージの推定総数' : 'Total estimated messages processed')}
                 />
               </div>
             </CardContent>
           </Card>
         </div>
+
+        {/* Performance Metrics */}
+        {stats.perf && (
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Zap className="h-5 w-5 text-amber-500" />
+                {i18n.stats.perf}
+              </CardTitle>
+              <CardDescription>
+                {lang === 'zh' ? '核心引擎任务平均执行耗时' : (lang === 'ja' ? 'コアエンジンのタスク平均実行時間' : 'Average execution time for core engine tasks')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5 mt-2">
+                  <MetricItem 
+                    icon={Activity} 
+                    label={i18n.stats.avgExtraction} 
+                    value={stats.perf.avg_extraction_time + 's'} 
+                    sub={lang === 'zh' ? '从消息中提取情节' : (lang === 'ja' ? 'メッセージからの抽出' : 'Extracting episodes')}
+                  />
+                  <MetricItem 
+                    icon={Zap} 
+                    label={i18n.stats.avgPartition} 
+                    value={stats.perf.avg_partition_time + 's'} 
+                    sub={lang === 'zh' ? '自动对话边界检测' : (lang === 'ja' ? '会話境界の検出' : 'Boundary detection')}
+                  />
+                  <MetricItem 
+                    icon={TrendingUp} 
+                    label={i18n.stats.avgDistill} 
+                    value={stats.perf.avg_distill_time + 's'} 
+                    sub={lang === 'zh' ? '长对话精简提炼' : (lang === 'ja' ? '要約と精緻化' : 'Condensing dialogues')}
+                  />
+                  <MetricItem 
+                    icon={Share2} 
+                    label={i18n.stats.avgRetrieval} 
+                    value={stats.perf.avg_retrieval_time + 's'} 
+                    sub={lang === 'zh' ? 'Prompt 记忆注入' : (lang === 'ja' ? 'プロンプト注入' : 'Context injection')}
+                  />
+                  <MetricItem 
+                    icon={Search} 
+                    label={i18n.stats.avgRecall} 
+                    value={stats.perf.avg_recall_time + 's'} 
+                    sub={lang === 'zh' ? '全文与向量混合搜索' : (lang === 'ja' ? 'ハイブリッド検索' : 'Hybrid search')}
+                  />
+               </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )

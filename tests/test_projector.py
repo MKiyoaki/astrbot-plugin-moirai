@@ -40,6 +40,7 @@ def make_event(event_id: str, topic: str = "test topic", uid: str = "u1") -> Eve
         participants=[uid],
         interaction_flow=[],
         topic=topic,
+        summary="test summary",
         chat_content_tags=["tag1", "tag2"],
         salience=0.5,
         confidence=0.8,

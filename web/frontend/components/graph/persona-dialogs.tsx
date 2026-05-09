@@ -16,6 +16,7 @@ import { FieldGroup, Field, FieldLabel, FieldContent, FieldDescription } from '@
 import { TagSelector } from '@/components/shared/tag-selector'
 import { type PersonaNode, type ImpressionEdge } from '@/lib/api'
 import { useApp } from '@/lib/store'
+import { getLocalizedOrientation, getLocalizedAffectType } from '@/lib/i18n'
 
 // ── Persona Form ─────────────────────────────────────────────────────────
 
@@ -27,12 +28,17 @@ interface PersonaFormData {
   bindings: string
 }
 
-const AFFECT_TYPES = ['积极', '中性', '消极', '复杂']
-
 function PersonaForm({ data, onChange }: { data: PersonaFormData; onChange: (d: PersonaFormData) => void }) {
   const { i18n } = useApp()
   const set = <K extends keyof PersonaFormData>(k: K, v: PersonaFormData[K]) =>
     onChange({ ...data, [k]: v })
+
+  const AFFECT_TYPES = [
+    i18n.graph.affectTypes.positive,
+    i18n.graph.affectTypes.neutral,
+    i18n.graph.affectTypes.negative,
+    i18n.graph.affectTypes.complex,
+  ]
 
   return (
     <FieldGroup>
@@ -108,13 +114,13 @@ export function CreatePersonaDialog({
 }) {
   const { i18n } = useApp()
   const [data, setData] = useState<PersonaFormData>({
-    name: '', description: '', affect_type: '中性', tags: [], bindings: '',
+    name: '', description: '', affect_type: i18n.graph.affectTypes.neutral, tags: [], bindings: '',
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const handleSubmit = async () => {
-    if (!data.name.trim()) { setError('姓名不能为空'); return }
+    if (!data.name.trim()) { setError(i18n.graph.nameRequired); return }
     setLoading(true); setError('')
     try {
       await onSubmit({
@@ -138,7 +144,7 @@ export function CreatePersonaDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{i18n.graph.createTitle}</DialogTitle>
-          <DialogDescription>填写人格信息后点击创建。</DialogDescription>
+          <DialogDescription>{i18n.graph.createPersonaDesc}</DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[60vh]">
           <div className="pr-4"><PersonaForm data={data} onChange={setData} /></div>
@@ -168,7 +174,7 @@ export function EditPersonaDialog({
 }) {
   const { i18n } = useApp()
   const [data, setData] = useState<PersonaFormData>({
-    name: '', description: '', affect_type: '中性', tags: [], bindings: '',
+    name: '', description: '', affect_type: i18n.graph.affectTypes.neutral, tags: [], bindings: '',
   })
   const existingConfidenceRef = useRef<number>(0.5)
   const [loading, setLoading] = useState(false)
@@ -191,7 +197,7 @@ export function EditPersonaDialog({
 
   const handleSubmit = async () => {
     if (!node) return
-    if (!data.name.trim()) { setError('姓名不能为空'); return }
+    if (!data.name.trim()) { setError(i18n.graph.nameRequired); return }
     setLoading(true); setError('')
     try {
       await onSubmit(node.data.id, {
@@ -215,7 +221,7 @@ export function EditPersonaDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{i18n.graph.editTitle}</DialogTitle>
-          <DialogDescription>修改人格信息后点击保存。</DialogDescription>
+          <DialogDescription>{i18n.graph.editPersonaDesc}</DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[60vh]">
           <div className="pr-4"><PersonaForm data={data} onChange={setData} /></div>
@@ -294,7 +300,7 @@ export function EditImpressionDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{i18n.graph.editImpression}</DialogTitle>
-          <DialogDescription>修改人际环性模型参数。</DialogDescription>
+          <DialogDescription>{i18n.graph.editImpressionDesc}</DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>
@@ -308,7 +314,7 @@ export function EditImpressionDialog({
             { label: i18n.graph.affect, val: benevolence, set: setBenevolence, min: -1, max: 1 },
             { label: i18n.graph.power, val: power, set: setPower, min: -1, max: 1 },
             { label: i18n.graph.intensity, val: intensity, set: setIntensity, min: 0, max: 1 },
-            { label: "拟合置信度 (R²)", val: rSquared, set: setRSquared, min: 0, max: 1 },
+            { label: `${i18n.graph.fitConfidence} (R²)`, val: rSquared, set: setRSquared, min: 0, max: 1 },
           ].map(({ label, val, set: setter, min, max }) => (
             <Field key={label}>
               <div className="flex justify-between">
@@ -364,7 +370,7 @@ export function PersonaDetailCard({
           [i18n.graph.uid,         d.id.slice(0, 12) + '…'],
           [i18n.graph.confidence,  (d.confidence * 100).toFixed(0) + '%'],
           ...(attrs.description ? [[i18n.graph.description, attrs.description]] : []),
-          ...(attrs.affect_type  ? [[i18n.graph.affectType, attrs.affect_type]]  : []),
+          ...(attrs.affect_type  ? [[i18n.graph.affectType, getLocalizedAffectType(attrs.affect_type, i18n)]]  : []),
         ].map(([k, v]) => (
           <div key={k} className="contents">
             <span className="text-muted-foreground">{k}</span>
@@ -416,7 +422,7 @@ export function ImpressionDetailCard({
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
         {[
-          [i18n.graph.relationType, d.label],
+          [i18n.graph.relationType, getLocalizedOrientation(d.label, i18n)],
           [i18n.graph.intensity,    (d.intensity * 100).toFixed(0) + '%'],
           [i18n.graph.confidence,   (d.confidence * 100).toFixed(0) + '%'],
           [i18n.graph.scope,        d.scope],

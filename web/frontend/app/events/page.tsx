@@ -135,6 +135,7 @@ export default function EventsPage() {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
     const body = {
       topic:             data.topic,
+      summary:           data.summary,
       group_id:          data.group_id || null,
       start_time:        Math.floor(new Date(data.start_time).getTime() / 1000),
       end_time:          Math.floor(new Date(data.end_time).getTime() / 1000),
@@ -153,6 +154,7 @@ export default function EventsPage() {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
     const body = {
       topic:             data.topic,
+      summary:           data.summary,
       group_id:          data.group_id || null,
       start_time:        Math.floor(new Date(data.start_time).getTime() / 1000),
       end_time:          Math.floor(new Date(data.end_time).getTime() / 1000),

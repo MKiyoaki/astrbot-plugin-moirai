@@ -20,8 +20,9 @@ import logging
 
 from typing import TYPE_CHECKING
 from ..embedding.encoder import NullEncoder
-from .parser import fallback_extraction, parse_llm_output
-from .prompts import build_user_prompt
+from .parser import fallback_extraction, parse_llm_output, parse_single_item
+from .prompts import build_user_prompt, build_distillation_prompt
+from .partitioner import LlmPartitioner, SemanticPartitioner, Partition
 
 if TYPE_CHECKING:
     from ..boundary.window import MessageWindow
@@ -72,22 +73,58 @@ class EventExtractor:
         self._max_context_messages = cfg.max_context_messages
         self._system_prompt = cfg.system_prompt
         self._llm_timeout = cfg.llm_timeout
+        self._strategy = cfg.strategy
         self._big_five_buffer = big_five_buffer
         self._orientation_analyzer = orientation_analyzer
         self._ipc_enabled = ipc_enabled and (big_five_buffer is not None) and (orientation_analyzer is not None)
 
+        # Initialize partitioner
+        if self._strategy == "semantic":
+            eps = 0.35
+            if plugin_config:
+                eps = plugin_config._float("semantic_clustering_eps", 0.35)
+            self._partitioner = SemanticPartitioner(self._encoder, eps=eps)
+        else:
+            self._partitioner = LlmPartitioner()
+
     async def __call__(self, window: MessageWindow) -> None:
-        """on_event_close callback: extract fields, partition into multiple events, persist, then index vector."""
-        results = await self._extract(window)
+        """on_event_close callback: partition, distill/extract, persist, then index vector."""
+        from ..utils.perf import performance_timer
         
+        # 1. Partitioning
+        async with performance_timer("partition"):
+            partitions = await self._partitioner.partition(window)
+
+        # 2. Extract Fields (Batch or per-partition)
+        # If strategy is "llm", we do ONE call for the whole window and get multiple results.
+        # If strategy is "semantic", we do ONE call PER partition.
+        
+        extracted_results: list[tuple[list[int], dict]] = [] # list of (indices, result_dict)
+
+        if self._strategy == "llm":
+            async with performance_timer("extraction"):
+                batch_results = await self._extract_batch(window)
+                # Map batch results back to message indices
+                for res in batch_results:
+                    start, end = res["start_idx"], res["end_idx"]
+                    indices = list(range(start, end + 1))
+                    extracted_results.append((indices, res))
+        else:
+            # Semantic strategy: process each partition individually
+            for part in partitions:
+                sub_messages = [window.messages[i] for i in part.indices]
+                if not sub_messages:
+                    continue
+                async with performance_timer("distill"):
+                    res = await self._distill(sub_messages)
+                    extracted_results.append((part.indices, res))
+
+        # 3. Persistence
         from ..domain.models import Event, MessageRef
         import uuid
 
-        for res in results:
-            # Map index-based range back to messages
-            start_idx = res["start_idx"]
-            end_idx = res["end_idx"]
-            sub_messages = window.messages[start_idx : end_idx + 1]
+        for indices, res in extracted_results:
+            sub_messages = [window.messages[i] for i in indices]
             if not sub_messages:
                 continue
 
@@ -98,19 +135,21 @@ class EventExtractor:
                 if last_events:
                     inherit_from.append(last_events[0].event_id)
             elif res.get("inherit") and not window.group_id:
-                # For private chats, list by participant (bot + user)
-                # This is a bit more complex, for now we just use the group_id=None list
                 last_events = await self._event_repo.list_by_group(None, limit=1)
                 if last_events:
-                    # Check if it involves the same participant
                     if sub_messages[0].uid in last_events[0].participants:
                         inherit_from.append(last_events[0].event_id)
+
+            # Robust time range detection
+            timestamps = [m.timestamp for m in sub_messages]
+            start_time = min(timestamps)
+            end_time = max(timestamps)
 
             event = Event(
                 event_id=str(uuid.uuid4()),
                 group_id=window.group_id,
-                start_time=sub_messages[0].timestamp,
-                end_time=sub_messages[-1].timestamp,
+                start_time=start_time,
+                end_time=end_time,
                 participants=list(set(m.uid for m in sub_messages)),
                 interaction_flow=[
                     MessageRef(
@@ -122,6 +161,7 @@ class EventExtractor:
                     for m in sub_messages
                 ],
                 topic=res["topic"],
+                summary=res.get("summary", ""),
                 chat_content_tags=res["chat_content_tags"],
                 salience=res["salience"],
                 confidence=res["confidence"],
@@ -143,17 +183,11 @@ class EventExtractor:
                 )
 
             if self._ipc_enabled:
-                # We use a sub-window representation for IPC if possible, 
-                # or just the original window messages filtered by time.
-                # For simplicity, we pass the original window but it might 
-                # lead to over-scoring. 
-                # TODO: refine IPC analysis scope if needed
                 asyncio.create_task(self._run_ipc_analysis(event, window))
 
-    async def _extract(self, window: MessageWindow) -> list[dict]:
+    async def _extract_batch(self, window: MessageWindow) -> list[dict]:
         provider = self._provider_getter()
         if provider is None:
-            logger.debug("[EventExtractor] no provider — using fallback")
             return fallback_extraction(window)
 
         prompt = build_user_prompt(window, self._max_context_messages)
@@ -165,19 +199,51 @@ class EventExtractor:
             result = parse_llm_output(resp.completion_text, len(window.messages) - 1)
             if result is not None:
                 return result
-            logger.warning(
-                "[EventExtractor] LLM output could not be parsed, using fallback. "
-                "Raw: %r",
-                resp.completion_text[:200],
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                "[EventExtractor] LLM call timed out, using fallback")
         except Exception as exc:
-            logger.warning(
-                "[EventExtractor] LLM call failed (%s), using fallback", exc)
+            logger.warning("[EventExtractor] LLM batch extraction failed: %s", exc)
 
         return fallback_extraction(window)
+
+    async def _distill(self, messages: list) -> dict:
+        """Call LLM to summarize a specific cluster of messages."""
+        provider = self._provider_getter()
+        if provider is None:
+            # Fake a result from messages
+            topic = messages[0].text[:30]
+            return {
+                "topic": topic,
+                "summary": f"聚合了 {len(messages)} 条相关消息。",
+                "chat_content_tags": [],
+                "salience": 0.5,
+                "confidence": 0.2,
+                "inherit": False
+            }
+
+        prompt = build_distillation_prompt(messages)
+        try:
+            resp = await asyncio.wait_for(
+                provider.text_chat(prompt=prompt, system_prompt=self._system_prompt),
+                timeout=self._llm_timeout,
+            )
+            result = parse_single_item(resp.completion_text)
+            if result is not None:
+                return result
+        except Exception as exc:
+            logger.warning("[EventExtractor] LLM distillation failed: %s", exc)
+
+        # Fallback for single item
+        return {
+            "topic": messages[0].text[:30],
+            "summary": f"提炼失败，原始消息：{messages[0].text[:100]}...",
+            "chat_content_tags": [],
+            "salience": 0.4,
+            "confidence": 0.1,
+            "inherit": False
+        }
+
+    async def _extract(self, window: MessageWindow) -> list[dict]:
+        """Legacy method, kept for compatibility if needed."""
+        return await self._extract_batch(window)
 
     async def _run_ipc_analysis(self, event: Event, window: MessageWindow) -> None:
         """Feed window messages to BigFiveBuffer, trigger scoring, run orientation analysis."""

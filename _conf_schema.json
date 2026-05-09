@@ -266,5 +266,21 @@
         "type": "string",
         "hint": "手动配置 WebUI 访问密码。留空则启动时自动生成随机访问 Token 并在控制台打印。",
         "default": ""
+    },
+    "extraction_strategy": {
+        "description": "事件划分策略",
+        "type": "select",
+        "options": [
+            { "value": "llm", "label": "纯 LLM 划分 (默认)" },
+            { "value": "semantic", "label": "Encoder 语义聚类 (高性能)" }
+        ],
+        "default": "llm",
+        "hint": "LLM 划分语义更精准但较慢；Semantic 聚类速度快且能处理话题交织。"
+    },
+    "semantic_clustering_eps": {
+        "description": "语义聚类敏感度 (Eps)",
+        "type": "float",
+        "default": 0.35,
+        "hint": "仅在 Semantic 策略下生效。数值越小，划分的话题越细。"
     }
 }

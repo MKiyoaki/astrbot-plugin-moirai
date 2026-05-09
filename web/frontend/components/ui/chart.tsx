@@ -83,27 +83,30 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     <style
       dangerouslySetInnerHTML={{
         __html: `
+[data-chart="${id}"] {
 ${Object.entries(config)
   .map(([key, value]) => {
     const color = value.theme?.["light"] || value.color
     if (color) {
-      return `[data-chart="${id}"] { --color-${key}: ${color}; }`
+      return `  --color-${key}: ${color};`
     }
     return null
   })
   .filter(Boolean)
   .join("\n")}
-@media (prefers-color-scheme: dark) {
-  ${Object.entries(config)
-    .map(([key, value]) => {
-      const color = value.theme?.["dark"] || value.color
-      if (color) {
-        return `[data-chart="${id}"] { --color-${key}: ${color}; }`
-      }
-      return null
-    })
-    .filter(Boolean)
-    .join("\n")}
+}
+
+.dark [data-chart="${id}"] {
+${Object.entries(config)
+  .map(([key, value]) => {
+    const color = value.theme?.["dark"] || value.color
+    if (color) {
+      return `  --color-${key}: ${color};`
+    }
+    return null
+  })
+  .filter(Boolean)
+  .join("\n")}
 }
 `,
       }}

@@ -18,6 +18,7 @@ async def test_memory_cleanup(event_repo):
     e_high = Event(
         event_id="e1", group_id="g1", start_time=100, end_time=200,
         participants=["u1"], interaction_flow=[], topic="High",
+        summary="High summary",
         chat_content_tags=[], salience=0.8, confidence=1.0,
         inherit_from=[], last_accessed_at=200, status=EventStatus.ACTIVE,
         is_locked=False
@@ -25,6 +26,7 @@ async def test_memory_cleanup(event_repo):
     e_low = Event(
         event_id="e2", group_id="g1", start_time=100, end_time=200,
         participants=["u1"], interaction_flow=[], topic="Low",
+        summary="Low summary",
         chat_content_tags=[], salience=0.1, confidence=1.0,
         inherit_from=[], last_accessed_at=200, status=EventStatus.ACTIVE,
         is_locked=False
@@ -32,6 +34,7 @@ async def test_memory_cleanup(event_repo):
     e_locked = Event(
         event_id="e3", group_id="g1", start_time=100, end_time=200,
         participants=["u1"], interaction_flow=[], topic="Locked",
+        summary="Locked summary",
         chat_content_tags=[], salience=0.1, confidence=1.0,
         inherit_from=[], last_accessed_at=200, status=EventStatus.ACTIVE,
         is_locked=True
@@ -56,6 +59,7 @@ async def test_set_locked(event_repo):
     e = Event(
         event_id="e1", group_id="g1", start_time=100, end_time=200,
         participants=["u1"], interaction_flow=[], topic="Test",
+        summary="Test summary",
         chat_content_tags=[], salience=0.5, confidence=1.0,
         inherit_from=[], last_accessed_at=200, status=EventStatus.ACTIVE,
         is_locked=False

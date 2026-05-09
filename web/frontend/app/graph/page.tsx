@@ -83,7 +83,7 @@ export default function GraphPage() {
       const cards = buildGroupCards(data.nodes, data.edges, physics.biWeight)
       setGroupCards(cards)
     } catch {
-      app.toast('关系图加载失败', 'destructive')
+      app.toast(i18n.graph.loadError, 'destructive')
     } finally {
       setLoading(false)
       setTimeout(() => setIsRefreshing(false), 600)
@@ -225,29 +225,29 @@ export default function GraphPage() {
   // ── CRUD handlers ───────────────────────────────────────────────────────────
   const handleCreatePersona = async (data: Record<string, unknown>) => {
     await api.graph.createPersona(data)
-    app.toast('人格已创建')
+    app.toast(i18n.graph.createSuccess)
     await loadGraph()
     await app.refreshStats()
   }
 
   const handleUpdatePersona = async (uid: string, data: Record<string, unknown>) => {
     await api.graph.updatePersona(uid, data)
-    app.toast('人格已更新')
+    app.toast(i18n.graph.updateSuccess)
     setSelectedNodeId(null)
     await loadGraph()
   }
 
   const handleDeletePersona = async (uid: string, name: string) => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    if (!confirm(`确认删除人格「${name}」？`)) return
+    if (!confirm(i18n.graph.deleteConfirm.replace('{name}', name))) return
     try {
       await api.graph.deletePersona(uid)
       setSelectedNodeId(null)
-      app.toast('人格已删除')
+      app.toast(i18n.graph.deleteSuccess)
       await loadGraph()
       await app.refreshStats()
     } catch (e: unknown) {
-      app.toast('删除失败：' + (e as api.ApiError).body, 'destructive')
+      app.toast(i18n.common.deleteFailed + '：' + (e as api.ApiError).body, 'destructive')
     }
   }
 
@@ -255,7 +255,7 @@ export default function GraphPage() {
     observer: string, subject: string, scope: string, data: Record<string, unknown>,
   ) => {
     await api.graph.updateImpression(observer, subject, scope, data)
-    app.toast('印象已更新')
+    app.toast(i18n.graph.impressionUpdateSuccess)
     setEditEdge(null)
     await loadGraph()
   }
@@ -271,7 +271,7 @@ export default function GraphPage() {
       <div className="flex h-screen flex-col overflow-hidden">
         <PageHeader
           title={i18n.page.graph.title}
-          description={`${groupCards.length} 个群组`}
+          description={i18n.graph.groupCount.replace('{count}', String(groupCards.length))}
           actions={
             <div className="flex items-center gap-2">
               <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo}>

@@ -197,7 +197,15 @@ function EventDetailRow({
                   <p className="text-sm">{ev.participants!.join(', ')}</p>
                 </div>
               )}
-              {(ev.inherit_from?.length ?? 0) > 0 && (
+            </div>
+            
+            {ev.summary && (
+              <div className="bg-muted/30 rounded p-2 text-xs text-muted-foreground leading-relaxed border-l-2 border-primary/20">
+                {ev.summary}
+              </div>
+            )}
+
+            {(ev.inherit_from?.length ?? 0) > 0 && (
                 <div className="col-span-2">
                   <span className="text-muted-foreground text-xs">{i18n.events.inheritFrom}</span>
                   <div className="mt-0.5 flex flex-wrap gap-1">
@@ -226,8 +234,7 @@ function EventDetailRow({
               </Button>
             </div>
           </div>
-        </div>
-      </TableCell>
+        </TableCell>
     </TableRow>
   )
 }
@@ -398,6 +405,7 @@ function LibraryContent() {
     if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
     await api.events.update(id, {
       topic:             data.topic,
+      summary:           data.summary,
       group_id:          data.group_id || null,
       start_time:        Math.floor(new Date(data.start_time).getTime() / 1000),
       end_time:          Math.floor(new Date(data.end_time).getTime() / 1000),

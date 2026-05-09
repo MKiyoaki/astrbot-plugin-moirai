@@ -37,6 +37,7 @@ def make_event(**overrides) -> Event:
         participants=["uid-alice", "uid-bot"],
         interaction_flow=[],
         topic="项目讨论",
+        summary="这是一个详细的对话摘要。",
         chat_content_tags=["工作", "产品"],
         salience=0.7,
         confidence=0.9,

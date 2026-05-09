@@ -61,6 +61,7 @@ def make_event(event_id: str, topic: str = "test", uid: str = "u1", group_id: st
         participants=[uid],
         interaction_flow=[],
         topic=topic,
+        summary="test summary",
         chat_content_tags=[],
         salience=0.5,
         confidence=0.8,

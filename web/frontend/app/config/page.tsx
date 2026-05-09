@@ -43,13 +43,7 @@ const FIELD_DEPENDENCIES: Record<string, string> = {
   'impression_event_trigger_enabled': 'relation_enabled',
   'impression_event_trigger_threshold': 'relation_enabled',
   'impression_trigger_debounce_hours': 'relation_enabled',
-  
-  // WebUI
-  'webui_port': 'webui_enabled',
-  'webui_auth_enabled': 'webui_enabled',
-  'webui_session_hours': 'webui_enabled',
-  'webui_sudo_minutes': 'webui_enabled',
-  'webui_password': 'webui_enabled',
+  'impression_update_alpha': 'relation_enabled',
 }
 
 function ConfigField({
@@ -65,7 +59,13 @@ function ConfigField({
   onChange: (v: unknown) => void
   disabled: boolean
 }) {
+  const { i18n } = useApp()
   const id = `cfg-${fieldKey}`
+  
+  // Try to get localized label and hint
+  const localized = (i18n.config as any).fields?.[fieldKey]
+  const label = localized?.label || schema.description
+  const hint = localized?.hint || schema.hint
 
   return (
     <div className={cn("transition-opacity duration-200", disabled && "opacity-40 pointer-events-none")}>
@@ -73,11 +73,11 @@ function ConfigField({
         <div className="flex items-center justify-between py-2">
           <div className="flex-1 pr-4 min-w-0">
             <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
-              {schema.description}
+              {label}
             </Label>
-            {schema.hint && (
+            {hint && (
               <p className="mt-0.5 text-xs text-muted-foreground break-words whitespace-normal">
-                {schema.hint}
+                {hint}
               </p>
             )}
           </div>
@@ -93,11 +93,11 @@ function ConfigField({
       {schema.type === 'select' && schema.options && (
         <div className="py-2 min-w-0">
           <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
-            {schema.description}
+            {label}
           </Label>
-          {schema.hint && (
+          {hint && (
             <p className="mt-0.5 mb-1.5 text-xs text-muted-foreground break-words whitespace-normal">
-              {schema.hint}
+              {hint}
             </p>
           )}
           <Select
@@ -123,15 +123,15 @@ function ConfigField({
         <div className="py-2 min-w-0">
           <div className="mb-2 flex items-start justify-between gap-4">
             <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal flex-1">
-              {schema.description}
+              {label}
             </Label>
             <span className="w-12 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
               {(typeof value === 'number' ? value : parseFloat(String(value)) || 0).toFixed(2)}
             </span>
           </div>
-          {schema.hint && (
+          {hint && (
             <p className="mb-2 text-xs text-muted-foreground break-words whitespace-normal">
-              {schema.hint}
+              {hint}
             </p>
           )}
           <Slider
@@ -147,11 +147,11 @@ function ConfigField({
       {(schema.type === 'int' || schema.type === 'string') && (
         <div className="py-2 min-w-0">
           <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
-            {schema.description}
+            {label}
           </Label>
-          {schema.hint && (
+          {hint && (
             <p className="mt-0.5 mb-1.5 text-xs text-muted-foreground break-words whitespace-normal">
-              {schema.hint}
+              {hint}
             </p>
           )}
           <Input
@@ -182,7 +182,7 @@ export default function ConfigPage() {
   const SECTIONS = useMemo(() => [
     {
       label: i18n.config.sections.webui,
-      keys: ['webui_enabled', 'webui_port', 'webui_auth_enabled', 'webui_session_hours', 'webui_sudo_minutes'],
+      keys: ['webui_port', 'webui_auth_enabled', 'webui_session_hours', 'webui_sudo_minutes', 'webui_password'],
     },
     {
       label: i18n.config.sections.embedding,
@@ -203,7 +203,7 @@ export default function ConfigPage() {
     },
     {
       label: i18n.config.sections.retrieval,
-      keys: ['retrieval_top_k', 'retrieval_token_budget', 'memory_isolation_enabled'],
+      keys: ['retrieval_top_k', 'retrieval_token_budget', 'retrieval_active_only', 'memory_isolation_enabled'],
     },
     {
       label: i18n.config.sections.vcm,
@@ -219,7 +219,7 @@ export default function ConfigPage() {
     },
     {
       label: i18n.config.sections.relation,
-      keys: ['relation_enabled', 'persona_isolation_enabled', 'impression_event_trigger_enabled', 'impression_event_trigger_threshold', 'impression_trigger_debounce_hours'],
+      keys: ['relation_enabled', 'persona_isolation_enabled', 'impression_event_trigger_enabled', 'impression_event_trigger_threshold', 'impression_trigger_debounce_hours', 'impression_update_alpha'],
     },
     {
       label: i18n.config.sections.tasks,

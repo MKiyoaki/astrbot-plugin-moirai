@@ -57,12 +57,14 @@ class HybridRetriever:
         self, query: str, limit: int = 10, active_only: bool = True, group_id: str | None = None,
     ) -> list[Event]:
         """Return up to `limit` events most relevant to the query string."""
-        bm25, vec = await self.search_raw(query, active_only=active_only, group_id=group_id)
+        from ..utils.perf import performance_timer
+        async with performance_timer("retrieval"):
+            bm25, vec = await self.search_raw(query, active_only=active_only, group_id=group_id)
 
-        if not vec:
-            return bm25[:limit]
+            if not vec:
+                return bm25[:limit]
 
-        return rrf_fuse([bm25, vec], k=self._rrf_k, limit=limit)
+            return rrf_fuse([bm25, vec], k=self._rrf_k, limit=limit)
 
     async def index_event(self, event: Event) -> None:
         """Compute and store the embedding for a single event (background use)."""

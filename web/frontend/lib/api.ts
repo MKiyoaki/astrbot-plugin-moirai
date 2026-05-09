@@ -49,6 +49,13 @@ export interface Stats {
   impressions: number
   groups: number
   version: string
+  perf?: {
+    avg_extraction_time: number
+    avg_partition_time: number
+    avg_distill_time: number
+    avg_retrieval_time: number
+    avg_recall_time: number
+  }
 }
 export const stats = {
   get: () => request<Stats>('/api/stats'),
@@ -59,6 +66,7 @@ export interface ApiEvent {
   id: string
   content: string
   topic: string
+  summary: string
   start: string
   end: string
   start_ts: number

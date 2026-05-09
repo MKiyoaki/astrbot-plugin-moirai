@@ -102,45 +102,47 @@ class RecallManager(BaseRecallManager):
         group_id: str | None = None,
     ) -> int:
         """Recall and inject memory into req. Returns the number of events injected."""
-        if self._icfg.auto_clear:
-            self.clear_previous_injection(req)
+        from ..utils.perf import performance_timer
+        async with performance_timer("recall"):
+            if self._icfg.auto_clear:
+                self.clear_previous_injection(req)
 
-        events = await self.recall(query, group_id=group_id)
-        if not events:
-            return 0
+            events = await self.recall(query, group_id=group_id)
+            if not events:
+                return 0
 
-        position = self._icfg.position
-        token_budget = self._icfg.token_budget
+            position = self._icfg.position
+            token_budget = self._icfg.token_budget
 
-        if position == "fake_tool_call":
-            messages = format_events_for_fake_tool_call(
-                events, query, token_budget=token_budget
-            )
-            if messages:
-                contexts = getattr(req, "contexts", None)
-                if contexts is None:
-                    return 0
-                contexts.extend(messages)
-            return len(events) if messages else 0
+            if position == "fake_tool_call":
+                messages = format_events_for_fake_tool_call(
+                    events, query, token_budget=token_budget
+                )
+                if messages:
+                    contexts = getattr(req, "contexts", None)
+                    if contexts is None:
+                        return 0
+                    contexts.extend(messages)
+                return len(events) if messages else 0
 
-        body = format_events_for_prompt(events, token_budget=token_budget)
-        if not body:
-            return 0
+            body = format_events_for_prompt(events, token_budget=token_budget)
+            if not body:
+                return 0
 
-        wrapped = MEMORY_INJECTION_HEADER + "\n" + body + "\n" + MEMORY_INJECTION_FOOTER
+            wrapped = MEMORY_INJECTION_HEADER + "\n" + body + "\n" + MEMORY_INJECTION_FOOTER
 
-        if position == "system_prompt":
-            sep = "\n\n" if getattr(req, "system_prompt", "") else ""
-            req.system_prompt = getattr(req, "system_prompt", "") + sep + wrapped
-        elif position == "user_message_before":
-            req.prompt = wrapped + "\n\n" + getattr(req, "prompt", "")
-        elif position == "user_message_after":
-            req.prompt = getattr(req, "prompt", "") + "\n\n" + wrapped
-        else:
-            sep = "\n\n" if getattr(req, "system_prompt", "") else ""
-            req.system_prompt = getattr(req, "system_prompt", "") + sep + wrapped
+            if position == "system_prompt":
+                sep = "\n\n" if getattr(req, "system_prompt", "") else ""
+                req.system_prompt = getattr(req, "system_prompt", "") + sep + wrapped
+            elif position == "user_message_before":
+                req.prompt = wrapped + "\n\n" + getattr(req, "prompt", "")
+            elif position == "user_message_after":
+                req.prompt = getattr(req, "prompt", "") + "\n\n" + wrapped
+            else:
+                sep = "\n\n" if getattr(req, "system_prompt", "") else ""
+                req.system_prompt = getattr(req, "system_prompt", "") + sep + wrapped
 
-        return len(events)
+            return len(events)
 
     def clear_previous_injection(self, req: object) -> int:
         """Strip all injection markers from req. Returns count of blocks removed."""

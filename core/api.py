@@ -31,6 +31,7 @@ def event_to_dict(event: Event) -> dict[str, Any]:
         "id": event.event_id,
         "content": event.topic or event.event_id[:8],
         "topic": event.topic,
+        "summary": event.summary,
         "start": _ts(event.start_time),
         "end": _ts(event.end_time),
         "start_ts": event.start_time,
@@ -89,6 +90,9 @@ async def get_stats(
     impression_repo: ImpressionRepository,
     plugin_version: str = "0.1.0",
 ) -> dict[str, Any]:
+    from .utils.perf import tracker
+    perf_stats = await tracker.get_averages()
+    
     personas = await persona_repo.list_all()
     group_ids = await event_repo.list_group_ids()
     event_count = 0
@@ -108,6 +112,13 @@ async def get_stats(
         "impressions": impression_count,
         "groups": len(group_ids),
         "version": plugin_version,
+        "perf": {
+            "avg_extraction_time": round(perf_stats.get("extraction", 0.0), 3),
+            "avg_partition_time": round(perf_stats.get("partition", 0.0), 3),
+            "avg_distill_time": round(perf_stats.get("distill", 0.0), 3),
+            "avg_retrieval_time": round(perf_stats.get("retrieval", 0.0), 3),
+            "avg_recall_time": round(perf_stats.get("recall", 0.0), 3),
+        }
     }
 
 
@@ -146,6 +157,8 @@ async def update_event(
     changes: dict[str, Any] = {}
     if "topic" in patch:
         changes["topic"] = str(patch["topic"])
+    if "summary" in patch:
+        changes["summary"] = str(patch["summary"])
     if "salience" in patch:
         changes["salience"] = float(patch["salience"])
     if "tags" in patch and isinstance(patch["tags"], list):

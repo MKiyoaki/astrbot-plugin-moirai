@@ -893,6 +893,7 @@ class WebuiServer:
                 participants=body.get("participants", []),
                 interaction_flow=[],
                 topic=body.get("topic", ""),
+                summary=body.get("summary", ""),
                 chat_content_tags=body.get("chat_content_tags", []),
                 salience=float(body.get("salience", 0.5)),
                 confidence=float(body.get("confidence", 0.8)),
@@ -922,6 +923,7 @@ class WebuiServer:
                 participants=body.get("participants", existing.participants),
                 interaction_flow=existing.interaction_flow,
                 topic=body.get("topic", existing.topic),
+                summary=body.get("summary", existing.summary),
                 chat_content_tags=body.get(
                     "chat_content_tags", existing.chat_content_tags),
                 salience=float(body.get("salience", existing.salience)),

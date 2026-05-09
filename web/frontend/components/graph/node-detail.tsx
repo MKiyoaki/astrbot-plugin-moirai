@@ -8,7 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import type { PersonaNode } from '@/lib/api'
 import type { EdgePair } from '@/lib/graph-types'
 import { useApp } from '@/lib/store'
-import { getLocalizedOrientation } from '@/lib/i18n'
+import { getLocalizedOrientation, getLocalizedAffectType } from '@/lib/i18n'
 
 interface NodeDetailProps {
   node: PersonaNode
@@ -29,7 +29,7 @@ export function NodeDetail({ node, allNodes, edgePairs, onBack, onEdit, onDelete
   const connectedEdges = edgePairs.filter(p => p.srcId === node.data.id || p.tgtId === node.data.id)
 
   const lastActive = node.data.last_active_at
-    ? new Date(node.data.last_active_at).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
+    ? new Date(node.data.last_active_at).toLocaleString(i18n.common.status === '状态' ? 'zh-CN' : (i18n.common.status === 'ステータス' ? 'ja-JP' : 'en-US'), { dateStyle: 'short', timeStyle: 'short' })
     : '—'
 
   const msgCount = (node.data as { msg_count?: number }).msg_count ?? null
@@ -87,7 +87,7 @@ export function NodeDetail({ node, allNodes, edgePairs, onBack, onEdit, onDelete
           {node.data.attrs?.affect_type && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">{t.affectType}</span>
-              <Badge variant="outline" className="text-xs">{node.data.attrs.affect_type}</Badge>
+              <Badge variant="outline" className="text-xs">{getLocalizedAffectType(node.data.attrs.affect_type, i18n)}</Badge>
             </div>
           )}
 

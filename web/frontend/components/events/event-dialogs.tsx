@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -21,6 +22,7 @@ import { cn } from '@/lib/utils'
 
 export interface EventFormData {
   topic: string
+  summary: string
   group_id: string
   start_time: string
   end_time: string
@@ -276,6 +278,19 @@ function EventForm({
       </Field>
 
       <Field>
+        <FieldLabel htmlFor="ev-summary">{i18n.events.summary || '详细摘要'}</FieldLabel>
+        <FieldContent>
+          <Textarea
+            id="ev-summary"
+            value={data.summary}
+            onChange={e => set('summary', e.target.value)}
+            placeholder="输入事件的详细总结描述..."
+            className="min-h-20"
+          />
+        </FieldContent>
+      </Field>
+
+      <Field>
         <FieldLabel>{i18n.events.group}</FieldLabel>
         <FieldContent>
           <GroupPicker
@@ -395,7 +410,7 @@ export function CreateEventDialog({ open, onClose, onSubmit, tagSuggestions, eve
   const isoEnd = new Date(now.getTime() + 1800000).toISOString().slice(0, 16)
 
   const [data, setData] = useState<EventFormData>({
-    topic: '', group_id: '', start_time: isoNow, end_time: isoEnd,
+    topic: '', summary: '', group_id: '', start_time: isoNow, end_time: isoEnd,
     salience: 0.5, tags: [], participants: [], inherit_from: [], is_locked: false,
     status: 'active',
   })
@@ -454,7 +469,7 @@ interface EditEventDialogProps {
 export function EditEventDialog({ open, event, onClose, onSubmit, tagSuggestions, events }: EditEventDialogProps) {
   const { i18n } = useApp()
   const [data, setData] = useState<EventFormData>({
-    topic: '', group_id: '', start_time: '', end_time: '',
+    topic: '', summary: '', group_id: '', start_time: '', end_time: '',
     salience: 0.5, tags: [], participants: [], inherit_from: [], is_locked: false,
     status: 'active',
   })
@@ -465,6 +480,7 @@ export function EditEventDialog({ open, event, onClose, onSubmit, tagSuggestions
     if (event) {
       setData({
         topic:       event.topic || event.content || '',
+        summary:     event.summary || '',
         group_id:    event.group || '',
         start_time:  toLocalIso(event.start_ts || new Date(event.start).getTime() / 1000),
         end_time:    toLocalIso(event.end_ts   || new Date(event.end).getTime()   / 1000),
@@ -641,6 +657,13 @@ export function EventDetailCard({ event, onEdit, onDelete, onLockToggle, sudoMod
           </div>
         ))}
       </div>
+
+      {event.summary && (
+        <div className="bg-muted/50 rounded p-2.5 text-xs text-muted-foreground leading-relaxed pl-2 ml-2 border-l-2 border-muted">
+          {event.summary}
+        </div>
+      )}
+
       {event.tags?.length > 0 && (
         <div className="flex flex-wrap gap-1 pl-2">
           {event.tags.map(t => <Badge key={t} variant="secondary" className="text-xs">{t}</Badge>)}

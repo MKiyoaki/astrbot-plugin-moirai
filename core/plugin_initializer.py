@@ -298,7 +298,7 @@ def _get_plugin_version() -> str:
         from importlib.metadata import version
         return version("astrbot-plugin-enhanced-memory")
     except Exception:
-        return "0.5.0"
+        return "0.6.0"
 
 
 async def _maybe_trigger_impression(

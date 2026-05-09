@@ -23,13 +23,14 @@ DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
     "3. 连续性：如果对话虽然中断但随后继续讨论同一话题，可以视为同一事件的延续（设置 inherit 为 true）。\n\n"
     "输出格式（仅输出一个 JSON Array，包含一个或多个对象，不输出任何其他文字或 markdown 代码块）：\n"
     '[\n'
-    '  {"start_idx": 0, "end_idx": 10, "topic": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false},\n'
-    '  {"start_idx": 11, "end_idx": 19, "topic": "...", "chat_content_tags": ["...", "..."], "salience": 0.3, "confidence": 0.9, "inherit": true}\n'
+    '  {"start_idx": 0, "end_idx": 10, "topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false},\n'
+    '  {"start_idx": 11, "end_idx": 19, "topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.3, "confidence": 0.9, "inherit": true}\n'
     ']\n\n'
     "字段说明：\n"
     "- start_idx: 该事件在提供的对话记录中的起始索引（从0开始）\n"
     "- end_idx: 该事件在提供的对话记录中的结束索引（包含）\n"
     "- topic: 该段对话的核心主题，简洁明了，30字以内\n"
+    "- summary: 该段对话的摘要，提炼关键结论和信息，过滤掉口水话，200字以内\n"
     "- chat_content_tags: 2~5个关键词标签\n"
     "- salience: 重要性分值 0.0~1.0\n"
     "- confidence: 本次提取结果的置信度 0.0~1.0\n"
@@ -124,6 +125,7 @@ class ExtractorConfig:
     max_context_messages: int = 20
     llm_timeout: float = 30.0
     system_prompt: str = DEFAULT_EXTRACTOR_SYSTEM_PROMPT
+    strategy: str = "llm"  # "llm" or "semantic"
 
 
 @dataclass
@@ -272,6 +274,7 @@ class PluginConfig:
             max_context_messages=self._int("context_window_size", 50),
             llm_timeout=self._float("extractor_llm_timeout_seconds", 30.0),
             system_prompt=custom_prompt or DEFAULT_EXTRACTOR_SYSTEM_PROMPT,
+            strategy=self._str("extraction_strategy", "llm"),
         )
 
     def get_context_config(self) -> ContextConfig:

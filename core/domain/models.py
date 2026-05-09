@@ -93,7 +93,8 @@ class Event(_BoundedMixin):
     end_time: float
     participants: list[str]      # uid list
     interaction_flow: list[MessageRef]
-    topic: str                   # LLM-extracted topic summary (≤ 15 chars)
+    topic: str                   # LLM-extracted topic summary (≤ 30 chars)
+    summary: str                 # De-noised distilled semantic summary (≤ 200 chars)
     chat_content_tags: list[str]
     salience: float              # Importance [0, 1]; decays over time
     confidence: float            # LLM extraction confidence [0, 1]

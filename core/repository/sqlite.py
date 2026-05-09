@@ -140,6 +140,7 @@ def _row_to_event(row: aiosqlite.Row) -> Event:
     keys = row.keys()
     status = row["status"] if "status" in keys else EventStatus.ACTIVE
     is_locked = bool(row["is_locked"]) if "is_locked" in keys else False
+    summary = row["summary"] if "summary" in keys else ""
     return Event(
         event_id=row["event_id"],
         group_id=row["group_id"],
@@ -148,6 +149,7 @@ def _row_to_event(row: aiosqlite.Row) -> Event:
         participants=json.loads(row["participants"]),
         interaction_flow=_load_message_refs(row["interaction_flow"]),
         topic=row["topic"],
+        summary=summary,
         chat_content_tags=json.loads(row["chat_content_tags"]),
         salience=row["salience"],
         confidence=row["confidence"],
@@ -287,13 +289,13 @@ class SQLitePersonaRepository(PersonaRepository):
 
 _EVENT_COLS = (
     "event_id, group_id, start_time, end_time, participants, "
-    "interaction_flow, topic, chat_content_tags, salience, confidence, "
+    "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
     "inherit_from, last_accessed_at, status, is_locked"
 )
 
 _EVENT_SELECT_COLS = (
     "e.event_id, e.group_id, e.start_time, e.end_time, e.participants, "
-    "e.interaction_flow, e.topic, e.chat_content_tags, e.salience, e.confidence, "
+    "e.interaction_flow, e.topic, e.summary, e.chat_content_tags, e.salience, e.confidence, "
     "e.inherit_from, e.last_accessed_at, e.status, e.is_locked"
 )
 
@@ -435,8 +437,8 @@ class SQLiteEventRepository(EventRepository):
     async def upsert(self, event: Event) -> None:
         await self._db.execute(
             "INSERT INTO events(event_id, group_id, start_time, end_time, participants, "
-            "interaction_flow, topic, chat_content_tags, salience, confidence, "
-            "inherit_from, last_accessed_at, status, is_locked) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
+            "inherit_from, last_accessed_at, status, is_locked) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(event_id) DO UPDATE SET "
             "group_id=excluded.group_id, "
             "start_time=excluded.start_time, "
@@ -444,6 +446,7 @@ class SQLiteEventRepository(EventRepository):
             "participants=excluded.participants, "
             "interaction_flow=excluded.interaction_flow, "
             "topic=excluded.topic, "
+            "summary=excluded.summary, "
             "chat_content_tags=excluded.chat_content_tags, "
             "salience=excluded.salience, "
             "confidence=excluded.confidence, "
@@ -459,6 +462,7 @@ class SQLiteEventRepository(EventRepository):
                 _j(event.participants),
                 _dump_message_refs(event.interaction_flow),
                 event.topic,
+                event.summary,
                 _j(event.chat_content_tags),
                 event.salience,
                 event.confidence,

@@ -112,11 +112,11 @@ export function EdgeDetail({
               <div className="space-y-2">
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">{td.combinedAffect}</p>
-                  <AffectBar value={combinedAffect} axisLabels={['消极', '积极']} />
+                  <AffectBar value={combinedAffect} axisLabels={[t.axes.negative, t.axes.positive]} />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">{td.combinedPower}</p>
-                  <AffectBar value={combinedPower} axisLabels={['服从', '支配']} />
+                  <AffectBar value={combinedPower} axisLabels={[t.axes.submissive, t.axes.dominant]} />
                 </div>
               </div>
             </>
@@ -170,8 +170,8 @@ function ImpressionSection({
         <Field label={i18n.graph.detail.lastActive} value={lastReinforced} />
       </div>
 
-      <AffectBar value={edge.data.affect} label={t.affect} axisLabels={['消极', '积极']} />
-      <AffectBar value={edge.data.power} label={t.power} axisLabels={['服从', '支配']} />
+      <AffectBar value={edge.data.affect} label={t.affect} axisLabels={[t.axes.negative, t.axes.positive]} />
+      <AffectBar value={edge.data.power} label={t.power} axisLabels={[t.axes.submissive, t.axes.dominant]} />
       {edge.data.r_squared != null && (
         <p className="text-[10px] text-muted-foreground">
           {t.ipcFit} = {edge.data.r_squared.toFixed(2)}
@@ -202,6 +202,8 @@ function ImpressionSection({
 // ── AffectBar ────────────────────────────────────────────────────────────────
 
 function AffectBar({ value, label, axisLabels }: { value: number; label?: string; axisLabels?: [string, string] }) {
+  const { i18n } = useApp()
+  const t = i18n.graph.axes
   const clampedVal = Math.max(-1, Math.min(1, value))
   const color = clampedVal > 0.15
     ? 'bg-green-500'
@@ -226,13 +228,13 @@ function AffectBar({ value, label, axisLabels }: { value: number; label?: string
         <div className="absolute top-0 h-full w-px bg-border left-1/2" />
       </div>
       <div className="flex justify-between mt-0.5">
-        <span className="text-[8px] text-red-500">{axisLabels?.[0] ?? '消极'}</span>
+        <span className="text-[8px] text-red-500">{axisLabels?.[0] ?? t.negative}</span>
         <span
           className={`text-[9px] font-mono ${clampedVal > 0.15 ? 'text-green-600' : clampedVal < -0.05 ? 'text-red-500' : 'text-muted-foreground'}`}
         >
           {clampedVal >= 0 ? '+' : ''}{clampedVal.toFixed(2)}
         </span>
-        <span className="text-[8px] text-green-500">{axisLabels?.[1] ?? '积极'}</span>
+        <span className="text-[8px] text-green-500">{axisLabels?.[1] ?? t.positive}</span>
       </div>
     </div>
   )

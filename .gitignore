@@ -211,4 +211,5 @@ __marimo__/
 .dev_data/
 .agent/
 skills-lock.json
+key.py
 __pycache__

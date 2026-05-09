@@ -37,6 +37,7 @@ def make_router(
                 for m in window.messages
             ],
             topic="test",
+            summary="test summary",
             chat_content_tags=[],
             salience=0.5,
             confidence=0.5,

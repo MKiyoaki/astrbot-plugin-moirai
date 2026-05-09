@@ -32,3 +32,16 @@ def build_user_prompt(window: MessageWindow, max_messages: int = 20) -> str:
         lines.append(f"[{i}] {label}: {m.text}")
 
     return "\n".join(lines)
+
+
+def build_distillation_prompt(messages: list[RawMessage]) -> str:
+    """Build a prompt for summarizing a pre-grouped cluster of messages."""
+    lines = [
+        f"以下是一组语义高度相关的对话记录（共{len(messages)}条）：",
+        "",
+    ]
+    for i, m in enumerate(messages):
+        lines.append(f"[{i}] {m.display_name or m.uid}: {m.text}")
+
+    lines.append("\n请为这段对话提炼一个核心主题（topic）和一段简洁的摘要（summary）。")
+    return "\n".join(lines)

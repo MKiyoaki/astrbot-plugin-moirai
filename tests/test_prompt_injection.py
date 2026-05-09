@@ -29,6 +29,7 @@ def make_event(
         participants=["uid-a"],
         interaction_flow=[],
         topic=topic,
+        summary="test summary",
         chat_content_tags=tags or [],
         salience=salience,
         confidence=0.8,
