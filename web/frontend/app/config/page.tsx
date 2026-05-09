@@ -214,6 +214,10 @@ export default function ConfigPage() {
       keys: ['memory_cleanup_enabled', 'memory_cleanup_threshold', 'memory_cleanup_interval_days'],
     },
     {
+      label: i18n.config.sections.summaries,
+      keys: ['summary_interval_hours', 'summary_word_limit'],
+    },
+    {
       label: i18n.config.sections.boundary,
       keys: ['boundary_time_gap_minutes', 'boundary_max_messages', 'boundary_max_duration_minutes', 'boundary_topic_drift_threshold'],
     },
@@ -223,7 +227,7 @@ export default function ConfigPage() {
     },
     {
       label: i18n.config.sections.tasks,
-      keys: ['decay_interval_hours', 'summary_interval_hours', 'persona_synthesis_interval_hours', 'impression_aggregation_interval_hours', 'file_watcher_poll_seconds'],
+      keys: ['decay_interval_hours', 'persona_synthesis_interval_hours', 'impression_aggregation_interval_hours', 'file_watcher_poll_seconds'],
     },
   ], [i18n])
 

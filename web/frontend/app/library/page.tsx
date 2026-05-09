@@ -51,10 +51,13 @@ function PaginationFooter({
   totalItems: number, totalPages: number, pageSize: number, currentPage: number,
   onPageChange: (p: number) => void, onPageSizeChange: (sz: number) => void
 }) {
+  const { i18n } = useApp()
+  const pt = i18n.common.pagination
+
   return (
     <div className="flex items-center justify-between border-t px-2 py-3 mt-4 shrink-0">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span>每页显示</span>
+        <span>{pt.pageSize}</span>
         <Select value={pageSize.toString()} onValueChange={(v) => onPageSizeChange(Number(v))}>
           <SelectTrigger className="h-8 w-[70px]">
             <SelectValue />
@@ -65,11 +68,11 @@ function PaginationFooter({
             <SelectItem value="100">100</SelectItem>
           </SelectContent>
         </Select>
-        <span>项</span>
+        <span>{pt.unit}</span>
       </div>
       <div className="flex items-center gap-4">
         <span className="text-sm text-muted-foreground">
-          {totalItems} Items (Page {currentPage}/{totalPages})
+          {pt.totalItems.replace('{count}', String(totalItems))} ({pt.pageInfo.replace('{current}', String(currentPage)).replace('{total}', String(totalPages))})
         </span>
         <Pagination className="justify-end w-auto mx-0">
           <PaginationContent>
@@ -77,6 +80,7 @@ function PaginationFooter({
               <PaginationPrevious
                 href="#"
                 size="sm"
+                label={pt.previous}
                 onClick={(e) => { e.preventDefault(); if (currentPage > 1) onPageChange(currentPage - 1) }}
                 className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
               />
@@ -85,6 +89,7 @@ function PaginationFooter({
               <PaginationNext
                 href="#"
                 size="sm"
+                label={pt.next}
                 onClick={(e) => { e.preventDefault(); if (currentPage < totalPages) onPageChange(currentPage + 1) }}
                 className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
               />

@@ -34,6 +34,11 @@ async def run_group_summary(
     from ..config import SummaryConfig as _SC
     cfg = summary_config or _SC()
 
+    # Dynamic word limit injection
+    system_prompt = cfg.system_prompt
+    if "不超过300字" in system_prompt:
+        system_prompt = system_prompt.replace("不超过300字", f"不超过{cfg.word_limit}字")
+
     provider = provider_getter()
     if provider is None:
         logger.debug(f"[{_MODULE_NAME}] no provider, skipping group summary")
@@ -47,6 +52,13 @@ async def run_group_summary(
         events = await event_repo.list_by_group(group_id, limit=cfg.max_events)
         if not events:
             continue
+
+        # Calculate time range of summarized events
+        start_ts = min(e.start_time for e in events)
+        end_ts = max(e.end_time for e in events)
+        start_time_str = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%H:%M")
+        end_time_str = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%H:%M")
+        time_range_str = f"{start_time_str} - {end_time_str}"
 
         group_label = group_id or "私聊"
         event_list = "\n".join(
@@ -65,11 +77,11 @@ async def run_group_summary(
 
         try:
             resp = await asyncio.wait_for(
-                provider.text_chat(prompt=prompt, system_prompt=cfg.system_prompt),
+                provider.text_chat(prompt=prompt, system_prompt=system_prompt),
                 timeout=cfg.llm_timeout,
             )
             content = (
-                f"# {group_label} 活动摘要 — {today}\n\n"
+                f"# {group_label} 活动摘要 — {today} {time_range_str}\n\n"
                 f"{resp.completion_text.strip()}\n"
             )
 

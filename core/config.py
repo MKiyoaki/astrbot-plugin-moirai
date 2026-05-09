@@ -65,9 +65,9 @@ _DEFAULT_PERSONA_SYSTEM_PROMPT = (
 
 _DEFAULT_IMPRESSION_SYSTEM_PROMPT = (
     "你是一个社交关系分析助手。根据对话事件，更新对某人的印象。"
-    "只输出单行JSON，字段：ipc_orientation（以下8种之一：友好/支配友好/支配/支配敌意/敌意/服从敌意/服从/服从友好）、"
+    "只输出单行JSON，字段：ipc_orientation（以下8种之一：亲和/活跃/掌控/高傲/冷淡/孤避/顺应/谦让）、"
     "benevolence（亲和度，-1.0到1.0的浮点数）、power（支配度，-1.0到1.0的浮点数）、"
-    "confidence（0.0到1.0的浮点数）。不要输出任何其他内容。"
+    "confidence（0.0到1.0 Hendrick 的浮点数）。不要输出任何其他内容。"
 )
 
 
@@ -81,8 +81,12 @@ class SynthesisConfig:
 
 _DEFAULT_SUMMARY_SYSTEM_PROMPT = (
     "你是一个对话记录摘要助手。根据提供的事件列表，生成本期群组活动摘要。"
-    "用Markdown格式输出，包含：本期主要话题（无序列表）、成员活跃度（简短说明）、"
-    "值得关注的事件。总字数不超过300字。不要输出任何其他内容。"
+    "必须使用 Markdown 格式输出，且固定包含以下四个部分，每个标题加中括号，部分之间用一个空行分隔：\n\n"
+    "[主要话题]\n\n"
+    "[情感动态]\n\n"
+    "[关键时间]\n\n"
+    "[关系变化]\n\n"
+    "总字数不超过300字。不要输出任何辅助性文字或标题以外的 Markdown 装饰。不要输出任何其他内容。"
 )
 
 
@@ -90,6 +94,7 @@ _DEFAULT_SUMMARY_SYSTEM_PROMPT = (
 class SummaryConfig:
     llm_timeout: float = 45.0
     max_events: int = 20
+    word_limit: int = 300
     system_prompt: str = _DEFAULT_SUMMARY_SYSTEM_PROMPT
 
 
@@ -248,9 +253,13 @@ class PluginConfig:
 
     def get_summary_config(self) -> SummaryConfig:
         prompt = self._str("summary_system_prompt", "").strip()
+        limit = self._int("summary_word_limit", 300)
+        # Enforce range 200-500
+        limit = max(200, min(500, limit))
         return SummaryConfig(
             llm_timeout=self._float("summary_llm_timeout_seconds", 45.0),
             max_events=self._int("summary_max_events", 20),
+            word_limit=limit,
             system_prompt=prompt or _DEFAULT_SUMMARY_SYSTEM_PROMPT,
         )
 

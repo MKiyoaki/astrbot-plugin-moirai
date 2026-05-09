@@ -62,12 +62,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [rawEvents, setRawEvents] = useState<api.ApiEvent[]>([])
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
-  // i18n
-  const [lang, _setLang] = useState<'zh' | 'en' | 'ja'>(() => {
-    if (typeof window === 'undefined') return 'zh'
+  // i18n - Initialise with 'zh' to match SSR default
+  const [lang, _setLang] = useState<'zh' | 'en' | 'ja'>('zh')
+
+  useEffect(() => {
     const v = localStorage.getItem('em_lang')
-    return (v === 'en' || v === 'zh' || v === 'ja') ? v : 'zh'
-  })
+    if (v === 'en' || v === 'zh' || v === 'ja') {
+      _setLang(v)
+    }
+  }, [])
 
   const setLang = useCallback((l: 'zh' | 'en' | 'ja') => {
     _setLang(l)

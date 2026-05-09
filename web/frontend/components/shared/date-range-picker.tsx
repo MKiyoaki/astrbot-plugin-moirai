@@ -26,7 +26,8 @@ export function DateRangePicker({
   onChange,
   className,
 }: DateRangePickerProps) {
-  const { rawEvents } = useApp()
+  const { rawEvents, i18n } = useApp()
+  const t = i18n.common.datePicker || { selectDate: 'Select Date', selectRange: 'Select Range' }
 
   const eventDates = React.useMemo(() => {
     const dates = new Set<string>()
@@ -42,7 +43,7 @@ export function DateRangePicker({
   const formatDateRange = (range: DateRange) => {
     const from = range.from
     const to = range.to
-    if (!from) return '选择日期范围'
+    if (!from) return t.selectRange
     
     const yearFormat = 'yy/MM/dd'
     const shortFormat = 'MM/dd'
@@ -69,7 +70,7 @@ export function DateRangePicker({
           >
             <CalendarIcon className="mr-2 h-3.5 w-3.5 opacity-60" />
             <span className="truncate mr-1">
-              {value ? formatDateRange(value) : '选择日期'}
+              {value ? formatDateRange(value) : t.selectDate}
             </span>
             {value && (
               <div 

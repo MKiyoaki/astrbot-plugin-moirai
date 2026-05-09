@@ -8,14 +8,14 @@ Eight octants at 45° intervals on the unit circle (B = cos θ, P = sin θ):
 
   Label      θ      B       P
   -------  -----  ------  ------
-  友好        0°   +1.000  +0.000
-  支配友好   45°   +0.707  +0.707
-  支配       90°   +0.000  +1.000
-  支配敌意  135°   -0.707  +0.707
-  敌意      180°   -1.000  +0.000
-  服从敌意  225°   -0.707  -0.707
-  服从      270°   +0.000  -1.000
-  服从友好  315°   +0.707  -0.707
+  亲和        0°   +1.000  +0.000
+  活跃       45°   +0.707  +0.707
+  掌控       90°   +0.000  +1.000
+  高傲      135°   -0.707  +0.707
+  冷淡      180°   -1.000  +0.000
+  孤避      225°   -0.707  -0.707
+  顺应      270°   +0.000  -1.000
+  谦让      315°   +0.707  -0.707
 
 References:
   Markey, P. M., & Markey, C. N. (2013). Journal of Personality, 81, 465-475.
@@ -50,14 +50,14 @@ class _IPCOctant:
 
 
 _OCTANTS: tuple[_IPCOctant, ...] = (
-    _IPCOctant("友好",     0.0),
-    _IPCOctant("支配友好", 45.0),
-    _IPCOctant("支配",     90.0),
-    _IPCOctant("支配敌意", 135.0),
-    _IPCOctant("敌意",     180.0),
-    _IPCOctant("服从敌意", 225.0),
-    _IPCOctant("服从",     270.0),
-    _IPCOctant("服从友好", 315.0),
+    _IPCOctant("亲和",     0.0),
+    _IPCOctant("活跃",    45.0),
+    _IPCOctant("掌控",    90.0),
+    _IPCOctant("高傲",   135.0),
+    _IPCOctant("冷淡",   180.0),
+    _IPCOctant("孤避",   225.0),
+    _IPCOctant("顺应",   270.0),
+    _IPCOctant("谦让",   315.0),
 )
 
 _ANGLE_TO_OCTANT: dict[float, _IPCOctant] = {o.angle_deg: o for o in _OCTANTS}

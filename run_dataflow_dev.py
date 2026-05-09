@@ -15,18 +15,24 @@ import time
 from pathlib import Path
 from datetime import datetime
 
-from key import KEY
+try:
+    from key import KEY
+except ImportError:
+    KEY = "your_api_key_here"
 
 # --- LLM CONFIGURATION ---
-# Default to LMStudio. Change these to test with DeepSeek or other providers.
-# LLM_API_URL = "http://localhost:1234/v1"
-# LLM_API_KEY = "lm-studio"
-# LLM_MODEL = "any"
+# Configuration options:
 
-# Example DeepSeek Config (Uncomment to use):
-LLM_API_URL = "https://api.deepseek.com"
-LLM_API_KEY = KEY
-LLM_MODEL = "deepseek-v4-flash"
+# 1. LMStudio (Local) - Heretic Gemma
+LLM_API_URL = "http://localhost:1234/v1"
+LLM_API_KEY = "lm-studio"
+LLM_MODEL = "gemma-4-26b-a4b-it-ultra-uncensored-heretic"
+
+# 2. DeepSeek (Cloud) - Uncomment to use
+# LLM_API_URL = "https://api.deepseek.com"
+# LLM_API_KEY = KEY
+# LLM_MODEL = "deepseek-v4-flash"
+
 # -------------------------
 
 # --- EXTRACTION MODE ---

@@ -172,10 +172,17 @@
         "default": 24
     },
     "summary_interval_hours": {
-        "description": "群组摘要生成间隔（小时）",
+        "description": "摘要生成频率",
+        "type": "select",
+        "options": ["1", "2", "3", "4", "8", "12", "24", "48"],
+        "default": "24",
+        "hint": "每隔多少小时为每个活跃群组生成一次叙事摘要 Markdown"
+    },
+    "summary_word_limit": {
+        "description": "摘要字数限制",
         "type": "int",
-        "hint": "每隔多少小时为每个活跃群组生成一次叙事摘要 Markdown，默认每天一次",
-        "default": 24
+        "default": 300,
+        "hint": "限制生成的摘要总字数，支持 200 到 500 字"
     },
     "persona_synthesis_interval_hours": {
         "description": "人设合成间隔（小时）",
