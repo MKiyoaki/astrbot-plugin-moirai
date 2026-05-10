@@ -42,6 +42,8 @@ def main() -> int:
                 f"[Reset] WARNING: {REALTIME_DB.name} is locked by another process.\n"
                 "        Close LMStudio / any Python process holding the DB and retry."
             )
+        except Exception as e:
+            print(f"[Reset] Error deleting {REALTIME_DB.name}: {e}")
     else:
         print(f"[Reset] {REALTIME_DB.name} not found — nothing to delete")
 
@@ -60,15 +62,22 @@ def main() -> int:
         print("[Reset] No archived dataflow_test_*.db found — skipping DB restore")
     else:
         latest_db = db_candidates[0]
-        shutil.copy2(str(latest_db), str(DATAFLOW_DB))
-        print(f"[Reset] Restored {latest_db.name} → dataflow_test.db")
+        try:
+            shutil.copy2(latest_db, DATAFLOW_DB)
+            print(f"[Reset] Restored {latest_db.name} → dataflow_test.db")
+        except Exception as e:
+            print(f"[Reset] Error restoring DB: {e}")
+        
         if len(db_candidates) > 1:
-            print(f"        ({len(db_candidates) - 1} older archive(s) retained)")
+            print(f"        ({len(db_candidates) - 1} older DB archive(s) will be cleaned up)")
 
     # Step 3: Remove realtime-generated groups/ (summary files from this session)
     if GROUPS_DIR.exists():
-        shutil.rmtree(str(GROUPS_DIR))
-        print("[Reset] Removed realtime-generated .dev_data/groups/")
+        try:
+            shutil.rmtree(GROUPS_DIR)
+            print("[Reset] Removed realtime-generated .dev_data/groups/")
+        except Exception as e:
+            print(f"[Reset] Warning: Could not remove {GROUPS_DIR}: {e}")
 
     # Step 4: Restore the original groups/ dir (moved by _archive_step at startup)
     grp_candidates = sorted(
@@ -78,20 +87,45 @@ def main() -> int:
     )
     if not grp_candidates:
         print("[Reset] No archived groups_<ts>/ found — summary dir stays empty")
+    elif GROUPS_DIR.exists():
+        print(f"[Reset] WARNING: {GROUPS_DIR.name} still exists (Step 3 failed); skipping restore to avoid nesting.")
     else:
         latest_grp = grp_candidates[0]
-        shutil.move(str(latest_grp), str(GROUPS_DIR))
-        print(f"[Reset] Restored {latest_grp.name}/ → .dev_data/groups/")
+        try:
+            shutil.move(str(latest_grp), str(GROUPS_DIR))
+            print(f"[Reset] Restored {latest_grp.name}/ → .dev_data/groups/")
+        except Exception as e:
+            print(f"[Reset] Error restoring groups: {e}")
+        
         if len(grp_candidates) > 1:
-            print(f"        ({len(grp_candidates) - 1} older archive(s) retained)")
+            print(f"        ({len(grp_candidates) - 1} older group archive(s) will be cleaned up)")
 
-    # Step 5: Clean up stale realtime DB snapshots from archive
-    if ARCHIVE_DIR.exists():
-        stale_dbs = list(ARCHIVE_DIR.glob("realtime_test_stale_*.db"))
-        if stale_dbs:
-            for f in stale_dbs:
-                f.unlink()
-            print(f"[Reset] Removed {len(stale_dbs)} stale realtime archive(s).")
+    # Step 5: Comprehensive cleanup of ALL stale archives
+    print("[Reset] Cleaning up remaining archives...")
+    cleanup_count = 0
+    
+    # All files/dirs in archive that were NOT just restored
+    # (Note: latest_db was copied, so it's still in archive. latest_grp was moved, so it's gone.)
+    for item in ARCHIVE_DIR.iterdir():
+        try:
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+            cleanup_count += 1
+        except Exception as e:
+            print(f"        Failed to delete {item.name}: {e}")
+
+    if cleanup_count > 0:
+        print(f"[Reset] Removed {cleanup_count} stale archive item(s).")
+    
+    # Try to remove ARCHIVE_DIR if empty
+    try:
+        if not any(ARCHIVE_DIR.iterdir()):
+            ARCHIVE_DIR.rmdir()
+            print("[Reset] Removed empty archive directory.")
+    except Exception:
+        pass
 
     print("[Reset] Done.")
     return 0
