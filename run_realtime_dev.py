@@ -72,19 +72,26 @@ try:
 except ImportError:
     KEY = "your_api_key_here"
 
-# 1. LMStudio (Local) — Heretic Gemma
-# LLM_API_URL = "http://localhost:1234/v1"
-# LLM_API_KEY = "lm-studio"
-# LLM_MODEL   = "gemma-4-26b-a4b-it-ultra-uncensored-heretic"
-
-# 2. DeepSeek (Cloud) — uncomment to use
-# LLM_API_URL = "https://api.deepseek.com"
-# LLM_API_KEY = KEY
-# LLM_MODEL = "deepseek-v4-flash"
-
-MODE = "encoder"   # "encoder" | "llm"
+# Configurable settings
+_EVENT_MODE = "encoder"   # "encoder" | "llm"
 _MOOD_SOURCE = "impression_db"  # "impression_db" | "llm"
 _TIMEOUT = 330.0
+_MODEL_TYPE = "lmstudio" # "lmstudio" | "deepseek"
+
+def _get_model_info(model_type: str):
+    if model_type == "lmstudio":
+        llm_api_url = "http://localhost:1234/v1"
+        llm_api_key = "lm-studio"
+        llm_model = "gemma-4-26b-a4b-it-ultra-uncensored-heretic"
+    elif model_type == "deepseek":
+        llm_api_url = "https://api.deepseek.com"
+        llm_api_key = KEY
+        llm_model = "deepseek-v4-flash"
+    else:
+        raise ValueError("Not supported model type! ")
+    return llm_api_url, llm_api_key, llm_model
+
+LLM_API_URL, LLM_API_KEY, LLM_MODEL = _get_model_info(_MODEL_TYPE)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -272,7 +279,7 @@ def _cleanup() -> None:
 async def main() -> None:
     # Step 1: Archive existing state
     print("=" * 70)
-    print("  REALTIME DEV TEST  |  MODE:", MODE.upper(), " |  LLM:", LLM_MODEL)
+    print("  REALTIME DEV TEST  |  EVENT_MODE:", _EVENT_MODE.upper(), " |  LLM:", LLM_MODEL)
     print("=" * 70)
     _archive_step()
 
@@ -326,7 +333,7 @@ async def main() -> None:
             raw["extraction_strategy"] = "llm"
         return PluginConfig(raw)
 
-    cfg = _build_config(MODE)
+    cfg = _build_config(_EVENT_MODE)
     # Use _RealtimeProviderBridge instead of MockProviderBridge:
     # 180 s httpx timeout + <think> tag stripping for Gemma 26B.
     mock_provider = _RealtimeProviderBridge(
@@ -341,7 +348,7 @@ async def main() -> None:
         impression_repo = SQLiteImpressionRepository(db)
 
         # Encoder
-        if MODE == "encoder":
+        if _EVENT_MODE == "encoder":
             from core.embedding.encoder import SentenceTransformerEncoder
             print(
                 f"[Encoder] Loading {cfg.embedding_model} (first run may download ~100 MB) ...")
