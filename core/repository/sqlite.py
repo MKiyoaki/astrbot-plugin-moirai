@@ -52,7 +52,7 @@ _PRAGMAS = [
 
 
 async def _try_load_sqlite_vec(db: aiosqlite.Connection, dim: int = 512) -> bool:
-    """Load the sqlite-vec extension and create events_vec virtual table.
+    """Load the sqlite-vec extension and create virtual tables.
 
     Returns True on success, False if the extension is not installed.
     Safe to call on every startup — uses IF NOT EXISTS.
@@ -65,6 +65,9 @@ async def _try_load_sqlite_vec(db: aiosqlite.Connection, dim: int = 512) -> bool
         await db.enable_load_extension(False)  # re-disable for safety
         await db.execute(
             f"CREATE VIRTUAL TABLE IF NOT EXISTS events_vec USING vec0(embedding float[{dim}])"
+        )
+        await db.execute(
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS tags_vec USING vec0(embedding float[{dim}])"
         )
         await db.commit()
         return True
@@ -648,6 +651,61 @@ class SQLiteEventRepository(EventRepository):
         async with self._db.execute(sql, params) as cur:
             row = await cur.fetchone()
         return row[0] if row else 0
+
+    # --- Tag Abstraction & Normalization ---
+
+    async def list_frequent_tags(self, limit: int = 50) -> list[str]:
+        async with self._db.execute(
+            "SELECT value, COUNT(*) as freq "
+            "FROM events, json_each(events.chat_content_tags) "
+            "GROUP BY value "
+            "ORDER BY freq DESC "
+            "LIMIT ?",
+            (limit,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [row[0] for row in rows]
+
+    async def search_canonical_tag(
+        self, embedding: list[float], limit: int = 5, threshold: float = 0.85
+    ) -> list[tuple[str, float]]:
+        if not embedding:
+            return []
+        try:
+            # sqlite-vec distance for cosine is 1 - similarity.
+            # similarity = 1 - distance.
+            async with self._db.execute(
+                "SELECT c.tag_text, (1.0 - v.distance) as similarity "
+                "FROM tags_vec v "
+                "JOIN canonical_tags c ON c.id = v.rowid "
+                "WHERE embedding MATCH ? "
+                "AND similarity >= ? "
+                "ORDER BY distance "
+                "LIMIT ?",
+                (json.dumps(embedding), threshold, limit),
+            ) as cur:
+                rows = await cur.fetchall()
+            return [(row[0], row[1]) for row in rows]
+        except Exception as exc:
+            logger.debug("[SQLiteEventRepository] search_canonical_tag failed: %s", exc)
+            return []
+
+    async def upsert_canonical_tag(self, tag_text: str, embedding: list[float]) -> None:
+        import time
+        await self._db.execute(
+            "INSERT INTO canonical_tags(tag_text, created_at) VALUES (?, ?) "
+            "ON CONFLICT(tag_text) DO NOTHING",
+            (tag_text, time.time()),
+        )
+        try:
+            await self._db.execute(
+                "INSERT OR REPLACE INTO tags_vec(rowid, embedding) "
+                "SELECT id, ? FROM canonical_tags WHERE tag_text = ?",
+                (json.dumps(embedding), tag_text),
+            )
+        except Exception as exc:
+            logger.debug("[SQLiteEventRepository] upsert_canonical_tag vector failed: %s", exc)
+        await self._db.commit()
 
 
 # ---------------------------------------------------------------------------

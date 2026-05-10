@@ -13,6 +13,7 @@ def build_user_prompt(
     window: MessageWindow,
     max_messages: int = 20,
     bot_persona_desc: str | None = None,
+    existing_tags: list[str] | None = None,
 ) -> str:
     """Format the conversation window into a user prompt."""
     messages = window.messages[-max_messages:]
@@ -27,13 +28,21 @@ def build_user_prompt(
             uid_label[m.uid] = name
             counter += 1
 
+    header_parts = []
     if bot_persona_desc:
-        persona_line = (
+        header_parts.append(
             f"[Bot 视角人格] {bot_persona_desc}\n"
-            f"注意：请在 summary 每个小话题三元组末尾加上 [Eval] 字段，以上述人格视角对该话题做一句话评价。\n\n"
+            f"注意：请在 summary 每个小话题三元组末尾加上 [Eval] 字段，以上述人格视角对该话题做一句话评价。"
         )
-    else:
-        persona_line = ""
+
+    if existing_tags:
+        tags_str = ", ".join(existing_tags)
+        header_parts.append(
+            f"[现有标签体系] {tags_str}\n"
+            f"注意：chat_content_tags 请优先从上述现有标签中选择。只有在现有标签均不适用时，才创建更宏观、抽象的新标签。"
+        )
+
+    persona_line = "\n\n".join(header_parts) + ("\n\n" if header_parts else "")
     lines = [
         f"{persona_line}对话记录（共{len(messages)}条消息，时间跨度约{duration_min}分钟）：",
         "",
@@ -48,15 +57,24 @@ def build_user_prompt(
 def build_distillation_prompt(
     messages: list[RawMessage],
     bot_persona_desc: str | None = None,
+    existing_tags: list[str] | None = None,
 ) -> str:
     """Build a prompt for summarizing a pre-grouped cluster of messages."""
+    header_parts = []
     if bot_persona_desc:
-        persona_line = (
+        header_parts.append(
             f"[Bot 视角人格] {bot_persona_desc}\n"
-            f"注意：请在 summary 每个小话题三元组末尾加上 [Eval] 字段，以上述人格视角对该话题做一句话评价。\n\n"
+            f"注意：请在 summary 每个小话题三元组末尾加上 [Eval] 字段，以上述人格视角对该话题做一句话评价。"
         )
-    else:
-        persona_line = ""
+
+    if existing_tags:
+        tags_str = ", ".join(existing_tags)
+        header_parts.append(
+            f"[现有标签体系] {tags_str}\n"
+            f"注意：chat_content_tags 请优先从上述现有标签中选择。只有在现有标签均不适用时，才创建更宏观、抽象的新标签。"
+        )
+
+    persona_line = "\n\n".join(header_parts) + ("\n\n" if header_parts else "")
     lines = [
         f"{persona_line}以下是一组语义高度相关的对话记录（共{len(messages)}条）：",
         "",

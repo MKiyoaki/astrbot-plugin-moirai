@@ -19,13 +19,13 @@ _PLUGIN_VERSION = "0.4.4"
 
 
 @register(
-    "astrbot_plugin_enhanced_memory",
+    "moirai",
     "DrGariton",
-    "三轴长期记忆插件：情节轴 × 社会关系轴 × 叙事轴",
+    "三轴长期记忆插件：在多维世界线下管理机器人的命运与记忆。",
     _PLUGIN_VERSION,
-    "https://github.com/MKiyoaki/astrbot-plugin-enhanced-memory",
+    "https://github.com/MKiyoaki/astrbot-plugin-moirai",
 )
-class EnhancedMemoryPlugin(Star):
+class MoiraiPlugin(Star):
     def __init__(self, context: Context) -> None:
         super().__init__(context)
         self._initializer: PluginInitializer | None = None

@@ -78,9 +78,14 @@ class EventExtractor:
         self._llm_timeout = cfg.llm_timeout
         self._strategy = cfg.strategy
         self._persona_influenced_summary = cfg.persona_influenced_summary
+        self._tag_normalization_threshold = cfg.tag_normalization_threshold
+        self._tag_seeds = cfg.tag_seeds
         self._big_five_buffer = big_five_buffer
         self._orientation_analyzer = orientation_analyzer
         self._ipc_enabled = ipc_enabled and (big_five_buffer is not None) and (orientation_analyzer is not None)
+
+        # Initialize canonical tags from seeds asynchronously
+        asyncio.create_task(self._init_tag_seeds())
 
         # Initialize partitioner
         if self._strategy == "semantic":
@@ -91,6 +96,17 @@ class EventExtractor:
             )
         else:
             self._partitioner = LlmPartitioner()
+
+    async def _init_tag_seeds(self) -> None:
+        """Initialize canonical_tags from configuration seeds."""
+        for tag in self._tag_seeds:
+            try:
+                # Only upsert if not exists to avoid re-encoding
+                # Repository implementation already handles ON CONFLICT
+                embedding = await self._encoder.encode(tag)
+                await self._event_repo.upsert_canonical_tag(tag, embedding)
+            except Exception as exc:
+                logger.debug("[EventExtractor] tag seed initialization failed for %s: %s", tag, exc)
 
     async def __call__(self, window: MessageWindow) -> None:
         """on_event_close callback: partition, distill/extract, persist, then index vector.
@@ -105,6 +121,10 @@ class EventExtractor:
         """
         from ..utils.perf import performance_timer
 
+        # 0. Fetch existing tags and merge with seeds for few-shot steering
+        frequent_tags = await self._event_repo.list_frequent_tags(limit=20)
+        steering_tags = list(dict.fromkeys(self._tag_seeds + frequent_tags))[:30]
+
         # 1. Partitioning
         async with performance_timer("partition"):
             partitions = await self._partitioner.partition(window)
@@ -115,7 +135,7 @@ class EventExtractor:
         if self._strategy == "llm":
             # One batch call: LLM handles both splitting and field extraction.
             async with performance_timer("extraction"):
-                batch_results = await self._extract_batch(window)
+                batch_results = await self._extract_batch(window, existing_tags=steering_tags)
                 for res in batch_results:
                     start, end = res["start_idx"], res["end_idx"]
                     extracted_results.append((list(range(start, end + 1)), res))
@@ -126,7 +146,7 @@ class EventExtractor:
                 if not sub_messages:
                     continue
                 async with performance_timer("distill"):
-                    res = await self._distill(sub_messages)
+                    res = await self._distill(sub_messages, existing_tags=steering_tags)
                     extracted_results.append((part.indices, res))
 
         # 3. Persistence
@@ -155,6 +175,10 @@ class EventExtractor:
             start_time = min(timestamps)
             end_time = max(timestamps)
 
+            # --- Tag Abstraction & Normalization ---
+            raw_tags = res.get("chat_content_tags", [])
+            aligned_tags = await self._align_tags(raw_tags)
+
             event = Event(
                 event_id=str(uuid.uuid4()),
                 group_id=window.group_id,
@@ -172,7 +196,7 @@ class EventExtractor:
                 ],
                 topic=res["topic"],
                 summary=res.get("summary", ""),
-                chat_content_tags=res["chat_content_tags"],
+                chat_content_tags=aligned_tags,
                 salience=res["salience"],
                 confidence=res["confidence"],
                 inherit_from=inherit_from,
@@ -199,6 +223,41 @@ class EventExtractor:
 
             if self._ipc_enabled:
                 asyncio.create_task(self._run_ipc_analysis(event, window))
+
+    async def _align_tags(self, raw_tags: list[str]) -> list[str]:
+        """Normalize tags by aligning them to existing canonical tags via vector similarity."""
+        if not raw_tags:
+            return []
+        
+        aligned = []
+        for tag in raw_tags:
+            tag = tag.strip()
+            if not tag:
+                continue
+            
+            # 1. Vector encoding (local/CPU usually)
+            try:
+                embedding = await self._encoder.encode(tag)
+            except Exception as exc:
+                logger.debug("[EventExtractor] tag encoding failed: %s", exc)
+                aligned.append(tag)
+                continue
+                
+            # 2. Search for existing canonical tags in tags_vec
+            matches = await self._event_repo.search_canonical_tag(
+                embedding, threshold=self._tag_normalization_threshold
+            )
+            
+            if matches:
+                # Similarity is high enough, align to the existing one
+                best_match, _ = matches[0]
+                aligned.append(best_match)
+            else:
+                # No close match, this is a new canonical tag category
+                await self._event_repo.upsert_canonical_tag(tag, embedding)
+                aligned.append(tag)
+                
+        return list(dict.fromkeys(aligned)) # preserve order, remove duplicates
 
     async def _get_bot_persona_desc(self) -> str | None:
         """Return the bot persona description if persona-influenced summary is enabled."""
@@ -238,13 +297,18 @@ class EventExtractor:
             logger.debug("[EventExtractor] bot persona name lookup failed: %s", exc)
         return None
 
-    async def _extract_batch(self, window: MessageWindow) -> list[dict]:
+    async def _extract_batch(self, window: MessageWindow, existing_tags: list[str] | None = None) -> list[dict]:
         provider = self._provider_getter()
         if provider is None:
             return fallback_extraction(window)
 
         bot_persona_desc = await self._get_bot_persona_desc()
-        prompt = build_user_prompt(window, self._max_context_messages, bot_persona_desc=bot_persona_desc)
+        prompt = build_user_prompt(
+            window, 
+            self._max_context_messages, 
+            bot_persona_desc=bot_persona_desc,
+            existing_tags=existing_tags
+        )
         try:
             resp = await asyncio.wait_for(
                 provider.text_chat(prompt=prompt, system_prompt=self._system_prompt),
@@ -258,7 +322,7 @@ class EventExtractor:
 
         return fallback_extraction(window)
 
-    async def _distill(self, messages: list) -> dict:
+    async def _distill(self, messages: list, existing_tags: list[str] | None = None) -> dict:
         """Call LLM to summarize a specific cluster of messages."""
         provider = self._provider_getter()
         if provider is None:
@@ -274,7 +338,11 @@ class EventExtractor:
             }
 
         bot_persona_desc = await self._get_bot_persona_desc()
-        prompt = build_distillation_prompt(messages, bot_persona_desc=bot_persona_desc)
+        prompt = build_distillation_prompt(
+            messages, 
+            bot_persona_desc=bot_persona_desc,
+            existing_tags=existing_tags
+        )
         try:
             resp = await asyncio.wait_for(
                 provider.text_chat(prompt=prompt, system_prompt=self._distillation_system_prompt),

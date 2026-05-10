@@ -210,6 +210,26 @@ class InMemoryEventRepository(EventRepository):
                     count += 1
         return count
 
+    # --- Tag Abstraction & Normalization ---
+
+    async def list_frequent_tags(self, limit: int = 50) -> list[str]:
+        counts: dict[str, int] = {}
+        for event in self._store.values():
+            for tag in event.chat_content_tags:
+                counts[tag] = counts.get(tag, 0) + 1
+        sorted_tags = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+        return [t[0] for t in sorted_tags[:limit]]
+
+    async def search_canonical_tag(
+        self, embedding: list[float], limit: int = 5, threshold: float = 0.85
+    ) -> list[tuple[str, float]]:
+        # Stub: memory repo has no vector store for tags
+        return []
+
+    async def upsert_canonical_tag(self, tag_text: str, embedding: list[float]) -> None:
+        # Stub: memory repo just accepts it
+        pass
+
 
 class InMemoryImpressionRepository(ImpressionRepository):
     def __init__(self) -> None:

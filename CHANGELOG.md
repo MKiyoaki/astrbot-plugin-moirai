@@ -1,5 +1,40 @@
 # CHANGELOG
 
+## [v0.7.8] — 2026-05-11
+
+### 数据驱动的情感动态分析 (Data-Driven Mood Analysis)
+
+#### 后端 (`core/`)
+- **`core/tasks/summary.py`**：实现 **选项 A (Impression DB)** 路径。系统现在可以从数据库中聚合真实的 IPC 社交坐标来计算群体的“情感质心”，并自动 fallback 到 LLM 模式。
+- **`core/config.py`** & **`_conf_schema.json`**：新增 `summary_mood_source` 配置项，允许用户在“LLM 推断 (感性)”与“印象数据库 (理性)”之间切换。
+- **`core/plugin_initializer.py`** & **`web/server.py`**：完善依赖注入，将 `impression_repo` 正确传递给摘要生成任务。
+
+#### 测试
+- **`tests/test_summary_mood.py`**：新增针对选项 A、选项 B 以及自动回退机制的单元测试。
+- **`tests/test_tasks.py`**：修复了原有测试中不符合 IPC 模型定义的标签导致的断言失败。
+
+---
+
+## [v0.7.7] — 2026-05-11
+
+### 标签抽象与归一化治理 (Tag Abstraction & Normalization)
+
+#### 后端 (`core/`)
+- **`migrations/007_canonical_tags.sql`**：新增 `canonical_tags` 存储规范化标签，以及配套的 `tags_vec` (vec0) 向量虚拟表。
+- **`core/repository/base.py`**：`EventRepository` 接口新增 `list_frequent_tags()`、`search_canonical_tag()` 及 `upsert_canonical_tag()`。
+- **`core/repository/sqlite.py`**：实现基于 `json_each` 的高频标签统计与基于 `sqlite-vec` 的标签向量对齐逻辑。
+- **`core/extractor/prompts.py`**：修改 `build_user_prompt` 和 `build_distillation_prompt`，支持注入 `existing_tags` 实现 Few-shot 引导，促使 LLM 优先使用已有宏观标签。
+- **`core/extractor/extractor.py`**：
+    - **Step 0**：提取前获取常用标签注入提示词。
+    - **Silent Alignment**：事件持久化前对 LLM 生成的标签进行本地向量对齐。
+    - **自动聚类**：相似度 > 阈值（默认 0.85）的标签自动归并；新话题则自动沉淀为新规范标签。
+- **`core/config.py`** & **`_conf_schema.json`**：新增 `tag_normalization_threshold` 配置项，允许用户微调标签合并的敏感度。
+
+#### 测试
+- **`tests/test_tag_normalization.py`**：新增针对标签向量对齐、Few-shot 注入和去重逻辑的单元测试。
+
+---
+
 ## [v0.7.6] — 2026-05-10
 
 ### 人格列显示修复 + 摘要编辑结构化隔离 (Persona Name Display & Structured Summary Editor)

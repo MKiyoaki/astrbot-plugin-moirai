@@ -440,6 +440,7 @@ async def main() -> None:
             provider_getter=lambda: mock_provider,
             summary_config=summary_cfg,
             persona_repo=persona_repo,
+            impression_repo=impression_repo,
         )
         print(f"[Phase 3] {n_written} summary file(s) written.")
 

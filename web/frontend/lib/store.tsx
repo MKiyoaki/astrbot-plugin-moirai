@@ -95,6 +95,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return v ? parseInt(v, 10) : 30
   })
 
+  // Default persona confidence — persisted in localStorage
+  const [defaultPersonaConfidence, _setDefaultPersonaConfidence] = useState(() => {
+    if (typeof window === 'undefined') return 0.5
+    const v = localStorage.getItem('em_default_persona_confidence')
+    return v ? parseFloat(v) : 0.5
+  })
+
   const setSudoGuardEnabled = useCallback((v: boolean) => {
     _setSudoGuardEnabled(v)
     localStorage.setItem('em_sudo_guard_enabled', String(v))
@@ -103,20 +110,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     _setSudoGuardMinutes(v)
     localStorage.setItem('em_sudo_guard_minutes', String(v))
   }, [])
-
-  // Default persona confidence — persisted in localStorage
-  const [defaultPersonaConfidence, _setDefaultPersonaConfidence] = useState(() => {
-    if (typeof window === 'undefined') return 0.5
-    const v = localStorage.getItem('em_default_persona_confidence')
-    return v ? parseFloat(v) : 0.5
-  })
   const setDefaultPersonaConfidence = useCallback((v: number) => {
     _setDefaultPersonaConfidence(v)
     localStorage.setItem('em_default_persona_confidence', String(v))
   }, [])
 
-  // If sudo guard is disabled or minutes=0, always keep sudo=true when authenticated
-  const effectiveSudoAlways = !sudoGuardEnabled || sudoGuardMinutes === 0
+  // If auth is disabled, always keep sudo=true
+  const effectiveSudoAlways = !authEnabled
 
   const refreshAuth = useCallback(async () => {
     try {
@@ -140,13 +140,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setAuthEnabled(s.auth_enabled)
       setAuthenticated(s.authenticated)
       setPasswordSet(s.password_set)
-      if (effectiveSudoAlways && s.authenticated) {
-        setSudo(true)
-      } else {
-        setSudo(s.sudo)
-      }
+      setSudo(s.sudo)
     } catch {}
-  }, [effectiveSudoAlways])
+  }, [])
 
   const refreshStats = useCallback(async () => {
     try {

@@ -182,6 +182,27 @@ class EventRepository(ABC):
         """
         ...
 
+    # --- Tag Abstraction & Normalization ---
+
+    @abstractmethod
+    async def list_frequent_tags(self, limit: int = 50) -> list[str]:
+        """Return the most frequently used tags from the events table."""
+        ...
+
+    @abstractmethod
+    async def search_canonical_tag(
+        self, embedding: list[float], limit: int = 5, threshold: float = 0.85
+    ) -> list[tuple[str, float]]:
+        """Find existing canonical tags similar to the given embedding.
+        Returns a list of (tag_text, similarity_score).
+        """
+        ...
+
+    @abstractmethod
+    async def upsert_canonical_tag(self, tag_text: str, embedding: list[float]) -> None:
+        """Store a new canonical tag and its embedding."""
+        ...
+
 
 class ImpressionRepository(ABC):
     @abstractmethod

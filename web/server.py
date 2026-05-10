@@ -577,15 +577,26 @@ class WebuiServer:
         return resp
 
     async def _handle_auth_sudo(self, request: web.Request) -> web.Response:
+        if not self._auth_enabled:
+            return _json({"ok": True, "sudo_remaining_seconds": 3600})
+
         body = await request.json()
         token = request.cookies.get(_SESSION_COOKIE)
-        # Distinguish session expiration from incorrect password for easier troubleshooting
-        if not token or not self._auth.check(token).is_authenticated:
+        
+        # Prefer using state from middleware if available
+        state = request.get("auth")
+        if not state:
+            state = self._auth.check(token)
+
+        if not token or not state.is_authenticated:
             return _json({"error": "session expired, please login again"}, status=401)
+            
         if not self._auth.verify_password(body.get("password", "")):
             return _json({"error": "invalid password"}, status=401)
+            
         if not self._auth.verify_sudo(token, body.get("password", "")):
             return _json({"error": "sudo activation failed"}, status=500)
+            
         state = self._auth.check(token)
         return _json({"ok": True, "sudo_remaining_seconds": state.sudo_remaining_seconds})
 
@@ -693,6 +704,7 @@ class WebuiServer:
                 group_id=group_id,
                 date=date,
                 persona_repo=self._persona_repo,
+                impression_repo=self._impression_repo,
             )
         except Exception as exc:
             logger.warning("[WebUI] regenerate_summary failed: %s", exc)
@@ -769,7 +781,7 @@ class WebuiServer:
                 ],
                 topic="早安问候",
                 summary="Alice 发起早安问候，Bob 礼貌回应，群组开启了一天的活跃氛围。",
-                chat_content_tags=["日常", "社交"],
+                chat_content_tags=["社交", "日常"],
                 salience=0.3, confidence=0.95, inherit_from=[],
                 last_accessed_at=now - 5 * DAY,
             ),
@@ -780,7 +792,7 @@ class WebuiServer:
                 interaction_flow=[],
                 topic="音乐推荐：古典乐之美",
                 summary="Alice 分享了几首德彪西的曲目，Bob 探讨了古典乐对专注力的提升作用。",
-                chat_content_tags=["艺术", "古典乐", "分享"],
+                chat_content_tags=["艺术", "分享"],
                 salience=0.65, confidence=0.88, inherit_from=["demo_evt_001"],
                 last_accessed_at=now - 2 * DAY,
             ),
@@ -791,7 +803,7 @@ class WebuiServer:
                 interaction_flow=[],
                 topic="异步 IO 性能调优",
                 summary="Bob 与 Charlie 深入讨论了 Python asyncio 的事件循环机制及在高并发场景下的优化策略。",
-                chat_content_tags=["技术", "Python", "调优"],
+                chat_content_tags=["技术", "知识"],
                 salience=0.82, confidence=0.94, inherit_from=[],
                 last_accessed_at=now - 12 * 3600,
             ),
@@ -802,7 +814,7 @@ class WebuiServer:
                 interaction_flow=[],
                 topic="周末徒步计划",
                 summary="Alice 邀请 Diana 周末去西山徒步，Diana 建议携带专业摄影器材记录秋景。",
-                chat_content_tags=["运动", "徒步", "摄影"],
+                chat_content_tags=["运动", "日常"],
                 salience=0.58, confidence=0.85, inherit_from=[],
                 last_accessed_at=now - DAY,
             ),
@@ -813,7 +825,7 @@ class WebuiServer:
                 interaction_flow=[],
                 topic="私聊：核心架构咨询",
                 summary="Bob 私下向 BOT 询问了增强记忆引擎的向量检索原理，表现出对底层实现的浓厚兴趣。",
-                chat_content_tags=["技术", "咨询", "私聊"],
+                chat_content_tags=["技术", "咨询"],
                 salience=0.75, confidence=0.89, inherit_from=["demo_evt_003"],
                 last_accessed_at=now - 3600,
             ),
@@ -824,7 +836,7 @@ class WebuiServer:
                 interaction_flow=[],
                 topic="AI 伦理与长期记忆",
                 summary="群组讨论了机器人拥有长期记忆后可能带来的隐私风险及相关的伦理边界问题。",
-                chat_content_tags=["AI", "伦理", "深度讨论"],
+                chat_content_tags=["AI", "知识"],
                 salience=0.91, confidence=0.92, inherit_from=[],
                 last_accessed_at=now,
                 is_locked=True,
@@ -836,7 +848,7 @@ class WebuiServer:
                 interaction_flow=[],
                 topic="现代诗歌鉴赏",
                 summary="Diana 朗读了一首关于时间的诗，BOT 从语义角度给出了深刻的解读与回应。",
-                chat_content_tags=["文学", "诗歌", "艺术"],
+                chat_content_tags=["艺术", "文学"],
                 salience=0.42, confidence=0.81, inherit_from=[],
                 last_accessed_at=now - 6 * 3600,
             ),
@@ -847,7 +859,7 @@ class WebuiServer:
                 interaction_flow=[],
                 topic="项目周报同步",
                 summary="Alice 汇总了本周的讨论热点，Bob 确认了技术分享的排期，群组达成阶段性一致。",
-                chat_content_tags=["工作", "同步", "周报"],
+                chat_content_tags=["工作", "同步"],
                 salience=0.67, confidence=0.88, inherit_from=["demo_evt_006"],
                 last_accessed_at=now,
             ),

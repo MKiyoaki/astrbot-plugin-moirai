@@ -1,8 +1,8 @@
 {
     "webui_enabled": {
-        "description": "启用 WebUI 记忆可视化面板",
+        "description": "启用 Moirai 记忆管理面板",
         "type": "bool",
-        "hint": "开启后可在浏览器访问三轴记忆面板（事件流 / 关系图 / 摘要）",
+        "hint": "开启后可在浏览器访问 Moirai 三轴记忆面板（事件流 / 关系图 / 摘要）",
         "default": true
     },
     "webui_port": {
@@ -153,6 +153,12 @@
         "hint": "禁用后仅保留情节记忆（Event Flow），不执行 Impression 推断和关系图构建",
         "default": true
     },
+    "persona_default_confidence": {
+        "description": "人格默认置信度",
+        "type": "float",
+        "hint": "新建人格时赋予的初始置信值（由模型推断后自动更新）",
+        "default": 0.5
+    },
     "migration_auto_backup": {
         "description": "迁移前自动备份数据库文件",
         "type": "bool",
@@ -268,6 +274,22 @@
         "hint": "每隔多少天执行一次自动清理任务",
         "default": 7
     },
+    "summary_word_limit": {
+        "description": "摘要字数限制",
+        "type": "int",
+        "default": 300,
+        "hint": "生成的每日摘要正文字数上限（200-500字之间）"
+    },
+    "summary_mood_source": {
+        "description": "情感动态数据源",
+        "type": "select",
+        "options": [
+            { "value": "llm", "label": "LLM 推断 (感性/全面)" },
+            { "value": "impression_db", "label": "印象数据库 (理性/严谨)" }
+        ],
+        "default": "llm",
+        "hint": "决定每日摘要中 [情感动态] 区块的生成方式。数据库模式基于真实社交模型数据聚合。"
+    },
     "webui_password": {
         "description": "WebUI 访问密码",
         "type": "string",
@@ -295,5 +317,17 @@
         "type": "int",
         "default": 2,
         "hint": "仅在 Semantic 策略下生效。话题包含的最少消息数量，设为 2 可避免生成大量单条消息事件。"
+    },
+    "tag_normalization_threshold": {
+        "description": "标签归一化阈值",
+        "type": "float",
+        "default": 0.85,
+        "hint": "0-1 之间的向量相似度。提取标签时，若与现有标签相似度超过此值，则自动归并到现有标签下。"
+    },
+    "tag_seeds": {
+        "description": "标签种子词表（定义记忆抽象层级）",
+        "type": "string",
+        "default": "社交,日常,技术,知识,工作,娱乐,艺术,情感,资讯",
+        "hint": "用英文逗号分隔。这些词定义了系统记忆的宏观分类。LLM 会模仿这些词的抽象高度进行打标。"
     }
 }

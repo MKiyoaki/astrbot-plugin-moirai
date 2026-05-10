@@ -60,7 +60,31 @@ Further refine memory quality and efficiency by using a lightweight Encoder (Emb
     - Implemented `PerfTracker` and `performance_timer` in `core/utils/perf.py`.
     - Integrated tracking for `partition`, `distill`, `retrieval`, and `recall` phases.
 
+## Tag Abstraction & Normalization (Planned)
+
+### 1. Objective
+Solve the "Tag Proliferation" problem by introducing a two-layer abstraction: Topic (specific) and Tags (macro/笼统). Use a combination of Few-shot prompt steering and Encoder-based vector alignment to ensure a stable, clean tagging system without additional LLM calls for merging.
+
+### 2. Core Tasks
+- [ ] **Repository Enhancement**:
+    - Implement `get_frequent_tags(limit=50)` using SQLite `json_each` to aggregate existing tags.
+    - Create a `tags_vec` table (vec0) to store embeddings for unique canonical tags.
+- [ ] **Few-shot Prompt Steering**:
+    - Update `core/extractor/prompts.py` to inject the top-N existing tags into the LLM context.
+    - Clarify the role of `Topic` (concrete/narrative) vs `Tags` (abstract/categorical).
+- [ ] **Vector Alignment Logic (In-Extractor)**:
+    - Before persisting a new event, encode its LLM-generated tags.
+    - Perform a local vector search against the existing tag pool.
+    - **Silent Alignment**: If similarity > threshold (e.g., 0.85), replace the generated tag with the existing canonical tag.
+    - **Evolution**: If distance is large, treat as a new canonical tag and add to the pool.
+- [ ] **WebUI Integration**:
+    - Expose the canonical tag list to the frontend for management (rename/merge).
+
 ### 3. Verification
+- [ ] Verify that "买东西" and "购车" are both automatically tagged as "购物" while keeping their distinct topics.
+- [ ] Ensure that system performance remains stable with 1000+ events (tag pool is small, so vector overhead is negligible).
+- [ ] Validate that new, unrelated topics (e.g., "色图讨论") correctly spawn new canonical tags.
+
 - [x] Verified that interleaved topics are split into distinct Events via `tests/experimental`.
 - [x] Confirmed 100% test pass rate (315+ tests) including new `summary` field and `partitioner` logic.
 - [x] Validated Dataflow E2E via `run_dataflow_dev.py`.

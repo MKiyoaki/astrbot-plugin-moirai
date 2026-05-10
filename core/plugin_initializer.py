@@ -243,6 +243,8 @@ class PluginInitializer:
             fn=lambda: run_group_summary(
                 event_repo, data_dir, provider_getter,
                 summary_config=summary_cfg,
+                persona_repo=persona_repo,
+                impression_repo=impression_repo,
             ),
         )
         await self.scheduler.start()

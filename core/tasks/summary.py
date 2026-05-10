@@ -21,7 +21,7 @@ from typing import Callable, TYPE_CHECKING
 if TYPE_CHECKING:
     from ..config import SummaryConfig
     from ..domain.models import Event
-    from ..repository.base import EventRepository, PersonaRepository
+    from ..repository.base import EventRepository, PersonaRepository, ImpressionRepository
 
 logger = logging.getLogger(__name__)
 _MODULE_NAME = "Summary"
@@ -48,6 +48,82 @@ def _build_event_list_section(
                 ellipsis = "…" if len(raw) > 20 else ""
                 parts.append(f"*在{sender}发出「{preview}{ellipsis}」后话题转向了")
     return " | ".join(parts)
+
+
+async def _build_mood_section_db(
+    events: list[Event],
+    uid_to_name: dict[str, str],
+    impression_repo: ImpressionRepository,
+    persona_repo: PersonaRepository | None = None,
+) -> str | None:
+    """Option A: Aggregate group mood from Impression DB. 
+    Returns None if data density is too low for fallback.
+    """
+    # Try to find the actual Bot UID from personas (identity='internal')
+    bot_uid = "bot" 
+    if persona_repo:
+        try:
+            personas = await persona_repo.list_all()
+            for p in personas:
+                if any(bi[0] == "internal" for bi in (p.bound_identities or [])):
+                    bot_uid = p.uid
+                    break
+        except Exception:
+            pass
+
+    participants: set[str] = set()
+    for ev in events:
+        for uid in (ev.participants or []):
+            if uid != bot_uid:
+                participants.add(uid)
+    
+    if not participants:
+        return None
+
+    valid_impressions = []
+    for uid in participants:
+        # Currently, the Bot is the observer for social analysis
+        imp = await impression_repo.get(bot_uid, uid, scope="global")
+        if imp and imp.confidence >= 0.3:
+            valid_impressions.append((uid, imp))
+
+    # Threshold for Option A: at least 2 members with data, or 100% of single-user chats
+    if len(valid_impressions) < 2 and len(participants) > 1:
+        return None
+    if not valid_impressions:
+        return None
+
+    # Calculate centroid
+    avg_b = sum(i[1].benevolence for i in valid_impressions) / len(valid_impressions)
+    avg_p = sum(i[1].power for i in valid_impressions) / len(valid_impressions)
+
+    from ..social import ipc_model
+    orientation = ipc_model.classify_octant(avg_b, avg_p)
+    
+    # Group names by their orientation
+    orientation_map: dict[str, list[str]] = {}
+    for uid, imp in valid_impressions:
+        name = uid_to_name.get(uid, uid)
+        orientation_map.setdefault(imp.ipc_orientation, []).append(name)
+    
+    position_clauses = []
+    for label, names in sorted(orientation_map.items()):
+        position_clauses.append(f"[{', '.join(names)}处于群体中的{label}位置]")
+    
+    # Participants with unknown position
+    covered_uids = {i[0] for i in valid_impressions}
+    unknown_names = sorted([uid_to_name.get(u, u) for u in participants if u not in covered_uids])
+    if unknown_names:
+        position_clauses.append(f"[{', '.join(unknown_names)}位置尚未确定]")
+
+    b_str = f"{avg_b:+.2f}"
+    p_str = f"{avg_p:+.2f}"
+    
+    return (
+        f"群体情感动态整体偏向[{orientation}] | "
+        f"[平均亲和度：{b_str}；平均支配度：{p_str}] | "
+        f"{' | '.join(position_clauses)}"
+    )
 
 
 async def _build_mood_section_llm(
@@ -127,6 +203,8 @@ async def _generate_summary_for_group(
     provider,
     cfg: SummaryConfig,
     uid_to_name: dict[str, str],
+    impression_repo: ImpressionRepository | None = None,
+    persona_repo: PersonaRepository | None = None,
 ) -> str:
     """Generate the full three-section markdown content for one group."""
     group_label = group_id or "私聊"
@@ -165,8 +243,14 @@ async def _generate_summary_for_group(
     # Section 2: [事件列表] — Deterministic
     event_list_text = _build_event_list_section(events, uid_to_name)
 
-    # Section 3: [情感动态] — LLM (Option B) or impression DB (Option A, see TODO.md)
-    mood_text = await _build_mood_section_llm(events, uid_to_name, provider, cfg)
+    # Section 3: [情感动态] — LLM (Option B) or impression DB (Option A)
+    mood_text = None
+    if cfg.mood_source == "impression_db" and impression_repo:
+        mood_text = await _build_mood_section_db(events, uid_to_name, impression_repo, persona_repo)
+    
+    if not mood_text:
+        # Fallback to Option B (LLM)
+        mood_text = await _build_mood_section_llm(events, uid_to_name, provider, cfg)
 
     header = f"# {group_label} 活动摘要 — {today} {start_str} - {end_str}"
     return (
@@ -183,6 +267,7 @@ async def run_group_summary(
     provider_getter: Callable,
     summary_config: SummaryConfig | None = None,
     persona_repo: PersonaRepository | None = None,
+    impression_repo: ImpressionRepository | None = None,
 ) -> int:
     """Generate and write a daily summary for every active group.
 
@@ -216,7 +301,7 @@ async def run_group_summary(
             continue
         try:
             content = await _generate_summary_for_group(
-                group_id, events, today, provider, cfg, uid_to_name
+                group_id, events, today, provider, cfg, uid_to_name, impression_repo, persona_repo
             )
             if group_id is None:
                 summary_dir = data_dir / "global" / "summaries"
@@ -241,6 +326,7 @@ async def regenerate_single_summary(
     date: str,
     summary_config: SummaryConfig | None = None,
     persona_repo: PersonaRepository | None = None,
+    impression_repo: ImpressionRepository | None = None,
 ) -> str | None:
     """Regenerate summary for a specific group + date and return new content.
 
@@ -266,7 +352,7 @@ async def regenerate_single_summary(
         return None
 
     content = await _generate_summary_for_group(
-        group_id, events, date, provider, cfg, uid_to_name
+        group_id, events, date, provider, cfg, uid_to_name, impression_repo, persona_repo
     )
 
     if group_id is None:

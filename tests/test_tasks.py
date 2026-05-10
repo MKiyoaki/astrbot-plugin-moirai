@@ -310,12 +310,12 @@ async def test_impression_aggregation_updates_impression() -> None:
     await pr.upsert(make_persona("u1"))
     await er.upsert(make_event("ev1", topic="合作项目", uid="u1"))
     await ir.upsert(make_impression("u1", "u2", evidence=["ev1"]))
-    provider = _MockProvider('{"ipc_orientation":"支配友好","benevolence":0.6,"power":0.4,"affect_intensity":0.8,"r_squared":0.75,"confidence":0.75}')
+    provider = _MockProvider('{"ipc_orientation":"掌控","benevolence":0.6,"power":0.4,"affect_intensity":0.8,"r_squared":0.75,"confidence":0.75}')
     count = await run_impression_aggregation(pr, er, ir, provider_getter=lambda: provider)
     assert count == 1
     updated = await ir.get("u1", "u2", "global")
     assert updated is not None
-    assert updated.ipc_orientation == "支配友好"
+    assert updated.ipc_orientation == "掌控"
     assert abs(updated.benevolence - 0.6) < 0.01
 
 
@@ -355,16 +355,20 @@ async def test_impression_aggregation_clamps_affect() -> None:
 
 async def test_group_summary_no_provider_returns_zero(tmp_path: Path) -> None:
     er = InMemoryEventRepository()
+    ir = InMemoryImpressionRepository()
+    pr = InMemoryPersonaRepository()
     await er.upsert(make_event("ev1", group_id="g1"))
-    count = await run_group_summary(er, tmp_path, provider_getter=lambda: None)
+    count = await run_group_summary(er, tmp_path, provider_getter=lambda: None, impression_repo=ir, persona_repo=pr)
     assert count == 0
 
 
 async def test_group_summary_writes_file(tmp_path: Path) -> None:
     er = InMemoryEventRepository()
+    ir = InMemoryImpressionRepository()
+    pr = InMemoryPersonaRepository()
     await er.upsert(make_event("ev1", topic="Python讨论", group_id="g1"))
     provider = _MockProvider("## 本期主要话题\n- Python讨论\n")
-    count = await run_group_summary(er, tmp_path, provider_getter=lambda: provider)
+    count = await run_group_summary(er, tmp_path, provider_getter=lambda: provider, impression_repo=ir, persona_repo=pr)
     assert count == 1
     summaries = list((tmp_path / "groups" / "g1" / "summaries").glob("*.md"))
     assert len(summaries) == 1
@@ -373,26 +377,32 @@ async def test_group_summary_writes_file(tmp_path: Path) -> None:
 
 async def test_group_summary_skips_empty_group(tmp_path: Path) -> None:
     er = InMemoryEventRepository()
+    ir = InMemoryImpressionRepository()
+    pr = InMemoryPersonaRepository()
     # No events inserted
     provider = _MockProvider("summary content")
-    count = await run_group_summary(er, tmp_path, provider_getter=lambda: provider)
+    count = await run_group_summary(er, tmp_path, provider_getter=lambda: provider, impression_repo=ir, persona_repo=pr)
     assert count == 0
     assert provider.calls == []
 
 
 async def test_group_summary_private_chat_goes_to_global(tmp_path: Path) -> None:
     er = InMemoryEventRepository()
+    ir = InMemoryImpressionRepository()
+    pr = InMemoryPersonaRepository()
     await er.upsert(make_event("ev1", topic="私聊内容", group_id=None))
     provider = _MockProvider("## 私聊摘要\n")
-    await run_group_summary(er, tmp_path, provider_getter=lambda: provider)
+    await run_group_summary(er, tmp_path, provider_getter=lambda: provider, impression_repo=ir, persona_repo=pr)
     summaries = list((tmp_path / "global" / "summaries").glob("*.md"))
     assert len(summaries) == 1
 
 
 async def test_group_summary_multiple_groups(tmp_path: Path) -> None:
     er = InMemoryEventRepository()
+    ir = InMemoryImpressionRepository()
+    pr = InMemoryPersonaRepository()
     await er.upsert(make_event("ev1", group_id="g1"))
     await er.upsert(make_event("ev2", group_id="g2"))
     provider = _MockProvider("摘要内容")
-    count = await run_group_summary(er, tmp_path, provider_getter=lambda: provider)
+    count = await run_group_summary(er, tmp_path, provider_getter=lambda: provider, impression_repo=ir, persona_repo=pr)
     assert count == 2

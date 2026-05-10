@@ -44,6 +44,10 @@ const FIELD_DEPENDENCIES: Record<string, string> = {
   'impression_event_trigger_threshold': 'relation_enabled',
   'impression_trigger_debounce_hours': 'relation_enabled',
   'impression_update_alpha': 'relation_enabled',
+
+  // Boundary / Extraction
+  'semantic_clustering_eps': 'extraction_strategy',
+  'semantic_clustering_min_samples': 'extraction_strategy',
 }
 
 function ConfigField({
@@ -109,11 +113,16 @@ function ConfigField({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {schema.options.map(opt => (
-                <SelectItem key={opt} value={opt}>
-                  {opt}
-                </SelectItem>
-              ))}
+              {schema.options.map(opt => {
+                const isObj = typeof opt === 'object' && opt !== null
+                const val = isObj ? (opt as any).value : String(opt)
+                const lab = isObj ? (opt as any).label : String(opt)
+                return (
+                  <SelectItem key={val} value={val}>
+                    {lab}
+                  </SelectItem>
+                )
+              })}
             </SelectContent>
           </Select>
         </div>
@@ -215,15 +224,26 @@ export default function ConfigPage() {
     },
     {
       label: i18n.config.sections.summaries,
-      keys: ['summary_interval_hours', 'summary_word_limit'],
+      keys: ['summary_interval_hours', 'summary_word_limit', 'summary_mood_source'],
     },
     {
       label: i18n.config.sections.boundary,
-      keys: ['persona_influenced_summary', 'boundary_time_gap_minutes', 'boundary_max_messages', 'boundary_max_duration_minutes', 'boundary_topic_drift_threshold'],
+      keys: [
+        'persona_influenced_summary', 
+        'extraction_strategy',
+        'semantic_clustering_eps',
+        'semantic_clustering_min_samples',
+        'tag_normalization_threshold',
+        'tag_seeds',
+        'boundary_time_gap_minutes', 
+        'boundary_max_messages', 
+        'boundary_max_duration_minutes', 
+        'boundary_topic_drift_threshold'
+      ],
     },
     {
       label: i18n.config.sections.relation,
-      keys: ['relation_enabled', 'persona_isolation_enabled', 'impression_event_trigger_enabled', 'impression_event_trigger_threshold', 'impression_trigger_debounce_hours', 'impression_update_alpha'],
+      keys: ['relation_enabled', 'persona_default_confidence', 'persona_isolation_enabled', 'impression_event_trigger_enabled', 'impression_event_trigger_threshold', 'impression_trigger_debounce_hours', 'impression_update_alpha'],
     },
     {
       label: i18n.config.sections.tasks,

@@ -261,27 +261,6 @@ export default function SettingsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>{i18n.settings.defaultPersonaConfidence}</CardTitle>
-              <CardDescription>{i18n.settings.defaultPersonaConfidenceHint}</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <div className="flex items-center gap-4">
-                <div className="flex-1">
-                  <Slider
-                    value={[app.defaultPersonaConfidence]}
-                    onValueChange={(v: number | number[]) => app.setDefaultPersonaConfidence(Array.isArray(v) ? v[0] : v)}
-                    min={0} max={1} step={0.01}
-                  />
-                </div>
-                <span className="text-muted-foreground w-10 text-right text-sm tabular-nums">
-                  {app.defaultPersonaConfidence.toFixed(2)}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
               <CardTitle>{i18n.settings.tasks}</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-2">

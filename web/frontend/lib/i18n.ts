@@ -1,8 +1,8 @@
 export const zh = {
   app: {
-    name: 'Enhanced Memory',
+    name: 'Moirai',
     subtitle: '三轴长期记忆面板',
-    description: '跨平台统一管理聊天机器人的长期记忆。',
+    description: '多维世界线下的聊天机器人长期记忆管理。',
   },
   nav: {
     visualization: '可视化',
@@ -17,6 +17,19 @@ export const zh = {
     settings: '设置',
     stats: '数据统计',
     landing: '首页',
+  },
+  landing: {
+    overview: '概览',
+    recentEvents: '最近记忆事件',
+    recentEventsDesc: '过去一段时间内捕获的情节记录',
+    cognitiveEngine: '认知引擎负载',
+    engineActive: '引擎活跃中',
+    latency: '响应延迟',
+    extraction: '知识提取',
+    recall: '混合召回',
+    coreProtected: '核心记忆受保护中',
+    manageLibrary: '管理信息库',
+    enter: '进入',
   },
   page: {
     events: {
@@ -402,8 +415,6 @@ export const zh = {
     sudoGuardEnabled: '启用 Sudo 监管',
     sudoGuardDisabledHint: '未启用时全程保持 Sudo 模式',
     sudoGuardMinutes: 'Sudo 持续时长（分钟，0 = 不监管）',
-    defaultPersonaConfidence: '人格默认置信度',
-    defaultPersonaConfidenceHint: '新建人格时赋予的初始置信值（由模型推断后自动更新）',
     colors: {
       sky: '天蓝（默认）',
       red: '红色',
@@ -475,9 +486,16 @@ export const zh = {
       decay_interval_hours: { label: '衰减任务间隔 (小时)', hint: '执行重要度衰减的频率' },
       summary_interval_hours: { label: '摘要生成频率 (小时)', hint: '每隔多少小时为每个活跃群组生成一次叙事摘要' },
       summary_word_limit: { label: '摘要字数限制', hint: '限制生成的摘要总字数（支持 200-500）' },
+      summary_mood_source: { label: '情感动态数据源', hint: '决定每日摘要中 [情感动态] 区块的生成方式。数据库模式基于真实社交模型数据聚合。' },
       persona_synthesis_interval_hours: { label: '人设合成间隔 (小时)', hint: '合成用户人设档案的频率' },
       impression_aggregation_interval_hours: { label: '印象聚合间隔 (小时)', hint: '通过 LLM 聚合印象的频率' },
       file_watcher_poll_seconds: { label: '文件监听间隔 (秒)', hint: '检测本地文件编辑的频率' },
+      extraction_strategy: { label: '事件划分策略', hint: 'LLM 划分语义更精准但较慢；Semantic 聚类速度快且能处理话题交织。' },
+      semantic_clustering_eps: { label: '语义聚类敏感度 (Eps)', hint: '仅在 Semantic 策略下生效。数值越小话题越细。建议 0.4-0.6 之间。' },
+      semantic_clustering_min_samples: { label: '语义聚类最小消息数', hint: '仅在 Semantic 策略下生效。话题包含的最少消息数量。' },
+      tag_normalization_threshold: { label: '标签归一化阈值', hint: '提取标签时，若与现有标签相似度超过此值，则自动归并。' },
+      tag_seeds: { label: '标签种子词表', hint: '用英文逗号分隔。定义系统记忆的宏观分类。' },
+      persona_default_confidence: { label: '人格默认置信度', hint: '新建人格时赋予的初始置信值（由模型推断后自动更新）' },
     },
   },
   common: {
@@ -543,9 +561,9 @@ export const zh = {
 
 export const ja = {
   app: {
-    name: 'Enhanced Memory',
-    subtitle: '3軸長期記憶パネル',
-    description: 'チャットボットの長期記憶をクロスプラットフォームで統合管理します。',
+    name: 'Moirai',
+    subtitle: '3轴長期記憶パネル',
+    description: '多次元的な世界線におけるチャットボットの長期記憶管理。',
   },
   nav: {
     visualization: '可視化',
@@ -560,6 +578,19 @@ export const ja = {
     settings: 'システム設定',
     stats: 'データ統計',
     landing: 'ホーム',
+  },
+  landing: {
+    overview: '概要',
+    recentEvents: '最近の記憶',
+    recentEventsDesc: '最近キャプチャされたエピソードの記録',
+    cognitiveEngine: '認知エンジン',
+    engineActive: 'エンジン稼働中',
+    latency: '応答遅延',
+    extraction: '知識抽出',
+    recall: 'ハイブリッド想起',
+    coreProtected: 'コアメモリ保護中',
+    manageLibrary: 'ライブラリ管理',
+    enter: '入る',
   },
   page: {
     events: {
@@ -945,8 +976,6 @@ export const ja = {
     sudoGuardEnabled: 'Sudoガードを有効化',
     sudoGuardDisabledHint: '無効時は常にSudoモードを維持します',
     sudoGuardMinutes: 'Sudo有効期間 (分、0 = 無制限)',
-    defaultPersonaConfidence: 'デフォルト信頼度',
-    defaultPersonaConfidenceHint: '新規パーソナ作成時の初期信頼値',
     colors: {
       sky: 'スカイブルー（デフォルト）',
       red: 'レッド',
@@ -1016,14 +1045,21 @@ export const ja = {
       impression_trigger_debounce_hours: { label: 'トリガーデバウンス (時間)', hint: '頻繁な更新を避けるための最小間隔' },
       impression_update_alpha: { label: '平滑化係数 (Alpha)', hint: '値が大きいほど新しい印象を早く受け入れます' },
       decay_interval_hours: { label: '減衰タスク間隔 (時間)', hint: '重要度减衰を実行する頻度' },
-      summary_interval_hours: { label: '要約生成頻度 (時間)', hint: 'グループ要約を生成する頻度' },
-      summary_word_limit: { label: '要約の文字数制限', hint: '200〜500文字の間で設定することをお勧めします' },
+      summary_interval_hours: { label: '要约生成頻度 (時間)', hint: 'グループ要約を生成する頻度' },
+      summary_word_limit: { label: '要约の文字数制限', hint: '200〜500文字の間で設定することをお勧めします' },
+      summary_mood_source: { label: '感情動態データソース', hint: '要約内の[感情動態]の生成方法を決定します。' },
       persona_synthesis_interval_hours: { label: 'パーソナ合成間隔 (時間)', hint: 'ユーザーパーソナプロファイルを合成する頻度' },
       impression_aggregation_interval_hours: { label: '印象集約間隔 (時間)', hint: 'LLM を介して印象を集約する頻度' },
-      file_watcher_poll_seconds: { label: 'ファイル監視間隔 (秒)', hint: 'ローカルファイルの編集を検出する頻度' },
-    },
-  },
-  common: {
+      file_watcher_poll_seconds: { label: 'ファイル監視間隔 (秒)', hint: 'ローカルファイルの编辑を検出する頻度' },
+      extraction_strategy: { label: 'イベント分割戦略', hint: 'LLMは正確ですが遅く、Semanticは高速でトピックの交錯を処理できます。' },
+      semantic_clustering_eps: { label: 'セマンティッククラスタリング感度 (Eps)', hint: 'Semantic戦略のみ。値が小さいほどトピックが細かくなります。' },
+      semantic_clustering_min_samples: { label: 'クラスタリング最小メッセージ数', hint: 'Semantic戦略のみ。トピックに含まれる最小メッセージ数。' },
+      tag_normalization_threshold: { label: 'タグ正規化しきい値', hint: '既存のタグとの類似度がこれを超えると自动的に統合されます。' },
+      tag_seeds: { label: 'タグシードリスト', hint: 'コンマ区切り。システムの記憶の抽象的な階層を定義します。' },
+      persona_default_confidence: { label: 'パーソナデフォルト信頼度', hint: '新規パーソナ作成時の初期信頼値' },
+      },
+      },
+      common: {
     create: '作成',
     edit: '編集',
     delete: '削除',
@@ -1086,9 +1122,9 @@ export const ja = {
 
 export const en = {
   app: {
-    name: 'Enhanced Memory',
+    name: 'Moirai',
     subtitle: 'Three-Axis Long-Term Memory Panel',
-    description: 'Unified cross-platform management of chatbot long-term memory.',
+    description: 'Long-term memory management for chatbots across multidimensional world lines.',
   },
   nav: {
     visualization: 'Visualization',
@@ -1103,6 +1139,19 @@ export const en = {
     settings: 'Settings',
     stats: 'Statistics',
     landing: 'Home',
+  },
+  landing: {
+    overview: 'Overview',
+    recentEvents: 'Recent Events',
+    recentEventsDesc: 'Episodic records captured recently',
+    cognitiveEngine: 'Cognitive Engine',
+    engineActive: 'Engine Active',
+    latency: 'Latency',
+    extraction: 'Extraction',
+    recall: 'Recall',
+    coreProtected: 'Core Memories Protected',
+    manageLibrary: 'Manage Library',
+    enter: 'Open',
   },
   page: {
     events: {
@@ -1488,8 +1537,6 @@ export const en = {
     sudoGuardEnabled: 'Enable Sudo Guard',
     sudoGuardDisabledHint: 'Always in Sudo mode when disabled',
     sudoGuardMinutes: 'Sudo Duration (min, 0 = unlimited)',
-    defaultPersonaConfidence: 'Default Confidence',
-    defaultPersonaConfidenceHint: 'Initial confidence for new personas',
     colors: {
       sky: 'Sky Blue (Default)',
       red: 'Red',
@@ -1559,11 +1606,18 @@ export const en = {
       impression_trigger_debounce_hours: { label: 'Trigger Debounce (Hours)', hint: 'Min hours between updates' },
       impression_update_alpha: { label: 'Alpha Coefficient', hint: 'Higher values accept new impressions faster' },
       decay_interval_hours: { label: 'Decay Task Interval', hint: 'Frequency of salience decay tasks' },
-      summary_interval_hours: { label: 'Summary Generation Frequency (Hours)', hint: 'Frequency of group summary tasks' },
-      summary_word_limit: { label: 'Summary Word Limit', hint: 'Limit the total words (recommended 200-500)' },
-      persona_synthesis_interval_hours: { label: 'Synthesis Task Interval', hint: 'Frequency of persona profiling' },
-      impression_aggregation_interval_hours: { label: 'Aggregation Task Interval', hint: 'Frequency of LLM impression aggregation' },
-      file_watcher_poll_seconds: { label: 'File Watcher Interval', hint: 'Frequency of checking local edits' },
+      summary_interval_hours: { label: 'Summary Frequency (Hours)', hint: 'Frequency of group summary tasks.' },
+      summary_word_limit: { label: 'Summary Word Limit', hint: 'Limit total words (recommended 200-500).' },
+      summary_mood_source: { label: 'Mood Data Source', hint: 'Method for generating the [Mood Dynamics] section.' },
+      persona_synthesis_interval_hours: { label: 'Synthesis Interval (Hours)', hint: 'Frequency of persona profiling.' },
+      impression_aggregation_interval_hours: { label: 'Aggregation Interval (Hours)', hint: 'Frequency of LLM impression aggregation.' },
+      file_watcher_poll_seconds: { label: 'File Watcher Interval (s)', hint: 'Frequency of checking local edits.' },
+      extraction_strategy: { label: 'Event Strategy', hint: 'LLM is precise but slow; Semantic is fast and handles topic interleaving.' },
+      semantic_clustering_eps: { label: 'Clustering Sensitivity (Eps)', hint: 'Only for Semantic strategy. Lower = finer topics.' },
+      semantic_clustering_min_samples: { label: 'Min Clustering Samples', hint: 'Only for Semantic strategy. Min messages per topic.' },
+      tag_normalization_threshold: { label: 'Tag Normalization', hint: 'Automatically merge tags if similarity exceeds this threshold.' },
+      tag_seeds: { label: 'Tag Seed List', hint: 'Comma-separated keywords defining memory taxonomy.' },
+      persona_default_confidence: { label: 'Default Confidence', hint: 'Initial confidence for new personas' },
     },
   },
   common: {

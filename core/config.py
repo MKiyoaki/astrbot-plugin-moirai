@@ -170,6 +170,7 @@ class ExtractorConfig:
     semantic_clustering_eps: float = 0.45
     semantic_clustering_min_samples: int = 2
     persona_influenced_summary: bool = False
+    tag_normalization_threshold: float = 0.85
 
 
 @dataclass
@@ -321,6 +322,8 @@ class PluginConfig:
     def get_extractor_config(self) -> ExtractorConfig:
         custom_prompt = self._str("extractor_system_prompt", "").strip()
         custom_distill_prompt = self._str("distillation_system_prompt", "").strip()
+        tag_seeds_str = self._str("tag_seeds", "社交,日常,技术,知识,工作,娱乐,艺术,情感,资讯")
+        tag_seeds = [s.strip() for s in tag_seeds_str.split(",") if s.strip()]
         return ExtractorConfig(
             max_context_messages=self._int("context_window_size", 50),
             llm_timeout=self._float("extractor_llm_timeout_seconds", 30.0),
@@ -330,6 +333,8 @@ class PluginConfig:
             semantic_clustering_eps=self._float("semantic_clustering_eps", 0.45),
             semantic_clustering_min_samples=self._int("semantic_clustering_min_samples", 2),
             persona_influenced_summary=self._bool("persona_influenced_summary", False),
+            tag_normalization_threshold=self._float("tag_normalization_threshold", 0.85),
+            tag_seeds=tag_seeds,
         )
 
     def get_context_config(self) -> ContextConfig:

@@ -67,19 +67,24 @@ export default function GraphPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [editNode, setEditNode] = useState<api.PersonaNode | null>(null)
   const [editEdge, setEditEdge] = useState<api.ImpressionEdge | null>(null)
+  const [defaultConfidence, setDefaultConfidence] = useState(0.5)
 
   // ── Data loading ────────────────────────────────────────────────────────────
   const loadGraph = useCallback(async () => {
     setLoading(true)
     setIsRefreshing(true)
     try {
-      const data = await api.graph.get()
+      const [data, cfg] = await Promise.all([
+        api.graph.get(),
+        api.pluginConfig.get()
+      ])
       if (data.enabled === false) {
         setRelationEnabled(false)
         return
       }
       setRelationEnabled(true)
       app.setRawGraph(data)
+      setDefaultConfidence(cfg.values.persona_default_confidence as number ?? 0.5)
       const cards = buildGroupCards(data.nodes, data.edges, physics.biWeight)
       setGroupCards(cards)
     } catch {
@@ -298,7 +303,7 @@ export default function GraphPage() {
           open={createOpen}
           onClose={() => setCreateOpen(false)}
           onSubmit={handleCreatePersona}
-          defaultConfidence={app.defaultPersonaConfidence}
+          defaultConfidence={defaultConfidence}
         />
       </div>
     )
@@ -438,7 +443,7 @@ export default function GraphPage() {
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onSubmit={handleCreatePersona}
-        defaultConfidence={app.defaultPersonaConfidence}
+        defaultConfidence={defaultConfidence}
       />
       <EditPersonaDialog
         open={!!editNode}

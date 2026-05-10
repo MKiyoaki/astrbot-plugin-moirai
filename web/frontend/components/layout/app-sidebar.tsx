@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import {
   Activity, Share2, BookOpen, Search, Database, Settings, SlidersHorizontal,
-  Lock, Unlock, Moon, Sun, LogOut, BarChart3,
+  Lock, Unlock, Moon, Sun, LogOut, BarChart3, Infinity,
 } from 'lucide-react'
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
@@ -44,7 +44,6 @@ export function AppSidebar() {
   const NAV_ADMIN = React.useMemo(() => [
     { href: '/library',  icon: Database,           label: i18n.nav.library },
     { href: '/config',   icon: SlidersHorizontal,  label: i18n.nav.config },
-    { href: '/settings', icon: Settings,           label: i18n.nav.settings },
   ], [i18n])
 
   const { resolvedTheme, setTheme } = useTheme()
@@ -54,19 +53,25 @@ export function AppSidebar() {
   const [sudoDialogOpen, setSudoDialogOpen] = useState(false)
   const [sudoPassword, setSudoPassword] = useState('')
 
-  const effectiveSudoAlways = !app.sudoGuardEnabled || app.sudoGuardMinutes === 0
+  const effectiveSudoAlways = !app.authEnabled
 
   const handleSudoClick = async () => {
-    if (app.sudo && !effectiveSudoAlways) {
-      await api.auth.exitSudo().catch(() => {})
+    if (app.sudo) {
+      if (app.authEnabled) {
+        await api.auth.exitSudo().catch(() => {})
+      }
       app.setSudo(false)
       app.toast(i18n.auth.exitSudo)
       return
     }
-    if (effectiveSudoAlways) return
     
-    setSudoPassword('')
-    setSudoDialogOpen(true)
+    if (app.authEnabled) {
+      setSudoPassword('')
+      setSudoDialogOpen(true)
+    } else {
+      app.setSudo(true)
+      app.toast(i18n.auth.enterSudo)
+    }
   }
 
   const submitSudo = async () => {
@@ -103,13 +108,10 @@ export function AppSidebar() {
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" asChild>
                 <Link href="/">
-                  <div className="bg-primary text-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-                    <BookOpen className="size-4" />
-                  </div>
-                  <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold">{i18n.app.name}</span>
-                    <span className="text-muted-foreground truncate text-xs">
-                      v{app.stats.version}
+                  <div className="grid flex-1 text-left leading-tight ml-2">
+                    <span className="truncate font-serif text-xl font-bold tracking-tighter text-primary">{i18n.app.name}</span>
+                    <span className="text-muted-foreground truncate text-[10px] uppercase tracking-widest opacity-70">
+                      Fate Engine v{app.stats.version}
                     </span>
                   </div>
                 </Link>
@@ -205,29 +207,31 @@ export function AppSidebar() {
           <SidebarSeparator className="group-data-[collapsible=icon]:hidden mb-2" />
 
           <SidebarMenu>
-            {!effectiveSudoAlways && (
-              <SidebarMenuItem>
-                <SidebarMenuButton 
-                  onClick={handleSudoClick} 
-                  disabled={sudoLoading}
-                  tooltip={app.sudo ? i18n.auth.exitSudo : i18n.auth.enterSudo}
-                  className="cursor-pointer"
-                >
-                  {app.sudo ? <Unlock /> : <Lock />}
-                  <span>{app.sudo ? i18n.auth.exitSudo : i18n.auth.enterSudo}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            )}
-            
-            {effectiveSudoAlways && (
-              <SidebarMenuItem className="group-data-[collapsible=icon]:hidden">
-                <div className="px-2 py-1">
-                  <Badge variant="secondary" className="text-xs px-1.5">
-                    <Unlock className="size-3 mr-1" />Sudo
+            <SidebarMenuItem>
+              <SidebarMenuButton 
+                onClick={handleSudoClick} 
+                disabled={sudoLoading}
+                tooltip={app.sudo ? i18n.auth.exitSudo : i18n.auth.enterSudo}
+                className="cursor-pointer"
+              >
+                {app.sudo ? <Unlock /> : <Lock />}
+                <span>{app.sudo ? i18n.auth.exitSudo : i18n.auth.enterSudo}</span>
+                {effectiveSudoAlways && (
+                  <Badge variant="secondary" className="ml-auto text-[10px] opacity-70">
+                    Dev
                   </Badge>
-                </div>
-              </SidebarMenuItem>
-            )}
+                )}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+
+            <SidebarMenuItem>
+              <Link href="/settings" className="flex w-full">
+                <SidebarMenuButton isActive={pathname === '/settings'} tooltip={i18n.nav.settings} className="cursor-pointer">
+                  <Settings />
+                  <span>{i18n.nav.settings}</span>
+                </SidebarMenuButton>
+              </Link>
+            </SidebarMenuItem>
 
             <SidebarMenuItem>
               <SidebarMenuButton onClick={toggleTheme} tooltip={i18n.settings.toggle} className="cursor-pointer">
