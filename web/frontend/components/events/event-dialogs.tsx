@@ -558,7 +558,7 @@ export function RecycleBinDialog({ open, items, loading, onClose, onRestore, onC
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{i18n.events.recycleBin}</DialogTitle>
-          <DialogDescription>已删除的事件可在此还原。</DialogDescription>
+          <DialogDescription>{i18n.events.recycleBinDescription}</DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[50vh]">
           {loading ? (
@@ -684,7 +684,14 @@ export function EventDetailCard({ event, onEdit, onDelete, onLockToggle, sudoMod
           {event.is_locked ? i18n.events.unlock : i18n.events.lock}
         </Button>
         <div className="flex-1" />
-        <Button size="sm" variant="destructive" className="h-8" disabled={!sudoMode} onClick={() => onDelete(event)}>
+        <Button 
+          size="sm" 
+          variant="destructive" 
+          className="h-8" 
+          disabled={!sudoMode || event.is_locked} 
+          onClick={() => onDelete(event)}
+          title={event.is_locked ? (i18n.events.lockedDeleteHint || 'Locked events cannot be deleted') : ''}
+        >
           <Trash2 data-icon="inline-start" />{i18n.common.delete}
         </Button>
       </div>

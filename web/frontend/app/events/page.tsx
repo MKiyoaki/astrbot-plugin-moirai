@@ -204,19 +204,30 @@ export default function EventsPage() {
 
   const handleRestore = async (id: string) => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    await api.events.restore(id)
-    app.toast(i18n.events.restoreSuccess)
-    await loadEvents()
-    const d = await api.events.recycleBin()
-    setBinItems(d.items)
+    try {
+      await api.events.restore(id)
+      app.toast(i18n.events.restoreSuccess)
+      await loadEvents()
+      const d = await api.events.recycleBin()
+      setBinItems(d.items)
+      app.refreshStats()
+    } catch (e: any) {
+      const msg = e?.body || e?.message || i18n.common.updateFailed
+      app.toast(msg, 'destructive')
+    }
   }
 
   const handleClearBin = async () => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
     if (!confirm(i18n.events.clearBinConfirm)) return
-    await api.events.clearBin()
-    app.toast(i18n.events.binClearSuccess)
-    setBinItems([])
+    try {
+      await api.events.clearBin()
+      app.toast(i18n.events.binClearSuccess)
+      setBinItems([])
+    } catch (e: any) {
+      const msg = e?.body || e?.message || i18n.common.deleteFailed
+      app.toast(msg, 'destructive')
+    }
   }
 
   const actions = (

@@ -65,6 +65,7 @@ def event_to_dict(event: Event) -> dict[str, Any]:
         "id": event.event_id,
         "content": event.topic or event.event_id[:8],
         "topic": event.topic,
+        "summary": event.summary,
         "start": _ts_to_iso(event.start_time),
         "end": _ts_to_iso(event.end_time),
         "start_ts": event.start_time,
@@ -1022,23 +1023,36 @@ class WebuiServer:
             return _json({"error": "not found in recycle bin"}, status=404)
         now = time.time()
         try:
-            event = Event(
-                event_id=item["id"],
-                group_id=item.get("group"),
-                start_time=item.get("start_ts", now),
-                end_time=item.get("end_ts", now),
-                participants=item.get("participants", []),
-                interaction_flow=[],
-                topic=item.get("topic", item.get("content", "")),
-                chat_content_tags=item.get("tags", []),
-                salience=item.get("salience", 0.5),
-                confidence=item.get("confidence", 0.8),
-                inherit_from=item.get("inherit_from", []),
-                last_accessed_at=now,
-            )
-        except (ValueError, TypeError) as exc:
+            event_args = {
+                "event_id": item["id"],
+                "group_id": item.get("group"),
+                "start_time": item.get("start_ts", now),
+                "end_time": item.get("end_ts", now),
+                "participants": item.get("participants", []),
+                "interaction_flow": [],
+                "topic": item.get("topic", item.get("content", "")),
+                "summary": item.get("summary", ""),
+                "chat_content_tags": item.get("tags", []),
+                "salience": item.get("salience", 0.5),
+                "confidence": item.get("confidence", 0.8),
+                "inherit_from": item.get("inherit_from", []),
+                "last_accessed_at": now,
+                "status": item.get("status", "active"),
+                "is_locked": item.get("is_locked", False),
+            }
+            event = Event(**event_args)
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
             return _json({"error": str(exc)}, status=400)
-        await self._event_repo.upsert(event)
+        
+        try:
+            await self._event_repo.upsert(event)
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            return _json({"error": f"Database error: {str(exc)}"}, status=500)
+            
         self._recycle_bin = [
             x for x in self._recycle_bin if x["id"] != event_id]
         return _json({"ok": True, "event": event_to_dict(event)})
@@ -1325,6 +1339,7 @@ async def _seed(
             start_time=now - 7 * DAY, end_time=now - 7 * DAY + 1800,
             participants=["demo_uid_alice", "demo_uid_bob", "demo_uid_bot"],
             interaction_flow=[], topic="早安问候",
+            summary="Alice 和 Bob 在群组中互相进行早安问候，AI 助手也参与了互动。",
             chat_content_tags=["日常", "问候"],
             salience=0.45, confidence=0.82, inherit_from=[],
             last_accessed_at=now - DAY,
@@ -1334,6 +1349,7 @@ async def _seed(
             start_time=now - 6 * DAY, end_time=now - 6 * DAY + 3600,
             participants=["demo_uid_alice", "demo_uid_bob", "demo_uid_bot"],
             interaction_flow=[], topic="音乐推荐",
+            summary="Alice 向大家推荐了几首好听的音乐，引发了关于音乐文化的讨论。",
             chat_content_tags=["音乐", "推荐", "文化"],
             salience=0.72, confidence=0.88, inherit_from=["demo_evt_001"],
             last_accessed_at=now - 12 * 3600,
@@ -1343,6 +1359,7 @@ async def _seed(
             start_time=now - 5 * DAY, end_time=now - 5 * DAY + 2700,
             participants=["demo_uid_alice", "demo_uid_charlie", "demo_uid_bot"],
             interaction_flow=[], topic="游戏约定",
+            summary="Alice 和 Charlie 约定在周末一起进行在线游戏，讨论了具体的时间和游戏类型。",
             chat_content_tags=["游戏", "约定", "娱乐"],
             salience=0.68, confidence=0.79, inherit_from=["demo_evt_002"],
             last_accessed_at=now - 8 * 3600,
@@ -1352,6 +1369,7 @@ async def _seed(
             start_time=now - 3 * DAY, end_time=now - 3 * DAY + 4200,
             participants=["demo_uid_bob", "demo_uid_charlie", "demo_uid_bot"],
             interaction_flow=[], topic="技术交流",
+            summary="Bob 和 Charlie 深入探讨了一些编程技术难题，AI 助手提供了相关的技术参考。",
             chat_content_tags=["技术", "编程", "讨论"],
             salience=0.85, confidence=0.91, inherit_from=["demo_evt_001"],
             last_accessed_at=now - 4 * 3600,
@@ -1361,6 +1379,7 @@ async def _seed(
             start_time=now - DAY, end_time=now - DAY + 900,
             participants=["demo_uid_alice", "demo_uid_bot"],
             interaction_flow=[], topic="私聊请教",
+            summary="Alice 在私聊中向 AI 助手请教了一些生活中的小问题，得到了满意的答复。",
             chat_content_tags=["私聊", "帮助"],
             salience=0.55, confidence=0.77, inherit_from=[],
             last_accessed_at=now - 3600,

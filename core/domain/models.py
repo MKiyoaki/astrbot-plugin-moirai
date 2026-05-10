@@ -1,6 +1,5 @@
 """
 Core domain model — pure Python, zero I/O, zero external dependencies.
-All fields are required; no defaults, so slots=True works without field().
 """
 
 from __future__ import annotations
@@ -14,12 +13,7 @@ from dataclasses import dataclass, field
 # ---------------------------------------------------------------------------
 
 class _BoundedMixin:
-    """Bounded-interval validation helpers for domain dataclasses.
-
-    Use ``__slots__ = ()`` so this mixin is compatible with ``slots=True``
-    dataclasses: the derived dataclass will generate its own __slots__ for
-    declared fields; the mixin contributes no additional slots.
-    """
+    """Bounded-interval validation helpers for domain dataclasses."""
 
     __slots__ = ()
 
@@ -63,45 +57,45 @@ class MessageRef:
 
     sender_uid: str
     timestamp: float
-    content_hash: str    # SHA-256 of the original message content
-    content_preview: str  # First 200 chars for display
+    content_hash: str
+    content_preview: str
 
 
 @dataclass(slots=True)
 class Persona(_BoundedMixin):
     """A participant (human or bot) with a stable cross-platform identity."""
 
-    uid: str                                # Internal stable UUID4
-    bound_identities: list[tuple[str, str]] # [(platform, physical_id), ...]
+    uid: str
+    bound_identities: list[tuple[str, str]]
     primary_name: str
-    persona_attrs: dict                     # affect_type, content_tags, description
-    confidence: float                       # LLM extraction confidence [0, 1]
-    created_at: float                       # Unix timestamp
+    persona_attrs: dict
+    confidence: float
+    created_at: float
     last_active_at: float
 
     def __post_init__(self) -> None:
         self._check_unit("confidence", self.confidence)
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, kw_only=True)
 class Event(_BoundedMixin):
     """A closed conversation window — the primary unit of episodic memory."""
 
-    event_id: str
-    group_id: str | None         # None = private chat
-    start_time: float
-    end_time: float
-    participants: list[str]      # uid list
-    interaction_flow: list[MessageRef]
-    topic: str                   # LLM-extracted topic summary (≤ 30 chars)
-    summary: str                 # De-noised distilled semantic summary (≤ 200 chars)
-    chat_content_tags: list[str]
-    salience: float              # Importance [0, 1]; decays over time
-    confidence: float            # LLM extraction confidence [0, 1]
-    inherit_from: list[str]      # Parent event_ids (continuation chain)
-    last_accessed_at: float      # Updated on every retrieval
-    status: str = field(default=EventStatus.ACTIVE)  # "active" | "archived"
-    is_locked: bool = field(default=False)           # User-protected from auto-cleanup
+    event_id: str = ""
+    group_id: str | None = None
+    start_time: float = 0.0
+    end_time: float = 0.0
+    participants: list[str] = field(default_factory=list)
+    interaction_flow: list[MessageRef] = field(default_factory=list)
+    topic: str = ""
+    summary: str = ""
+    chat_content_tags: list[str] = field(default_factory=list)
+    salience: float = 0.5
+    confidence: float = 0.8
+    inherit_from: list[str] = field(default_factory=list)
+    last_accessed_at: float = 0.0
+    status: str = field(default=EventStatus.ACTIVE)
+    is_locked: bool = field(default=False)
 
     def __post_init__(self) -> None:
         self._check_unit("salience", self.salience)
@@ -114,24 +108,18 @@ class Event(_BoundedMixin):
 
 @dataclass(slots=True)
 class Impression(_BoundedMixin):
-    """A directional social relationship: observer perceives subject.
-
-    Impression(A→B) ≠ Impression(B→A).
-    Coordinates are in the Interpersonal Circumplex (IPC) space:
-      benevolence: Affiliation axis [-1, 1]  (friendly ↔ hostile)
-      power:       Dominance axis  [-1, 1]  (dominant ↔ submissive)
-    """
+    """A directional social relationship."""
 
     observer_uid: str
     subject_uid: str
-    ipc_orientation: str    # One of IPC_VALID_ORIENTATIONS (8 Chinese labels)
-    benevolence: float      # Affiliation axis [-1, 1]  (formerly: affect)
-    power: float            # Dominance axis  [-1, 1]  (new field)
-    affect_intensity: float # √(B²+P²)/√2   [0, 1]   (formerly: intensity)
-    r_squared: float        # Octant-fit confidence [0, 1]  (new field)
-    confidence: float       # Overall extraction confidence [0, 1]
-    scope: str              # 'global' or a specific group_id
-    evidence_event_ids: list[str]  # Events that support this impression
+    ipc_orientation: str
+    benevolence: float
+    power: float
+    affect_intensity: float
+    r_squared: float
+    confidence: float
+    scope: str
+    evidence_event_ids: list[str]
     last_reinforced_at: float
 
     def __post_init__(self) -> None:
@@ -144,11 +132,7 @@ class Impression(_BoundedMixin):
 
 @dataclass(slots=True, frozen=True)
 class BigFiveVector(_BoundedMixin):
-    """Big Five personality trait scores, each in [-1, 1].
-
-    Used as an intermediate representation before IPC rotation.
-    Positive values indicate higher trait expression.
-    """
+    """Big Five personality trait scores."""
 
     openness: float
     conscientiousness: float

@@ -13,6 +13,7 @@ interface FilterBarProps {
   dateRange: DateRange | undefined
   onDateRangeChange: (range: DateRange | undefined) => void
   className?: string
+  extraActions?: React.ReactNode
 }
 
 export function FilterBar({
@@ -22,6 +23,7 @@ export function FilterBar({
   dateRange,
   onDateRangeChange,
   className = "",
+  extraActions,
 }: FilterBarProps) {
   return (
     <div className={`flex items-start border-b ${className}`}>
@@ -35,11 +37,14 @@ export function FilterBar({
         <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-1">
           时间范围
         </span>
-        <DateRangePicker 
-          value={dateRange} 
-          onChange={onDateRangeChange} 
-          className="w-full"
-        />
+        <div className="flex items-center gap-2">
+          <DateRangePicker 
+            value={dateRange} 
+            onChange={onDateRangeChange} 
+            className="w-full"
+          />
+          {extraActions}
+        </div>
       </div>
     </div>
   )

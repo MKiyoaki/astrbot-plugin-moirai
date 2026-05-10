@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import {
   Users, Building2, Activity, Clock, Search,
   ChevronDown, ChevronRight, Pencil, Trash2,
-  Network, GitBranch, RefreshCw, Lock, Unlock
+  Network, GitBranch, RefreshCw, Lock, Unlock, Undo2
 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
@@ -27,7 +27,7 @@ import { PageHeader } from '@/components/layout/page-header'
 import { FilterBar } from '@/components/shared/filter-bar'
 import { DateRange } from 'react-day-picker'
 import { EditPersonaDialog } from '@/components/graph/persona-dialogs'
-import { EditEventDialog, type EventFormData } from '@/components/events/event-dialogs'
+import { EditEventDialog, RecycleBinDialog, type EventFormData } from '@/components/events/event-dialogs'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,6 +38,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { buttonVariants } from '@/components/ui/button'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
@@ -234,9 +235,27 @@ function EventDetailRow({
               <Button size="sm" variant="ghost" disabled={!sudoMode} onClick={() => onEdit(ev)}>
                 <Pencil className="mr-2 h-4 w-4" />{i18n.common.edit}
               </Button>
-              <Button size="sm" variant="destructive" disabled={!sudoMode} onClick={() => onDelete(ev)}>
-                <Trash2 className="mr-2 h-4 w-4" />{i18n.common.delete}
-              </Button>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button 
+                        size="sm" 
+                        variant="destructive" 
+                        disabled={!sudoMode || ev.is_locked} 
+                        onClick={() => onDelete(ev)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />{i18n.common.delete}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  {ev.is_locked && (
+                    <TooltipContent>
+                      <p>{i18n.events.lockedDeleteHint}</p>
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
             </div>
           </div>
         </TableCell>
@@ -279,6 +298,49 @@ function LibraryContent() {
   const [editPersona, setEditPersona] = useState<api.PersonaNode | null>(null)
   const [editEvent, setEditEvent] = useState<api.ApiEvent | null>(null)
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; title: string; onConfirm: () => void }>({ open: false, title: '', onConfirm: () => {} })
+
+  const [binOpen, setBinOpen] = useState(false)
+  const [binItems, setBinItems] = useState<any[]>([])
+  const [binLoading, setBinLoading] = useState(false)
+
+  const openBin = useCallback(async () => {
+    setBinOpen(true)
+    setBinLoading(true)
+    try {
+      const res = await api.events.listRecycleBin()
+      setBinItems(res.items)
+    } catch (e: any) {
+      toast(i18n.events.binLoadError, 'destructive')
+    } finally {
+      setBinLoading(false)
+    }
+  }, [toast, i18n])
+
+  const handleRestore = async (eventId: string) => {
+    if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
+    try {
+      await api.events.restoreFromBin(eventId)
+      toast(i18n.events.restoreSuccess)
+      setBinItems(prev => prev.filter(x => x.id !== eventId))
+      loadData()
+      refreshStats()
+    } catch (e: any) {
+      const msg = e?.body || e?.message || i18n.common.updateFailed
+      toast(msg, 'destructive')
+    }
+  }
+
+  const handleClearBin = async () => {
+    if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
+    if (!confirm(i18n.events.clearBinConfirm)) return
+    try {
+      await api.events.clearRecycleBin()
+      toast(i18n.events.binClearSuccess)
+      setBinItems([])
+    } catch (e: any) {
+      toast(i18n.common.deleteFailed, 'destructive')
+    }
+  }
 
   const loadData = useCallback(async () => {
     setIsRefreshing(true)
@@ -481,7 +543,7 @@ function LibraryContent() {
       onConfirm: async () => {
         try {
           await api.events.delete(ev.id)
-          toast('事件已移入回收站')
+          toast(i18n.events.moveBinSuccess)
           setExpandedId(null)
           loadData()
           refreshStats()
@@ -533,6 +595,19 @@ function LibraryContent() {
         onTagsChange={setActiveTags}
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
+        extraActions={
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" className="h-9 shrink-0 gap-2 px-3" onClick={openBin}>
+                  <Trash2 className="size-4" />
+                  <span className="text-sm">{i18n.events.recycleBin}</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{i18n.events.recycleBinDescription || i18n.events.recycleBin}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        }
       />
 
       <div className="flex flex-1 flex-col overflow-hidden p-6 pt-2">
@@ -736,6 +811,7 @@ function LibraryContent() {
 
       <EditPersonaDialog open={!!editPersona} node={editPersona} onClose={() => setEditPersona(null)} onSubmit={handleEditPersonaSubmit} />
       <EditEventDialog open={!!editEvent} event={editEvent} onClose={() => setEditEvent(null)} onSubmit={handleEditEventSubmit} tagSuggestions={tagList.map(t => t.name)} events={eventList} />
+      <RecycleBinDialog open={binOpen} items={binItems} loading={binLoading} onClose={() => setBinOpen(false)} onRestore={handleRestore} onClear={handleClearBin} sudoMode={sudo} />
 
       <AlertDialog open={deleteDialog.open} onOpenChange={(o) => setDeleteDialog(prev => ({ ...prev, open: o }))}>
         <AlertDialogContent>
