@@ -125,7 +125,7 @@ class SocialOrientationAnalyzer:
                 power=p,
                 affect_intensity=ai,
                 r_squared=rs,
-                confidence=0.5,
+                confidence=rs,  # Use R-squared as the initial confidence score
                 scope=scope,
                 evidence_event_ids=[],
                 last_reinforced_at=time.time(),

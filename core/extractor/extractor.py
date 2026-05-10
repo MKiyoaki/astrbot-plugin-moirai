@@ -153,6 +153,8 @@ class EventExtractor:
         from ..domain.models import Event, MessageRef
         import uuid
 
+        ipc_tasks = []
+
         for indices, res in extracted_results:
             sub_messages = [window.messages[i] for i in indices]
             if not sub_messages:
@@ -222,7 +224,16 @@ class EventExtractor:
                 )
 
             if self._ipc_enabled:
-                asyncio.create_task(self._run_ipc_analysis(event, window))
+                ipc_tasks.append(
+                    self._run_ipc_analysis(
+                        event, 
+                        window, 
+                        personality_data=res.get("participants_personality")
+                    )
+                )
+
+        if ipc_tasks:
+            await asyncio.gather(*ipc_tasks)
 
     async def _align_tags(self, raw_tags: list[str]) -> list[str]:
         """Normalize tags by aligning them to existing canonical tags via vector similarity."""
@@ -368,15 +379,62 @@ class EventExtractor:
         """Legacy method, kept for compatibility if needed."""
         return await self._extract_batch(window)
 
-    async def _run_ipc_analysis(self, event: Event, window: MessageWindow) -> None:
-        """Feed window messages to BigFiveBuffer, trigger scoring, run orientation analysis."""
+    async def _run_ipc_analysis(
+        self, 
+        event: Event, 
+        window: MessageWindow, 
+        personality_data: dict[str, dict[str, float]] | None = None
+    ) -> None:
+        """Feed window messages to BigFiveBuffer, trigger scoring, run orientation analysis.
+        
+        If personality_data is provided (Unified Extraction), it is used to prime
+        the BigFiveBuffer cache before analysis, skipping the extra LLM call.
+        """
         assert self._big_five_buffer is not None
         assert self._orientation_analyzer is not None
+        
+        from ..domain.models import BigFiveVector
+        
         try:
+            # 1. Map names in personality_data to UIDs from the window
+            name_to_uid: dict[str, str] = {}
+            for msg in window.messages:
+                name_to_uid[msg.display_name] = msg.uid
+                name_to_uid[msg.uid] = msg.uid
+
+            # 2. Prime the buffer cache if data is available
+            if personality_data:
+                for name, traits in personality_data.items():
+                    uid = name_to_uid.get(name)
+                    if not uid:
+                        continue
+                    
+                    vector = BigFiveVector(
+                        openness=traits.get("O", 0.0),
+                        conscientiousness=traits.get("C", 0.0),
+                        extraversion=traits.get("E", 0.0),
+                        agreeableness=traits.get("A", 0.0),
+                        neuroticism=traits.get("N", 0.0),
+                    )
+                    # Force update the cache with this fresh event-specific score
+                    self._big_five_buffer._cache[uid] = vector
+                    logger.debug("[EventExtractor] primed cache for %s via unified extraction", uid[:8])
+
+            # 3. Accumulate messages
             for msg in window.messages:
                 self._big_five_buffer.add_message(msg.uid, msg.text or "")
+            
+            # 4. Trigger scoring and WAIT for them (only fires if NOT primed or x_messages reached)
+            scoring_tasks = []
             for uid in window.participants:
-                self._big_five_buffer.maybe_score(uid, self._provider_getter)
+                t = self._big_five_buffer.maybe_score(uid, self._provider_getter)
+                if t:
+                    scoring_tasks.append(t)
+            
+            if scoring_tasks:
+                await asyncio.gather(*scoring_tasks)
+            
+            # 5. Analyze with fresh scores
             scope = event.group_id or "global"
             await self._orientation_analyzer.analyze(
                 window, self._big_five_buffer, event.salience, scope

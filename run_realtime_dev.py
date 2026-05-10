@@ -75,8 +75,8 @@ except ImportError:
 # Configurable settings
 _EVENT_MODE = "encoder"   # "encoder" | "llm"
 _MOOD_SOURCE = "impression_db"  # "impression_db" | "llm"
-_TIMEOUT = 330.0
-_MODEL_TYPE = "lmstudio" # "lmstudio" | "deepseek"
+_TIMEOUT = 300.0
+_MODEL_TYPE = "deepseek" # "lmstudio" | "deepseek"
 
 def _get_model_info(model_type: str):
     if model_type == "lmstudio":
@@ -320,7 +320,7 @@ async def main() -> None:
             "vcm_enabled": True,
             # Gemma 26B on LMStudio needs ~60-90 s per thinking call;
             # set asyncio timeout to 150 s so wait_for never fires first.
-            "extractor_llm_timeout_seconds": 300.0,
+            "extractor_llm_timeout_seconds": _TIMEOUT,
         }
         if mode == "encoder":
             raw.update({

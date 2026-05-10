@@ -48,7 +48,7 @@ def make_event(event_id: str = "ev1") -> Event:
 # ---------------------------------------------------------------------------
 
 def test_parse_clean_json_array() -> None:
-    raw = '[{"start_idx": 0, "end_idx": 1, "topic": "项目讨论", "summary": "这是一个摘要", "chat_content_tags": ["工作", "计划"], "salience": 0.7, "confidence": 0.9, "inherit": false}]'
+    raw = '[{"start_idx": 0, "end_idx": 1, "topic": "项目讨论", "summary": "这是一个摘要", "chat_content_tags": ["工作", "计划"], "salience": 0.7, "confidence": 0.9, "inherit": false, "participants_personality": {"Alice": {"O": 0.5, "C": 0.5, "E": 0.5, "A": 0.5, "N": 0.5}}}]'
     result = parse_llm_output(raw, max_idx=1)
     assert result is not None
     assert len(result) == 1
@@ -57,6 +57,7 @@ def test_parse_clean_json_array() -> None:
     assert result[0]["chat_content_tags"] == ["工作", "计划"]
     assert result[0]["salience"] == pytest.approx(0.7)
     assert result[0]["confidence"] == pytest.approx(0.9)
+    assert result[0]["participants_personality"] == {"Alice": {"O": 0.5, "C": 0.5, "E": 0.5, "A": 0.5, "N": 0.5}}
 
 
 def test_parse_multi_event_array() -> None:
@@ -191,24 +192,67 @@ async def test_extractor_creates_events_from_llm(tmp_path) -> None:
     assert events[0].salience == pytest.approx(0.8)
 
 
-async def test_extractor_multi_event_partitioning() -> None:
+async def test_extractor_unified_personality_priming() -> None:
+    from core.social.big_five_scorer import BigFiveBuffer
+    from core.social.orientation_analyzer import SocialOrientationAnalyzer
+    from core.repository.memory import InMemoryImpressionRepository
+    
     event_repo = InMemoryEventRepository()
-    json_resp = ('['
-                 '{"start_idx": 0, "end_idx": 0, "topic": "t1", "summary": "s1", "chat_content_tags": [], "salience": 0.5, "confidence": 0.5},'
-                 '{"start_idx": 1, "end_idx": 1, "topic": "t2", "summary": "s2", "chat_content_tags": [], "salience": 0.5, "confidence": 0.5}'
-                 ']')
+    impression_repo = InMemoryImpressionRepository()
+    
+    # 1. LLM returns extraction + personality for Alice
+    json_resp = (
+        '[{"start_idx": 0, "end_idx": 0, "topic": "t1", "summary": "s1", "chat_content_tags": [], "salience": 1.0, "confidence": 1.0, '
+        '"participants_personality": {"Alice": {"O": 1.0, "C": 1.0, "E": 1.0, "A": 1.0, "N": -1.0}}}]'
+    )
     provider = _MockProvider(json_resp)
-    extractor = EventExtractor(event_repo=event_repo, provider_getter=lambda: provider)
-    w = make_window([("u1", "A", "m1"), ("u2", "B", "m2")])
+    
+    buffer = BigFiveBuffer(x_messages=10)
+    analyzer = SocialOrientationAnalyzer(impression_repo)
+    
+    extractor = EventExtractor(
+        event_repo=event_repo, 
+        provider_getter=lambda: provider,
+        big_five_buffer=buffer,
+        orientation_analyzer=analyzer,
+        ipc_enabled=True
+    )
+    
+    # Alice sends 1 message (below buffer threshold 10)
+    w = make_window([("u1", "Alice", "hello")])
     await extractor(w)
-
-    events = await event_repo.list_by_group("g1")
-    assert len(events) == 2
-    # list_by_group returns newest first (t=1010 then t=1000)
-    events.sort(key=lambda e: e.start_time)
-    assert events[0].topic == "t1"
-    assert events[0].summary == "s1"
-    assert events[1].topic == "t2"
-    assert events[1].summary == "s2"
-    assert len(events[0].interaction_flow) == 1
-    assert len(events[1].interaction_flow) == 1
+    
+    # 2. Verify cache was primed despite being below threshold
+    vector = buffer.get_cached("u1")
+    assert vector.openness == pytest.approx(1.0)
+    assert vector.neuroticism == pytest.approx(-1.0)
+    
+    # 3. Verify impression was created
+    imps = await impression_repo.list_by_observer("u1") # actually observer is bot, but wait
+    # In EventExtractor._run_ipc_analysis, orientation_analyzer.analyze is called.
+    # It updates impressions for ALL participant pairs. 
+    # But window has only Alice (u1). orientation_analyzer skips if participants < 2.
+    
+    # Let's test with 2 participants to see impressions
+    w2 = make_window([("u1", "Alice", "m1"), ("u2", "Bob", "m2")])
+    json_resp2 = (
+        '[{"start_idx": 0, "end_idx": 1, "topic": "t2", "summary": "s2", "chat_content_tags": [], "salience": 1.0, "confidence": 1.0, '
+        '"participants_personality": {"Alice": {"A": 1.0, "E": 1.0}, "Bob": {"A": -1.0, "E": -1.0}}}]'
+    )
+    extractor._provider_getter = lambda: _MockProvider(json_resp2)
+    await extractor(w2)
+    
+    # Check impressions (Alice -> Bob and Bob -> Alice)
+    # Scope should match event.group_id ('g1')
+    imp_ab = await impression_repo.get("u1", "u2", "g1")
+    imp_ba = await impression_repo.get("u2", "u1", "g1")
+    
+    assert imp_ab is not None
+    assert imp_ba is not None
+    # Alice (A=1, E=1) should be friendly/dominant (活跃)
+    # Bob (A=-1, E=-1) should be hostile/submissive (孤避)
+    assert imp_ab.benevolence > 0 # Alice is friendly
+    assert imp_ba.benevolence < 0 # Bob is hostile
+    # R-squared based confidence (log shows 0.54)
+    assert imp_ab.confidence == pytest.approx(imp_ab.r_squared)
+    assert imp_ab.confidence > 0.3

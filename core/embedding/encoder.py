@@ -58,7 +58,7 @@ class SentenceTransformerEncoder:
         import asyncio
 
         self._model = SentenceTransformer(self._model_name)
-        self._dim = self._model.get_sentence_embedding_dimension()
+        self._dim = self._model.get_embedding_dimension()
 
     @property
     def dim(self) -> int:

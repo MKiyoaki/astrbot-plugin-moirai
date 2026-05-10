@@ -127,6 +127,7 @@ class BigFiveBuffer:
         self._counters: dict[str, int] = {}
         self._texts: dict[str, list[str]] = {}
         self._cache: dict[str, BigFiveVector] = {}
+        self._pending_tasks: dict[str, asyncio.Task] = {}
 
     def add_message(self, uid: str, text: str) -> None:
         self._counters[uid] = self._counters.get(uid, 0) + 1
@@ -139,20 +140,32 @@ class BigFiveBuffer:
         return self._counters.get(uid, 0)
 
     def maybe_score(self, uid: str, provider_getter: Callable) -> asyncio.Task | None:
-        """Fire a background scoring task if the uid has reached the threshold."""
+        """Fire a background scoring task if the uid has reached the threshold.
+        Returns the existing task if one is already running for this uid.
+        """
+        if uid in self._pending_tasks:
+            return self._pending_tasks[uid]
+
         if self._counters.get(uid, 0) < self._x:
             return None
+
         context = "\n".join(self._texts.get(uid, [])[-self._x :])
         self._counters[uid] = 0
         self._texts[uid] = []
-        return asyncio.create_task(self._run_score(uid, context, provider_getter))
+        
+        task = asyncio.create_task(self._run_score(uid, context, provider_getter))
+        self._pending_tasks[uid] = task
+        return task
 
     async def _run_score(
         self, uid: str, context: str, provider_getter: Callable
     ) -> None:
-        vector = await self._scorer.score(context, provider_getter)
-        self._cache[uid] = vector
-        logger.debug("[BigFiveBuffer] scored uid=%s → %s", uid[:8], vector)
+        try:
+            vector = await self._scorer.score(context, provider_getter)
+            self._cache[uid] = vector
+            logger.debug("[BigFiveBuffer] scored uid=%s → %s", uid[:8], vector)
+        finally:
+            self._pending_tasks.pop(uid, None)
 
     def evict(self, uid: str) -> None:
         """Remove all state for a uid (called when session expires)."""

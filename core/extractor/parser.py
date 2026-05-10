@@ -66,6 +66,7 @@ def parse_llm_output(text: str, max_idx: int) -> list[dict] | None:
             "salience": _clamp(item.get("salience", 0.5)),
             "confidence": _clamp(item.get("confidence", 0.5)),
             "inherit": bool(item.get("inherit", False)),
+            "participants_personality": _parse_personality(item.get("participants_personality")),
         })
 
     return results if results else None
@@ -98,6 +99,7 @@ def parse_single_item(text: str) -> dict | None:
         "salience": _clamp(data.get("salience", 0.5)),
         "confidence": _clamp(data.get("confidence", 0.5)),
         "inherit": bool(data.get("inherit", False)),
+        "participants_personality": _parse_personality(data.get("participants_personality")),
     }
 
 
@@ -125,6 +127,7 @@ def fallback_extraction(window: MessageWindow) -> list[dict]:
         "salience": round(salience, 3),
         "confidence": 0.2,
         "inherit": False,
+        "participants_personality": None,
     }]
 
 
@@ -133,3 +136,25 @@ def _clamp(value: object, lo: float = 0.0, hi: float = 1.0) -> float:
         return max(lo, min(hi, float(value)))
     except (TypeError, ValueError):
         return 0.5
+
+
+def _parse_personality(raw: object) -> dict[str, dict[str, float]] | None:
+    """Validate and clamp O,C,E,A,N scores from the LLM."""
+    if not isinstance(raw, dict):
+        return None
+    
+    clean_p: dict[str, dict[str, float]] = {}
+    for name, traits in raw.items():
+        if not isinstance(traits, dict):
+            continue
+        
+        # We only accept items that have at least one valid trait
+        scores = {}
+        for trait in ["O", "C", "E", "A", "N"]:
+            if trait in traits:
+                scores[trait] = _clamp(traits[trait], lo=-1.0, hi=1.0)
+        
+        if scores:
+            clean_p[str(name)] = scores
+            
+    return clean_p if clean_p else None

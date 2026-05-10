@@ -18,22 +18,20 @@ from core.boundary.detector import BoundaryConfig
 DEFAULT_DISTILLATION_SYSTEM_PROMPT = (
     "你是一个聊天记录分析助手。你的任务是为一段已经语义聚类好的对话片段提炼结构化信息。\n\n"
     "只输出单个 JSON 对象，不输出任何其他文字或 markdown 代码块，格式如下：\n"
-    '{"topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false}\n\n'
+    '{"topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false, '
+    '"participants_personality": {"用户A": {"O": 0.3, "C": 0.1, "E": 0.7, "A": 0.5, "N": -0.2}}}\n\n'
     "字段说明：\n"
     "- topic: 该段对话的核心主题，简洁明了，30字以内\n"
     "- summary: 该段对话的摘要，提炼关键结论和信息，过滤口水话。"
     "按以下格式，每个小话题用 [What]/[Who]/[How] 三元组描述，多个小话题之间用 \" | \" 分隔，"
     "小话题数量与 chat_content_tags 对应（1-5个）。"
     "[What] 和 [How] 各写1-2句，说清楚具体发生了什么或得出了什么结论、以何种方式推进或结束（可包含情绪/态度/结果）；[Who] 保持简短只列人名。"
-    "若提示词中提供了 [Bot 视角人格]，则每个三元组末尾还需加上 [Eval] 字段（从该人格视角对该话题的一句话评价）。"
-    "格式示例（无人格）：\n"
-    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 | [What] 话题转向了近期音乐会安排，Alice 推荐了一场即将上演的室内乐 [Who] Alice [How] 对话在期待中结束，未确定是否同去\n"
-    "格式示例（有人格）：\n"
-    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 [Eval] 这段交流展现了对方对古典音乐的真诚热情，值得深入记录\n"
+    "若提示词中提供了 [Bot 视角人格]，则每个三元组末尾还需加上 [Eval] 字段（从该人格视角对该话题的一句话评价）。\n"
     "- chat_content_tags: 2~5个关键词标签\n"
     "- salience: 重要性分值 0.0~1.0\n"
     "- confidence: 本次提取结果的置信度 0.0~1.0\n"
-    "- inherit: 是否是上一个事件的直接延续（true/false）"
+    "- inherit: 是否是上一个事件的直接延续（true/false）\n"
+    "- participants_personality: (可选) 对该片段中活跃参与者的大五人格倾向评估。字段：O（开放性）、C（尽责性）、E（外倾性）、A（宜人性）、N（神经质），范围 -1.0 到 1.0。"
 )
 
 DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
@@ -44,7 +42,8 @@ DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
     "3. 连续性：如果对话虽然中断但随后继续讨论同一话题，可以视为同一事件的延续（设置 inherit 为 true）。\n\n"
     "输出格式（仅输出一个 JSON Array，包含一个或多个对象，不输出任何其他文字或 markdown 代码块）：\n"
     '[\n'
-    '  {"start_idx": 0, "end_idx": 10, "topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false},\n'
+    '  {"start_idx": 0, "end_idx": 10, "topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false, '
+    '"participants_personality": {"用户A": {"O": 0.3, "C": 0.1, "E": 0.7, "A": 0.5, "N": -0.2}}},\n'
     '  {"start_idx": 11, "end_idx": 19, "topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.3, "confidence": 0.9, "inherit": true}\n'
     ']\n\n'
     "字段说明：\n"
@@ -55,15 +54,12 @@ DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
     "按以下格式，每个小话题用 [What]/[Who]/[How] 三元组描述，多个小话题之间用 \" | \" 分隔，"
     "小话题数量与 chat_content_tags 对应（1-5个）。"
     "[What] 和 [How] 各写1-2句，说清楚具体发生了什么或得出了什么结论、以何种方式推进或结束（可包含情绪/态度/结果）；[Who] 保持简短只列人名。"
-    "若提示词中提供了 [Bot 视角人格]，则每个三元组末尾还需加上 [Eval] 字段（从该人格视角对该话题的一句话评价）。"
-    "格式示例（无人格）：\n"
-    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 | [What] 话题转向了近期音乐会安排，Alice 推荐了一场即将上演的室内乐 [Who] Alice [How] 对话在期待中结束，未确定是否同去\n"
-    "格式示例（有人格）：\n"
-    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 [Eval] 这段交流展现了对方对古典音乐的真诚热情，值得深入记录\n"
+    "若提示词中提供了 [Bot 视角人格]，则每个三元组末尾还需加上 [Eval] 字段（从该人格视角对该话题的一句话评价）。\n"
     "- chat_content_tags: 2~5个关键词标签\n"
     "- salience: 重要性分值 0.0~1.0\n"
     "- confidence: 本次提取结果的置信度 0.0~1.0\n"
-    "- inherit: 是否继承上一个已知事件的主题（即本段是上段的延续）"
+    "- inherit: 是否继承上一个已知事件的主题（即本段是上段的延续）\n"
+    "- participants_personality: (可选) 对该事件中活跃参与者的大五人格倾向评估。字段：O（开放性）、C（尽责性）、E（外倾性）、A（宜人性）、N（神经质），范围 -1.0 到 1.0。"
 )
 
 
