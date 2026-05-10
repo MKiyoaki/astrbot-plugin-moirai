@@ -613,87 +613,133 @@ export function RecycleBinDialog({ open, items, loading, onClose, onRestore, onC
 
 interface EventDetailProps {
   event: ApiEvent | null
+  isFocused?: boolean
   onEdit: (ev: ApiEvent) => void
   onDelete: (ev: ApiEvent) => void
   onLockToggle: (ev: ApiEvent) => void
+  onSelect?: () => void
   sudoMode: boolean
 }
 
-export function EventDetailCard({ event, onEdit, onDelete, onLockToggle, sudoMode }: EventDetailProps) {
+export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockToggle, onSelect, sudoMode }: EventDetailProps) {
   const { i18n } = useApp()
   if (!event) return null
   const isArchived = event.status === 'archived'
 
   return (
-    <div className={cn(
-      "relative flex flex-col gap-3 rounded-lg border bg-card p-4 transition-opacity",
-      isArchived && "opacity-60 grayscale-[0.5]"
-    )}>
+    <div 
+      onClick={() => !isFocused && onSelect?.()}
+      className={cn(
+        "relative flex flex-col gap-3 rounded-xl border bg-card p-5 transition-all duration-300",
+        isFocused ? "ring-2 ring-primary shadow-lg scale-[1.01] z-10" : "opacity-70 hover:opacity-100 cursor-pointer hover:border-primary/30",
+        isArchived && "opacity-60 grayscale-[0.5]"
+      )}
+    >
       {/* Accent Bar */}
       <div 
         className={cn(
-          "absolute left-0 top-2 bottom-2 w-1 rounded-r-full transition-colors",
-          event.is_locked ? "bg-primary" : "bg-muted"
+          "absolute left-0 top-3 bottom-3 w-1.5 rounded-r-full transition-colors",
+          isFocused ? "bg-primary" : "bg-muted"
         )} 
       />
 
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm pl-2">
+      <div className="flex items-start justify-between gap-4 pl-2">
+        <div className="flex-1 min-w-0">
+          <h4 className="font-bold text-base truncate flex items-center gap-2">
+            {event.content || event.topic || event.id}
+            {event.is_locked && <Lock className="size-4 text-primary shrink-0" />}
+          </h4>
+          <p className="text-[11px] font-mono text-muted-foreground mt-0.5">
+            {new Date(event.start).toLocaleString()}
+          </p>
+        </div>
+        {isFocused && (
+          <Badge variant={event.salience > 0.7 ? "default" : "secondary"} className="shrink-0">
+            Salience: {(event.salience * 100).toFixed(0)}%
+          </Badge>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs pl-2 bg-muted/30 p-3 rounded-lg">
         {[
-          [i18n.events.topic,      event.content],
-          [i18n.events.id,         event.id.slice(0, 12) + '…'],
-          [i18n.events.group,      event.group || i18n.events.privateChat],
-          [i18n.events.start,      new Date(event.start).toLocaleString()],
-          [i18n.events.end,        new Date(event.end).toLocaleString()],
-          [i18n.events.salience,   (event.salience * 100).toFixed(0) + '%'],
+          [i18n.events.id,         event.id.slice(0, 8) + '…'],
+          [i18n.events.end,        new Date(event.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })],
           [i18n.events.confidence, (event.confidence * 100).toFixed(0) + '%'],
-          [i18n.events.participants, (event.participants || []).map(p => p.slice(0, 10)).join(', ') || '—'],
+          [i18n.events.participants, (event.participants || []).length > 0 ? (event.participants || []).length : '—'],
         ].map(([k, v]) => (
-          <div key={k} className="contents">
-            <span className="text-muted-foreground">{k}</span>
-            <span className="truncate font-medium flex items-center gap-1.5">
-              {v}
-              {k === i18n.events.topic && event.is_locked && <Lock className="size-3 text-primary" data-icon="inline-end" />}
-            </span>
+          <div key={k} className="flex flex-col gap-0.5">
+            <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-tight">{k}</span>
+            <span className="truncate font-medium">{v}</span>
           </div>
         ))}
       </div>
 
       {event.summary && (
-        <div className="bg-muted/50 rounded p-2.5 text-xs text-muted-foreground leading-relaxed pl-2 ml-2 border-l-2 border-muted">
-          {event.summary}
+        <div className="relative overflow-hidden rounded-lg border-l-4 border-primary/40 bg-primary/5 p-4 ml-2">
+          <div className="absolute top-0 right-0 p-2 opacity-10">
+            <Check className="size-12" />
+          </div>
+          <p className="text-[11px] uppercase font-bold text-primary/70 tracking-widest mb-1.5">{i18n.events.summary || 'Summary'}</p>
+          <div className="text-sm text-foreground/90 leading-relaxed font-medium">
+            {event.summary}
+          </div>
         </div>
       )}
 
       {event.tags?.length > 0 && (
-        <div className="flex flex-wrap gap-1 pl-2">
-          {event.tags.map(t => <Badge key={t} variant="secondary" className="text-xs">{t}</Badge>)}
+        <div className="flex flex-wrap gap-1.5 pl-2">
+          {event.tags.map(t => (
+            <Badge key={t} variant="outline" className="text-[10px] bg-background/50 py-0 px-2 h-5">
+              #{t}
+            </Badge>
+          ))}
         </div>
       )}
-      <div className="flex gap-2 pt-2 pl-2">
-        <Button size="sm" variant="outline" className="h-8" disabled={!sudoMode} onClick={() => onEdit(event)}>
-          <Pencil data-icon="inline-start" />{i18n.common.edit}
-        </Button>
-        <Button 
-          size="sm" 
-          variant="outline" 
-          className={cn("h-8", event.is_locked && "text-primary border-primary/30 bg-primary/5")}
-          disabled={!sudoMode} 
-          onClick={() => onLockToggle(event)}
-        >
-          {event.is_locked ? <Lock data-icon="inline-start" /> : <Unlock data-icon="inline-start" />}
-          {event.is_locked ? i18n.events.unlock : i18n.events.lock}
-        </Button>
-        <div className="flex-1" />
-        <Button 
-          size="sm" 
-          variant="destructive" 
-          className="h-8" 
-          disabled={!sudoMode || event.is_locked} 
-          onClick={() => onDelete(event)}
-          title={event.is_locked ? (i18n.events.lockedDeleteHint || 'Locked events cannot be deleted') : ''}
-        >
-          <Trash2 data-icon="inline-start" />{i18n.common.delete}
-        </Button>
+
+      <div className="flex items-center gap-2 pt-2 pl-2 border-t mt-1">
+        {isFocused ? (
+          <>
+            <Button size="sm" variant="default" className="h-9 px-4 shadow-sm" disabled={!sudoMode} onClick={() => onEdit(event)}>
+              <Pencil className="mr-2 size-3.5" />{i18n.common.edit}
+            </Button>
+            <Button 
+              size="sm" 
+              variant="outline" 
+              className={cn("h-9 px-4", event.is_locked && "text-primary border-primary/30 bg-primary/5")}
+              disabled={!sudoMode} 
+              onClick={() => onLockToggle(event)}
+            >
+              {event.is_locked ? <Lock className="mr-2 size-3.5" /> : <Unlock className="mr-2 size-3.5" />}
+              {event.is_locked ? i18n.events.unlock : i18n.events.lock}
+            </Button>
+            <div className="flex-1" />
+            <Button 
+              size="sm" 
+              variant="ghost" 
+              className="h-9 px-4 text-destructive hover:bg-destructive/10 hover:text-destructive" 
+              disabled={!sudoMode || event.is_locked} 
+              onClick={(e) => { e.stopPropagation(); onDelete(event) }}
+              title={event.is_locked ? (i18n.events.lockedDeleteHint || 'Locked events cannot be deleted') : ''}
+            >
+              <Trash2 className="mr-2 size-3.5" />{i18n.common.delete}
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button 
+              size="sm" 
+              variant="ghost" 
+              className={cn("h-8 text-[11px]", event.is_locked && "text-primary")}
+              disabled={!sudoMode} 
+              onClick={(e) => { e.stopPropagation(); onLockToggle(event) }}
+            >
+              {event.is_locked ? <Lock className="mr-1.5 size-3" /> : <Unlock className="mr-1.5 size-3" />}
+              {event.is_locked ? i18n.events.unlock : i18n.events.lock}
+            </Button>
+            <div className="flex-1" />
+            <span className="text-[10px] text-muted-foreground italic">{i18n.events.selectToEdit || 'Select to edit'}</span>
+          </>
+        )}
       </div>
     </div>
   )

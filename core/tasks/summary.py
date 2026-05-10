@@ -34,10 +34,7 @@ async def run_group_summary(
     from ..config import SummaryConfig as _SC
     cfg = summary_config or _SC()
 
-    # Dynamic word limit injection
     system_prompt = cfg.system_prompt
-    if "不超过300字" in system_prompt:
-        system_prompt = system_prompt.replace("不超过300字", f"不超过{cfg.word_limit}字")
 
     provider = provider_getter()
     if provider is None:

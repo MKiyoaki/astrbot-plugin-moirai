@@ -20,14 +20,14 @@ const THREAD_COLORS = [
 
 // 基础绘图指标
 const DEFAULT_METRICS = {
-  AX: 48,  // 主轴 X 坐标
-  FTX: 78, // 第一个线程的 X 坐标
-  TW: 14,  // 线程可点击热区宽度
-  TG: 16,  // 线程之间的间距
-  NR: 5,   // 节点半径
-  RH: 80,  // 行高 (缩小时会动态调整)
-  TP: 40,  // 顶部内边距
-  BG: 14,  // 气泡间距
+  AX: 64,  // 主轴 X 坐标
+  FTX: 100, // 第一个线程的 X 坐标
+  TW: 18,  // 线程可点击热区宽度
+  TG: 22,  // 线程之间的间距
+  NR: 7,   // 节点半径
+  RH: 100, // 行高 (缩小时会动态调整)
+  TP: 60,  // 顶部内边距
+  BG: 20,  // 气泡间距
 }
 
 interface Thread {
@@ -107,6 +107,7 @@ export function EventTimeline({
   const [metrics, setMetrics] = useState(DEFAULT_METRICS)
   
   const containerRef = useRef<HTMLDivElement>(null)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const container = containerRef.current
@@ -115,10 +116,10 @@ export function EventTimeline({
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const width = entry.contentRect.width
-        if (width < 600) {
-          setMetrics(prev => ({ ...prev, AX: 32, FTX: 54, TW: 12, TG: 10, NR: 4, RH: 70 }))
-        } else if (width > 1200) {
-          setMetrics(prev => ({ ...prev, AX: 60, FTX: 100, TW: 16, TG: 24, NR: 6, RH: 90 }))
+        if (width < 800) {
+          setMetrics({ AX: 40, FTX: 70, TW: 14, TG: 12, NR: 5, RH: 80, TP: 40, BG: 16 })
+        } else if (width > 1600) {
+          setMetrics({ AX: 80, FTX: 130, TW: 22, TG: 32, NR: 9, RH: 120, TP: 80, BG: 24 })
         } else {
           setMetrics(DEFAULT_METRICS)
         }
@@ -171,6 +172,27 @@ export function EventTimeline({
 
   const tx = (ti: number) => metrics.FTX + ti * (metrics.TW + metrics.TG)
   const ry = (idx: number) => metrics.TP + idx * metrics.RH
+
+  useEffect(() => {
+    if (selectedEventId && containerRef.current) {
+      const timer = setTimeout(() => {
+        const rowIdx = erm[selectedEventId]
+        if (rowIdx !== undefined) {
+          const y = ry(rowIdx)
+          const viewport = containerRef.current?.querySelector('[data-radix-scroll-area-viewport]')
+          if (viewport) {
+            const viewportHeight = (viewport as HTMLElement).clientHeight
+            if (viewportHeight > 0) {
+              const targetScroll = y - viewportHeight / 2
+              viewport.scrollTo({ top: targetScroll, behavior: 'smooth' })
+            }
+          }
+        }
+      }, 350) 
+      return () => clearTimeout(timer)
+    }
+  }, [selectedEventId, erm, ry])
+
   const svgH = Math.max(400, metrics.TP + total * metrics.RH + 60)
 
   const renderInheritanceLines = () => {
@@ -263,19 +285,25 @@ export function EventTimeline({
       <ScrollArea className="flex-1" onClick={() => onSelectionChange(null)}>
         <div className="relative w-full" style={{ minHeight: svgH }}>
           <svg className="absolute left-0 top-0" style={{ width: '100%', height: svgH, pointerEvents: 'none', overflow: 'visible' }}>
+            {/* Top extension: dashed line up to the controls area */}
+            <line 
+              x1={metrics.AX} y1={0} x2={metrics.AX} y2={metrics.TP - 10} 
+              stroke="currentColor" strokeOpacity={0.2} strokeWidth={1.5} strokeDasharray="4 4"
+            />
+            {/* Main axis line */}
             <line 
               x1={metrics.AX} y1={metrics.TP - 10} x2={metrics.AX} y2={svgH - 20} 
-              stroke="currentColor" strokeOpacity={0.15} strokeWidth={1.5} 
+              stroke="currentColor" strokeOpacity={0.3} strokeWidth={1.5} 
             />
             {rows.map(row => (
               <g key={row.idx}>
                 <line 
-                  x1={metrics.AX - 3} y1={ry(row.idx)} x2={metrics.AX + 3} y2={ry(row.idx)} 
-                  stroke="currentColor" strokeOpacity={0.1} strokeWidth={1} 
+                  x1={metrics.AX - 4} y1={ry(row.idx)} x2={metrics.AX + 4} y2={ry(row.idx)} 
+                  stroke="currentColor" strokeOpacity={0.4} strokeWidth={1.5} 
                 />
                 <text 
-                  x={metrics.AX - 5} y={ry(row.idx) + 3} textAnchor="end" 
-                  fill="currentColor" fillOpacity={0.2} fontSize={9} fontFamily="monospace"
+                  x={metrics.AX - 8} y={ry(row.idx) + 3} textAnchor="end" 
+                  fill="currentColor" fillOpacity={0.6} fontSize={12} fontFamily="monospace" fontWeight="bold"
                 >
                   {fmtDate(row.tsMs)}
                 </text>
@@ -291,7 +319,7 @@ export function EventTimeline({
               const maxR = rowIndices[rowIndices.length - 1]
               return (
                 <g key={thread.id} style={{ opacity: op }}>
-                  <line x1={x} y1={ry(minR)} x2={x} y2={ry(maxR)} stroke={thread.color} strokeWidth={1.5} strokeOpacity={0.7} />
+                  <line x1={x} y1={ry(minR)} x2={x} y2={ry(maxR)} stroke={thread.color} strokeWidth={2} strokeOpacity={0.9} />
                   {rowIndices.map(rowIdx => {
                     const group = threadRowGroups[thread.id][rowIdx]
                     const y = ry(rowIdx)
@@ -303,16 +331,17 @@ export function EventTimeline({
                             const isHov = hoveredEventId === ev.id
                             const isSel = selectedEventId === ev.id
                             const isArchived = ev.status === 'archived'
-                            const offset = isStackHovered ? (i - (group.length - 1) / 2) * (metrics.NR * 2.5) : 0
-                            const r = isStackHovered ? (isHov || isSel ? metrics.NR * 1.5 : metrics.NR) : metrics.NR * (1 - i * 0.15)
-                            const circleOp = isStackHovered ? 1 : 1 - i * 0.25
+                            const spreadFactor = isStackHovered ? 2.8 : 1.4
+                            const offset = (i - (group.length - 1) / 2) * (metrics.NR * spreadFactor)
+                            const r = isStackHovered ? (isHov || isSel ? metrics.NR * 1.5 : metrics.NR) : metrics.NR
+                            const circleOp = isStackHovered ? 1 : 0.8
                             const finalR = ev.is_locked && !isStackHovered ? r * 1.2 : r
                             return (
                               <g key={ev.id}>
                                 <circle
                                   cx={x + offset} cy={y} r={Math.max(2, finalR)}
                                   fill={isHov || isSel || ev.is_locked ? thread.color : 'var(--background)'}
-                                  stroke={thread.color} strokeWidth={ev.is_locked ? 2 : 1.5} strokeOpacity={circleOp}
+                                  stroke={thread.color} strokeWidth={ev.is_locked || isSel ? 2.5 : 1.8} strokeOpacity={circleOp}
                                   strokeDasharray={isArchived ? "2,1" : undefined}
                                   style={{ transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)', opacity: isArchived ? 0.5 : 1 }}
                                 />
@@ -340,7 +369,7 @@ export function EventTimeline({
                           <circle
                             cx={x} cy={y} r={finalR}
                             fill={isHov || isSel || ev.is_locked ? thread.color : 'var(--background)'}
-                            stroke={thread.color} strokeWidth={ev.is_locked ? 2 : 1.5}
+                            stroke={thread.color} strokeWidth={ev.is_locked || isSel ? 2.5 : 1.8}
                             strokeDasharray={isArchived ? "2,1" : undefined}
                             style={{ transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)', opacity: isArchived ? 0.5 : 1 }}
                           />
@@ -376,7 +405,8 @@ export function EventTimeline({
                 >
                    <div className="relative size-full">
                      {group.map((ev, i) => {
-                       const offset = isStackHovered ? (i - (group.length - 1) / 2) * (metrics.NR * 2.5) : 0
+                       const spreadFactor = isStackHovered ? 2.8 : 1.4
+                       const offset = (i - (group.length - 1) / 2) * (metrics.NR * spreadFactor)
                        return (
                          <div
                            key={ev.id} className="absolute cursor-pointer rounded-full"
@@ -409,7 +439,8 @@ export function EventTimeline({
             const group = threadRowGroups[thread.id][rowIdx] || []
             const i = group.findIndex(e => e.id === ev.id)
             const isStackHovered = hoveredStack?.row === rowIdx && hoveredStack?.tid === thread.id
-            const offset = isStackHovered ? (i - (group.length - 1) / 2) * (metrics.NR * 2.5) : 0
+            const spreadFactor = isStackHovered ? 2.8 : 1.4
+            const offset = (i - (group.length - 1) / 2) * (metrics.NR * spreadFactor)
             const x = tx(ti)
             return (
               <div

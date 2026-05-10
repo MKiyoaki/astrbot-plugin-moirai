@@ -94,7 +94,6 @@ _DEFAULT_SUMMARY_SYSTEM_PROMPT = (
 class SummaryConfig:
     llm_timeout: float = 45.0
     max_events: int = 20
-    word_limit: int = 300
     system_prompt: str = _DEFAULT_SUMMARY_SYSTEM_PROMPT
 
 
