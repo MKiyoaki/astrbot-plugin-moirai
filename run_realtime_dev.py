@@ -72,14 +72,14 @@ except ImportError:
     KEY = "your_api_key_here"
 
 # 1. LMStudio (Local) — Heretic Gemma
-LLM_API_URL = "http://localhost:1234/v1"
-LLM_API_KEY = "lm-studio"
-LLM_MODEL   = "gemma-4-26b-a4b-it-ultra-uncensored-heretic"
+# LLM_API_URL = "http://localhost:1234/v1"
+# LLM_API_KEY = "lm-studio"
+# LLM_MODEL   = "gemma-4-26b-a4b-it-ultra-uncensored-heretic"
 
 # 2. DeepSeek (Cloud) — uncomment to use
-# LLM_API_URL = "https://api.deepseek.com"
-# LLM_API_KEY = KEY
-# LLM_MODEL   = "deepseek-v4-flash"
+LLM_API_URL = "https://api.deepseek.com"
+LLM_API_KEY = KEY
+LLM_MODEL   = "deepseek-v4-flash"
 
 MODE = "encoder"   # "encoder" | "llm"
 
@@ -282,6 +282,8 @@ async def main() -> None:
     from core.adapters.identity import IdentityResolver
     from core.boundary.detector import EventBoundaryDetector
     from core.extractor.extractor import EventExtractor
+    from core.social.big_five_scorer import BigFiveBuffer
+    from core.social.orientation_analyzer import SocialOrientationAnalyzer
     from core.embedding.encoder import NullEncoder
     from core.config import PluginConfig
     from web.server import WebuiServer
@@ -375,7 +377,7 @@ async def main() -> None:
         if use_mock_persona:
             extractor_cfg.persona_influenced_summary = True
 
-        extractor       = EventExtractor(
+        extractor = EventExtractor(
             event_repo=event_repo,
             provider_getter=lambda: mock_provider,
             encoder=encoder,

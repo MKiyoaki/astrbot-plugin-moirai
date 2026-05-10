@@ -34,8 +34,14 @@ def main() -> int:
 
     # Step 1: Delete stale realtime DB
     if REALTIME_DB.exists():
-        REALTIME_DB.unlink()
-        print(f"[Reset] Deleted {REALTIME_DB.name}")
+        try:
+            REALTIME_DB.unlink()
+            print(f"[Reset] Deleted {REALTIME_DB.name}")
+        except PermissionError:
+            print(
+                f"[Reset] WARNING: {REALTIME_DB.name} is locked by another process.\n"
+                "        Close LMStudio / any Python process holding the DB and retry."
+            )
     else:
         print(f"[Reset] {REALTIME_DB.name} not found — nothing to delete")
 
@@ -78,6 +84,14 @@ def main() -> int:
         print(f"[Reset] Restored {latest_grp.name}/ → .dev_data/groups/")
         if len(grp_candidates) > 1:
             print(f"        ({len(grp_candidates) - 1} older archive(s) retained)")
+
+    # Step 5: Clean up stale realtime DB snapshots from archive
+    if ARCHIVE_DIR.exists():
+        stale_dbs = list(ARCHIVE_DIR.glob("realtime_test_stale_*.db"))
+        if stale_dbs:
+            for f in stale_dbs:
+                f.unlink()
+            print(f"[Reset] Removed {len(stale_dbs)} stale realtime archive(s).")
 
     print("[Reset] Done.")
     return 0
