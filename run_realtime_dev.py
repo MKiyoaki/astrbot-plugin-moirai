@@ -77,7 +77,9 @@ try:
     _LMSTUDIO_MODEL  = _rc.LMSTUDIO_MODEL
     _DEEPSEEK_MODEL  = _rc.DEEPSEEK_MODEL
     _DEEPSEEK_KEY    = _rc.DEEPSEEK_API_KEY
-except ImportError:
+    print(f"[Config] Loaded run_config.py  (model_type={_MODEL_TYPE})")
+except Exception as _cfg_err:
+    print(f"[Config] WARNING: run_config.py not loaded ({_cfg_err!r}), using built-in defaults.")
     _EVENT_MODE      = "encoder"
     _MOOD_SOURCE     = "llm"
     _TIMEOUT         = 330.0
