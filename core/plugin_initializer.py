@@ -170,6 +170,7 @@ class PluginInitializer:
             ipc_enabled=ipc_cfg.enabled,
             impression_repo=impression_repo,
             plugin_config=cfg,
+            persona_repo=persona_repo,
         )
 
         async def on_event_close(window: MessageWindow) -> None:

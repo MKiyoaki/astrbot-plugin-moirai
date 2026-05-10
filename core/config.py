@@ -21,7 +21,15 @@ DEFAULT_DISTILLATION_SYSTEM_PROMPT = (
     '{"topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false}\n\n'
     "字段说明：\n"
     "- topic: 该段对话的核心主题，简洁明了，30字以内\n"
-    "- summary: 该段对话的摘要，提炼关键结论和信息，过滤口水话，200字以内\n"
+    "- summary: 该段对话的摘要，提炼关键结论和信息，过滤口水话。"
+    "按以下格式，每个小话题用 [What]/[Who]/[How] 三元组描述，多个小话题之间用 \" | \" 分隔，"
+    "小话题数量与 chat_content_tags 对应（1-5个）。"
+    "[What] 和 [How] 各写1-2句，说清楚具体发生了什么或得出了什么结论、以何种方式推进或结束（可包含情绪/态度/结果）；[Who] 保持简短只列人名。"
+    "若提示词中提供了 [Bot 视角人格]，则每个三元组末尾还需加上 [Eval] 字段（从该人格视角对该话题的一句话评价）。"
+    "格式示例（无人格）：\n"
+    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 | [What] 话题转向了近期音乐会安排，Alice 推荐了一场即将上演的室内乐 [Who] Alice [How] 对话在期待中结束，未确定是否同去\n"
+    "格式示例（有人格）：\n"
+    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 [Eval] 这段交流展现了对方对古典音乐的真诚热情，值得深入记录\n"
     "- chat_content_tags: 2~5个关键词标签\n"
     "- salience: 重要性分值 0.0~1.0\n"
     "- confidence: 本次提取结果的置信度 0.0~1.0\n"
@@ -43,7 +51,15 @@ DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
     "- start_idx: 该事件在提供的对话记录中的起始索引（从0开始）\n"
     "- end_idx: 该事件在提供的对话记录中的结束索引（包含）\n"
     "- topic: 该段对话的核心主题，简洁明了，30字以内\n"
-    "- summary: 该段对话的摘要，提炼关键结论和信息，过滤掉口水话，200字以内\n"
+    "- summary: 该段对话的摘要，提炼关键结论和信息，过滤掉口水话。"
+    "按以下格式，每个小话题用 [What]/[Who]/[How] 三元组描述，多个小话题之间用 \" | \" 分隔，"
+    "小话题数量与 chat_content_tags 对应（1-5个）。"
+    "[What] 和 [How] 各写1-2句，说清楚具体发生了什么或得出了什么结论、以何种方式推进或结束（可包含情绪/态度/结果）；[Who] 保持简短只列人名。"
+    "若提示词中提供了 [Bot 视角人格]，则每个三元组末尾还需加上 [Eval] 字段（从该人格视角对该话题的一句话评价）。"
+    "格式示例（无人格）：\n"
+    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 | [What] 话题转向了近期音乐会安排，Alice 推荐了一场即将上演的室内乐 [Who] Alice [How] 对话在期待中结束，未确定是否同去\n"
+    "格式示例（有人格）：\n"
+    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 [Eval] 这段交流展现了对方对古典音乐的真诚热情，值得深入记录\n"
     "- chat_content_tags: 2~5个关键词标签\n"
     "- salience: 重要性分值 0.0~1.0\n"
     "- confidence: 本次提取结果的置信度 0.0~1.0\n"
@@ -81,12 +97,16 @@ class SynthesisConfig:
 
 _DEFAULT_SUMMARY_SYSTEM_PROMPT = (
     "你是一个对话记录摘要助手。根据提供的事件列表，生成本期群组活动摘要。"
-    "必须使用 Markdown 格式输出，且固定包含以下四个部分，每个标题加中括号，部分之间用一个空行分隔：\n\n"
-    "[主要话题]\n\n"
-    "[情感动态]\n\n"
-    "[关键时间]\n\n"
-    "[关系变化]\n\n"
-    "总字数不超过300字。不要输出任何辅助性文字或标题以外的 Markdown 装饰。不要输出任何其他内容。"
+    "只输出[主要话题]部分的正文内容，不超过300字，对时段内所有事件进行总结。"
+    "不要输出标题、Markdown装饰或任何其他内容。只输出正文。"
+)
+
+_DEFAULT_SUMMARY_MOOD_PROMPT = (
+    "你是一个社交关系分析助手。根据以下对话事件，分析群体情感动态。"
+    "只输出单行JSON，字段：orientation（亲和/活跃/掌控/高傲/冷淡/孤避/顺应/谦让之一）、"
+    "benevolence（亲和度，-1.0到1.0的浮点数）、power（支配度，-1.0到1.0的浮点数）、"
+    "positions（对象，key为用户UID，value为该用户的orientation，8种之一）。"
+    "不要输出任何其他内容。"
 )
 
 
@@ -94,7 +114,10 @@ _DEFAULT_SUMMARY_SYSTEM_PROMPT = (
 class SummaryConfig:
     llm_timeout: float = 45.0
     max_events: int = 20
+    word_limit: int = 300
     system_prompt: str = _DEFAULT_SUMMARY_SYSTEM_PROMPT
+    mood_source: str = "llm"  # "llm" | "impression_db" (see TODO.md for Option A details)
+    mood_prompt: str = _DEFAULT_SUMMARY_MOOD_PROMPT
 
 
 @dataclass
@@ -146,6 +169,7 @@ class ExtractorConfig:
     strategy: str = "llm"  # "llm" or "semantic"
     semantic_clustering_eps: float = 0.45
     semantic_clustering_min_samples: int = 2
+    persona_influenced_summary: bool = False
 
 
 @dataclass
@@ -252,14 +276,16 @@ class PluginConfig:
 
     def get_summary_config(self) -> SummaryConfig:
         prompt = self._str("summary_system_prompt", "").strip()
+        mood_prompt = self._str("summary_mood_system_prompt", "").strip()
         limit = self._int("summary_word_limit", 300)
-        # Enforce range 200-500
         limit = max(200, min(500, limit))
         return SummaryConfig(
             llm_timeout=self._float("summary_llm_timeout_seconds", 45.0),
             max_events=self._int("summary_max_events", 20),
             word_limit=limit,
             system_prompt=prompt or _DEFAULT_SUMMARY_SYSTEM_PROMPT,
+            mood_source=self._str("summary_mood_source", "llm"),
+            mood_prompt=mood_prompt or _DEFAULT_SUMMARY_MOOD_PROMPT,
         )
 
     def get_retrieval_config(self) -> RetrievalConfig:
@@ -303,6 +329,7 @@ class PluginConfig:
             strategy=self._str("extraction_strategy", "llm"),
             semantic_clustering_eps=self._float("semantic_clustering_eps", 0.45),
             semantic_clustering_min_samples=self._int("semantic_clustering_min_samples", 2),
+            persona_influenced_summary=self._bool("persona_influenced_summary", False),
         )
 
     def get_context_config(self) -> ContextConfig:

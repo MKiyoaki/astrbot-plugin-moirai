@@ -61,7 +61,7 @@ def parse_llm_output(text: str, max_idx: int) -> list[dict] | None:
             "start_idx": start_idx,
             "end_idx": end_idx,
             "topic": str(item["topic"])[:60],
-            "summary": str(item["summary"])[:200],
+            "summary": str(item["summary"]),
             "chat_content_tags": [str(t)[:30] for t in item.get("chat_content_tags", [])[:5]],
             "salience": _clamp(item.get("salience", 0.5)),
             "confidence": _clamp(item.get("confidence", 0.5)),
@@ -93,7 +93,7 @@ def parse_single_item(text: str) -> dict | None:
 
     return {
         "topic": str(data["topic"])[:60],
-        "summary": str(data["summary"])[:200],
+        "summary": str(data["summary"]),
         "chat_content_tags": [str(t)[:30] for t in data.get("chat_content_tags", [])[:5]],
         "salience": _clamp(data.get("salience", 0.5)),
         "confidence": _clamp(data.get("confidence", 0.5)),

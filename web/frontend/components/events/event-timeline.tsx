@@ -94,6 +94,7 @@ interface EventTimelineProps {
 export function EventTimeline({
   events,
   timeGap,
+  highlightIds,
   onEventClick,
   selectedEventId,
   onSelectionChange,
@@ -131,7 +132,9 @@ export function EventTimeline({
   }, [])
 
   const visible = useMemo(() => {
-    return [...events].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+    return [...events]
+      .filter(ev => ev && ev.start) // Defensive filter
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
   }, [events])
 
   const threads = useMemo(() => {

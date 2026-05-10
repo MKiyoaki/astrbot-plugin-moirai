@@ -80,6 +80,7 @@ export interface ApiEvent {
   participants: string[]
   is_locked: boolean
   status: 'active' | 'archived'
+  bot_persona_name?: string | null
 }
 export interface EventsResponse { items: ApiEvent[]; total: number }
 export const events = {
@@ -148,6 +149,10 @@ export const summaries = {
   },
   save: (groupId: string | null, date: string, content: string) =>
     request('/api/summary', { method: 'PUT', body: JSON.stringify({ group_id: groupId, date, content }) }),
+  regenerate: (groupId: string | null, date: string) =>
+    request<{ content: string }>('/api/summary/regenerate', {
+      method: 'POST', body: JSON.stringify({ group_id: groupId, date }),
+    }),
 }
 
 // ── Recall ────────────────────────────────────────────────────────────────

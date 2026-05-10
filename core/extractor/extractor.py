@@ -26,7 +26,7 @@ from .partitioner import LlmPartitioner, SemanticPartitioner, Partition
 
 if TYPE_CHECKING:
     from ..boundary.window import MessageWindow
-    from ..repository.base import EventRepository
+    from ..repository.base import EventRepository, PersonaRepository
     from ..embedding.encoder import Encoder
     from ..domain.models import Event
     from ..config import ExtractorConfig
@@ -62,12 +62,14 @@ class EventExtractor:
         ipc_enabled: bool = True,
         impression_repo = None,
         plugin_config = None,
+        persona_repo: PersonaRepository | None = None,
     ) -> None:
         from ..config import ExtractorConfig as _EC
         cfg = extractor_config or _EC()
         self._event_repo = event_repo
         self._impression_repo = impression_repo
         self._plugin_config = plugin_config
+        self._persona_repo = persona_repo
         self._provider_getter = provider_getter
         self._encoder: Encoder = encoder or NullEncoder()
         self._max_context_messages = cfg.max_context_messages
@@ -75,6 +77,7 @@ class EventExtractor:
         self._distillation_system_prompt = cfg.distillation_system_prompt
         self._llm_timeout = cfg.llm_timeout
         self._strategy = cfg.strategy
+        self._persona_influenced_summary = cfg.persona_influenced_summary
         self._big_five_buffer = big_five_buffer
         self._orientation_analyzer = orientation_analyzer
         self._ipc_enabled = ipc_enabled and (big_five_buffer is not None) and (orientation_analyzer is not None)
@@ -176,6 +179,11 @@ class EventExtractor:
                 last_accessed_at=sub_messages[-1].timestamp,
             )
 
+            if self._persona_influenced_summary:
+                bot_name = await self._get_bot_persona_name()
+                if bot_name:
+                    event = dataclasses.replace(event, bot_persona_name=bot_name)
+
             await self._event_repo.upsert(event)
             await self._index_vector(event)
 
@@ -192,12 +200,51 @@ class EventExtractor:
             if self._ipc_enabled:
                 asyncio.create_task(self._run_ipc_analysis(event, window))
 
+    async def _get_bot_persona_desc(self) -> str | None:
+        """Return the bot persona description if persona-influenced summary is enabled."""
+        if not self._persona_influenced_summary or self._persona_repo is None:
+            return None
+        try:
+            personas = await self._persona_repo.list_all()
+            bot = next(
+                (p for p in personas if any(
+                    (bi[0] if isinstance(bi, tuple) else getattr(bi, "platform", None)) == "internal"
+                    for bi in (p.bound_identities or [])
+                )),
+                None,
+            )
+            if bot:
+                desc = bot.persona_attrs.get("description", "") if isinstance(bot.persona_attrs, dict) else ""
+                return desc or bot.primary_name or None
+        except Exception as exc:
+            logger.debug("[EventExtractor] bot persona lookup failed: %s", exc)
+        return None
+
+    async def _get_bot_persona_name(self) -> str | None:
+        """Return the bot persona primary_name for display purposes."""
+        if self._persona_repo is None:
+            return None
+        try:
+            personas = await self._persona_repo.list_all()
+            bot = next(
+                (p for p in personas if any(
+                    (bi[0] if isinstance(bi, tuple) else getattr(bi, "platform", None)) == "internal"
+                    for bi in (p.bound_identities or [])
+                )),
+                None,
+            )
+            return bot.primary_name if bot else None
+        except Exception as exc:
+            logger.debug("[EventExtractor] bot persona name lookup failed: %s", exc)
+        return None
+
     async def _extract_batch(self, window: MessageWindow) -> list[dict]:
         provider = self._provider_getter()
         if provider is None:
             return fallback_extraction(window)
 
-        prompt = build_user_prompt(window, self._max_context_messages)
+        bot_persona_desc = await self._get_bot_persona_desc()
+        prompt = build_user_prompt(window, self._max_context_messages, bot_persona_desc=bot_persona_desc)
         try:
             resp = await asyncio.wait_for(
                 provider.text_chat(prompt=prompt, system_prompt=self._system_prompt),
@@ -226,7 +273,8 @@ class EventExtractor:
                 "inherit": False
             }
 
-        prompt = build_distillation_prompt(messages)
+        bot_persona_desc = await self._get_bot_persona_desc()
+        prompt = build_distillation_prompt(messages, bot_persona_desc=bot_persona_desc)
         try:
             resp = await asyncio.wait_for(
                 provider.text_chat(prompt=prompt, system_prompt=self._distillation_system_prompt),

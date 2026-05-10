@@ -307,7 +307,7 @@ function LibraryContent() {
     setBinOpen(true)
     setBinLoading(true)
     try {
-      const res = await api.events.listRecycleBin()
+      const res = await api.events.recycleBin()
       setBinItems(res.items)
     } catch (e: any) {
       toast(i18n.events.binLoadError, 'destructive')
@@ -319,7 +319,7 @@ function LibraryContent() {
   const handleRestore = async (eventId: string) => {
     if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
     try {
-      await api.events.restoreFromBin(eventId)
+      await api.events.restore(eventId)
       toast(i18n.events.restoreSuccess)
       setBinItems(prev => prev.filter(x => x.id !== eventId))
       loadData()
@@ -334,7 +334,7 @@ function LibraryContent() {
     if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
     if (!confirm(i18n.events.clearBinConfirm)) return
     try {
-      await api.events.clearRecycleBin()
+      await api.events.clearBin()
       toast(i18n.events.binClearSuccess)
       setBinItems([])
     } catch (e: any) {

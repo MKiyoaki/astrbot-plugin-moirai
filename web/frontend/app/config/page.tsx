@@ -219,7 +219,7 @@ export default function ConfigPage() {
     },
     {
       label: i18n.config.sections.boundary,
-      keys: ['boundary_time_gap_minutes', 'boundary_max_messages', 'boundary_max_duration_minutes', 'boundary_topic_drift_threshold'],
+      keys: ['persona_influenced_summary', 'boundary_time_gap_minutes', 'boundary_max_messages', 'boundary_max_duration_minutes', 'boundary_topic_drift_threshold'],
     },
     {
       label: i18n.config.sections.relation,

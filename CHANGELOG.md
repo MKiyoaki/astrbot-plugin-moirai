@@ -1,5 +1,98 @@
 # CHANGELOG
 
+## [v0.7.6] — 2026-05-10
+
+### 人格列显示修复 + 摘要编辑结构化隔离 (Persona Name Display & Structured Summary Editor)
+
+#### 后端 (`core/`)
+- **`core/domain/models.py`**：`Event` dataclass 末尾新增可选字段 `bot_persona_name: str | None = None`。
+- **`migrations/006_event_bot_persona_name.sql`**：新增迁移，对 `events` 表执行 `ALTER TABLE ADD COLUMN bot_persona_name TEXT DEFAULT NULL`。
+- **`core/repository/sqlite.py`**：`_row_to_event()` 读取 `bot_persona_name` 列；`upsert()` INSERT/UPDATE 语句同步写入该列。
+- **`core/extractor/extractor.py`**：新增 `_get_bot_persona_name()` 方法（复用 `internal` 平台查找逻辑，返回 `primary_name`）；在事件持久化前，若 `persona_influenced_summary` 为 True 则将 bot 名称写入 `event.bot_persona_name`。
+- **`web/server.py`**：`event_to_dict()` 新增 `bot_persona_name` 字段输出。
+
+#### 开发工具
+- **`run_realtime_dev.py`**：模拟 persona 的 `primary_name` 改为从 `mock_persona.md` 标题行 `# Mock Persona: <name>` 动态解析，不再硬编码。
+
+#### 前端 (`web/frontend/`)
+- **`lib/api.ts`**：`ApiEvent` 接口新增 `bot_persona_name?: string | null`。
+- **`lib/i18n.ts`**：新增 `summaryEvalNone`（zh: 无 / ja: なし / en: None）、`summaryAddTopic`（zh: 添加话题 / ja: トピック追加 / en: Add Topic）三语 key。
+- **`components/events/event-dialogs.tsx`**：
+  - `EventDetailCard` 人格列改为读取 `event.bot_persona_name ?? i18n.events.personaDefault`，修复始终显示"全局"的问题。
+  - `[Eval]` 行改为始终显示，无评价时展示 `i18n.events.summaryEvalNone`。
+  - 新增 `StructuredSummaryEditor` 组件：当摘要可解析为结构化格式时，将编辑区替换为按 What/Who/How/Eval 分字段的独立 `<Input>` 组，用户不直接接触 `[What]` 等系统词；保存时自动重建结构化字符串。旧格式（无法解析）自动退化为 `<Textarea>` 自由文本模式。全部四个字段标签（发生了什么/参与者/如何发展/'我'的评价）均通过现有 i18n key 实现三语适配（zh/ja/en）。
+  - `EventForm` 的 summary 字段改用 `StructuredSummaryEditor`。
+
+---
+
+## [v0.7.5] — 2026-05-10
+
+### 事件摘要结构化格式与人格评价 (Structured Summary Format & Persona Eval)
+
+#### 后端 (`core/`)
+- **`core/config.py`**：`DEFAULT_EXTRACTOR_SYSTEM_PROMPT` 与 `DEFAULT_DISTILLATION_SYSTEM_PROMPT` 的 `summary` 字段说明更新为 `[What]/[Who]/[How]` 三元组格式，多个小话题以 ` | ` 分隔，数量与 `chat_content_tags` 对应（1-5个）；当提示词中包含 `[Bot 视角人格]` 时，要求每个三元组末尾附加 `[Eval]` 字段。
+- **`core/extractor/prompts.py`**：`build_user_prompt` 与 `build_distillation_prompt` 在注入 `bot_persona_desc` 时，额外输出一行明确指令，要求 LLM 在每个小话题三元组末尾加上以该人格视角的 `[Eval]` 一句话评价。
+
+#### 前端 (`web/frontend/`)
+- **`lib/i18n.ts`**：新增 `summaryWhat` / `summaryWho` / `summaryHow` / `summaryEval` 四个 key（zh: 发生了什么 / 参与者 / 如何发展 / '我'的评价；ja: 何が起きたか / 参加者 / どのように展開 / '私'の評価；en: What / Who / How / 'My' Comment）。
+- **`components/events/event-dialogs.tsx`**：
+  - 新增 `parseSummaryTopics()` 辅助函数，按 `|` 分割小话题，解析 `[What]`/`[Who]`/`[How]`（必填）及 `[Eval]`（可选）；匹配不足3个字段时 fallback 到纯文本渲染，向后兼容旧数据。
+  - `EventDetailCard` summary 块改为行列式三元组展示；`[Eval]` 字段仅在存在时渲染为第四行。
+  - 人格列改为始终显示 `i18n.events.personaDefault`（"全局"），移除对 `event.group` 的错误引用。
+
+---
+
+## [v0.7.4] — 2026-05-10
+
+### 事件摘要质量与配置扩展 (Event Summary Quality & Config Overhaul)
+
+#### 后端 (`core/`)
+- **`core/extractor/parser.py`**：移除 `parse_llm_output` 与 `parse_single_item` 中对 `Event.summary` 的 200 字硬限制，摘要长度现由 LLM 自行决定。
+- **`core/extractor/prompts.py`**：`build_user_prompt` 与 `build_distillation_prompt` 新增可选参数 `bot_persona_desc: str | None`；若提供则在提示词开头注入 `[Bot 视角人格] <描述>` 行，使摘要带有 Bot 当前性格的视角。
+- **`core/extractor/extractor.py`**：`EventExtractor.__init__` 新增 `persona_repo` 可选参数；新增内部方法 `_get_bot_persona_desc()` 通过 `platform="internal"` 查找 Bot 人格并返回其 `description`；提取时将描述传给提示词构建器。
+- **`core/config.py`**：`ExtractorConfig` 新增字段 `persona_influenced_summary: bool = False`；`PluginConfig.get_extractor_config()` 读取同名配置键。
+- **`_conf_schema.json`**：在 `boundary_topic_drift_threshold` 之后新增 `persona_influenced_summary`（bool，默认 false）。
+- **`core/plugin_initializer.py`** 与 **`run_realtime_dev.py`**：`EventExtractor` 实例化时传入 `persona_repo=persona_repo`。
+
+#### 前端 (`web/frontend/`)
+- **`lib/i18n.ts`**：
+  - `config.sections.boundary` 三语言均重命名为 `'事件流'` / `'イベントフロー'` / `'Event Flow'`。
+  - 新增 `config.fields.persona_influenced_summary` 标签与提示（zh/ja/en）。
+  - 新增 `events.personaLabel` / `events.personaDefault`（zh/ja/en）。
+- **`components/events/event-dialogs.tsx`**：`EventDetailCard` 元信息网格列数从 `sm:grid-cols-4` 扩展为 `sm:grid-cols-5`，在参与者之后新增人格列，显示 `event.group`，无群组时显示 `i18n.events.personaDefault`（全局/グローバル/Global）。
+
+---
+
+## [v0.7.3] — 2026-05-10
+
+### 摘要系统重构：三段分离式生成与 WebUI 编辑隔离 (Summary System Overhaul)
+
+#### 后端 (`core/`)
+- **`_DEFAULT_SUMMARY_SYSTEM_PROMPT`** 重构：保留原有引导语，仅生成 `[主要话题]` 正文（≤300 字），删除原有四段式格式指令（`[关键时间]`、`[关系变化]` 已废除）。
+- **新增 `_DEFAULT_SUMMARY_MOOD_PROMPT`**：用于 `[情感动态]` 的 LLM 推断，输出单行 JSON（`orientation`、`benevolence`、`power`、`positions`）。
+- **`SummaryConfig`** 新增字段：`word_limit`（字数上限）、`mood_source`（`"llm"` | `"impression_db"`，默认 `"llm"`）、`mood_prompt`。
+- **`core/tasks/summary.py`** 完整重构：
+  - `[事件列表]` 改为**确定性生成**（无 LLM 调用），使用 `interaction_flow[-1].content_preview`（≤20 字）、`sender_uid`（可选通过 `persona_repo` 解析为显示名）、`event_id`、`topic` 拼接链式格式：`[话题名] - [事件ID] | *在[用户x]发出了[xxx内容]结束了话题后话题转向了 | [话题名] - [事件ID]`。
+  - `[情感动态]` 当前使用 **Option B（LLM 推断）**，第二次 LLM 调用。
+  - 新增 `regenerate_single_summary()` 函数：供 WebUI 按需重新生成指定群组 + 日期的摘要。
+  - `run_group_summary()` 新增可选参数 `persona_repo`（用于 uid→显示名映射）。
+- **`web/server.py`**：
+  - `WebuiServer.__init__` 新增可选参数 `provider_getter`，供摘要重新生成使用。
+  - 新增 `POST /api/summary/regenerate`（sudo 权限）路由，调用 `regenerate_single_summary`。
+- **Option A/B 实现细节**已记录至 `TODO.md`，方便后续切换至印象 DB 数据源。
+
+#### 前端 (`web/frontend/`)
+- **`lib/api.ts`**：`summaries` API 新增 `regenerate(groupId, date)` 方法。
+- **`lib/i18n.ts`**：新增摘要相关 i18n key（`regenerate`、`regenerateConfirmTitle`、`regenerateConfirmDesc`、`regenerateSuccess`、`regenerateError`、`sectionTopic`、`sectionEvents`、`sectionMood`、`readOnly`），覆盖 zh/ja/en 三语言。
+- **`app/summary/page.tsx`** 完整重构：
+  - 内容解析：`parseSections()` 将 Markdown 文件按 `[主要话题]`/`[事件列表]`/`[情感动态]` 标题拆分为三段独立状态。
+  - **三段分离展示**：各段独立显示框，位置不变，顺序为 主要话题 → 事件列表 → 情感动态。
+  - **编辑隔离**：仅 `[主要话题]` 提供 `<Textarea>` 编辑；`[事件列表]` 和 `[情感动态]` 显示只读 Badge，不可编辑。
+  - 保存时以 `assembleSections()` 重组完整 Markdown，`[事件列表]` 和 `[情感动态]` 原样保留。
+  - **[调用LLM重新总结] 按钮**：位于页面顶部操作栏，点击弹出 `<AlertDialog>` 确认框，确认后调用 `/api/summary/regenerate`，三段全部更新；需要 Sudo 模式。
+
+---
+
 ## [v0.7.2] — 2026-05-10
 
 ### 前端构建产物同步修复 (Frontend Build Sync Fix)

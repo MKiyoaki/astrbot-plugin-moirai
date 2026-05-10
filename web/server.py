@@ -64,20 +64,21 @@ def event_to_dict(event: Event) -> dict[str, Any]:
     return {
         "id": event.event_id,
         "content": event.topic or event.event_id[:8],
-        "topic": event.topic,
-        "summary": event.summary,
+        "topic": event.topic or "",
+        "summary": event.summary or "",
         "start": _ts_to_iso(event.start_time),
         "end": _ts_to_iso(event.end_time),
         "start_ts": event.start_time,
         "end_ts": event.end_time,
         "group": event.group_id,
-        "salience": round(event.salience, 3),
-        "confidence": round(event.confidence, 3),
-        "tags": event.chat_content_tags,
-        "inherit_from": event.inherit_from,
-        "participants": event.participants,
-        "status": event.status,
-        "is_locked": event.is_locked,
+        "salience": round(event.salience, 3) if event.salience is not None else 0.5,
+        "confidence": round(event.confidence, 3) if event.confidence is not None else 0.8,
+        "tags": event.chat_content_tags if event.chat_content_tags is not None else [],
+        "inherit_from": event.inherit_from if event.inherit_from is not None else [],
+        "participants": event.participants if event.participants is not None else [],
+        "status": event.status or "active",
+        "is_locked": bool(event.is_locked),
+        "bot_persona_name": event.bot_persona_name,
     }
 
 
@@ -121,42 +122,29 @@ def impression_to_edge(imp: Impression) -> dict[str, Any]:
 # Demo data summaries (module-level constants, used by _handle_demo)
 
 _DEMO_SUMMARY_1 = """\
-# 群组 demo_group_001 · 2026-05-01
+# 群组 demo_group_001 活动摘要 — 2026-05-01 08:00 - 12:00
 
-## 主要话题
-- Alice 和 Bob 进行了愉快的早安问候，话题延伸至音乐推荐
-- Alice 分享了几首新歌，引发了关于独立音乐的讨论
+[主要话题]
+Alice 和 Bob 进行了早安问候，随后 Alice 分享了几首独立音乐新歌，引发了群组关于音乐推荐的讨论，整体氛围轻松积极。
 
-## 情感动态
-- 群体氛围积极，用户间互动友好
-- Alice 表现出较高的参与热情（重要度 72%）
+[事件列表]
+[早安问候] - [demo_e01] | *在Bob发出了早，Alice。结束了话题后话题转向了 | [音乐推荐] - [demo_e02]
 
-## 关键事件
-1. **早安问候**（重要度 45%）— 日常对话开启当日交流
-2. **音乐推荐**（重要度 72%）— 话题丰富，连接昨日对话
-
-## 行动项
-- [ ] 跟进 Alice 推荐的音乐播放列表
+[情感动态]
+群体情感动态整体偏向[亲和] | [亲和度：+0.62；支配度：-0.15] | [Alice处于群体中的亲和位置] | [Bob处于群体中的谦让位置]
 """
 
 _DEMO_SUMMARY_2 = """\
-# 群组 demo_group_001 · 2026-05-02
+# 群组 demo_group_001 活动摘要 — 2026-05-02 14:00 - 18:00
 
-## 主要话题
-- Alice 和 Charlie 讨论了周末游戏约定
-- Bob 和 Charlie 进行了深入的技术交流
+[主要话题]
+Alice 与 Charlie 确定了周末游戏约定，Bob 与 Charlie 深入探讨了 Python asyncio 的并发优化策略，Bob 主导话语权，Charlie 积极参与技术交流。
 
-## 情感动态
-- Charlie 参与度增加，但整体互动相对保守
-- Bob 的技术讨论获得较高参与度（重要度 85%）
+[事件列表]
+[游戏约定] - [demo_e03] | *在Charlie发出了好啊，我也有空结束了话题后话题转向了 | [技术交流] - [demo_e04]
 
-## 关键事件
-1. **游戏约定**（重要度 68%）— Alice 与 Charlie 确定周末安排
-2. **技术交流**（重要度 85%）— Bob 支配的编程讨论，内容丰富
-
-## 关系变化
-- Bob ↔ Charlie：从陌生人升级为技术话题上的讨论伙伴
-- Alice → Charlie：建立了轻松的游戏同好关系
+[情感动态]
+群体情感动态整体偏向[活跃] | [亲和度：+0.41；支配度：+0.38] | [Bob处于群体中的掌控位置] | [Alice, Charlie处于群体中的亲和位置]
 """
 
 
@@ -181,6 +169,7 @@ class WebuiServer:
         task_runner: TaskRunner | None = None,
         plugin_version: str = "0.1.0",
         initial_config: dict | None = None,
+        provider_getter: Callable | None = None,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
@@ -188,17 +177,18 @@ class WebuiServer:
         self._data_dir = data_dir
         self._port = port
         self._auth_enabled = auth_enabled
-        
+
         # Determine secret token or configured password
         cfg_password = (initial_config or {}).get("webui_password", "").strip()
         if not cfg_password and auth_enabled:
             self._secret_token = secrets.token_urlsafe(16)
         else:
             self._secret_token = cfg_password or None
-            
+
         self._auth = AuthManager(data_dir, secret_token=self._secret_token)
         self.registry = registry or PanelRegistry()
         self._task_runner = task_runner
+        self._provider_getter = provider_getter
         self._plugin_version = plugin_version
 
         # Plugin config: stored at data_dir/plugin_config.json, seeded from initial_config
@@ -217,7 +207,7 @@ class WebuiServer:
 
     def _ensure_frontend_build(self) -> None:
         """Automated build logic: Triggers static build only in dev environment when the static folder is missing."""
-        frontend_src = Path(__file__).parent / "web"
+        frontend_src = Path(__file__).parent / "frontend"
         
         # If the static folder exists and is not empty, proceed directly (user-side execution logic)
         if _STATIC_DIR.exists() and any(_STATIC_DIR.iterdir()):
@@ -280,6 +270,8 @@ class WebuiServer:
                             self._wrap("sudo", self._handle_run_task))
         app.router.add_put(
             "/api/summary", self._wrap("auth", self._handle_update_summary))
+        app.router.add_post(
+            "/api/summary/regenerate", self._wrap("sudo", self._handle_regenerate_summary))
         app.router.add_post("/api/admin/demo",
                             self._wrap("sudo", self._handle_demo))
                             
@@ -683,6 +675,31 @@ class WebuiServer:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         return _json({"ok": True})
+
+    async def _handle_regenerate_summary(self, request: web.Request) -> web.Response:
+        if self._provider_getter is None:
+            return _json({"error": "provider_getter not wired"}, status=503)
+        body = await request.json()
+        group_id = body.get("group_id") or None
+        date = body.get("date", "")
+        if not date:
+            return _json({"error": "date required"}, status=400)
+        try:
+            from core.tasks.summary import regenerate_single_summary
+            content = await regenerate_single_summary(
+                event_repo=self._event_repo,
+                data_dir=self._data_dir,
+                provider_getter=self._provider_getter,
+                group_id=group_id,
+                date=date,
+                persona_repo=self._persona_repo,
+            )
+        except Exception as exc:
+            logger.warning("[WebUI] regenerate_summary failed: %s", exc)
+            return _json({"error": str(exc)}, status=500)
+        if content is None:
+            return _json({"error": "no events or no provider"}, status=503)
+        return _json({"content": content})
 
     async def _handle_demo(self, _: web.Request) -> web.Response:
         now = time.time()

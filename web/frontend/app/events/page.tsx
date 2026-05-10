@@ -70,6 +70,16 @@ export default function EventsPage() {
   }, [])
 
   const hasHandledFocusRef = useRef(false)
+  const focusedCardRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!detailEvent) return
+    const id = setTimeout(() => {
+      focusedCardRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }, 350)
+    return () => clearTimeout(id)
+  }, [detailEvent?.id])
+
   useEffect(() => {
     if (app.rawEvents.length > 0 && !hasHandledFocusRef.current) {
       const focusId = sessionStorage.getItem('em_focus_event')
@@ -336,16 +346,17 @@ export default function EventsPage() {
                         .filter(e => e.group === detailEvent.group)
                         .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
                         .map(ev => (
-                          <EventDetailCard
-                            key={ev.id}
-                            event={ev}
-                            isFocused={ev.id === detailEvent.id}
-                            onEdit={ev => setEditEvent(ev)}
-                            onDelete={handleDelete}
-                            onLockToggle={handleLockToggle}
-                            onSelect={() => setDetailEvent(ev)}
-                            sudoMode={app.sudo}
-                          />
+                          <div key={ev.id} ref={ev.id === detailEvent.id ? focusedCardRef : null}>
+                            <EventDetailCard
+                              event={ev}
+                              isFocused={ev.id === detailEvent.id}
+                              onEdit={ev => setEditEvent(ev)}
+                              onDelete={handleDelete}
+                              onLockToggle={handleLockToggle}
+                              onSelect={() => setDetailEvent(ev)}
+                              sudoMode={app.sudo}
+                            />
+                          </div>
                         ))
                       }
                     </div>

@@ -141,6 +141,12 @@
         "hint": "0–1 之间的余弦距离值，超过此值且消息数 ≥ 20 时触发话题切换检测（需启用向量检索）",
         "default": 0.6
     },
+    "persona_influenced_summary": {
+        "description": "根据当前性格记忆事件",
+        "type": "bool",
+        "hint": "开启后在提取事件摘要时注入 Bot 人格描述，使摘要带有 Bot 当前性格的视角",
+        "default": false
+    },
     "relation_enabled": {
         "description": "启用社会关系推断",
         "type": "bool",

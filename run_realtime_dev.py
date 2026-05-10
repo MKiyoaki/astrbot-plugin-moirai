@@ -85,13 +85,14 @@ MODE = "encoder"   # "encoder" | "llm"
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
-_ROOT          = Path(__file__).parent
-MOCK_DATA_PATH = _ROOT / "tests" / "mock_data" / "Mock_Realtime_Data.md"
-DEV_DATA       = _ROOT / ".dev_data"
-ARCHIVE_DIR    = DEV_DATA / "archive"
-REALTIME_DB    = DEV_DATA / "realtime_test.db"
-DATAFLOW_DB    = DEV_DATA / "dataflow_test.db"
-PORT           = 2656
+_ROOT              = Path(__file__).parent
+MOCK_DATA_PATH     = _ROOT / "tests" / "mock_data" / "Mock_Realtime_Data.md"
+MOCK_PERSONA_PATH  = _ROOT / "tests" / "mock_data" / "mock_persona.md"
+DEV_DATA           = _ROOT / ".dev_data"
+ARCHIVE_DIR        = DEV_DATA / "archive"
+REALTIME_DB        = DEV_DATA / "realtime_test.db"
+DATAFLOW_DB        = DEV_DATA / "dataflow_test.db"
+PORT               = 2656
 
 # Tracks where the previous groups/ directory was archived so _cleanup()
 # can restore it on Ctrl+Q exit.
@@ -109,8 +110,18 @@ def _archive_step() -> None:
 
     if REALTIME_DB.exists():
         dest = ARCHIVE_DIR / f"realtime_test_stale_{ts}.db"
-        shutil.move(str(REALTIME_DB), str(dest))
-        print(f"[Archive] Moved stale realtime_test.db → {dest.name}")
+        try:
+            shutil.move(str(REALTIME_DB), str(dest))
+            print(f"[Archive] Moved stale realtime_test.db → {dest.name}")
+        except PermissionError:
+            # Windows: DB file is still locked by a previous process.
+            # Delete it in place so a fresh DB can be created.
+            try:
+                REALTIME_DB.unlink()
+                print("[Archive] realtime_test.db was locked; deleted in place (no archive).")
+            except PermissionError:
+                print("[Archive] WARNING: realtime_test.db is locked and cannot be deleted. "
+                      "Close any process holding it and retry.")
 
     if DATAFLOW_DB.exists():
         dest = ARCHIVE_DIR / f"dataflow_test_{ts}.db"
@@ -333,12 +344,44 @@ async def main() -> None:
         context_manager = ContextManager(cfg.get_context_config())
         resolver        = IdentityResolver(persona_repo)
         detector        = EventBoundaryDetector(cfg.get_boundary_config())
+
+        # ── 模拟 Persona 选项 ──────────────────────────────────────────
+        use_mock_persona = input(
+            "\n[Dev] 是否启用模拟性格进行 [Eval] 测试？(y/N): "
+        ).strip().lower() in ("y", "yes")
+
+        if use_mock_persona:
+            import time as _time
+            from core.domain.models import Persona as _Persona
+            _persona_text = MOCK_PERSONA_PATH.read_text(encoding="utf-8")
+            _persona_name = "MockPersona"
+            for _line in _persona_text.splitlines():
+                if _line.startswith("# Mock Persona:"):
+                    _persona_name = _line.removeprefix("# Mock Persona:").strip()
+                    break
+            _mock_persona = _Persona(
+                uid="bot_internal_gariton",
+                bound_identities=[("internal", "gariton")],
+                primary_name=_persona_name,
+                persona_attrs={"description": _persona_text},
+                confidence=0.9,
+                created_at=_time.time(),
+                last_active_at=_time.time(),
+            )
+            await persona_repo.upsert(_mock_persona)
+            print("[Dev] persona 已植入。")
+
+        extractor_cfg = cfg.get_extractor_config()
+        if use_mock_persona:
+            extractor_cfg.persona_influenced_summary = True
+
         extractor       = EventExtractor(
             event_repo=event_repo,
             provider_getter=lambda: mock_provider,
             encoder=encoder,
-            extractor_config=cfg.get_extractor_config(),
+            extractor_config=extractor_cfg,
             ipc_enabled=False,
+            persona_repo=persona_repo,
         )
 
         extraction_futures: list[asyncio.Task] = []
@@ -396,6 +439,7 @@ async def main() -> None:
             data_dir=DEV_DATA,
             provider_getter=lambda: mock_provider,
             summary_config=summary_cfg,
+            persona_repo=persona_repo,
         )
         print(f"[Phase 3] {n_written} summary file(s) written.")
 

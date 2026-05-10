@@ -1,5 +1,26 @@
 # Implementation TODO
 
+## [情感动态] Data Source Options (for SummaryConfig.mood_source)
+
+Two implementation strategies are available. Currently **Option B (LLM)** is active (`mood_source = "llm"`).
+
+### Option A — Impression DB (future upgrade)
+- Set `mood_source = "impression_db"` in `SummaryConfig`
+- In `core/tasks/summary.py`: after building [事件列表], collect all participant UIDs from events
+- For each UID call `impression_repo.get_latest(observer=BOT_UID, subject=uid)` → get `benevolence`, `power`, `ipc_orientation`
+- Aggregate group centroid: mean `benevolence` and mean `power` across members with valid impressions
+- Classify centroid via `ipc_model.orientation_from_bp(mean_b, mean_p)`
+- Members with confidence < threshold (default 0.3) listed as "位置尚未确定"
+- **Fallback**: if fewer than 2 members have impression data, fall back to Option B automatically
+- Requires: adding `impression_repo` param to `run_group_summary` (already added as optional `persona_repo`)
+- Pros: ML-grounded, no extra LLM call. Cons: sparse data risk for new groups.
+
+### Option B — LLM Inference (current)
+- Passes event chain (topics, tags, content previews, participants) to second LLM call
+- Prompt: `_DEFAULT_SUMMARY_MOOD_PROMPT` in `core/config.py`
+- Expects single-line JSON: `{"orientation": "...", "benevolence": 0.x, "power": 0.x, "positions": {"uid": "..."}}`
+- Pros: always produces output. Cons: +1 LLM call per summary run, estimated values only.
+
 ## [Done] Pure Batch LLM Event Partitioning (Implemented)
 
 ### 1. Objective

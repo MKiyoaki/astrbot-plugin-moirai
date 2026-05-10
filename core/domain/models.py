@@ -96,6 +96,7 @@ class Event(_BoundedMixin):
     last_accessed_at: float = 0.0
     status: str = field(default=EventStatus.ACTIVE)
     is_locked: bool = field(default=False)
+    bot_persona_name: str | None = None
 
     def __post_init__(self) -> None:
         self._check_unit("salience", self.salience)

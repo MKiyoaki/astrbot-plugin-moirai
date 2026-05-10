@@ -39,6 +39,19 @@ const toLocalIso = (ts: number) =>
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
+function parseSummaryTopics(summary: string): { what: string; who: string; how: string; eval?: string }[] | null {
+  const topics = summary.split('|').map(s => s.trim()).filter(Boolean)
+  const result: { what: string; who: string; how: string; eval?: string }[] = []
+  for (const t of topics) {
+    const what = t.match(/\[What\]\s*([^\[]+)/)?.[1]?.trim()
+    const who  = t.match(/\[Who\]\s*([^\[]+)/)?.[1]?.trim()
+    const how  = t.match(/\[How\]\s*([^\[]+)/)?.[1]?.trim()
+    const eval_ = t.match(/\[Eval\]\s*([^\[]+)/)?.[1]?.trim()
+    if (what && who && how) result.push({ what, who, how, ...(eval_ ? { eval: eval_ } : {}) })
+  }
+  return result.length > 0 ? result : null
+}
+
 function GroupPicker({
   value,
   onChange,
@@ -246,6 +259,121 @@ function EventInheritPicker({
   )
 }
 
+// ── Structured Summary Editor ─────────────────────────────────────────────
+
+type StructuredTopic = { what: string; who: string; how: string; eval: string }
+
+function buildSummaryString(topics: StructuredTopic[]): string {
+  return topics
+    .map(tp => {
+      const base = `[What] ${tp.what} [Who] ${tp.who} [How] ${tp.how}`
+      return tp.eval.trim() ? `${base} [Eval] ${tp.eval}` : base
+    })
+    .join(' | ')
+}
+
+function StructuredSummaryEditor({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (v: string) => void
+}) {
+  const { i18n } = useApp()
+  const parsed = parseSummaryTopics(value)
+
+  const [topics, setTopics] = useState<StructuredTopic[]>(() =>
+    parsed
+      ? parsed.map(tp => ({ what: tp.what, who: tp.who, how: tp.how, eval: tp.eval ?? '' }))
+      : []
+  )
+
+  const update = (idx: number, field: keyof StructuredTopic, v: string) => {
+    const next = topics.map((tp, i) => i === idx ? { ...tp, [field]: v } : tp)
+    setTopics(next)
+    onChange(buildSummaryString(next))
+  }
+
+  const addTopic = () => {
+    const next = [...topics, { what: '', who: '', how: '', eval: '' }]
+    setTopics(next)
+    onChange(buildSummaryString(next))
+  }
+
+  const removeTopic = (idx: number) => {
+    const next = topics.filter((_, i) => i !== idx)
+    setTopics(next)
+    onChange(buildSummaryString(next))
+  }
+
+  if (!parsed) {
+    return (
+      <Textarea
+        id="ev-summary"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder="输入事件的详细总结描述..."
+        className="min-h-20"
+      />
+    )
+  }
+
+  const fieldDefs: { key: keyof StructuredTopic; label: string; placeholder: string }[] = [
+    { key: 'what', label: i18n.events.summaryWhat, placeholder: i18n.events.summaryWhat },
+    { key: 'who',  label: i18n.events.summaryWho,  placeholder: i18n.events.summaryWho },
+    { key: 'how',  label: i18n.events.summaryHow,  placeholder: i18n.events.summaryHow },
+    { key: 'eval', label: i18n.events.summaryEval, placeholder: i18n.events.summaryEvalNone },
+  ]
+
+  return (
+    <div className="flex flex-col gap-3">
+      {topics.map((tp, idx) => (
+        <div key={idx} className="rounded-lg border border-border p-3 flex flex-col gap-2 relative">
+          {topics.length > 1 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute top-1 right-1 h-6 w-6 text-muted-foreground hover:text-destructive"
+              onClick={() => removeTopic(idx)}
+            >
+              <X className="size-3.5" />
+            </Button>
+          )}
+          {topics.length > 1 && (
+            <p className="text-[10px] font-bold text-muted-foreground tracking-widest">
+              #{idx + 1}
+            </p>
+          )}
+          {fieldDefs.map(({ key, label, placeholder }) => (
+            <div key={key} className="flex items-start gap-2">
+              <span className="text-[10px] uppercase font-bold text-primary/60 tracking-tight w-16 shrink-0 pt-2">
+                {label}
+              </span>
+              <Input
+                value={tp[key]}
+                onChange={e => update(idx, key, e.target.value)}
+                placeholder={placeholder}
+                className="h-8 text-sm"
+              />
+            </div>
+          ))}
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="self-start"
+        onClick={addTopic}
+      >
+        <Plus className="size-3.5 mr-1" />
+        {i18n.events.summaryWhat.includes('何') ? 'トピック追加' : i18n.events.summaryWhat.includes('发') ? '添加话题' : 'Add Topic'}
+      </Button>
+    </div>
+  )
+}
+
 // ── Event Form ────────────────────────────────────────────────────────────
 
 function EventForm({
@@ -278,14 +406,11 @@ function EventForm({
       </Field>
 
       <Field>
-        <FieldLabel htmlFor="ev-summary">{i18n.events.summary || '详细摘要'}</FieldLabel>
+        <FieldLabel>{i18n.events.summary || '详细摘要'}</FieldLabel>
         <FieldContent>
-          <Textarea
-            id="ev-summary"
+          <StructuredSummaryEditor
             value={data.summary}
-            onChange={e => set('summary', e.target.value)}
-            placeholder="输入事件的详细总结描述..."
-            className="min-h-20"
+            onChange={v => set('summary', v)}
           />
         </FieldContent>
       </Field>
@@ -660,12 +785,13 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
         )}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs pl-2 bg-muted/30 p-3 rounded-lg">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-xs pl-2 bg-muted/30 p-3 rounded-lg">
         {[
           [i18n.events.id,         event.id.slice(0, 8) + '…'],
           [i18n.events.end,        new Date(event.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })],
           [i18n.events.confidence, (event.confidence * 100).toFixed(0) + '%'],
           [i18n.events.participants, (event.participants || []).length > 0 ? (event.participants || []).length : '—'],
+          [i18n.events.personaLabel, event.bot_persona_name ?? i18n.events.personaDefault],
         ].map(([k, v]) => (
           <div key={k} className="flex flex-col gap-0.5">
             <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-tight">{k}</span>
@@ -674,17 +800,41 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
         ))}
       </div>
 
-      {event.summary && (
-        <div className="relative overflow-hidden rounded-lg border-l-4 border-primary/40 bg-primary/5 p-4 ml-2">
-          <div className="absolute top-0 right-0 p-2 opacity-10">
-            <Check className="size-12" />
+      {event.summary && (() => {
+        const topics = parseSummaryTopics(event.summary)
+        return (
+          <div className="relative overflow-hidden rounded-lg border-l-4 border-primary/40 bg-primary/5 p-4 ml-2">
+            <div className="absolute top-0 right-0 p-2 opacity-10">
+              <Check className="size-12" />
+            </div>
+            <p className="text-[11px] uppercase font-bold text-primary/70 tracking-widest mb-2">{i18n.events.summary || 'Summary'}</p>
+            {topics ? (
+              <div className="flex flex-col gap-2">
+                {topics.map((tp, i) => (
+                  <div key={i} className="flex flex-col gap-0.5">
+                    {i > 0 && <div className="border-t border-primary/10 mb-1" />}
+                    {([
+                      [i18n.events.summaryWhat, tp.what],
+                      [i18n.events.summaryWho,  tp.who],
+                      [i18n.events.summaryHow,  tp.how],
+                      [i18n.events.summaryEval, tp.eval ?? i18n.events.summaryEvalNone],
+                    ] as [string, string][]).map(([label, val]) => (
+                      <div key={label} className="flex gap-2 text-sm leading-snug">
+                        <span className="text-[10px] uppercase font-bold text-primary/60 tracking-tight w-14 shrink-0 pt-0.5">{label}</span>
+                        <span className="text-foreground/90 font-medium">{val}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-foreground/90 leading-relaxed font-medium">
+                {event.summary}
+              </div>
+            )}
           </div>
-          <p className="text-[11px] uppercase font-bold text-primary/70 tracking-widest mb-1.5">{i18n.events.summary || 'Summary'}</p>
-          <div className="text-sm text-foreground/90 leading-relaxed font-medium">
-            {event.summary}
-          </div>
-        </div>
-      )}
+        )
+      })()}
 
       {event.tags?.length > 0 && (
         <div className="flex flex-wrap gap-1.5 pl-2">
@@ -737,7 +887,7 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
               {event.is_locked ? i18n.events.unlock : i18n.events.lock}
             </Button>
             <div className="flex-1" />
-            <span className="text-[10px] text-muted-foreground italic">{i18n.events.selectToEdit || 'Select to edit'}</span>
+            <span className="text-[10px] text-muted-foreground italic">Select to edit</span>
           </>
         )}
       </div>

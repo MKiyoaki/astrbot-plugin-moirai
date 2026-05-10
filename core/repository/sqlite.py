@@ -141,6 +141,7 @@ def _row_to_event(row: aiosqlite.Row) -> Event:
     status = row["status"] if "status" in keys else EventStatus.ACTIVE
     is_locked = bool(row["is_locked"]) if "is_locked" in keys else False
     summary = row["summary"] if "summary" in keys else ""
+    bot_persona_name = row["bot_persona_name"] if "bot_persona_name" in keys else None
     return Event(
         event_id=row["event_id"],
         group_id=row["group_id"],
@@ -157,6 +158,7 @@ def _row_to_event(row: aiosqlite.Row) -> Event:
         last_accessed_at=row["last_accessed_at"],
         status=status,
         is_locked=is_locked,
+        bot_persona_name=bot_persona_name,
     )
 
 
@@ -438,7 +440,7 @@ class SQLiteEventRepository(EventRepository):
         await self._db.execute(
             "INSERT INTO events(event_id, group_id, start_time, end_time, participants, "
             "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
-            "inherit_from, last_accessed_at, status, is_locked) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "inherit_from, last_accessed_at, status, is_locked, bot_persona_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(event_id) DO UPDATE SET "
             "group_id=excluded.group_id, "
             "start_time=excluded.start_time, "
@@ -453,7 +455,8 @@ class SQLiteEventRepository(EventRepository):
             "inherit_from=excluded.inherit_from, "
             "last_accessed_at=excluded.last_accessed_at, "
             "status=excluded.status, "
-            "is_locked=excluded.is_locked",
+            "is_locked=excluded.is_locked, "
+            "bot_persona_name=excluded.bot_persona_name",
             (
                 event.event_id,
                 event.group_id,
@@ -470,6 +473,7 @@ class SQLiteEventRepository(EventRepository):
                 event.last_accessed_at,
                 event.status,
                 int(event.is_locked),
+                event.bot_persona_name,
             ),
         )
         await self._db.commit()
