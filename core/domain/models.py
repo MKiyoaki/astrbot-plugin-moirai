@@ -6,26 +6,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any
 
-
-# ---------------------------------------------------------------------------
-# Validation mixins
-# ---------------------------------------------------------------------------
-
-class _BoundedMixin:
-    """Bounded-interval validation helpers for domain dataclasses."""
-
-    __slots__ = ()
-
-    @staticmethod
-    def _check_unit(name: str, value: float) -> None:
-        if not 0.0 <= value <= 1.0:
-            raise ValueError(f"{name} must be in [0, 1], got {value}")
-
-    @staticmethod
-    def _check_range(name: str, value: float, lo: float, hi: float) -> None:
-        if not lo <= value <= hi:
-            raise ValueError(f"{name} must be in [{lo}, {hi}], got {value}")
+from ..mixins.base import SerializableMixin, ValidationMixin
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +46,7 @@ class MessageRef:
 
 
 @dataclass(slots=True)
-class Persona(_BoundedMixin):
+class Persona(SerializableMixin, ValidationMixin):
     """A participant (human or bot) with a stable cross-platform identity."""
 
     uid: str
@@ -76,9 +60,27 @@ class Persona(_BoundedMixin):
     def __post_init__(self) -> None:
         self._check_unit("confidence", self.confidence)
 
+    def to_web_node(self) -> dict[str, Any]:
+        """Format as a Cytoscape-compatible node dictionary."""
+        return {
+            "data": {
+                "id": self.uid,
+                "label": self.primary_name,
+                "confidence": round(self.confidence, 3),
+                "attrs": self.persona_attrs,
+                "bound_identities": [
+                    {"platform": p, "physical_id": pid}
+                    for p, pid in self.bound_identities
+                ],
+                "created_at": datetime.fromtimestamp(self.created_at, tz=timezone.utc).isoformat(),
+                "last_active_at": datetime.fromtimestamp(self.last_active_at, tz=timezone.utc).isoformat(),
+                "is_bot": any(p == "internal" for p, _ in self.bound_identities),
+            }
+        }
+
 
 @dataclass(slots=True, kw_only=True)
-class Event(_BoundedMixin):
+class Event(SerializableMixin, ValidationMixin):
     """A closed conversation window — the primary unit of episodic memory."""
 
     event_id: str = ""
@@ -106,9 +108,34 @@ class Event(_BoundedMixin):
                 f"start_time ({self.start_time}) must be <= end_time ({self.end_time})"
             )
 
+    def to_web_dict(self) -> dict[str, Any]:
+        """Convert to WebUI-friendly dictionary with formatted timestamps."""
+        def ts_to_iso(ts: float) -> str:
+            return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+        return {
+            "id": self.event_id,
+            "content": self.topic or self.event_id[:8],
+            "topic": self.topic or "",
+            "summary": self.summary or "",
+            "start": ts_to_iso(self.start_time),
+            "end": ts_to_iso(self.end_time),
+            "start_ts": self.start_time,
+            "end_ts": self.end_time,
+            "group": self.group_id,
+            "salience": round(self.salience, 3),
+            "confidence": round(self.confidence, 3),
+            "tags": self.chat_content_tags or [],
+            "inherit_from": self.inherit_from or [],
+            "participants": self.participants or [],
+            "status": self.status or "active",
+            "is_locked": bool(self.is_locked),
+            "bot_persona_name": self.bot_persona_name,
+        }
+
 
 @dataclass(slots=True)
-class Impression(_BoundedMixin):
+class Impression(SerializableMixin, ValidationMixin):
     """A directional social relationship."""
 
     observer_uid: str
@@ -130,9 +157,31 @@ class Impression(_BoundedMixin):
         self._check_unit("r_squared", self.r_squared)
         self._check_unit("confidence", self.confidence)
 
+    def to_web_edge(self) -> dict[str, Any]:
+        """Format as a Cytoscape-compatible edge dictionary."""
+        def ts_to_iso(ts: float) -> str:
+            return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+        return {
+            "data": {
+                "id": f"{self.observer_uid}--{self.subject_uid}--{self.scope}",
+                "source": self.observer_uid,
+                "target": self.subject_uid,
+                "label": self.ipc_orientation,
+                "affect": round(self.benevolence, 3),
+                "intensity": round(self.affect_intensity, 3),
+                "power": round(self.power, 3),
+                "r_squared": round(self.r_squared, 3),
+                "confidence": round(self.confidence, 3),
+                "scope": self.scope,
+                "evidence_event_ids": self.evidence_event_ids,
+                "last_reinforced_at": ts_to_iso(self.last_reinforced_at),
+            }
+        }
+
 
 @dataclass(slots=True, frozen=True)
-class BigFiveVector(_BoundedMixin):
+class BigFiveVector(ValidationMixin):
     """Big Five personality trait scores."""
 
     openness: float

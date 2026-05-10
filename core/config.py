@@ -7,7 +7,7 @@ it can be unit-tested against.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from core.boundary.detector import BoundaryConfig
 
@@ -171,6 +171,7 @@ class ExtractorConfig:
     semantic_clustering_min_samples: int = 2
     persona_influenced_summary: bool = False
     tag_normalization_threshold: float = 0.85
+    tag_seeds: list[str] = field(default_factory=lambda: ["社交", "日常", "技术", "知识", "工作", "娱乐", "艺术", "情感", "资讯"])
 
 
 @dataclass

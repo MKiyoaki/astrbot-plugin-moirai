@@ -48,75 +48,12 @@ _SESSION_COOKIE = "em_session"
 
 
 # Serialization helper functions (pure functions, independently testable)
-def _ts_to_iso(ts: float) -> str:
-    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
-
-
 def _json(data: Any, *, status: int = 200) -> web.Response:
     return web.Response(
         text=json.dumps(data, ensure_ascii=False),
         content_type="application/json",
         status=status,
     )
-
-
-def event_to_dict(event: Event) -> dict[str, Any]:
-    return {
-        "id": event.event_id,
-        "content": event.topic or event.event_id[:8],
-        "topic": event.topic or "",
-        "summary": event.summary or "",
-        "start": _ts_to_iso(event.start_time),
-        "end": _ts_to_iso(event.end_time),
-        "start_ts": event.start_time,
-        "end_ts": event.end_time,
-        "group": event.group_id,
-        "salience": round(event.salience, 3) if event.salience is not None else 0.5,
-        "confidence": round(event.confidence, 3) if event.confidence is not None else 0.8,
-        "tags": event.chat_content_tags if event.chat_content_tags is not None else [],
-        "inherit_from": event.inherit_from if event.inherit_from is not None else [],
-        "participants": event.participants if event.participants is not None else [],
-        "status": event.status or "active",
-        "is_locked": bool(event.is_locked),
-        "bot_persona_name": event.bot_persona_name,
-    }
-
-
-def persona_to_node(persona: Persona) -> dict[str, Any]:
-    return {
-        "data": {
-            "id": persona.uid,
-            "label": persona.primary_name,
-            "confidence": round(persona.confidence, 3),
-            "attrs": persona.persona_attrs,
-            "bound_identities": [
-                {"platform": p, "physical_id": pid}
-                for p, pid in persona.bound_identities
-            ],
-            "created_at": _ts_to_iso(persona.created_at),
-            "last_active_at": _ts_to_iso(persona.last_active_at),
-            "is_bot": any(p == "internal" for p, _ in persona.bound_identities),
-        }
-    }
-
-
-def impression_to_edge(imp: Impression) -> dict[str, Any]:
-    return {
-        "data": {
-            "id": f"{imp.observer_uid}--{imp.subject_uid}--{imp.scope}",
-            "source": imp.observer_uid,
-            "target": imp.subject_uid,
-            "label": imp.ipc_orientation,
-            "affect": round(imp.benevolence, 3),
-            "intensity": round(imp.affect_intensity, 3),
-            "power": round(imp.power, 3),
-            "r_squared": round(imp.r_squared, 3),
-            "confidence": round(imp.confidence, 3),
-            "scope": imp.scope,
-            "evidence_event_ids": imp.evidence_event_ids,
-            "last_reinforced_at": _ts_to_iso(imp.last_reinforced_at),
-        }
-    }
 
 
 # Demo data summaries (module-level constants, used by _handle_demo)
@@ -440,7 +377,7 @@ class WebuiServer:
             for gid in group_ids:
                 events.extend(await self._event_repo.list_by_group(gid, limit=per_group))
             events = events[:limit]
-        return {"items": [event_to_dict(e) for e in events], "total": len(events)}
+        return {"items": [e.to_web_dict() for e in events], "total": len(events)}
 
     async def graph_data(self) -> dict[str, Any]:
         personas = await self._persona_repo.list_all()
@@ -448,7 +385,7 @@ class WebuiServer:
 
         nodes = []
         for p in personas:
-            node = persona_to_node(p)
+            node = p.to_web_node()
             node["data"]["msg_count"] = uid_msg_counts.get(p.uid, 0)
             nodes.append(node)
 
@@ -456,7 +393,7 @@ class WebuiServer:
         for persona in personas:
             imps = await self._impression_repo.list_by_observer(persona.uid)
             for imp in imps:
-                edge = impression_to_edge(imp)
+                edge = imp.to_web_edge()
                 edge["data"]["msg_count"] = await self._event_repo.count_edge_messages(
                     imp.observer_uid, imp.subject_uid, imp.scope
                 )
@@ -1084,7 +1021,7 @@ class WebuiServer:
             
         self._recycle_bin = [
             x for x in self._recycle_bin if x["id"] != event_id]
-        return _json({"ok": True, "event": event_to_dict(event)})
+        return _json({"ok": True, "event": event.to_web_dict()})
 
     async def _handle_recycle_bin_clear(self, _: web.Request) -> web.Response:
         count = len(self._recycle_bin)
@@ -1119,7 +1056,7 @@ class WebuiServer:
         except (ValueError, TypeError) as exc:
             return _json({"error": str(exc)}, status=400)
         await self._persona_repo.upsert(persona)
-        return _json({"ok": True, "persona": persona_to_node(persona)}, status=201)
+        return _json({"ok": True, "persona": persona.to_web_node()}, status=201)
 
     async def _handle_update_persona(self, request: web.Request) -> web.Response:
         uid = request.match_info["uid"]
@@ -1155,7 +1092,7 @@ class WebuiServer:
         except (ValueError, TypeError) as exc:
             return _json({"error": str(exc)}, status=400)
         await self._persona_repo.upsert(updated)
-        return _json({"ok": True, "persona": persona_to_node(updated)})
+        return _json({"ok": True, "persona": updated.to_web_node()})
 
     async def _handle_delete_persona(self, request: web.Request) -> web.Response:
         uid = request.match_info["uid"]
@@ -1197,7 +1134,7 @@ class WebuiServer:
         except (ValueError, TypeError) as exc:
             return _json({"error": str(exc)}, status=400)
         await self._impression_repo.upsert(impression)
-        return _json({"ok": True, "impression": impression_to_edge(impression)["data"]})
+        return _json({"ok": True, "impression": impression.to_web_edge()["data"]})
 
     # Route handlers: Tags aggregation
 

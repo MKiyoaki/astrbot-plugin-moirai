@@ -16,9 +16,6 @@ from web.auth import AuthManager
 from web.registry import PanelManifest, PanelRegistry, PanelRoute
 from web.server import (
     WebuiServer,
-    event_to_dict,
-    impression_to_edge,
-    persona_to_node,
 )
 
 
@@ -105,7 +102,7 @@ def _server(
 
 def test_event_to_dict_fields() -> None:
     ev = make_event("e1", topic="讨论Python")
-    d = event_to_dict(ev)
+    d = ev.to_web_dict()
     assert d["id"] == "e1"
     assert d["content"] == "讨论Python"
     assert "start" in d and "end" in d
@@ -116,13 +113,13 @@ def test_event_to_dict_fields() -> None:
 
 def test_event_to_dict_empty_topic_uses_id_prefix() -> None:
     ev = make_event("abcdefgh12", topic="")
-    d = event_to_dict(ev)
+    d = ev.to_web_dict()
     assert d["content"] == "abcdefgh"
 
 
 def test_persona_to_node_structure() -> None:
     p = make_persona("uid1", "Bob")
-    n = persona_to_node(p)
+    n = p.to_web_node()
     assert n["data"]["id"] == "uid1"
     assert n["data"]["label"] == "Bob"
     assert "confidence" in n["data"]
@@ -130,7 +127,7 @@ def test_persona_to_node_structure() -> None:
 
 def test_impression_to_edge_structure() -> None:
     imp = make_impression("uid1", "uid2")
-    e = impression_to_edge(imp)
+    e = imp.to_web_edge()
     assert e["data"]["source"] == "uid1"
     assert e["data"]["target"] == "uid2"
     assert e["data"]["label"] == "友好"
@@ -140,7 +137,7 @@ def test_impression_to_edge_structure() -> None:
 
 def test_impression_edge_id_includes_scope() -> None:
     imp = make_impression("a", "b")
-    e = impression_to_edge(imp)
+    e = imp.to_web_edge()
     assert "global" in e["data"]["id"]
 
 
@@ -298,7 +295,7 @@ async def test_api_index_returns_html(tmp_path: Path) -> None:
         resp = await client.get("/")
         assert resp.status == 200
         text = await resp.text()
-        assert "Enhanced Memory" in text
+        assert "<html" in text.lower()  # Next.js export should at least be an HTML doc
 
 
 async def test_api_panels_empty_by_default(tmp_path: Path) -> None:
