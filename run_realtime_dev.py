@@ -61,7 +61,8 @@ except ImportError:
 
         def _print(self):
             total_str = f"/{self._total}" if self._total else ""
-            print(f"\r  {self._desc}: {self._n}{total_str} {self._unit}", end="", flush=True)
+            print(
+                f"\r  {self._desc}: {self._n}{total_str} {self._unit}", end="", flush=True)
 
 
 # ── LLM Configuration ────────────────────────────────────────────────────────
@@ -77,22 +78,24 @@ except ImportError:
 # LLM_MODEL   = "gemma-4-26b-a4b-it-ultra-uncensored-heretic"
 
 # 2. DeepSeek (Cloud) — uncomment to use
-LLM_API_URL = "https://api.deepseek.com"
-LLM_API_KEY = KEY
-LLM_MODEL   = "deepseek-v4-flash"
+# LLM_API_URL = "https://api.deepseek.com"
+# LLM_API_KEY = KEY
+# LLM_MODEL = "deepseek-v4-flash"
 
 MODE = "encoder"   # "encoder" | "llm"
+_MOOD_SOURCE = "impression_db"  # "impression_db" | "llm"
+_TIMEOUT = 330.0
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
-_ROOT              = Path(__file__).parent
-MOCK_DATA_PATH     = _ROOT / "tests" / "mock_data" / "Mock_Realtime_Data.md"
-MOCK_PERSONA_PATH  = _ROOT / "tests" / "mock_data" / "mock_persona.md"
-DEV_DATA           = _ROOT / ".dev_data"
-ARCHIVE_DIR        = DEV_DATA / "archive"
-REALTIME_DB        = DEV_DATA / "realtime_test.db"
-DATAFLOW_DB        = DEV_DATA / "dataflow_test.db"
-PORT               = 2656
+_ROOT = Path(__file__).parent
+MOCK_DATA_PATH = _ROOT / "tests" / "mock_data" / "Mock_Realtime_Data.md"
+MOCK_PERSONA_PATH = _ROOT / "tests" / "mock_data" / "mock_persona.md"
+DEV_DATA = _ROOT / ".dev_data"
+ARCHIVE_DIR = DEV_DATA / "archive"
+REALTIME_DB = DEV_DATA / "realtime_test.db"
+DATAFLOW_DB = DEV_DATA / "dataflow_test.db"
+PORT = 2656
 
 # Tracks where the previous groups/ directory was archived so _cleanup()
 # can restore it on Ctrl+Q exit.
@@ -118,7 +121,8 @@ def _archive_step() -> None:
             # Delete it in place so a fresh DB can be created.
             try:
                 REALTIME_DB.unlink()
-                print("[Archive] realtime_test.db was locked; deleted in place (no archive).")
+                print(
+                    "[Archive] realtime_test.db was locked; deleted in place (no archive).")
             except PermissionError:
                 print("[Archive] WARNING: realtime_test.db is locked and cannot be deleted. "
                       "Close any process holding it and retry.")
@@ -134,13 +138,14 @@ def _archive_step() -> None:
         dest = ARCHIVE_DIR / f"groups_{ts}"
         shutil.move(str(groups_dir), str(dest))
         _archived_groups = dest
-        print(f"[Archive] Moved summary dir → archive/groups_{ts}/ (will restore on exit)")
+        print(
+            f"[Archive] Moved summary dir → archive/groups_{ts}/ (will restore on exit)")
 
 
 # ── Mock_Data.md parser ───────────────────────────────────────────────────────
 
 _GROUP_HDR = re.compile(r'^## Group ID: (\S+)', re.MULTILINE)
-_MSG_HDR   = re.compile(
+_MSG_HDR = re.compile(
     r'^\*\*(.+?) \((\d+)\)\*\* \[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}) ?\]:$'
 )
 
@@ -169,9 +174,9 @@ def _parse_mock_data(path: Path) -> list[dict]:
             mm = _MSG_HDR.match(line)
             if mm:
                 display_name = mm.group(1)
-                user_id      = mm.group(2)
-                ts_str       = mm.group(3)
-                body         = "\n".join(lines[i + 1:]).strip()
+                user_id = mm.group(2)
+                ts_str = mm.group(3)
+                body = "\n".join(lines[i + 1:]).strip()
                 try:
                     dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M")
                     timestamp = dt.timestamp()
@@ -205,8 +210,8 @@ class _RealtimeProviderBridge:
     """
 
     def __init__(self, api_url: str, api_key: str, model: str) -> None:
-        self._url   = api_url.rstrip("/") + "/chat/completions"
-        self._key   = api_key
+        self._url = api_url.rstrip("/") + "/chat/completions"
+        self._key = api_key
         self._model = model
 
     async def text_chat(self, prompt: str, system_prompt: str = ""):
@@ -224,7 +229,7 @@ class _RealtimeProviderBridge:
 
         payload = {"model": self._model, "messages": body, "temperature": 0.1}
 
-        async with httpx.AsyncClient(timeout=330.0) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(self._url, headers=headers, json=payload)
             resp.raise_for_status()
             text = resp.json()["choices"][0]["message"]["content"]
@@ -255,7 +260,8 @@ def _cleanup() -> None:
     # Restore the original summary dir that was moved at startup
     if _archived_groups is not None and _archived_groups.exists():
         shutil.move(str(_archived_groups), str(realtime_groups))
-        print(f"[Cleanup] Restored original summary dir from {_archived_groups.name}")
+        print(
+            f"[Cleanup] Restored original summary dir from {_archived_groups.name}")
         _archived_groups = None
 
     print("[Cleanup] Session ended cleanly.")
@@ -295,7 +301,8 @@ async def main() -> None:
         return
     messages = _parse_mock_data(MOCK_DATA_PATH)
     groups = {m["group_id"] for m in messages}
-    print(f"[Parser] {len(messages)} messages parsed across {len(groups)} groups: {sorted(groups)}")
+    print(
+        f"[Parser] {len(messages)} messages parsed across {len(groups)} groups: {sorted(groups)}")
 
     # Step 4: Config (mirrors run_dataflow_dev.py)
     def _build_config(mode: str) -> PluginConfig:
@@ -319,33 +326,37 @@ async def main() -> None:
             raw["extraction_strategy"] = "llm"
         return PluginConfig(raw)
 
-    cfg           = _build_config(MODE)
+    cfg = _build_config(MODE)
     # Use _RealtimeProviderBridge instead of MockProviderBridge:
     # 180 s httpx timeout + <think> tag stripping for Gemma 26B.
-    mock_provider = _RealtimeProviderBridge(LLM_API_URL, LLM_API_KEY, LLM_MODEL)
+    mock_provider = _RealtimeProviderBridge(
+        LLM_API_URL, LLM_API_KEY, LLM_MODEL)
 
     # Step 5: Open fresh SQLite DB
     DEV_DATA.mkdir(parents=True, exist_ok=True)
 
     async with db_open(REALTIME_DB, migration_auto_backup=False) as db:
-        event_repo      = SQLiteEventRepository(db)
-        persona_repo    = SQLitePersonaRepository(db)
+        event_repo = SQLiteEventRepository(db)
+        persona_repo = SQLitePersonaRepository(db)
         impression_repo = SQLiteImpressionRepository(db)
 
         # Encoder
         if MODE == "encoder":
             from core.embedding.encoder import SentenceTransformerEncoder
-            print(f"[Encoder] Loading {cfg.embedding_model} (first run may download ~100 MB) ...")
-            encoder = SentenceTransformerEncoder(model_name=cfg.embedding_model)
+            print(
+                f"[Encoder] Loading {cfg.embedding_model} (first run may download ~100 MB) ...")
+            encoder = SentenceTransformerEncoder(
+                model_name=cfg.embedding_model)
         else:
             encoder = NullEncoder()
 
         from core.retrieval.hybrid import HybridRetriever
-        retriever       = HybridRetriever(event_repo, encoder)
-        recall          = RecallManager(retriever, cfg.get_retrieval_config(), cfg.get_injection_config())
+        retriever = HybridRetriever(event_repo, encoder)
+        recall = RecallManager(
+            retriever, cfg.get_retrieval_config(), cfg.get_injection_config())
         context_manager = ContextManager(cfg.get_context_config())
-        resolver        = IdentityResolver(persona_repo)
-        detector        = EventBoundaryDetector(cfg.get_boundary_config())
+        resolver = IdentityResolver(persona_repo)
+        detector = EventBoundaryDetector(cfg.get_boundary_config())
 
         # ── 模拟 Persona 选项 ──────────────────────────────────────────
         use_mock_persona = input(
@@ -359,7 +370,8 @@ async def main() -> None:
             _persona_name = "MockPersona"
             for _line in _persona_text.splitlines():
                 if _line.startswith("# Mock Persona:"):
-                    _persona_name = _line.removeprefix("# Mock Persona:").strip()
+                    _persona_name = _line.removeprefix(
+                        "# Mock Persona:").strip()
                     break
             _mock_persona = _Persona(
                 uid="bot_internal_gariton",
@@ -420,11 +432,13 @@ async def main() -> None:
 
         print("[Phase 1] Flushing router windows ...")
         await router.flush_all()
-        print(f"[Phase 1] Done. {len(extraction_futures)} extraction task(s) queued.")
+        print(
+            f"[Phase 1] Done. {len(extraction_futures)} extraction task(s) queued.")
 
         # ── Phase 2: Wait for LLM extraction ───────────────────────────────
         if extraction_futures:
-            print(f"\n[Phase 2] Running {len(extraction_futures)} LLM extraction task(s) ...")
+            print(
+                f"\n[Phase 2] Running {len(extraction_futures)} LLM extraction task(s) ...")
             with _tqdm(total=len(extraction_futures), desc="  Extracting", unit="task") as bar:
                 for fut in asyncio.as_completed(extraction_futures):
                     try:
@@ -439,7 +453,9 @@ async def main() -> None:
         print("\n[Phase 3] Generating group summaries via LLM ...")
         from core.tasks.summary import run_group_summary
         from core.config import SummaryConfig
-        summary_cfg = SummaryConfig(llm_timeout=300.0)  # match Gemma 26B latency
+        # match Gemma 26B latency
+        summary_cfg = SummaryConfig(
+            llm_timeout=300.0, mood_source=_MOOD_SOURCE)
         n_written = await run_group_summary(
             event_repo=event_repo,
             data_dir=DEV_DATA,
@@ -451,7 +467,7 @@ async def main() -> None:
         print(f"[Phase 3] {n_written} summary file(s) written.")
 
         # ── Success summary ─────────────────────────────────────────────────
-        events   = await event_repo.list_all(limit=10_000)
+        events = await event_repo.list_all(limit=10_000)
         personas = await persona_repo.list_all()
         async with db.execute("SELECT COUNT(*) FROM impressions") as cur:
             row = await cur.fetchone()
@@ -483,7 +499,7 @@ async def main() -> None:
 
         # ── Phase 4: Hotkey listener + keep-alive ──────────────────────────
         stop_event = asyncio.Event()
-        loop       = asyncio.get_event_loop()
+        loop = asyncio.get_event_loop()
 
         def _hotkey_thread() -> None:
             try:
