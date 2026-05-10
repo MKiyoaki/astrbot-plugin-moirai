@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [v0.7.2] — 2026-05-10
+
+### 前端构建产物同步修复 (Frontend Build Sync Fix)
+
+- **根因**：`e6cba06` ([chores] Event Flow UI & Visualization Overhaul) 提交了 v0.7.1 的源码变更（`event-timeline.tsx`、`events/page.tsx`、`event-dialogs.tsx`），但未同步重新编译并提交 `web/frontend/output/`。导致用户 `git checkout` 后得到的是旧版 build（hash: `sMXf4ujWTjNDiZwnUWyd7`），该 build 引用的 JS chunks（`d4b3d3e494e64a1e.js`、`7e0385642e133874.js`、`348156fcd50077db.js`）在当前工作区已不存在，浏览器客户端路由尝试动态加载这些 chunk 时收到 404，导航静默失败，用户停留在旧界面无法进入新 events 页面。
+- **修复**：在当前代码状态下重新执行 `npm run build`（Node.js v24，Next.js 16 Turbopack），生成新 build（hash: `g9kRJCgvYdsUFxpsxbVFd`），并将完整 `web/frontend/output/` 目录提交入库，确保源码与构建产物保持一致。
+- **影响**：`run_realtime_dev.py` 与 `run_webui_dev.py` 等开发脚本现在可直接使用最新 events 界面（Axis Context View、交互式侧边栏展开至 1/3 屏宽、水平散列布局、自动居中等全部 v0.7.1 新特性）。
+
+---
+
 ## [v0.7.1] — 2026-05-10
 
 ### 事件流显示性能与视觉深度优化 (Event Flow UI & Visualization Overhaul)
