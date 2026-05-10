@@ -66,7 +66,7 @@ _ANGLE_TO_OCTANT: dict[float, _IPCOctant] = {o.angle_deg: o for o in _OCTANTS}
 def classify_octant(benevolence: float, power: float) -> str:
     """Return the Chinese IPC label whose centroid is nearest to (B, P)."""
     if abs(benevolence) < _EPS and abs(power) < _EPS:
-        return "友好"  # origin → default to friendly
+        return "亲和"  # origin → default to friendly
     angle = math.degrees(math.atan2(power, benevolence)) % 360.0
     # Find the nearest octant centre (centres at 0°, 45°, …, 315°)
     nearest = round(angle / 45.0) % 8

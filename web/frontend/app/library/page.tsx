@@ -595,29 +595,30 @@ function LibraryContent() {
         onTagsChange={setActiveTags}
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
-        extraActions={
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" className="h-9 shrink-0 gap-2 px-3" onClick={openBin}>
-                  <Trash2 className="size-4" />
-                  <span className="text-sm">{i18n.events.recycleBin}</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{i18n.events.recycleBinDescription || i18n.events.recycleBin}</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        }
       />
 
       <div className="flex flex-1 flex-col overflow-hidden p-6 pt-2">
         <Tabs value={tab} onValueChange={(t) => { setEditMode(false); setTab(t) }} className="flex flex-1 flex-col overflow-hidden">
-          <TabsList className="mb-4 shrink-0">
-            <TabsTrigger value="events" className="gap-2"><Activity />{i18n.library.tabs.events}</TabsTrigger>
-            <TabsTrigger value="time" className="gap-2"><Clock />{i18n.library.tabs.time}</TabsTrigger>
-            <TabsTrigger value="personas" className="gap-2"><Users />{i18n.library.tabs.personas}</TabsTrigger>
-            <TabsTrigger value="groups" className="gap-2"><Building2 />{i18n.library.tabs.groups}</TabsTrigger>
-          </TabsList>
+          <div className="mb-4 flex items-center justify-between shrink-0">
+            <TabsList className="shrink-0">
+              <TabsTrigger value="events" className="gap-2"><Activity />{i18n.library.tabs.events}</TabsTrigger>
+              <TabsTrigger value="time" className="gap-2"><Clock />{i18n.library.tabs.time}</TabsTrigger>
+              <TabsTrigger value="personas" className="gap-2"><Users />{i18n.library.tabs.personas}</TabsTrigger>
+              <TabsTrigger value="groups" className="gap-2"><Building2 />{i18n.library.tabs.groups}</TabsTrigger>
+            </TabsList>
+
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-9 gap-2 px-3" onClick={openBin}>
+                    <Trash2 className="size-4" />
+                    <span className="text-sm">{i18n.events.recycleBin}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{i18n.events.recycleBinDescription || i18n.events.recycleBin}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
 
           <TabsContent value="events" className="flex-1 overflow-hidden flex flex-col">
             <ScrollArea className="flex-1">
