@@ -163,11 +163,24 @@ function ImpressionSection({
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
         <Field label={t.relationType} value={getLocalizedOrientation(edge.data.label, i18n)} />
-        <Field label={t.confidence} value={`${(edge.data.confidence * 100).toFixed(0)}%`} />
         <Field label={t.intensity} value={`${(edge.data.intensity * 100).toFixed(0)}%`} />
         <Field label={t.scope} value={edge.data.scope} />
         {msgCount != null && <Field label={i18n.graph.detail.msgCount} value={String(msgCount)} />}
         <Field label={i18n.graph.detail.lastActive} value={lastReinforced} />
+      </div>
+
+      {/* Confidence Indicator */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+          <span>{t.confidence}</span>
+          <span className="font-mono">{(edge.data.confidence * 100).toFixed(0)}%</span>
+        </div>
+        <div className="h-1 w-full bg-muted rounded-full overflow-hidden border border-border/50">
+          <div 
+            className="h-full bg-primary transition-all duration-500" 
+            style={{ width: `${edge.data.confidence * 100}%` }}
+          />
+        </div>
       </div>
 
       <AffectBar value={edge.data.affect} label={t.affect} axisLabels={[t.axes.negative, t.axes.positive]} />

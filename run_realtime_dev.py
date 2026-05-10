@@ -380,8 +380,12 @@ async def main() -> None:
             provider_getter=lambda: mock_provider,
             encoder=encoder,
             extractor_config=extractor_cfg,
-            ipc_enabled=False,
+            big_five_buffer=BigFiveBuffer(x_messages=10),
+            orientation_analyzer=SocialOrientationAnalyzer(impression_repo),
+            ipc_enabled=True,
             persona_repo=persona_repo,
+            impression_repo=impression_repo,
+            plugin_config=cfg,
         )
 
         extraction_futures: list[asyncio.Task] = []

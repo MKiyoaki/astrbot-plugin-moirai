@@ -111,7 +111,7 @@ export function AppSidebar() {
                   <div className="grid flex-1 text-left leading-tight ml-2">
                     <span className="truncate font-serif text-xl font-bold tracking-tighter text-primary">{i18n.app.name}</span>
                     <span className="text-muted-foreground truncate text-[10px] uppercase tracking-widest opacity-70">
-                      Fate Engine v{app.stats.version}
+                      Memory Engine v{app.stats.version}
                     </span>
                   </div>
                 </Link>
