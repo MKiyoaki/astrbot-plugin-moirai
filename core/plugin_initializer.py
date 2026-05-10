@@ -14,7 +14,11 @@ from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from astrbot.api import logger as astrbot_logger
+try:
+    from astrbot.api import logger as astrbot_logger
+except:
+    # Fallback if astrbot.api.logger is not available (e.g., during testing)
+    astrbot_logger = logging.getLogger("astrbot_plugin_enhanced_memory")
 
 from .adapters.astrbot import MessageRouter
 from .adapters.identity import IdentityResolver
@@ -80,7 +84,7 @@ class PluginInitializer:
         data_dir = self._data_dir
         # ... (rest of initialize remains same)
         # Actually I need to make sure I add start/stop to the end of initialize and start of terminate
-        
+
     # Wait, the tool only shows parts of the file. I need to find where initialize/terminate methods end.
 
         db_path = data_dir / "db" / "core.db"
@@ -126,7 +130,7 @@ class PluginInitializer:
             encoder = NullEncoder()
 
         self.embedding_manager = EmbeddingManager(encoder, embed_cfg)
-        
+
         self.context_manager = ContextManager(cfg.get_context_config())
 
         retriever = HybridRetriever(
@@ -206,7 +210,8 @@ class PluginInitializer:
         self.scheduler.register(
             "memory_cleanup",
             interval=cfg.get_cleanup_config().interval_days * 86400,
-            fn=lambda: run_memory_cleanup(event_repo, cfg.get_cleanup_config()),
+            fn=lambda: run_memory_cleanup(
+                event_repo, cfg.get_cleanup_config()),
         )
 
         async def _projection_and_register() -> None:
@@ -278,7 +283,8 @@ class PluginInitializer:
         if self.embedding_manager:
             await self.embedding_manager.start()
 
-        astrbot_logger.info("[%s] initialized — DB at %s", _PLUGIN_NAME, db_path)
+        astrbot_logger.info("[%s] initialized — DB at %s",
+                            _PLUGIN_NAME, db_path)
 
     async def teardown(self) -> None:
         if self.watcher is not None:
@@ -370,7 +376,8 @@ async def _maybe_trigger_impression(
                         ipc_orientation = "友好"
                         benevolence = min(1.0, 0.1 + avg_salience * 0.3)
                         power = 0.0
-                    affect_intensity = min(1.0, math.sqrt(benevolence ** 2 + power ** 2) / math.sqrt(2))
+                    affect_intensity = min(1.0, math.sqrt(
+                        benevolence ** 2 + power ** 2) / math.sqrt(2))
                     r_squared = 0.3  # low confidence — rule-based signal only
 
                     if existing:
@@ -378,10 +385,14 @@ async def _maybe_trigger_impression(
                         new_imp = dataclasses.replace(
                             existing,
                             ipc_orientation=ipc_orientation,
-                            benevolence=round(existing.benevolence * (1 - alpha) + benevolence * alpha, 3),
-                            power=round(existing.power * (1 - alpha) + power * alpha, 3),
-                            affect_intensity=round(existing.affect_intensity * (1 - alpha) + affect_intensity * alpha, 3),
-                            r_squared=round(existing.r_squared * (1 - alpha) + r_squared * alpha, 3),
+                            benevolence=round(
+                                existing.benevolence * (1 - alpha) + benevolence * alpha, 3),
+                            power=round(existing.power *
+                                        (1 - alpha) + power * alpha, 3),
+                            affect_intensity=round(
+                                existing.affect_intensity * (1 - alpha) + affect_intensity * alpha, 3),
+                            r_squared=round(
+                                existing.r_squared * (1 - alpha) + r_squared * alpha, 3),
                             last_reinforced_at=now,
                         )
                     else:
@@ -395,7 +406,8 @@ async def _maybe_trigger_impression(
                             r_squared=r_squared,
                             confidence=0.3,
                             scope=scope,
-                            evidence_event_ids=[e.event_id for e in shared[-5:]],
+                            evidence_event_ids=[
+                                e.event_id for e in shared[-5:]],
                             last_reinforced_at=now,
                         )
 
