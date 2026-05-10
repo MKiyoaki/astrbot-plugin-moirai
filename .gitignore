@@ -212,4 +212,5 @@ __marimo__/
 .agent/
 skills-lock.json
 key.py
+run_config.py
 __pycache__

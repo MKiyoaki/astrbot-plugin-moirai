@@ -1,0 +1,14 @@
+# Copy this file to run_config.py and fill in your local values.
+# run_config.py is gitignored and will never be committed.
+
+EVENT_MODE = "encoder"       # "encoder" | "llm"
+MOOD_SOURCE = "llm"          # "impression_db" | "llm"
+TIMEOUT = 330.0              # httpx timeout in seconds
+MODEL_TYPE = "lmstudio"      # "lmstudio" | "deepseek"
+
+# LMStudio model ID — run `curl http://localhost:1234/v1/models` to list loaded models
+LMSTUDIO_MODEL = "gemma-4-26b-a4b-it-ultra-uncensored-heretic"
+
+# DeepSeek
+DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEEPSEEK_API_KEY = "your_deepseek_api_key_here"

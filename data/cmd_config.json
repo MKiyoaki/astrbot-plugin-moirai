@@ -47,7 +47,6 @@
   "provider_settings": {
     "enable": true,
     "default_provider_id": "",
-    "fallback_chat_models": [],
     "default_image_caption_provider_id": "",
     "image_caption_prompt": "Please describe the image using Chinese.",
     "provider_pool": [
@@ -58,7 +57,6 @@
     "websearch_provider": "default",
     "websearch_tavily_key": [],
     "websearch_bocha_key": [],
-    "websearch_brave_key": [],
     "websearch_baidu_app_builder_key": "",
     "web_search_link": false,
     "display_reasoning_text": false,
@@ -78,21 +76,11 @@
     "dequeue_context_length": 1,
     "streaming_response": false,
     "show_tool_use_status": false,
-    "show_tool_call_result": false,
-    "buffer_intermediate_messages": false,
     "sanitize_context_by_modalities": false,
-    "max_quoted_fallback_images": 20,
-    "quoted_message_parser": {
-      "max_component_chain_depth": 4,
-      "max_forward_node_depth": 6,
-      "max_forward_fetch": 32,
-      "warn_on_action_failure": false
-    },
     "agent_runner_type": "local",
     "dify_agent_runner_provider_id": "",
     "coze_agent_runner_provider_id": "",
     "dashscope_agent_runner_provider_id": "",
-    "deerflow_agent_runner_provider_id": "",
     "unsupported_streaming_strategy": "realtime_segmenting",
     "reachability_check": false,
     "max_agent_step": 30,
@@ -109,22 +97,12 @@
       "add_cron_tools": true
     },
     "computer_use_runtime": "local",
-    "computer_use_require_admin": true,
     "sandbox": {
       "booter": "shipyard",
       "shipyard_endpoint": "",
       "shipyard_access_token": "",
       "shipyard_ttl": 3600,
-      "shipyard_max_sessions": 10,
-      "shipyard_neo_endpoint": "",
-      "shipyard_neo_access_token": "",
-      "shipyard_neo_profile": "python-default",
-      "shipyard_neo_ttl": 3600
-    },
-    "image_compress_enabled": true,
-    "image_compress_options": {
-      "max_size": 1280,
-      "quality": 95
+      "shipyard_max_sessions": 10
     }
   },
   "subagent_orchestrator": {
@@ -191,13 +169,7 @@
     "jwt_secret": "",
     "host": "0.0.0.0",
     "port": 6185,
-    "disable_access_log": true,
-    "ssl": {
-      "enable": false,
-      "cert_file": "",
-      "key_file": "",
-      "ca_certs": ""
-    }
+    "disable_access_log": true
   },
   "platform": [],
   "platform_specific": {
@@ -216,14 +188,6 @@
           "✍️"
         ]
       }
-    },
-    "discord": {
-      "pre_ack_emoji": {
-        "enable": false,
-        "emojis": [
-          "🤔"
-        ]
-      }
     }
   },
   "wake_prefix": [
@@ -233,7 +197,6 @@
   "log_file_enable": false,
   "log_file_path": "logs/astrbot.log",
   "log_file_max_mb": 20,
-  "temp_dir_max_size": 1024,
   "trace_enable": false,
   "trace_log_enable": false,
   "trace_log_path": "logs/astrbot.trace.log",

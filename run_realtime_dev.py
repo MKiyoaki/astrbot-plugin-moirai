@@ -67,26 +67,35 @@ except ImportError:
 
 # ── LLM Configuration ────────────────────────────────────────────────────────
 
+# Load local config (run_config.py is gitignored); fall back to defaults.
 try:
-    from key import KEY  # type: ignore[import]
+    import run_config as _rc  # type: ignore[import]
+    _EVENT_MODE      = _rc.EVENT_MODE
+    _MOOD_SOURCE     = _rc.MOOD_SOURCE
+    _TIMEOUT         = _rc.TIMEOUT
+    _MODEL_TYPE      = _rc.MODEL_TYPE
+    _LMSTUDIO_MODEL  = _rc.LMSTUDIO_MODEL
+    _DEEPSEEK_MODEL  = _rc.DEEPSEEK_MODEL
+    _DEEPSEEK_KEY    = _rc.DEEPSEEK_API_KEY
 except ImportError:
-    KEY = "your_api_key_here"
+    _EVENT_MODE      = "encoder"
+    _MOOD_SOURCE     = "llm"
+    _TIMEOUT         = 330.0
+    _MODEL_TYPE      = "lmstudio"
+    _LMSTUDIO_MODEL  = "gemma-4-26b-a4b-it-ultra-uncensored-heretic"
+    _DEEPSEEK_MODEL  = "deepseek-v4-flash"
+    _DEEPSEEK_KEY    = "your_deepseek_api_key_here"
 
-# Configurable settings
-_EVENT_MODE = "encoder"   # "encoder" | "llm"
-_MOOD_SOURCE = "impression_db"  # "impression_db" | "llm"
-_TIMEOUT = 330.0
-_MODEL_TYPE = "lmstudio" # "lmstudio" | "deepseek"
 
 def _get_model_info(model_type: str):
     if model_type == "lmstudio":
         llm_api_url = "http://localhost:1234/v1"
         llm_api_key = "lm-studio"
-        llm_model = "gemma-4-26b-a4b-it-ultra-uncensored-heretic"
+        llm_model = _LMSTUDIO_MODEL
     elif model_type == "deepseek":
         llm_api_url = "https://api.deepseek.com"
-        llm_api_key = KEY
-        llm_model = "deepseek-v4-flash"
+        llm_api_key = _DEEPSEEK_KEY
+        llm_model = _DEEPSEEK_MODEL
     else:
         raise ValueError("Not supported model type! ")
     return llm_api_url, llm_api_key, llm_model
@@ -211,7 +220,7 @@ class _RealtimeProviderBridge:
     """LLM provider bridge tuned for Gemma 26B on LMStudio.
 
     Two differences from the stock MockProviderBridge:
-    - httpx timeout 180 s (Gemma 26B thinking can take 60-90 s per call)
+    - httpx timeout 300 s (Gemma 26B thinking can take 60-90 s per call)
     - strips <think>…</think> blocks before returning so the JSON parser
       never sees interleaved reasoning text
     """
