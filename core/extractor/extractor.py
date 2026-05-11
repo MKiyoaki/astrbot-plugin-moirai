@@ -429,6 +429,8 @@ class EventExtractor:
         if self._encoder.dim == 0:
             return
         text = event.topic
+        if event.summary:
+            text += " " + event.summary
         if event.chat_content_tags:
             text += " " + " ".join(event.chat_content_tags)
         if not text.strip():

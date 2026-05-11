@@ -257,6 +257,13 @@ class PluginInitializer:
         )
         await self.scheduler.start()
 
+        from .tasks.reindex import run_reindex_all
+        self.scheduler.register(
+            "reindex_all",
+            interval=0,  # Manual trigger only
+            fn=lambda: run_reindex_all(event_repo, retriever),
+        )
+
         from web.server import WebuiServer
         self.webui = WebuiServer(
             persona_repo=persona_repo,
@@ -268,6 +275,7 @@ class PluginInitializer:
             task_runner=self.scheduler.run_now,
             plugin_version=_get_plugin_version(),
             initial_config=cfg.as_dict(),
+            recall_manager=self.recall,
         )
         if cfg.webui_enabled:
             await self.webui.start()

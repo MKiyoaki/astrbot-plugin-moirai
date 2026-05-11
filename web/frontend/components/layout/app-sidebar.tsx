@@ -192,19 +192,15 @@ export function AppSidebar() {
 
         {/* 锁定底部的空间，防止透明溢出遮挡上面的菜单 */}
         <SidebarFooter className="mt-auto shrink-0 border-t border-border p-2">
-          <div className="flex flex-wrap gap-1 px-2 py-2 group-data-[collapsible=icon]:hidden">
-            {[
-              { label: i18n.stats.personas,    val: app.stats.personas    },
-              { label: i18n.stats.events,      val: app.stats.events      },
-              { label: i18n.stats.impressions, val: app.stats.impressions },
-            ].map(({ label, val }) => (
-              <Badge key={label} variant="secondary" className="text-xs">
-                {label} {val}
-              </Badge>
-            ))}
+          <div className="flex items-center gap-2 px-3 py-2 text-xs font-medium">
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+            </span>
+            <span className="group-data-[collapsible=icon]:hidden truncate">
+              {i18n.landing.engineActive}
+            </span>
           </div>
-
-          <SidebarSeparator className="group-data-[collapsible=icon]:hidden mb-2" />
 
           <SidebarMenu>
             <SidebarMenuItem>

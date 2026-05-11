@@ -37,6 +37,7 @@ from .registry import PanelRegistry
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from core.repository.base import EventRepository, ImpressionRepository, PersonaRepository
+    from core.managers.base import BaseRecallManager
 
     TaskRunner = Callable[[str], Awaitable[bool]]
 
@@ -170,10 +171,12 @@ class WebuiServer:
         plugin_version: str = "0.1.0",
         initial_config: dict | None = None,
         provider_getter: Callable | None = None,
+        recall_manager: BaseRecallManager | None = None,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
         self._impression_repo = impression_repo
+        self._recall_manager = recall_manager
         self._data_dir = data_dir
         self._port = port
         self._auth_enabled = auth_enabled
@@ -962,17 +965,30 @@ class WebuiServer:
     async def _handle_recall(self, request: web.Request) -> web.Response:
         q = request.rel_url.query.get("q", "").strip()
         limit = min(int(request.rel_url.query.get("limit", "5")), 50)
+        session_id = request.rel_url.query.get("session_id", "").strip() or None
+
         if not q:
             return _json({"error": "q required"}, status=400)
         try:
-            fts_results = await self._event_repo.search_fts(q, limit=limit)
+            if self._recall_manager:
+                # Use hybrid recall if available (RRF of FTS5 + Vector)
+                results = await self._recall_manager.recall(q, group_id=session_id)
+                # Apply limit if RecallManager doesn't handle it exactly as WebUI expects
+                results = results[:limit]
+                algorithm = "hybrid (rrf)"
+            else:
+                # Fallback to BM25-only if recall manager not provided
+                results = await self._event_repo.search_fts(q, limit=limit)
+                algorithm = "fts5"
         except Exception as exc:
+            logger.exception("Recall failed")
             return _json({"error": str(exc)}, status=500)
+
         return _json({
-            "items": [event_to_dict(e) for e in fts_results],
-            "algorithm": "fts5",
+            "items": [event_to_dict(e) for e in results],
+            "algorithm": algorithm,
             "query": q,
-            "count": len(fts_results),
+            "count": len(results),
         })
 
     # Route handlers: Event CRUD

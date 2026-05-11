@@ -45,6 +45,7 @@ export default function SettingsPage() {
     { id: 'persona_synthesis',    icon: '🧠', label: i18n.settings.taskPersonaSynthesis  },
     { id: 'impression_aggregation',icon: '👥', label: i18n.settings.taskImpressionAgg   },
     { id: 'group_summary',        icon: '📋', label: i18n.settings.taskGroupSummary      },
+    { id: 'reindex_all',         icon: '🔍', label: i18n.settings.taskReindexAll       },
   ], [i18n])
 
   useEffect(() => {
