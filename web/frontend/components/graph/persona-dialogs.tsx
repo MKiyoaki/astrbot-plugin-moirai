@@ -10,20 +10,18 @@ import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { FieldGroup, Field, FieldLabel, FieldContent, FieldDescription } from '@/components/ui/field'
 import { TagSelector } from '@/components/shared/tag-selector'
 import { type PersonaNode, type ImpressionEdge } from '@/lib/api'
 import { useApp } from '@/lib/store'
-import { getLocalizedOrientation, getLocalizedAffectType } from '@/lib/i18n'
+import { getLocalizedOrientation } from '@/lib/i18n'
 
 // ── Persona Form ─────────────────────────────────────────────────────────
 
 interface PersonaFormData {
   name: string
   description: string
-  affect_type: string
   tags: string[]
   bindings: string
 }
@@ -32,13 +30,6 @@ function PersonaForm({ data, onChange }: { data: PersonaFormData; onChange: (d: 
   const { i18n } = useApp()
   const set = <K extends keyof PersonaFormData>(k: K, v: PersonaFormData[K]) =>
     onChange({ ...data, [k]: v })
-
-  const AFFECT_TYPES = [
-    i18n.graph.affectTypes.positive,
-    i18n.graph.affectTypes.neutral,
-    i18n.graph.affectTypes.negative,
-    i18n.graph.affectTypes.complex,
-  ]
 
   return (
     <FieldGroup>
@@ -53,22 +44,6 @@ function PersonaForm({ data, onChange }: { data: PersonaFormData; onChange: (d: 
         <FieldLabel htmlFor="p-desc">{i18n.graph.description}</FieldLabel>
         <FieldContent>
           <Input id="p-desc" value={data.description} onChange={e => set('description', e.target.value)} />
-        </FieldContent>
-      </Field>
-
-      <Field>
-        <FieldLabel>{i18n.graph.affectType}</FieldLabel>
-        <FieldContent>
-          <Select value={data.affect_type} onValueChange={v => set('affect_type', v ?? '')}>
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {AFFECT_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
         </FieldContent>
       </Field>
 
@@ -114,7 +89,7 @@ export function CreatePersonaDialog({
 }) {
   const { i18n } = useApp()
   const [data, setData] = useState<PersonaFormData>({
-    name: '', description: '', affect_type: i18n.graph.affectTypes.neutral, tags: [], bindings: '',
+    name: '', description: '', tags: [], bindings: '',
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -126,7 +101,6 @@ export function CreatePersonaDialog({
       await onSubmit({
         primary_name: data.name.trim(),
         description: data.description.trim(),
-        affect_type: data.affect_type,
         content_tags: data.tags,
         confidence: defaultConfidence,
         bound_identities: parseBindings(data.bindings),
@@ -174,7 +148,7 @@ export function EditPersonaDialog({
 }) {
   const { i18n } = useApp()
   const [data, setData] = useState<PersonaFormData>({
-    name: '', description: '', affect_type: i18n.graph.affectTypes.neutral, tags: [], bindings: '',
+    name: '', description: '', tags: [], bindings: '',
   })
   const existingConfidenceRef = useRef<number>(0.5)
   const [loading, setLoading] = useState(false)
@@ -187,7 +161,6 @@ export function EditPersonaDialog({
       setData({
         name:        d.label || '',
         description: d.attrs?.description || '',
-        affect_type: d.attrs?.affect_type || '中性',
         tags:        d.attrs?.content_tags || [],
         bindings:    (d.bound_identities || []).map(b => `${b.platform}:${b.physical_id}`).join('\n'),
       })
@@ -203,7 +176,6 @@ export function EditPersonaDialog({
       await onSubmit(node.data.id, {
         primary_name:   data.name.trim(),
         description:    data.description.trim(),
-        affect_type:    data.affect_type,
         content_tags:   data.tags,
         confidence:     existingConfidenceRef.current,
         bound_identities: parseBindings(data.bindings),
@@ -224,7 +196,9 @@ export function EditPersonaDialog({
           <DialogDescription>{i18n.graph.editPersonaDesc}</DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[60vh]">
-          <div className="pr-4"><PersonaForm data={data} onChange={setData} /></div>
+          <div className="pr-4">
+            <PersonaForm data={data} onChange={setData} />
+          </div>
         </ScrollArea>
         {error && <p className="text-destructive text-sm">{error}</p>}
         <DialogFooter>
@@ -369,8 +343,6 @@ export function PersonaDetailCard({
         {[
           [i18n.graph.uid,         d.id.slice(0, 12) + '…'],
           [i18n.graph.confidence,  (d.confidence * 100).toFixed(0) + '%'],
-          ...(attrs.description ? [[i18n.graph.description, attrs.description]] : []),
-          ...(attrs.affect_type  ? [[i18n.graph.affectType, getLocalizedAffectType(attrs.affect_type, i18n)]]  : []),
         ].map(([k, v]) => (
           <div key={k} className="contents">
             <span className="text-muted-foreground">{k}</span>
@@ -378,6 +350,40 @@ export function PersonaDetailCard({
           </div>
         ))}
       </div>
+      {(attrs.description || attrs.big_five) && (() => {
+        return (
+          <div className="rounded-lg border bg-muted/40 px-3 py-2 flex flex-col gap-2">
+            <p className="text-xs font-medium">{i18n.graph.personalityBlock}</p>
+            {attrs.description && <p className="text-xs text-foreground/80">{attrs.description}</p>}
+            {attrs.big_five && (() => {
+              const evRaw = attrs.big_five_evidence
+              return (
+                <div className="flex flex-col gap-1.5">
+                  {(['O','C','E','A','N'] as const).map(dim => {
+                    const val = attrs.big_five?.[dim]
+                    if (val === undefined) return null
+                    const score = Math.round((val + 1) / 2 * 100)
+                    const color = score >= 65 ? 'text-green-500' : score <= 35 ? 'text-red-500' : 'text-muted-foreground'
+                    const evText = evRaw && typeof evRaw === 'object' ? evRaw[dim] : undefined
+                    return (
+                      <div key={dim} className="flex flex-col gap-0.5">
+                        <div className="flex items-center justify-between text-xs gap-2">
+                          <span className="text-muted-foreground shrink-0">{i18n.graph.bigFive[dim as keyof typeof i18n.graph.bigFive]}</span>
+                          <span className={`font-mono font-medium ${color}`}>{score}%</span>
+                        </div>
+                        {evText && <p className="text-[10px] italic text-muted-foreground leading-snug">{evText}</p>}
+                      </div>
+                    )
+                  })}
+                  {evRaw && typeof evRaw === 'string' && (
+                    <p className="text-[10px] italic text-muted-foreground leading-snug">{evRaw}</p>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
+        )
+      })()}
       {(attrs.content_tags?.length ?? 0) > 0 && (
         <div className="flex flex-wrap gap-1">
           {(attrs.content_tags ?? []).map(t => <Badge key={t} variant="secondary" className="text-xs">{t}</Badge>)}

@@ -138,23 +138,36 @@ def _clamp(value: object, lo: float = 0.0, hi: float = 1.0) -> float:
         return 0.5
 
 
-def _parse_personality(raw: object) -> dict[str, dict[str, float]] | None:
-    """Validate and clamp O,C,E,A,N scores from the LLM."""
+def _parse_personality(raw: object) -> dict[str, dict] | None:
+    """Validate and clamp O,C,E,A,N scores from the LLM.
+
+    Supports nested format {"scores":{...}, "evidence":"..."} and legacy
+    flat format {"O":0.6,...} for backward compatibility.
+    Returns {name: {"scores": {trait: float}, "evidence": str|None}}.
+    """
     if not isinstance(raw, dict):
         return None
-    
-    clean_p: dict[str, dict[str, float]] = {}
+
+    clean_p: dict[str, dict] = {}
     for name, traits in raw.items():
         if not isinstance(traits, dict):
             continue
-        
-        # We only accept items that have at least one valid trait
-        scores = {}
+
+        # Nested format: {"scores": {...}, "evidence": "..."}
+        if "scores" in traits and isinstance(traits["scores"], dict):
+            raw_scores = traits["scores"]
+            evidence: str | None = str(traits["evidence"])[:200] if traits.get("evidence") else None
+        else:
+            # Legacy flat format: {"O": 0.6, "C": 0.5, ...}
+            raw_scores = traits
+            evidence = None
+
+        scores: dict[str, float] = {}
         for trait in ["O", "C", "E", "A", "N"]:
-            if trait in traits:
-                scores[trait] = _clamp(traits[trait], lo=-1.0, hi=1.0)
-        
+            if trait in raw_scores:
+                scores[trait] = _clamp(raw_scores[trait], lo=-1.0, hi=1.0)
+
         if scores:
-            clean_p[str(name)] = scores
-            
+            clean_p[str(name)] = {"scores": scores, "evidence": evidence}
+
     return clean_p if clean_p else None

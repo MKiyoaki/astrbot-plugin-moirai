@@ -19,7 +19,7 @@ def make_persona(**overrides) -> Persona:
         uid="uid-alice",
         bound_identities=[("qq", "12345")],
         primary_name="Alice",
-        persona_attrs={"affect_type": "warm", "content_tags": ["tech"]},
+        persona_attrs={"description": "warm user", "content_tags": ["tech"]},
         confidence=0.8,
         created_at=NOW,
         last_active_at=NOW,

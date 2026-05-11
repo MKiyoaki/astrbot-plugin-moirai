@@ -19,7 +19,7 @@ from core.utils.i18n import LANG_ZH, LANG_EN, LANG_JA
 DEFAULT_DISTILLATION_SYSTEM_PROMPT = (
     "你是一个聊天记录分析助手。你的任务是为一段已经语义聚类好的对话片段提炼结构化信息。\n\n"
     "只输出单个 JSON 对象，不输出任何其他文字或 markdown 代码块，格式如下：\n"
-    '{"topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false, "participants_personality": {"Alice": {"O": 0.6, "C": 0.5, "E": 0.7, "A": 0.4, "N": -0.2}}}\n\n'
+    '{"topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false, "participants_personality": {"Alice": {"scores": {"O": 0.6, "E": 0.7}, "evidence": "Alice 主动发起话题、反应积极"}}}\n\n'
     "字段说明：\n"
     "- topic: 该段对话的核心主题，简洁明了，30字以内\n"
     "- summary: 该段对话的摘要，提炼关键结论和信息，过滤口水话。"
@@ -35,7 +35,12 @@ DEFAULT_DISTILLATION_SYSTEM_PROMPT = (
     "- salience: 重要性分值 0.0~1.0\n"
     "- confidence: 本次提取结果的置信度 0.0~1.0\n"
     "- inherit: 是否是上一个事件的直接延续（true/false）\n"
-    "- participants_personality: （可选）参与者五大人格估计，键为显示名，值含 O/C/E/A/N（-1.0~1.0）；不确定时省略该字段"
+    "- participants_personality: （可选）参与者五大人格估计，键为显示名，不确定时省略该字段。\n"
+    '  格式：{"显示名": {"scores": {"O": 0.6, "E": 0.4}, "evidence": "一句话依据"}}\n'
+    "  scores 字段 O/C/E/A/N 范围 -1.0（极低）到 1.0（极高）；\n"
+    "  O=开放性（高→好奇创意），C=尽责性（高→自律有序），E=外向性（高→健谈主动），\n"
+    "  A=宜人性（高→友善合作），N=神经质（高→易焦虑情绪化）。\n"
+    "  每个维度须有对话依据；无法判断的维度可省略不填。evidence 为对该人物本次对话表现的简短总结（≤50字）。"
 )
 
 DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
@@ -46,7 +51,7 @@ DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
     "3. 连续性：如果对话虽然中断但随后继续讨论同一话题，可以视为同一事件的延续（设置 inherit 为 true）。\n\n"
     "输出格式（仅输出一个 JSON Array，包含一个或多个对象，不输出任何其他文字或 markdown 代码块）：\n"
     '[\n'
-    '  {"start_idx": 0, "end_idx": 10, "topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false, "participants_personality": {"Alice": {"O": 0.6, "C": 0.5, "E": 0.7, "A": 0.4, "N": -0.2}}},\n'
+    '  {"start_idx": 0, "end_idx": 10, "topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false, "participants_personality": {"Alice": {"scores": {"O": 0.6, "E": 0.7}, "evidence": "Alice 主动发起多个话题、情绪积极"}}},\n'
     '  {"start_idx": 11, "end_idx": 19, "topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.3, "confidence": 0.9, "inherit": true}\n'
     ']\n\n'
     "字段说明：\n"
@@ -67,9 +72,16 @@ DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
     "- confidence: 本次提取结果的置信度 0.0~1.0\n"
     "- inherit: 是否继承上一个已知事件的主题（即本段是上段的延续）\n"
     "- participants_personality: （可选）对话参与者的人格特征估计。"
-    "仅在对话内容足以推断时填写，不确定时省略该字段。"
-    "以参与者的显示名称为键，值为包含五大人格维度评分的对象（O=开放性、C=尽责性、E=外向性、A=宜人性、N=神经质），"
-    "评分范围 -1.0（极低）到 1.0（极高），0.0 表示中等水平。"
+    "仅在对话内容足以推断时填写，不确定时省略该字段。\n"
+    '  格式：{"显示名": {"scores": {"O": 0.6, "E": 0.4}, "evidence": "一句话依据（≤50字）"}}\n'
+    "  scores 字段 O/C/E/A/N 范围 -1.0（极低）到 1.0（极高），0.0 表示中等。\n"
+    "  O（开放性）：高→好奇、富创意、乐于接受新思想；低→务实、守旧、偏好熟悉事物。\n"
+    "  C（尽责性）：高→有条理、自律、目标导向；低→随意、拖延、缺乏计划性。\n"
+    "  E（外向性）：高→健谈、主动、精力充沛；低→内敛、寡言、偏好独处。\n"
+    "  A（宜人性）：高→友善、合作、富有同理心；低→竞争性强、怀疑心重、不轻易妥协。\n"
+    "  N（神经质）：高→情绪不稳定、易焦虑；低→沉稳、压力耐受力强。\n"
+    "  每个维度的评分须有对话中可观察到的具体依据；无法判断的维度可省略不填。"
+    "evidence 为对该人物本次对话表现的简短总结（≤50字）。"
 )
 
 
@@ -80,9 +92,26 @@ class DecayConfig:
 
 
 _DEFAULT_PERSONA_SYSTEM_PROMPT = (
-    "你是一个用户画像分析助手。根据提供的事件记录，更新用户属性。"
-    "只输出单行JSON，字段：description（≤50字符）、affect_type（积极/消极/中性之一）。"
-    "不要输出任何其他内容。"
+    "你是一个用户画像分析助手。根据提供的事件记录，推断用户的性格特征。\n"
+    "只输出单行JSON，字段：\n"
+    "- description: 性格简述，≤80字符\n"
+    "- big_five: 大五人格评分对象，字段 O/C/E/A/N，范围 -1.0（极低）到 1.0（极高），0.0 表示中等。\n"
+    "  O=开放性（高→好奇创意），C=尽责性（高→自律有序），E=外向性（高→健谈主动），\n"
+    "  A=宜人性（高→友善合作），N=神经质（高→易焦虑情绪化）。\n"
+    "  每个维度须有事件依据；无法判断的维度可省略不填。\n"
+    "  若已有评分，可结合历史与新事件小幅调整；若无依据则保留原值。\n"
+    "- big_five_evidence: 对象，键为已评分的维度（O/C/E/A/N），值为该维度的证据句（≤120字符）。\n"
+    "  句子模板：[个体] 在 [维度名] 上表现出 [高/低/中等] 水平，其显著特征为 [具体行为证据]，\n"
+    "  可以推断出 [X%] 的量化结果。\n"
+    "  分数换算（内部-1~1 → 展示百分比）：round((score+1)/2×100)%。≥65%=高，35%–64%=中等，≤34%=低。\n"
+    "  只填写有充分对话依据的维度，其余省略。\n"
+    "不要输出任何其他内容。\n"
+    '示例：{"description": "热衷技术讨论，表达直接，偶尔情绪化", '
+    '"big_five": {"O": 0.6, "E": 0.4, "N": 0.3}, '
+    '"big_five_evidence": {'
+    '"O": "Alice 在开放性上表现出高水平，其显著特征为主动引入跨领域话题，可以推断出 80% 的量化结果。", '
+    '"E": "Alice 在外向性上表现出中等水平，其显著特征为积极回应但较少主动发起，可以推断出 70% 的量化结果。", '
+    '"N": "Alice 在神经质上表现出中等偏高水平，其显著特征为偶因意见分歧情绪波动，可以推断出 65% 的量化结果。"}}'
 )
 
 _DEFAULT_IMPRESSION_SYSTEM_PROMPT = (
@@ -101,6 +130,7 @@ class SynthesisConfig:
     impression_system_prompt: str = _DEFAULT_IMPRESSION_SYSTEM_PROMPT
     language: str = LANG_ZH
     llm_provider: str | None = None
+    ema_alpha: float = 0.35  # weight for new synthesis vs existing scores (0=freeze, 1=replace)
 
 
 _DEFAULT_SUMMARY_SYSTEM_PROMPT = (

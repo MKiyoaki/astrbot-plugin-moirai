@@ -186,7 +186,8 @@ export const zh = {
     editImpression: '编辑印象',
     name: '姓名',
     description: '描述',
-    affectType: '情感类型',
+    inferredPersonality: '推演人格',
+    personalityBlock: '性格',
     contentTags: '内容标签',
     bindings: '平台绑定（platform:id，每行一个）',
     confidence: '置信度',
@@ -297,11 +298,13 @@ export const zh = {
       dominant: '支配',
       submissive: '服从',
     },
-    affectTypes: {
-      positive: '积极',
-      neutral: '中性',
-      negative: '消极',
-      complex: '复杂',
+    bigFive: {
+      label: '大五人格',
+      O: '开放性',
+      C: '尽责性',
+      E: '外向性',
+      A: '宜人性',
+      N: '神经质',
     },
     nameRequired: '姓名不能为空',
     createPersonaDesc: '填写人格信息后点击创建。',
@@ -751,7 +754,8 @@ export const ja = {
     editImpression: '印象編集',
     name: '名前',
     description: '説明',
-    affectType: '感情タイプ',
+    inferredPersonality: '推定人格',
+    personalityBlock: '性格',
     contentTags: 'コンテンツタグ',
     bindings: 'プラットフォーム紐付け (platform:id、1行に1つ)',
     confidence: '信頼度',
@@ -862,11 +866,13 @@ export const ja = {
       dominant: '支配',
       submissive: '服従',
     },
-    affectTypes: {
-      positive: '積極的',
-      neutral: '中性的',
-      negative: '消極的',
-      complex: '複雑',
+    bigFive: {
+      label: '大五人格',
+      O: '開放性',
+      C: '誠実性',
+      E: '外向性',
+      A: '協調性',
+      N: '神経症傾向',
     },
     nameRequired: '名前を入力してください',
     createPersonaDesc: 'パーソナ情報を入力して作成をクリックしてください。',
@@ -1316,7 +1322,8 @@ export const en = {
     editImpression: 'Edit Impression',
     name: 'Name',
     description: 'Description',
-    affectType: 'Affect Type',
+    inferredPersonality: 'Inferred Personality',
+    personalityBlock: 'Personality',
     contentTags: 'Content Tags',
     bindings: 'Platform Bindings (platform:id, one per line)',
     confidence: 'Confidence',
@@ -1427,11 +1434,13 @@ export const en = {
       dominant: 'Dominant',
       submissive: 'Submissive',
     },
-    affectTypes: {
-      positive: 'Positive',
-      neutral: 'Neutral',
-      negative: 'Negative',
-      complex: 'Complex',
+    bigFive: {
+      label: 'Big Five',
+      O: 'Openness',
+      C: 'Conscientiousness',
+      E: 'Extraversion',
+      A: 'Agreeableness',
+      N: 'Neuroticism',
     },
     nameRequired: 'Name cannot be empty',
     createPersonaDesc: 'Fill in persona details and click Create.',
@@ -1734,14 +1743,3 @@ export function getLocalizedOrientation(label: string, i18n: I18n): string {
   return key ? i18n.graph.orientations[key] : label
 }
 
-export function getLocalizedAffectType(type: string, i18n: I18n): string {
-  if (!type) return ''
-  const map: Record<string, keyof I18n['graph']['affectTypes']> = {
-    '积极': 'positive',
-    '中性': 'neutral',
-    '消极': 'negative',
-    '复杂': 'complex',
-  }
-  const key = map[type]
-  return key ? i18n.graph.affectTypes[key] : type
-}

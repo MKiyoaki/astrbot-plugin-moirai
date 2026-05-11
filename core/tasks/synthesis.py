@@ -10,6 +10,7 @@ import asyncio
 import dataclasses
 import json
 import logging
+import re
 from typing import Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -41,7 +42,7 @@ async def run_persona_synthesis(
 
     content_tags: derived algorithmically from event tag frequency — no LLM needed
     since chat_content_tags are already canonical-normalised at write time.
-    description + affect_type: still LLM-generated (require language understanding).
+    description + big_five: still LLM-generated (require language understanding).
 
     Returns number of personas whose attrs were updated.
     """
@@ -68,7 +69,7 @@ async def run_persona_synthesis(
             tag_counter.update(e.chat_content_tags)
         top_tags = [tag for tag, _ in tag_counter.most_common(5)]
 
-        # --- LLM: generate description and affect_type only ---
+        # --- LLM: generate description and big_five only ---
         event_summaries = "\n".join(f"- {e.topic}" for e in events)
         prompt = (
             f"用户 {persona.primary_name}，近期参与事件：\n{event_summaries}\n"
@@ -87,9 +88,39 @@ async def run_persona_synthesis(
 
             new_attrs = dict(persona.persona_attrs)
             if "description" in parsed:
-                new_attrs["description"] = str(parsed["description"])[:50]
-            if "affect_type" in parsed:
-                new_attrs["affect_type"] = str(parsed["affect_type"])
+                new_attrs["description"] = str(parsed["description"])[:80]
+            if "big_five" in parsed and isinstance(parsed["big_five"], dict):
+                old_bf = persona.persona_attrs.get("big_five", {})
+                alpha = cfg.ema_alpha
+                merged_bf: dict[str, float] = {}
+                for k in ["O", "C", "E", "A", "N"]:
+                    nv = parsed["big_five"].get(k)
+                    if nv is not None and isinstance(nv, (int, float)):
+                        new_clamped = max(-1.0, min(1.0, float(nv)))
+                        ov = old_bf.get(k)
+                        if ov is not None:
+                            merged_bf[k] = round(alpha * new_clamped + (1 - alpha) * float(ov), 4)
+                        else:
+                            merged_bf[k] = new_clamped
+                if merged_bf:
+                    new_attrs["big_five"] = merged_bf
+            ev = parsed.get("big_five_evidence")
+            if isinstance(ev, dict):
+                final_bf: dict[str, float] = new_attrs.get("big_five", {})
+                cleaned: dict[str, str] = {}
+                for k, v in ev.items():
+                    if k not in ("O", "C", "E", "A", "N") or not isinstance(v, str) or not v.strip():
+                        continue
+                    sentence = str(v)[:120]
+                    # Replace any percentage in the sentence with the value derived
+                    # from the actual merged score so they always match the UI display.
+                    if k in final_bf:
+                        correct_pct = round((final_bf[k] + 1) / 2 * 100)
+                        sentence = re.sub(r"\d+%", f"{correct_pct}%", sentence)
+                    cleaned[k] = sentence
+                new_attrs["big_five_evidence"] = cleaned
+            elif isinstance(ev, str) and ev.strip():
+                new_attrs["big_five_evidence"] = str(ev)[:120]
             # Always overwrite with the algorithmically-derived tags.
             new_attrs["content_tags"] = top_tags
 

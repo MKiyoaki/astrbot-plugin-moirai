@@ -102,7 +102,7 @@ export interface PersonaNode {
     id: string
     label: string
     confidence: number
-    attrs: { description?: string; affect_type?: string; content_tags?: string[] }
+    attrs: { description?: string; content_tags?: string[]; big_five?: { O?: number; C?: number; E?: number; A?: number; N?: number }; big_five_evidence?: string | Record<string, string> }
     bound_identities: { platform: string; physical_id: string }[]
     created_at: string
     last_active_at: string

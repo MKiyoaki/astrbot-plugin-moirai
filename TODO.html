@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TODO</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+            line-height: 1.6;
+            color: #24292e;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 0 20px;
+            background-color: #fff;
+        }
+        h1 {
+            border-bottom: 1px solid #eaecef;
+            padding-bottom: .3em;
+        }
+        h2 {
+            border-bottom: 1px solid #eaecef;
+            padding-bottom: .3em;
+            margin-top: 24px;
+        }
+        h3 {
+            margin-top: 24px;
+        }
+        ul {
+            padding-left: 2em;
+        }
+        code {
+            padding: .2em .4em;
+            margin: 0;
+            font-size: 85%;
+            background-color: rgba(27,31,35,.05);
+            border-radius: 3px;
+            font-family: SFMono-Regular,Consolas,Liberation Mono,Menlo,monospace;
+        }
+        pre {
+            padding: 16px;
+            overflow: auto;
+            font-size: 85%;
+            line-height: 1.45;
+            background-color: #f6f8fa;
+            border-radius: 3px;
+        }
+        pre code {
+            background-color: transparent;
+            padding: 0;
+        }
+        hr {
+            height: .25em;
+            padding: 0;
+            margin: 24px 0;
+            background-color: #e1e4e8;
+            border: 0;
+        }
+        strong {
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+<h1>TODO</h1>
+
+<h2>待讨论</h2>
+
+<h3>情绪四维状态（Soul Layer）设计</h3>
+<p>参考 angel_memory 的 tanh 弹性算法，用四个 -20~+20 能量维度（RecallDepth / ImpressionDepth / ExpressionDesire / Creativity）映射为行为参数。结合 SOUL.md 形成双层体系：</p>
+<ul>
+    <li><strong>长期人格层</strong>：Big Five（由 <code>persona_synthesis</code> 周期生成，写入 SOUL.md）</li>
+    <li><strong>短期状态层</strong>：四维能量（每轮对话后 tanh 衰减更新，写入 session 状态）</li>
+    <li>两层分别注入 system prompt 不同位置（长期在 persona 段，短期在当前状态段）</li>
+</ul>
+
+<hr>
+
+<h2>待实现</h2>
+
+<h3>加权随机检索</h3>
+<p>在 <code>HybridRetriever</code> 的 RRF 融合结果上加一层 softmax 采样，替代确定性 top-K 截断。用分数作为权重做带放回采样，让 bot 的记忆表现更接近人类的"有时想起、有时忘记"，避免永远只检索到同几条高分事件。改动范围：<code>core/retrieval/hybrid.py</code> 一个函数，可配置开关。</p>
+
+<h3>LLM 主动记忆工具调用</h3>
+<p>在 AstrBot <code>@filter.on_llm_request()</code> 钩子层面注册两个 tool：</p>
+<ul>
+    <li><code>core_memory_remember(content, strength)</code>：模型主动触发存储，写入 Event</li>
+    <li><code>core_memory_recall(query)</code>：模型主动触发检索，返回相关记忆片段</li>
+</ul>
+<p>让模型自主决定何时存储和检索，而不是系统被动注入。不改 <code>core/</code> 存储层，只在 adapter 层增加 tool 定义。</p>
+
+<h3>Sleep Consolidation 强化</h3>
+<p>在 <code>daily_maintenance</code> 的 cleanup 阶段，将"显著性低于阈值"的事件改为降级到 <code>archived</code> 状态，而非直接物理删除。只有 <code>archived</code> 超过保留期（如 30 天）的事件才真正删除。现有 <code>archive_event()</code> 接口已存在，只需修改 <code>run_memory_cleanup</code> 的删除逻辑。</p>
+
+<h3>指令集配置</h3>
+<p>使用 <code>@filter.command()</code> 体系为插件注册管理指令，按 command group 层级组织：</p>
+
+<pre><code>/mrm
+  ├── status          查询插件运行状态（事件数、任务状态）
+  ├── run &lt;task&gt;      手动触发周期任务（decay / synthesis / summary）
+  ├── flush           清空当前 session 窗口
+  ├── recall &lt;query&gt;  手动触发记忆检索并返回结果
+  ├── webui on        启用并返回webUI访问链接
+  └── webui off       关闭webUI功能
+</code></pre>
+
+<h3>插件多语言支持（i18n）</h3>
+<p>在 <code>.astrbot-plugin/i18n/</code> 下创建 <code>zh-CN.json</code> 和 <code>en-US.json</code>，覆盖：</p>
+<ul>
+    <li><code>metadata.yaml</code> 的 <code>display_name</code>、<code>desc</code></li>
+    <li><code>_conf_schema.json</code> 所有字段的 <code>description</code>、<code>hint</code>、<code>labels</code></li>
+</ul>
+<p>不动源码，只新增两个 JSON 文件。</p>
+
+<h3>WebUI 接入 AstrBot 官方 Plugin Pages (https://docs.astrbot.app/dev/star/guides/plugin-pages.html)</h3>
+<p>当前架构：独立 <code>aiohttp</code> server（端口 2655）+ Next.js SPA（<code>web/frontend/output/</code>）+ 自定义 Session 鉴权（<code>web/auth.py</code>）。</p>
+<p>目标：迁移到 AstrBot Plugin Pages 标准（<code>pages/moirai/index.html</code> + <code>context.register_web_api()</code> + <code>window.AstrBotPluginPage</code> bridge），由 AstrBot 统一管理端口和鉴权。<code>core/</code> 全程不动。</p>
+
+<p><strong>阶段 1 — 后端路由迁移</strong>（可独立先做）</p>
+<ul>
+    <li>从 <code>web/server.py</code> 提取所有 handler 函数到 <code>web/plugin_routes.py</code></li>
+    <li>改用 <code>context.register_web_api()</code> 批量注册（约 40 条路由），挂载到 <code>/api/plug/&lt;plugin_name&gt;/</code></li>
+    <li>删除 <code>web/auth.py</code>（鉴权交 AstrBot）和 <code>web/registry.py</code>（PanelRegistry）</li>
+    <li>考虑在Astrbot的规范下PanelRegistry的功能是否还可以实现，如何可以的话怎么实现</li>
+    <li><code>web/server.py</code> 降级为纯本地调试入口</li>
+    <li><code>main.py</code> 替换 <code>WebuiServer.start()</code> 为路由注册调用</li>
+</ul>
+
+<p><strong>阶段 2 — 前端构建适配</strong>（主要风险点）</p>
+<ul>
+    <li><code>next.config.mjs</code> 加 <code>output: 'export'</code> + <code>trailingSlash: true</code>，<code>distDir</code> 指向 <code>../../pages/moirai</code></li>
+    <li>验证 Next.js App Router 静态导出后客户端路由能否从单一 <code>index.html</code> 入口正常工作（AstrBot iframe 不做 SPA fallback）</li>
+</ul>
+
+<p><strong>阶段 3 — API 适配层</strong></p>
+<ul>
+    <li><code>web/frontend/lib/api.ts</code> 加 bridge 检测：<code>window.AstrBotPluginPage</code> 存在时走 <code>apiGet/apiPost</code>，否则走原 <code>fetch</code>，保留本地调试双路径兼容</li>
+</ul>
+
+</body>
+</html>

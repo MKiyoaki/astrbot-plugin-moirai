@@ -390,16 +390,21 @@ class EventExtractor:
                     uid = name_to_uid.get(name)
                     if not uid:
                         continue
-                    
+
+                    # traits is {"scores": {...}, "evidence": str|None} (nested format)
+                    # or legacy {"O": 0.6, ...} if parser fell back
+                    scores = traits.get("scores", traits)
                     vector = BigFiveVector(
-                        openness=traits.get("O", 0.0),
-                        conscientiousness=traits.get("C", 0.0),
-                        extraversion=traits.get("E", 0.0),
-                        agreeableness=traits.get("A", 0.0),
-                        neuroticism=traits.get("N", 0.0),
+                        openness=scores.get("O", 0.0),
+                        conscientiousness=scores.get("C", 0.0),
+                        extraversion=scores.get("E", 0.0),
+                        agreeableness=scores.get("A", 0.0),
+                        neuroticism=scores.get("N", 0.0),
                     )
                     # Force update the cache with this fresh event-specific score
                     self._big_five_buffer._cache[uid] = vector
+                    if traits.get("evidence"):
+                        self._big_five_buffer._evidence[uid] = traits["evidence"]
                     logger.debug("[EventExtractor] primed cache for %s via unified extraction", uid[:8])
 
             # 3. Accumulate messages

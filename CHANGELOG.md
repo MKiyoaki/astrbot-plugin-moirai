@@ -1,5 +1,92 @@
 # CHANGELOG
 
+## [v0.7.26] — 2026-05-11
+
+### 大五人格每维度 evidence 句 + EMA 历史合并 + 百分比显示
+
+#### 后端
+- **`core/config.py`** — `_DEFAULT_PERSONA_SYSTEM_PROMPT`：`big_five_evidence` 从单字符串升级为每维度 dict；句子模板要求量化结果用 0%–100% 百分比（转换公式 `round((score+1)/2×100)%`，≥65%=高/35%–64%=中等/≤34%=低）；新增对历史评分的处理说明。`SynthesisConfig` 新增 `ema_alpha: float = 0.35` 字段。
+- **`core/tasks/synthesis.py`** — `run_persona_synthesis()`：
+  - BigFive 分数写入前先做 EMA 合并（有历史则 `α×new + (1−α)×old`，无历史直接写入，α 默认 0.35）
+  - `big_five_evidence` 接受 dict 或旧字符串（向后兼容）
+
+#### 前端
+- **`lib/api.ts`**：`big_five_evidence` 类型改为 `string | Record<string, string>`
+- **三处「性格」板块**（`node-detail.tsx`、`persona-dialogs.tsx` PersonaDetailCard、`library/page.tsx` PersonaDetailRow）：
+  - 分数展示改为 `XX%`（百分比）
+  - 每条维度行下方嵌入该维度的斜体证据句（dict 格式）；旧字符串格式 fallback 至块底部单行
+- **Library 表格紧凑列**：格式从 `O75` 改为 `O75%`
+
+#### 测试
+- **`tests/test_tasks.py`**：移除旧 evidence 测试，新增：dict evidence 存储验证、向后兼容字符串验证、dict 截断验证、EMA 混合逻辑验证（共 4 个新断言），30 tests 全通过
+
+## [v0.7.25] — 2026-05-11
+
+### 大五人格 UI 优化：0~100 分 + 完整词组 + 三语
+
+- **三处"性格"板块**（`node-detail.tsx`、`persona-dialogs.tsx` `PersonaDetailCard`、`library/page.tsx` `PersonaDetailRow`）：
+  - 分数从 -1~1 转换为 0~100（`Math.round((val + 1) / 2 * 100)`），50 = 平均
+  - 维度标签改用 i18n 完整词（开放性/尽责性/外向性/宜人性/神经质），随语言切换；移除硬编码单字缩写 `DIM_LABEL`
+  - 布局从 `grid-cols-5` 改为垂直列表（label 左对齐 + 分数右对齐），防止文字溢出
+  - 颜色阈值调整：≥65 绿色（高），≤35 红色（低），中间段 muted
+- **Library 表格紧凑列**：格式从 `O↑ E↑ N·` 改为 `O75 E60 N45`
+- 前端已重新 build
+
+## [v0.7.24] — 2026-05-11
+
+### 大五人格嵌套格式实装 + `big_five_evidence` 持久化展示
+
+#### 后端
+- **`core/config.py`**：三处 system prompt（`DEFAULT_EXTRACTOR_SYSTEM_PROMPT`、`DEFAULT_DISTILLATION_SYSTEM_PROMPT`、`_DEFAULT_PERSONA_SYSTEM_PROMPT`）更新 `participants_personality` 示例为嵌套格式 `{"Alice": {"scores": {"O": 0.6}, "evidence": "..."}}` ；合成 prompt 新增 `big_five_evidence` 字段要求（≤120 字符综合依据）。
+- **`core/extractor/parser.py`**：`_parse_personality()` 重写，支持嵌套格式 `{"scores":{...}, "evidence":"..."}` 并保持旧平铺格式兼容；返回类型变为 `dict[str, dict]`，每个值含 `scores` 和可选 `evidence`。
+- **`core/extractor/extractor.py`**：`_run_ipc_analysis()` 从 `traits.get("scores", traits)` 取分数，将 `traits.get("evidence")` 写入 `BigFiveBuffer._evidence[uid]`。
+- **`core/social/big_five_scorer.py`**：`BigFiveBuffer` 新增 `_evidence: dict[str, str]` 字段和 `get_evidence(uid)` 方法；`evict()` 同步清除 evidence 缓存。
+- **`core/tasks/synthesis.py`**：周期合成解析 LLM 返回的 `big_five_evidence` 并写入 `persona_attrs["big_five_evidence"]`（≤120 字符 clamp）。
+- **`run_realtime_dev.py`**：Phase 2（LLM 提取）完成后新增 Phase 3 调用 `run_persona_synthesis`，将 BigFive 与 evidence 写入 persona_attrs，使 WebUI 可立即展示。原 Phase 3（group summary）顺延为 Phase 4，WebUI 顺延为 Phase 5。
+
+#### 前端
+- **`lib/api.ts`**：`PersonaNode.attrs` 新增 `big_five_evidence?: string`。
+- **三处「性格」板块**（`node-detail.tsx`、`persona-dialogs.tsx` `PersonaDetailCard`、`library/page.tsx` `PersonaDetailRow`）：BigFive 评分格下方增加 `big_five_evidence` 斜体次要色文字，仅在字段存在时显示。
+
+#### 测试
+- **`tests/test_tasks.py`**：新增 `test_persona_synthesis_stores_big_five_evidence` 和 `test_persona_synthesis_truncates_evidence` 两个断言。
+
+## [v0.7.23] — 2026-05-11
+
+### 前端「性格」板块重构
+
+- **`lib/i18n.ts`**：新增 `personalityBlock` 键（zh: '性格' / en: 'Personality' / ja: '性格'），区别于表格列标题"推演人格"。
+- **`components/graph/node-detail.tsx`**：将原本分离的 description 和 BigFive 两个独立 `<div>` 合并为单一"性格"卡片块（有边框背景），任一字段存在时显示；BigFive 格维度标签改用单字缩写（开/尽/外/宜/神），tooltip 保留完整名称。
+- **`components/graph/persona-dialogs.tsx`**：
+  - `EditPersonaDialog`：移除 BigFive 只读块，编辑面板只保留可编辑字段（name/description/tags/bindings）；
+  - `PersonaDetailCard`：description 从 grid 移出，与 BigFive 合并为"性格"卡片块，统一样式。
+- **`app/library/page.tsx` `PersonaDetailRow`**：展开行移除单独的 description 展示，改为在 bindings 和操作按钮之间插入"性格"卡片块（含简述文字 + 大五评分格，宽度限定 `max-w-xs`）。
+
+## [v0.7.22] — 2026-05-11
+
+### Demo 数据补充 big_five 使推演人格可视化即时生效
+
+- **`web/server.py`**：两处 Demo 注入数据（全量 Demo + Recall 小型 Demo）为 Alice/Bob/Charlie/Diana 补充 `big_five` 字段，取值与各人格 description 语义一致。注入 Demo 后，关系图节点面板和信息库人格表格的"推演人格"可视化可立即展示，无需等待周期任务运行。
+
+## [v0.7.21] — 2026-05-11
+
+### 推演人格：以大五人格替换情感类型 (Method B 全站移除 affect_type)
+
+#### 后端 (`core/`, `web/server.py`)
+- **`core/config.py`**：`_DEFAULT_PERSONA_SYSTEM_PROMPT` 不再要求 `affect_type`，改为要求 `description` + `big_five`（O/C/E/A/N，范围 -1.0~1.0）；提取与蒸馏 prompt 新增 OCEAN 维度语义说明。
+- **`core/tasks/synthesis.py`**：周期合成任务移除 `affect_type` 写入，改为将 LLM 返回的 `big_five` 写入 `persona_attrs`，并对各维度做 `clamp(-1, 1)` 验证。
+- **`web/server.py`**：POST/PUT 人格 API 移除 `affect_type` 字段；PUT 改为透传现有 `big_five`（保留周期任务写入的值）；demo 数据移除全部 `affect_type` 字段。
+
+#### 前端 (`web/frontend/`)
+- **`lib/api.ts`**：`PersonaNode.attrs` 类型新增 `big_five?: {O,C,E,A,N}?`，移除 `affect_type`。
+- **`lib/i18n.ts`**：新增 `inferredPersonality` / `bigFive.{label,O,C,E,A,N}` 键（zh/en/ja 三语），移除 `affectType` / `affectTypes` 键及 `getLocalizedAffectType()` 函数。
+- **`components/graph/persona-dialogs.tsx`**：移除情感类型 Select 控件及相关状态；`EditPersonaDialog` 新增只读大五评分面板（有值时显示）；`PersonaDetailCard` 改为展示大五评分。
+- **`components/graph/node-detail.tsx`**：移除情感类型展示，改为大五评分只读网格（颜色编码：+↑绿/-↓红/中性灰）。
+- **`app/library/page.tsx`**：人格表格"情感类型"列改为"推演人格"，显示 `O↑ E↑ N↓` 紧凑格式。
+
+#### 测试
+- 更新 `test_domain.py`、`test_projector.py`、`test_sqlite_repo.py`、`test_tasks.py`、`test_webui.py` 中的 `affect_type` fixture 数据，改用 `description` / `big_five`；`test_tasks.py` 新增 big_five 字段断言。
+
 ## [v0.7.20] — 2026-05-11
 
 ### Header 架构升级：基于插槽的全局操作隔离

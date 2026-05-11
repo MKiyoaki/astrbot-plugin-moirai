@@ -24,7 +24,7 @@ def make_persona(uid: str, name: str = "Alice") -> Persona:
         uid=uid,
         bound_identities=[("qq", "12345")],
         primary_name=name,
-        persona_attrs={"affect_type": "friendly", "description": "test user"},
+        persona_attrs={"big_five": {"O": 0.6, "E": 0.4}, "description": "test user"},
         confidence=0.9,
         created_at=1000.0,
         last_active_at=2000.0,
@@ -140,8 +140,8 @@ async def test_profile_contains_persona_attrs(tmp_path: Path) -> None:
     p = _projector(tmp_path, persona_repo=pr)
     await p.render_persona("uid1")
     content = (tmp_path / "personas" / "uid1" / "PROFILE.md").read_text(encoding="utf-8")
-    assert "affect_type" in content
-    assert "friendly" in content
+    assert "big_five" in content
+    assert "description" in content
 
 
 async def test_profile_no_events_shows_placeholder(tmp_path: Path) -> None:

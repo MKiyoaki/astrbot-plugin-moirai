@@ -129,6 +129,7 @@ class BigFiveBuffer:
         self._counters: dict[str, int] = {}
         self._texts: dict[str, list[str]] = {}
         self._cache: dict[str, BigFiveVector] = {}
+        self._evidence: dict[str, str] = {}
         self._pending_tasks: dict[str, asyncio.Task] = {}
 
     def add_message(self, uid: str, text: str) -> None:
@@ -140,6 +141,9 @@ class BigFiveBuffer:
 
     def get_cached(self, uid: str) -> BigFiveVector:
         return self._cache.get(uid, _ZERO_VECTOR)
+
+    def get_evidence(self, uid: str) -> str | None:
+        return self._evidence.get(uid)
 
     def count(self, uid: str) -> int:
         return self._counters.get(uid, 0)
@@ -177,6 +181,7 @@ class BigFiveBuffer:
         self._counters.pop(uid, None)
         self._texts.pop(uid, None)
         self._cache.pop(uid, None)
+        self._evidence.pop(uid, None)
 
     def evict_session(self, uids: list[str]) -> None:
         for uid in uids:

@@ -126,12 +126,6 @@ function PersonaDetailRow({
               <span className="text-muted-foreground text-xs">UID</span>
               <p className="font-mono text-xs">{d.id}</p>
             </div>
-            {attrs.description && (
-              <div className="col-span-2">
-                <span className="text-muted-foreground text-xs">{i18n.graph.description}</span>
-                <p className="text-sm">{attrs.description}</p>
-              </div>
-            )}
             {d.bound_identities?.length > 0 && (
               <div className="col-span-2">
                 <span className="text-muted-foreground text-xs">{i18n.graph.bindings}</span>
@@ -145,6 +139,38 @@ function PersonaDetailRow({
               </div>
             )}
           </div>
+          {(attrs.description || attrs.big_five) && (
+            <div className="rounded-lg border bg-muted/40 px-3 py-2.5 flex flex-col gap-2">
+              <p className="text-xs font-medium">{i18n.graph.personalityBlock}</p>
+              {attrs.description && <p className="text-xs text-foreground/80">{attrs.description}</p>}
+              {attrs.big_five && (() => {
+                const evRaw = attrs.big_five_evidence
+                return (
+                  <div className="flex flex-col gap-1.5 max-w-xs">
+                    {(['O','C','E','A','N'] as const).map(dim => {
+                      const val = attrs.big_five?.[dim]
+                      if (val === undefined) return null
+                      const score = Math.round((val + 1) / 2 * 100)
+                      const color = score >= 65 ? 'text-green-500' : score <= 35 ? 'text-red-500' : 'text-muted-foreground'
+                      const evText = evRaw && typeof evRaw === 'object' ? evRaw[dim] : undefined
+                      return (
+                        <div key={dim} className="flex flex-col gap-0.5">
+                          <div className="flex items-center justify-between text-xs gap-2">
+                            <span className="text-muted-foreground shrink-0">{i18n.graph.bigFive[dim as keyof typeof i18n.graph.bigFive]}</span>
+                            <span className={`font-mono font-medium ${color}`}>{score}%</span>
+                          </div>
+                          {evText && <p className="text-[10px] italic text-muted-foreground leading-snug">{evText}</p>}
+                        </div>
+                      )
+                    })}
+                    {evRaw && typeof evRaw === 'string' && (
+                      <p className="text-[10px] italic text-muted-foreground leading-snug">{evRaw}</p>
+                    )}
+                  </div>
+                )
+              })()}
+            </div>
+          )}
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={() => onGoToGraph(d.id)}>
               <Network className="mr-2 h-4 w-4" />{L.viewInGraph}
@@ -774,7 +800,7 @@ function LibraryContent() {
                       <TableHead className="w-4"></TableHead>
                       <TableHead>名称</TableHead>
                       <TableHead>{i18n.graph.description}</TableHead>
-                      <TableHead>{i18n.graph.affectType}</TableHead>
+                      <TableHead>{i18n.graph.inferredPersonality}</TableHead>
                       <TableHead>{i18n.graph.confidence}</TableHead>
                       <TableHead>{i18n.events.tags}</TableHead>
                       {!editMode && <TableHead className="w-12 text-right">操作</TableHead>}
@@ -796,7 +822,17 @@ function LibraryContent() {
                           </TableCell>
                           <TableCell className="font-medium">{n.data.label}{n.data.is_bot && <Badge variant="secondary" className="ml-1.5 text-xs">Bot</Badge>}</TableCell>
                           <TableCell className="max-w-48 truncate text-sm">{n.data.attrs?.description || '—'}</TableCell>
-                          <TableCell className="text-sm">{n.data.attrs?.affect_type || '—'}</TableCell>
+                          <TableCell className="text-sm font-mono">
+                            {n.data.attrs?.big_five
+                              ? (['O','C','E','A','N'] as const)
+                                  .filter(d => n.data.attrs?.big_five?.[d] !== undefined)
+                                  .map(d => {
+                                    const v = n.data.attrs!.big_five![d]!
+                                    const s = Math.round((v + 1) / 2 * 100)
+                                    return `${d}${s}%`
+                                  }).join(' ')
+                              : '—'}
+                          </TableCell>
                           <TableCell className="text-sm">{(n.data.confidence * 100).toFixed(0)}%</TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1">{(n.data.attrs?.content_tags || []).slice(0, 3).map(t => (

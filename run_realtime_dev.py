@@ -469,10 +469,23 @@ async def main() -> None:
         else:
             print("\n[Phase 2] No extraction tasks queued.")
 
-        # ── Phase 3: Generate group summaries via LLM ──────────────────────
-        print("\n[Phase 3] Generating group summaries via LLM ...")
+        # ── Phase 3: Persona synthesis (writes big_five + big_five_evidence) ──
+        print("\n[Phase 3] Running persona synthesis ...")
+        from core.tasks.synthesis import run_persona_synthesis
+        from core.config import SynthesisConfig
+        synthesis_cfg = SynthesisConfig(llm_timeout=_TIMEOUT)
+        n_synth = await run_persona_synthesis(
+            persona_repo=persona_repo,
+            event_repo=event_repo,
+            provider_getter=lambda: mock_provider,
+            synthesis_config=synthesis_cfg,
+        )
+        print(f"[Phase 3] Persona synthesis: {n_synth} persona(s) updated.")
+
+        # ── Phase 4: Generate group summaries via LLM ──────────────────────
+        print("\n[Phase 4] Generating group summaries via LLM ...")
         from core.tasks.summary import run_group_summary
-        from core.config import SummaryConfig
+        from core.config import SummaryConfig  # noqa: F811 (re-import for local use)
         # match Gemma 26B latency
         summary_cfg = SummaryConfig(
             llm_timeout=300.0, mood_source=_MOOD_SOURCE)
@@ -484,7 +497,7 @@ async def main() -> None:
             persona_repo=persona_repo,
             impression_repo=impression_repo,
         )
-        print(f"[Phase 3] {n_written} summary file(s) written.")
+        print(f"[Phase 4] {n_written} summary file(s) written.")
 
         # ── Success summary ─────────────────────────────────────────────────
         events = await event_repo.list_all(limit=10_000)
@@ -500,7 +513,37 @@ async def main() -> None:
         print(f"  Impressions : {imp_count}")
         print("=" * 70)
 
-        # ── Phase 3: Start WebUI ────────────────────────────────────────────
+        # ── Phase 5: Start WebUI ────────────────────────────────────────────
+        from core.tasks.synthesis import run_persona_synthesis as _run_persona_synthesis, run_impression_recalculation
+        from core.tasks.summary import run_group_summary as _run_group_summary
+
+        async def _dev_task_runner(name: str) -> bool:
+            if name == "persona_synthesis":
+                n = await _run_persona_synthesis(
+                    persona_repo, event_repo,
+                    provider_getter=lambda: mock_provider,
+                )
+                print(f"[Task] persona_synthesis: {n} updated")
+                return True
+            if name == "impression_recalculation":
+                n = await run_impression_recalculation(
+                    persona_repo, event_repo, impression_repo,
+                )
+                print(f"[Task] impression_recalculation: {n} updated")
+                return True
+            if name == "group_summary":
+                n = await _run_group_summary(
+                    event_repo=event_repo,
+                    data_dir=DEV_DATA,
+                    provider_getter=lambda: mock_provider,
+                    persona_repo=persona_repo,
+                    impression_repo=impression_repo,
+                )
+                print(f"[Task] group_summary: {n} written")
+                return True
+            print(f"[Task] unknown task: {name}")
+            return False
+
         srv = WebuiServer(
             persona_repo=persona_repo,
             event_repo=event_repo,
@@ -509,6 +552,9 @@ async def main() -> None:
             port=PORT,
             auth_enabled=False,
             plugin_version="realtime-dev",
+            provider_getter=lambda: mock_provider,
+            recall_manager=recall,
+            task_runner=_dev_task_runner,
         )
         await srv.start()
         print(f"\n  WebUI ready  →  http://localhost:{PORT}")

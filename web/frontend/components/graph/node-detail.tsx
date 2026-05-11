@@ -8,7 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import type { PersonaNode } from '@/lib/api'
 import type { EdgePair } from '@/lib/graph-types'
 import { useApp } from '@/lib/store'
-import { getLocalizedOrientation, getLocalizedAffectType } from '@/lib/i18n'
+import { getLocalizedOrientation } from '@/lib/i18n'
 
 interface NodeDetailProps {
   node: PersonaNode
@@ -75,19 +75,40 @@ export function NodeDetail({ node, allNodes, edgePairs, onBack, onEdit, onDelete
 
           <Separator />
 
-          {/* Description */}
-          {node.data.attrs?.description && (
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">{t.description}</p>
-              <p className="text-xs">{node.data.attrs.description}</p>
-            </div>
-          )}
-
-          {/* Affect type */}
-          {node.data.attrs?.affect_type && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">{t.affectType}</span>
-              <Badge variant="outline" className="text-xs">{getLocalizedAffectType(node.data.attrs.affect_type, i18n)}</Badge>
+          {/* 性格 */}
+          {(node.data.attrs?.description || node.data.attrs?.big_five) && (
+            <div className="rounded-lg border bg-muted/40 px-3 py-2.5 flex flex-col gap-2">
+              <p className="text-xs font-medium">{t.personalityBlock}</p>
+              {node.data.attrs?.description && (
+                <p className="text-xs text-foreground/80">{node.data.attrs.description}</p>
+              )}
+              {node.data.attrs?.big_five && (() => {
+                const bf = node.data.attrs!.big_five!
+                const evRaw = node.data.attrs?.big_five_evidence
+                return (
+                  <div className="flex flex-col gap-1.5">
+                    {(['O','C','E','A','N'] as const).map(dim => {
+                      const val = bf[dim]
+                      if (val === undefined) return null
+                      const score = Math.round((val + 1) / 2 * 100)
+                      const color = score >= 65 ? 'text-green-500' : score <= 35 ? 'text-red-500' : 'text-muted-foreground'
+                      const evText = evRaw && typeof evRaw === 'object' ? evRaw[dim] : undefined
+                      return (
+                        <div key={dim} className="flex flex-col gap-0.5">
+                          <div className="flex items-center justify-between text-xs gap-2">
+                            <span className="text-muted-foreground shrink-0">{t.bigFive[dim as keyof typeof t.bigFive]}</span>
+                            <span className={`font-mono font-medium ${color}`}>{score}%</span>
+                          </div>
+                          {evText && <p className="text-[10px] italic text-muted-foreground leading-snug">{evText}</p>}
+                        </div>
+                      )
+                    })}
+                    {evRaw && typeof evRaw === 'string' && (
+                      <p className="text-[10px] italic text-muted-foreground leading-snug">{evRaw}</p>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           )}
 

@@ -57,7 +57,9 @@ def test_parse_clean_json_array() -> None:
     assert result[0]["chat_content_tags"] == ["工作", "计划"]
     assert result[0]["salience"] == pytest.approx(0.7)
     assert result[0]["confidence"] == pytest.approx(0.9)
-    assert result[0]["participants_personality"] == {"Alice": {"O": 0.5, "C": 0.5, "E": 0.5, "A": 0.5, "N": 0.5}}
+    assert result[0]["participants_personality"] == {
+        "Alice": {"scores": {"O": 0.5, "C": 0.5, "E": 0.5, "A": 0.5, "N": 0.5}, "evidence": None}
+    }
 
 
 def test_parse_multi_event_array() -> None:

@@ -186,10 +186,10 @@ async def test_persona_list_all(persona_repo) -> None:
 
 async def test_persona_attrs_roundtrip(persona_repo) -> None:
     p = make_persona()
-    p.persona_attrs = {"affect_type": "warm", "content_tags": ["tech", "music"]}
+    p.persona_attrs = {"big_five": {"O": 0.5, "E": 0.3}, "content_tags": ["tech", "music"]}
     await persona_repo.upsert(p)
     result = await persona_repo.get(p.uid)
-    assert result.persona_attrs == {"affect_type": "warm", "content_tags": ["tech", "music"]}
+    assert result.persona_attrs == {"big_five": {"O": 0.5, "E": 0.3}, "content_tags": ["tech", "music"]}
 
 
 # ===========================================================================

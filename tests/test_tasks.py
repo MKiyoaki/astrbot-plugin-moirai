@@ -45,7 +45,7 @@ def make_persona(uid: str, name: str = "Alice") -> Persona:
         uid=uid,
         bound_identities=[("qq", "123")],
         primary_name=name,
-        persona_attrs={"affect_type": "中性"},
+        persona_attrs={"description": "test user"},
         confidence=0.8,
         created_at=1000.0,
         last_active_at=2000.0,
@@ -232,7 +232,7 @@ async def test_persona_synthesis_skips_persona_with_no_events() -> None:
     pr = InMemoryPersonaRepository()
     er = InMemoryEventRepository()
     await pr.upsert(make_persona("u1"))
-    provider = _MockProvider('{"description":"test","affect_type":"积极","content_tags":[]}')
+    provider = _MockProvider('{"description":"test","big_five":{"O":0.5},"content_tags":[]}')
     count = await run_persona_synthesis(pr, er, provider_getter=lambda: provider)
     assert count == 0
     assert provider.calls == []
@@ -244,14 +244,16 @@ async def test_persona_synthesis_updates_attrs() -> None:
     await pr.upsert(make_persona("u1", "Alice"))
     await er.upsert(make_event("ev1", topic="Python开发", uid="u1"))
     provider = _MockProvider(
-        '{"description":"热爱编程的开发者","affect_type":"积极","content_tags":["编程","Python"]}'
+        '{"description":"热爱编程的开发者","big_five":{"O":0.6,"E":0.4,"N":-0.2}}'
     )
     count = await run_persona_synthesis(pr, er, provider_getter=lambda: provider)
     assert count == 1
     updated = await pr.get("u1")
     assert updated is not None
     assert updated.persona_attrs.get("description") == "热爱编程的开发者"
-    assert updated.persona_attrs.get("affect_type") == "积极"
+    bf = updated.persona_attrs.get("big_five", {})
+    assert abs(bf.get("O", 0) - 0.6) < 0.01
+    assert abs(bf.get("E", 0) - 0.4) < 0.01
 
 
 async def test_persona_synthesis_handles_parse_failure() -> None:
@@ -270,11 +272,122 @@ async def test_persona_synthesis_truncates_description() -> None:
     await pr.upsert(make_persona("u1"))
     await er.upsert(make_event("ev1", uid="u1"))
     long_desc = "x" * 100
-    provider = _MockProvider(f'{{"description":"{long_desc}","affect_type":"中性","content_tags":[]}}')
+    provider = _MockProvider(f'{{"description":"{long_desc}","big_five":{{"O":0.1}}}}')
     await run_persona_synthesis(pr, er, provider_getter=lambda: provider)
     updated = await pr.get("u1")
     assert updated is not None
-    assert len(updated.persona_attrs.get("description", "")) <= 50
+    assert len(updated.persona_attrs.get("description", "")) <= 80
+
+
+async def test_persona_synthesis_stores_big_five_evidence_dict() -> None:
+    pr = InMemoryPersonaRepository()
+    er = InMemoryEventRepository()
+    await pr.upsert(make_persona("u1", "Alice"))
+    await er.upsert(make_event("ev1", topic="技术讨论", uid="u1"))
+    # LLM returns O=0.7 → pct = round((0.7+1)/2*100) = 85
+    provider = _MockProvider(
+        '{"description":"技术爱好者","big_five":{"O":0.7},'
+        '"big_five_evidence":{"O":"Alice 在开放性上表现出高水平，可以推断出 85% 的量化结果。"}}'
+    )
+    from core.config import SynthesisConfig
+    await run_persona_synthesis(pr, er, provider_getter=lambda: provider,
+                                synthesis_config=SynthesisConfig(ema_alpha=1.0))  # no blending
+    updated = await pr.get("u1")
+    assert updated is not None
+    evidence = updated.persona_attrs.get("big_five_evidence")
+    assert isinstance(evidence, dict)
+    assert "O" in evidence
+    assert "85%" in evidence["O"]
+    assert len(evidence["O"]) <= 120
+
+
+async def test_persona_synthesis_evidence_pct_matches_merged_score() -> None:
+    """Evidence sentence percentage must reflect the EMA-merged score, not the LLM's raw value."""
+    pr = InMemoryPersonaRepository()
+    er = InMemoryEventRepository()
+    import dataclasses as _dc
+    base = make_persona("u1", "Alice")
+    persona_with_history = _dc.replace(base, persona_attrs={"big_five": {"O": 0.8}})
+    await pr.upsert(persona_with_history)
+    await er.upsert(make_event("ev1", uid="u1"))
+    # LLM says O=0.0 (75% raw), but EMA should blend: 0.35*0.0 + 0.65*0.8 = 0.52 → 76%
+    # The evidence sentence has a wrong "50%" from LLM — it must be replaced with 76%
+    provider = _MockProvider(
+        '{"description":"test","big_five":{"O":0.0},'
+        '"big_five_evidence":{"O":"Alice 在开放性上表现出中等水平，可以推断出 50% 的量化结果。"}}'
+    )
+    from core.config import SynthesisConfig
+    await run_persona_synthesis(pr, er, provider_getter=lambda: provider,
+                                synthesis_config=SynthesisConfig(ema_alpha=0.35))
+    updated = await pr.get("u1")
+    assert updated is not None
+    merged_o = updated.persona_attrs["big_five"]["O"]
+    expected_pct = round((merged_o + 1) / 2 * 100)
+    evidence_o = updated.persona_attrs["big_five_evidence"]["O"]
+    assert f"{expected_pct}%" in evidence_o
+    assert "50%" not in evidence_o  # LLM's stale value must be replaced
+
+
+async def test_persona_synthesis_evidence_backward_compat_string() -> None:
+    """Old-format single string evidence is preserved as-is for backward compat."""
+    pr = InMemoryPersonaRepository()
+    er = InMemoryEventRepository()
+    await pr.upsert(make_persona("u1"))
+    await er.upsert(make_event("ev1", uid="u1"))
+    provider = _MockProvider(
+        '{"description":"test","big_five":{"O":0.1},"big_five_evidence":"旧格式综合依据"}'
+    )
+    await run_persona_synthesis(pr, er, provider_getter=lambda: provider)
+    updated = await pr.get("u1")
+    assert updated is not None
+    evidence = updated.persona_attrs.get("big_five_evidence")
+    assert isinstance(evidence, str)
+    assert len(evidence) <= 120
+
+
+async def test_persona_synthesis_truncates_evidence_dict() -> None:
+    pr = InMemoryPersonaRepository()
+    er = InMemoryEventRepository()
+    await pr.upsert(make_persona("u1"))
+    await er.upsert(make_event("ev1", uid="u1"))
+    long_sentence = "e" * 200
+    provider = _MockProvider(
+        f'{{"description":"test","big_five":{{"O":0.1}},"big_five_evidence":{{"O":"{long_sentence}"}}}}'
+    )
+    await run_persona_synthesis(pr, er, provider_getter=lambda: provider)
+    updated = await pr.get("u1")
+    assert updated is not None
+    evidence = updated.persona_attrs.get("big_five_evidence")
+    assert isinstance(evidence, dict)
+    assert len(evidence.get("O", "")) <= 120
+
+
+async def test_persona_synthesis_ema_blends_existing_scores() -> None:
+    """EMA merge: new score is blended with existing score, not fully replaced."""
+    pr = InMemoryPersonaRepository()
+    er = InMemoryEventRepository()
+    persona = make_persona("u1", "Alice")
+    persona = persona.__class__(
+        uid=persona.uid,
+        bound_identities=persona.bound_identities,
+        primary_name=persona.primary_name,
+        persona_attrs={"big_five": {"O": 0.8}},  # existing high O
+        confidence=persona.confidence,
+        created_at=persona.created_at,
+        last_active_at=persona.last_active_at,
+    )
+    await pr.upsert(persona)
+    await er.upsert(make_event("ev1", uid="u1"))
+    # LLM returns low O — should be blended, not fully replaced
+    provider = _MockProvider('{"description":"test","big_five":{"O":0.0}}')
+    from core.config import SynthesisConfig
+    await run_persona_synthesis(pr, er, provider_getter=lambda: provider,
+                                synthesis_config=SynthesisConfig(ema_alpha=0.35))
+    updated = await pr.get("u1")
+    assert updated is not None
+    blended_o = updated.persona_attrs.get("big_five", {}).get("O", 0)
+    # Expected: 0.35*0.0 + 0.65*0.8 = 0.52
+    assert abs(blended_o - 0.52) < 0.01
 
 
 # ---------------------------------------------------------------------------
