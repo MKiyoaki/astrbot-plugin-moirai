@@ -12,6 +12,7 @@ Sync guarantees (see BaseMemoryManager docstring for the contract):
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -148,19 +149,23 @@ class MemoryManager(BaseMemoryManager):
     # ------------------------------------------------------------------
 
     async def stats(self) -> dict:
-        active = await self._repo.list_by_status(EventStatus.ACTIVE, limit=100_000)
-        archived = await self._repo.list_by_status(EventStatus.ARCHIVED, limit=100_000)
-
-        all_events = active + archived
-        saliences = [e.salience for e in active]
+        # Use COUNT(*) for counts to avoid loading all rows into memory.
+        active_count, archived_count = await asyncio.gather(
+            self._repo.count_by_status(EventStatus.ACTIVE),
+            self._repo.count_by_status(EventStatus.ARCHIVED),
+        )
+        # Salience stats still require loading active events (no SQL aggregation API yet).
+        # Limit to a reasonable cap to avoid OOM on very large datasets.
+        active_sample = await self._repo.list_by_status(EventStatus.ACTIVE, limit=10_000)
+        saliences = [e.salience for e in active_sample]
         avg_salience = sum(saliences) / len(saliences) if saliences else 0.0
-        locked_count = sum(1 for e in all_events if e.is_locked)
+        locked_count = sum(1 for e in active_sample if e.is_locked)
 
         return {
-            "active_count": len(active),
-            "archived_count": len(archived),
+            "active_count": active_count,
+            "archived_count": archived_count,
             "locked_count": locked_count,
-            "total_count": len(all_events),
+            "total_count": active_count + archived_count,
             "avg_salience": round(avg_salience, 4),
             "min_salience": round(min(saliences, default=0.0), 4),
             "max_salience": round(max(saliences, default=0.0), 4),

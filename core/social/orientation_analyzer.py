@@ -60,6 +60,7 @@ class SocialOrientationAnalyzer:
         big_five_buffer: BigFiveBuffer,
         event_salience: float = 0.5,
         scope: str = "global",
+        event_id: str | None = None,
     ) -> int:
         """Analyze the window and upsert Impressions for all participant pairs."""
         participants = window.participants
@@ -136,7 +137,7 @@ class SocialOrientationAnalyzer:
                     rs = r_squared(b_e, p_e)
                     await self._upsert_impression(
                         obs_uid, subj_uid, ipc_o, b_e, p_e, ai, rs,
-                        scope, window,
+                        scope, window, event_id=event_id,
                     )
                     updated += 1
                 except Exception as exc:
@@ -152,6 +153,7 @@ class SocialOrientationAnalyzer:
         obs_uid: str, subj_uid: str,
         ipc_o: str, b: float, p: float, ai: float, rs: float,
         scope: str, window: MessageWindow,
+        event_id: str | None = None,
     ) -> None:
         existing = await self._impression_repo.get(obs_uid, subj_uid, scope)
         if existing is None:
@@ -163,15 +165,18 @@ class SocialOrientationAnalyzer:
                 power=p,
                 affect_intensity=ai,
                 r_squared=rs,
-                confidence=rs,  # Set initial confidence to R-squared
+                confidence=rs,
                 scope=scope,
-                evidence_event_ids=[],
+                evidence_event_ids=[event_id] if event_id else [],
                 last_reinforced_at=time.time(),
             )
         else:
-            # Exponential moving average: new = 0.3 * current + 0.7 * existing.
-            # Keeps recent events more influential while retaining history.
             alpha = 0.3
+            # Append this event to evidence list (cap at 100 to bound DB growth).
+            evidence = list(existing.evidence_event_ids)
+            if event_id and event_id not in evidence:
+                evidence.append(event_id)
+            evidence = evidence[-100:]
             imp = dataclasses.replace(
                 existing,
                 ipc_orientation=ipc_o,
@@ -179,7 +184,8 @@ class SocialOrientationAnalyzer:
                 power=_ema(p, existing.power, alpha),
                 affect_intensity=_ema(ai, existing.affect_intensity, alpha),
                 r_squared=_ema(rs, existing.r_squared, alpha),
-                confidence=_ema(rs, existing.confidence, alpha), # Update confidence too
+                confidence=_ema(rs, existing.confidence, alpha),
+                evidence_event_ids=evidence,
                 last_reinforced_at=time.time(),
             )
         await self._impression_repo.upsert(imp)

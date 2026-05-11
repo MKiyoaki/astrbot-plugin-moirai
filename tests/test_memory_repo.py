@@ -465,3 +465,24 @@ async def test_impression_scope_isolation() -> None:
     r_grp = await repo.get("uid-bot", "uid-a", "grp-1")
     assert r_global.benevolence == pytest.approx(0.5)   # type: ignore[union-attr]
     assert r_grp.benevolence == pytest.approx(-0.3)     # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------------------
+# count_by_status
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_count_by_status_returns_correct_counts() -> None:
+    repo = InMemoryEventRepository()
+    await repo.upsert(make_event("e1"))
+    await repo.upsert(make_event("e2"))
+    await repo.upsert(make_event("e3"))
+    await repo.set_status("e3", "archived")
+    assert await repo.count_by_status("active") == 2
+    assert await repo.count_by_status("archived") == 1
+
+
+@pytest.mark.asyncio
+async def test_count_by_status_empty_repo() -> None:
+    repo = InMemoryEventRepository()
+    assert await repo.count_by_status("active") == 0

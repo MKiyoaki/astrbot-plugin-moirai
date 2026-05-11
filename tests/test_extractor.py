@@ -327,3 +327,28 @@ async def test_extractor_unified_personality_priming() -> None:
     # R-squared based confidence (log shows 0.54)
     assert imp_ab.confidence == pytest.approx(imp_ab.r_squared)
     assert imp_ab.confidence > 0.3
+
+
+# ---------------------------------------------------------------------------
+# BigFiveBuffer maxlen cap
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_big_five_buffer_texts_maxlen_capped() -> None:
+    from core.social.big_five_scorer import BigFiveBuffer
+    buf = BigFiveBuffer(x_messages=5)
+    # Add 20 messages — max stored should be 2 × 5 = 10
+    for i in range(20):
+        buf.add_message("u1", f"msg{i}")
+    assert len(buf._texts["u1"]) == 10
+    # Most recent messages should be retained
+    assert buf._texts["u1"][-1] == "msg19"
+
+
+@pytest.mark.asyncio
+async def test_big_five_buffer_texts_below_maxlen_not_truncated() -> None:
+    from core.social.big_five_scorer import BigFiveBuffer
+    buf = BigFiveBuffer(x_messages=10)
+    for i in range(5):
+        buf.add_message("u1", f"msg{i}")
+    assert len(buf._texts["u1"]) == 5

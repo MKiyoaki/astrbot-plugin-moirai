@@ -511,6 +511,13 @@ class SQLiteEventRepository(EventRepository):
             await self._db.rollback()
             raise
 
+    async def count_by_status(self, status: str) -> int:
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM events WHERE status = ?", (status,)
+        ) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else 0
+
     async def list_by_status(
         self, status: str, limit: int = 100
     ) -> list[Event]:

@@ -115,6 +115,11 @@ class EventRepository(ABC):
         ...
 
     @abstractmethod
+    async def count_by_status(self, status: str) -> int:
+        """Return the number of events with the given status without loading rows."""
+        ...
+
+    @abstractmethod
     async def list_by_status(
         self, status: str, limit: int = 100
     ) -> list[Event]:

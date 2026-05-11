@@ -80,8 +80,8 @@ class DecayConfig:
 
 _DEFAULT_PERSONA_SYSTEM_PROMPT = (
     "你是一个用户画像分析助手。根据提供的事件记录，更新用户属性。"
-    "只输出单行JSON，字段：description（≤50字符）、affect_type（积极/消极/中性之一）、"
-    "content_tags（list，≤5项）。不要输出任何其他内容。"
+    "只输出单行JSON，字段：description（≤50字符）、affect_type（积极/消极/中性之一）。"
+    "不要输出任何其他内容。"
 )
 
 _DEFAULT_IMPRESSION_SYSTEM_PROMPT = (

@@ -96,15 +96,19 @@ class EventExtractor:
             self._partitioner = LlmPartitioner()
 
     async def _init_tag_seeds(self) -> None:
-        """Initialize canonical_tags from configuration seeds."""
-        for tag in self._tag_seeds:
+        """Initialize canonical_tags from configuration seeds via a single batch encode."""
+        if not self._tag_seeds:
+            return
+        try:
+            embeddings = await self._encoder.encode_batch(self._tag_seeds)
+        except Exception as exc:
+            logger.debug("[EventExtractor] tag seed batch encoding failed: %s", exc)
+            return
+        for tag, embedding in zip(self._tag_seeds, embeddings):
             try:
-                # Only upsert if not exists to avoid re-encoding
-                # Repository implementation already handles ON CONFLICT
-                embedding = await self._encoder.encode(tag)
                 await self._event_repo.upsert_canonical_tag(tag, embedding)
             except Exception as exc:
-                logger.debug("[EventExtractor] tag seed initialization failed for %s: %s", tag, exc)
+                logger.debug("[EventExtractor] tag seed upsert failed for %s: %s", tag, exc)
 
     async def __call__(self, window: MessageWindow) -> None:
         """on_event_close callback: partition, distill/extract, persist, then index vector.
@@ -415,7 +419,8 @@ class EventExtractor:
             # 5. Analyze with fresh scores
             scope = event.group_id or "global"
             await self._orientation_analyzer.analyze(
-                window, self._big_five_buffer, event.salience, scope
+                window, self._big_five_buffer, event.salience, scope,
+                event_id=event.event_id,
             )
         except Exception as exc:
             logger.warning("[EventExtractor] IPC analysis failed: %s", exc)

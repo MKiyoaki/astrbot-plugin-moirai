@@ -45,7 +45,7 @@ from .sync.watcher import FileWatcher
 from .tasks.cleanup import run_memory_cleanup
 from .tasks.scheduler import TaskScheduler
 from .tasks.summary import run_group_summary
-from .tasks.synthesis import run_impression_aggregation, run_persona_synthesis
+from .tasks.synthesis import run_impression_recalculation, run_persona_synthesis
 
 if TYPE_CHECKING:
     from astrbot.api.star import Context
@@ -206,33 +206,29 @@ class PluginInitializer:
         summary_cfg = cfg.get_summary_config()
 
         self.scheduler = TaskScheduler()
-        self.scheduler.register(
-            "salience_decay",
-            interval=cfg.decay_interval_seconds,
-            fn=lambda: self.memory.apply_decay() if self.memory else None,
-        )
-        self.scheduler.register(
-            "context_cleanup",
-            interval=60,
-            fn=lambda: self.context_manager.cleanup_expired() if self.context_manager else None,
-        )
-        self.scheduler.register(
-            "memory_cleanup",
-            interval=cfg.get_cleanup_config().interval_days * 86400,
-            fn=lambda: run_memory_cleanup(
-                event_repo, cfg.get_cleanup_config()),
-        )
 
-        async def _projection_and_register() -> None:
+        # Daily maintenance: decay → cleanup → projection (order matters).
+        # Decay runs first so archived events are excluded from the projection render.
+        cleanup_cfg = cfg.get_cleanup_config()
+        async def _daily_maintenance() -> None:
+            if self.memory:
+                await self.memory.apply_decay()
+            if cleanup_cfg.enabled:
+                await run_memory_cleanup(event_repo, cleanup_cfg)
             if self.projector:
                 await self.projector.render_all_personas()
             if self.syncer:
                 await self.syncer.register_all()
 
         self.scheduler.register(
-            "projection",
-            interval=cfg.summary_interval_seconds,
-            fn=_projection_and_register,
+            "daily_maintenance",
+            interval=cfg.decay_interval_seconds,
+            fn=_daily_maintenance,
+        )
+        self.scheduler.register(
+            "context_cleanup",
+            interval=60,
+            fn=lambda: self.context_manager.cleanup_expired() if self.context_manager else None,
         )
         self.scheduler.register(
             "persona_synthesis",
@@ -243,12 +239,10 @@ class PluginInitializer:
             ),
         )
         self.scheduler.register(
-            "impression_aggregation",
+            "impression_recalculation",
             interval=cfg.impression_aggregation_interval_seconds,
-            fn=lambda: run_impression_aggregation(
-                persona_repo, event_repo, impression_repo, provider_getter,
-                synthesis_config=synthesis_cfg,
-                persona_isolation_enabled=cfg.persona_isolation_enabled,
+            fn=lambda: run_impression_recalculation(
+                persona_repo, event_repo, impression_repo,
             ),
         )
         self.scheduler.register(

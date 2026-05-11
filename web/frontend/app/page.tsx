@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { 
   Activity, Share2, BookOpen, Search, Database, 
   ArrowRight, Clock, ShieldCheck, Zap, MessageSquare,
-  ChevronRight, ExternalLink
+  ChevronRight, ExternalLink, Users
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
 import { useApp } from '@/lib/store'
@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import * as api from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { cn, parseSummaryTopics } from '@/lib/utils'
 
 export default function HomePage() {
   const { i18n, stats, refreshStats, lang } = useApp()
@@ -178,7 +178,24 @@ export default function HomePage() {
                               {new Date(ev.start).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}
                             </span>
                           </div>
-                          <p className="text-xs text-muted-foreground line-clamp-1">{ev.summary}</p>
+                          {(() => {
+                            const topics = parseSummaryTopics(ev.summary)
+                            if (!topics || topics.length === 0) {
+                              return <p className="text-xs text-muted-foreground line-clamp-1">{ev.summary}</p>
+                            }
+                            const t = topics[0] // 首页只显示第一条核心议题
+                            return (
+                              <div className="space-y-1">
+                                <p className="text-xs text-muted-foreground line-clamp-1">
+                                  {t.what}
+                                </p>
+                                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground opacity-80">
+                                  <Users size={10} />
+                                  <span className="truncate">{t.who}</span>
+                                </div>
+                              </div>
+                            )
+                          })()}
                           <div className="flex gap-2 mt-2">
                             {ev.tags.slice(0, 3).map(tag => (
                               <Badge key={tag} variant="secondary" className="text-[9px] px-1.5 py-0 h-4 font-normal">

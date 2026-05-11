@@ -123,6 +123,8 @@ class BigFiveBuffer:
     ) -> None:
         self._x = max(1, x_messages)
         self._scorer: BigFiveScorer = scorer or LLMBigFiveScorer(llm_timeout=llm_timeout)
+        # Cap text accumulation at 2× threshold to prevent unbounded memory growth.
+        self._max_texts = self._x * 2
         # uid → (message_count_since_last_score, accumulated_texts, cached_vector)
         self._counters: dict[str, int] = {}
         self._texts: dict[str, list[str]] = {}
@@ -131,7 +133,10 @@ class BigFiveBuffer:
 
     def add_message(self, uid: str, text: str) -> None:
         self._counters[uid] = self._counters.get(uid, 0) + 1
-        self._texts.setdefault(uid, []).append(text)
+        buf = self._texts.setdefault(uid, [])
+        buf.append(text)
+        if len(buf) > self._max_texts:
+            del buf[: len(buf) - self._max_texts]
 
     def get_cached(self, uid: str) -> BigFiveVector:
         return self._cache.get(uid, _ZERO_VECTOR)

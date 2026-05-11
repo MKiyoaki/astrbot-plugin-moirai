@@ -154,6 +154,9 @@ class InMemoryEventRepository(EventRepository):
             event.salience = max(0.0, event.salience * factor)
         return len(self._store)
 
+    async def count_by_status(self, status: str) -> int:
+        return sum(1 for e in self._store.values() if e.status == status)
+
     async def list_by_status(self, status: str, limit: int = 100) -> list[Event]:
         events = [deepcopy(e) for e in self._store.values() if e.status == status]
         events.sort(key=lambda e: e.start_time, reverse=True)

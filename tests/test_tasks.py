@@ -17,7 +17,7 @@ from core.repository.memory import (
 from core.tasks.decay import run_salience_decay
 from core.tasks.scheduler import TaskScheduler
 from core.tasks.summary import run_group_summary
-from core.tasks.synthesis import run_impression_aggregation, run_persona_synthesis
+from core.tasks.synthesis import run_impression_recalculation, run_persona_synthesis
 from core.config import DecayConfig
 
 
@@ -278,75 +278,80 @@ async def test_persona_synthesis_truncates_description() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Impression aggregation
+# Impression recalculation
 # ---------------------------------------------------------------------------
 
-async def test_impression_aggregation_no_provider_returns_zero() -> None:
+async def test_impression_recalculation_empty_returns_zero() -> None:
     pr = InMemoryPersonaRepository()
     er = InMemoryEventRepository()
     ir = InMemoryImpressionRepository()
-    await pr.upsert(make_persona("u1"))
-    await ir.upsert(make_impression("u1", "u2", evidence=["ev1"]))
-    count = await run_impression_aggregation(pr, er, ir, provider_getter=lambda: None)
+    count = await run_impression_recalculation(pr, er, ir)
     assert count == 0
 
 
-async def test_impression_aggregation_skips_no_evidence() -> None:
+async def test_impression_recalculation_updates_derived_fields() -> None:
+    from core.social.ipc_model import derive_fields
     pr = InMemoryPersonaRepository()
     er = InMemoryEventRepository()
     ir = InMemoryImpressionRepository()
     await pr.upsert(make_persona("u1"))
-    await ir.upsert(make_impression("u1", "u2", evidence=[]))
-    provider = _MockProvider('{"ipc_orientation":"友好","benevolence":0.8,"power":0.0,"affect_intensity":0.9,"r_squared":0.7,"confidence":0.7}')
-    count = await run_impression_aggregation(pr, er, ir, provider_getter=lambda: provider)
-    assert count == 0
-    assert provider.calls == []
-
-
-async def test_impression_aggregation_updates_impression() -> None:
-    pr = InMemoryPersonaRepository()
-    er = InMemoryEventRepository()
-    ir = InMemoryImpressionRepository()
-    await pr.upsert(make_persona("u1"))
-    await er.upsert(make_event("ev1", topic="合作项目", uid="u1"))
-    await ir.upsert(make_impression("u1", "u2", evidence=["ev1"]))
-    provider = _MockProvider('{"ipc_orientation":"掌控","benevolence":0.6,"power":0.4,"affect_intensity":0.8,"r_squared":0.75,"confidence":0.75}')
-    count = await run_impression_aggregation(pr, er, ir, provider_getter=lambda: provider)
+    imp = make_impression("u1", "u2")
+    imp = dataclasses.replace(imp, benevolence=0.6, power=0.3)
+    await ir.upsert(imp)
+    count = await run_impression_recalculation(pr, er, ir)
     assert count == 1
     updated = await ir.get("u1", "u2", "global")
     assert updated is not None
-    assert updated.ipc_orientation == "掌控"
-    assert abs(updated.benevolence - 0.6) < 0.01
+    expected_ipc, expected_ai, expected_rs = derive_fields(0.6, 0.3)
+    assert updated.ipc_orientation == expected_ipc
+    assert abs(updated.affect_intensity - expected_ai) < 1e-6
+    assert abs(updated.r_squared - expected_rs) < 1e-6
+    assert abs(updated.confidence - expected_rs) < 1e-6
 
 
-async def test_impression_aggregation_rejects_invalid_relation() -> None:
+async def test_impression_recalculation_rebuilds_evidence_event_ids() -> None:
     pr = InMemoryPersonaRepository()
     er = InMemoryEventRepository()
     ir = InMemoryImpressionRepository()
     await pr.upsert(make_persona("u1"))
-    await er.upsert(make_event("ev1", uid="u1"))
-    await ir.upsert(make_impression("u1", "u2", evidence=["ev1"]))
-    provider = _MockProvider('{"ipc_orientation":"INVALID","benevolence":0.5,"power":0.0,"affect_intensity":0.5,"r_squared":0.5,"confidence":0.5}')
-    await run_impression_aggregation(pr, er, ir, provider_getter=lambda: provider)
+
+    # Two shared events, one event only for u1
+    shared_ev = make_event("ev_shared", uid="u1")
+    shared_ev = dataclasses.replace(shared_ev, participants=["u1", "u2"])
+    await er.upsert(shared_ev)
+    only_u1 = make_event("ev_only_u1", uid="u1")
+    await er.upsert(only_u1)
+
+    await ir.upsert(make_impression("u1", "u2", evidence=[]))
+    await run_impression_recalculation(pr, er, ir)
     updated = await ir.get("u1", "u2", "global")
     assert updated is not None
-    assert updated.ipc_orientation == "友好"  # original unchanged
+    assert "ev_shared" in updated.evidence_event_ids
+    assert "ev_only_u1" not in updated.evidence_event_ids
 
 
-async def test_impression_aggregation_clamps_affect() -> None:
+async def test_impression_recalculation_batch_queries_each_uid_once() -> None:
+    """Each uid should be queried exactly once regardless of impression count."""
     pr = InMemoryPersonaRepository()
-    er = InMemoryEventRepository()
     ir = InMemoryImpressionRepository()
+
+    query_log: list[str] = []
+
+    class _CountingRepo(InMemoryEventRepository):
+        async def list_by_participant(self, uid: str, limit: int = 100):
+            query_log.append(uid)
+            return await super().list_by_participant(uid, limit=limit)
+
+    er = _CountingRepo()
     await pr.upsert(make_persona("u1"))
-    await er.upsert(make_event("ev1", uid="u1"))
-    await ir.upsert(make_impression("u1", "u2", evidence=["ev1"]))
-    provider = _MockProvider('{"ipc_orientation":"友好","benevolence":99.0,"power":99.0,"affect_intensity":99.0,"r_squared":99.0,"confidence":99.0}')
-    await run_impression_aggregation(pr, er, ir, provider_getter=lambda: provider)
-    updated = await ir.get("u1", "u2", "global")
-    assert updated is not None
-    assert updated.benevolence <= 1.0
-    assert updated.affect_intensity <= 1.0
-    assert updated.confidence <= 1.0
+    # Three impressions all involving u1 as observer
+    await ir.upsert(make_impression("u1", "u2"))
+    await ir.upsert(make_impression("u1", "u3"))
+    await ir.upsert(make_impression("u1", "u4"))
+
+    await run_impression_recalculation(pr, er, ir)
+    # u1 should appear exactly once in query_log (batch pre-load)
+    assert query_log.count("u1") == 1
 
 
 # ---------------------------------------------------------------------------

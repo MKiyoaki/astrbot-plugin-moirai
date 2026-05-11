@@ -10,8 +10,6 @@ import asyncio
 import dataclasses
 import json
 import logging
-import math
-import time
 from typing import Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -19,12 +17,6 @@ if TYPE_CHECKING:
     from ..config import SynthesisConfig
 
 logger = logging.getLogger(__name__)
-
-_SQRT2 = math.sqrt(2)
-
-
-def _clamp(value: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, value))
 
 
 def _safe_parse(text: str) -> dict | None:
@@ -47,8 +39,13 @@ async def run_persona_synthesis(
 ) -> int:
     """Re-synthesise persona_attrs for all personas from recent events.
 
+    content_tags: derived algorithmically from event tag frequency — no LLM needed
+    since chat_content_tags are already canonical-normalised at write time.
+    description + affect_type: still LLM-generated (require language understanding).
+
     Returns number of personas whose attrs were updated.
     """
+    from collections import Counter
     from ..config import SynthesisConfig as _SC
     cfg = synthesis_config or _SC()
 
@@ -65,6 +62,13 @@ async def run_persona_synthesis(
         if not events:
             continue
 
+        # --- Algorithmic: aggregate content_tags from event history ---
+        tag_counter: Counter = Counter()
+        for e in events:
+            tag_counter.update(e.chat_content_tags)
+        top_tags = [tag for tag, _ in tag_counter.most_common(5)]
+
+        # --- LLM: generate description and affect_type only ---
         event_summaries = "\n".join(f"- {e.topic}" for e in events)
         prompt = (
             f"用户 {persona.primary_name}，近期参与事件：\n{event_summaries}\n"
@@ -86,8 +90,8 @@ async def run_persona_synthesis(
                 new_attrs["description"] = str(parsed["description"])[:50]
             if "affect_type" in parsed:
                 new_attrs["affect_type"] = str(parsed["affect_type"])
-            if isinstance(parsed.get("content_tags"), list):
-                new_attrs["content_tags"] = [str(t) for t in parsed["content_tags"][:5]]
+            # Always overwrite with the algorithmically-derived tags.
+            new_attrs["content_tags"] = top_tags
 
             await persona_repo.upsert(dataclasses.replace(persona, persona_attrs=new_attrs))
             updated += 1
@@ -101,98 +105,65 @@ async def run_persona_synthesis(
     return updated
 
 
-async def run_impression_aggregation(
+async def run_impression_recalculation(
     persona_repo: PersonaRepository,
     event_repo: EventRepository,
     impression_repo: ImpressionRepository,
-    provider_getter: Callable,
-    synthesis_config: SynthesisConfig | None = None,
-    persona_isolation_enabled: bool = False,
 ) -> int:
-    """Re-evaluate each impression from its evidence events.
+    """Algorithmically recalculate derived impression fields and sync evidence_event_ids.
 
-    Returns number of impressions updated.
+    No LLM call. For each impression:
+      1. Recompute ipc_orientation / affect_intensity / r_squared / confidence
+         from the current (benevolence, power) via ipc_model — keeps derived
+         fields consistent if formula constants ever change.
+      2. Rebuild evidence_event_ids by intersecting each pair's event sets
+         (capped at 100 to bound DB growth).
+
+    Returns the number of impressions updated.
     """
-    from ..config import SynthesisConfig as _SC
-    cfg = synthesis_config or _SC()
-
-    provider = provider_getter()
-    if provider is None:
-        logger.debug("[Aggregation] no provider, skipping impression aggregation")
-        return 0
+    from ..social.ipc_model import derive_fields
 
     personas = await persona_repo.list_all()
-    all_impressions = []
+    all_impressions: list = []
     for persona in personas:
         all_impressions.extend(await impression_repo.list_by_observer(persona.uid))
 
-    updated = 0
-
+    # Pre-load event sets for every uid that appears in any impression — one DB
+    # query per uid instead of two per impression (avoids O(impressions) queries).
+    uids_needed: set[str] = set()
     for imp in all_impressions:
-        if not imp.evidence_event_ids:
-            continue
+        uids_needed.add(imp.observer_uid)
+        uids_needed.add(imp.subject_uid)
+    uid_event_ids: dict[str, set[str]] = {}
+    for uid in uids_needed:
+        events = await event_repo.list_by_participant(uid, limit=200)
+        uid_event_ids[uid] = {e.event_id for e in events}
 
-        events = []
-        for eid in imp.evidence_event_ids[:cfg.max_events]:
-            ev = await event_repo.get(eid)
-            if ev is None:
-                continue
-            if persona_isolation_enabled and ev.group_id != imp.scope:
-                continue
-            events.append(ev)
-        if not events:
-            continue
-
-        from ..domain.models import IPC_VALID_ORIENTATIONS
-        event_summaries = "\n".join(f"- {e.topic}" for e in events)
-        current = (
-            f"ipc_orientation={imp.ipc_orientation}, "
-            f"benevolence={imp.benevolence:.2f}, power={imp.power:.2f}, "
-            f"confidence={imp.confidence:.2f}"
-        )
-        prompt = (
-            f"观察者:{imp.observer_uid[:8]}，被观察者:{imp.subject_uid[:8]}。\n"
-            f"依据事件：\n{event_summaries}\n"
-            f"当前印象：{current}。\n"
-            "请更新印象。"
-        )
+    updated = 0
+    for imp in all_impressions:
         try:
-            resp = await asyncio.wait_for(
-                provider.text_chat(prompt=prompt, system_prompt=cfg.impression_system_prompt),
-                timeout=cfg.llm_timeout,
-            )
-            parsed = _safe_parse(resp.completion_text)
-            if parsed is None:
-                continue
+            ipc_o, ai, rs = derive_fields(imp.benevolence, imp.power)
 
-            ipc_o = str(parsed.get("ipc_orientation", imp.ipc_orientation))
-            ben = _clamp(float(parsed.get("benevolence", imp.benevolence)), -1.0, 1.0)
-            pow_ = _clamp(float(parsed.get("power", imp.power)), -1.0, 1.0)
-            ai = min(1.0, math.sqrt(ben ** 2 + pow_ ** 2) / _SQRT2)
-            r2 = _clamp(float(parsed.get("r_squared", imp.r_squared)), 0.0, 1.0)
+            # Rebuild evidence set from pre-loaded in-memory sets.
+            obs_ids = uid_event_ids.get(imp.observer_uid, set())
+            subj_ids = uid_event_ids.get(imp.subject_uid, set())
+            shared = list(obs_ids & subj_ids)[-100:]
+
             new_imp = dataclasses.replace(
                 imp,
-                ipc_orientation=ipc_o if ipc_o in IPC_VALID_ORIENTATIONS else imp.ipc_orientation,
-                benevolence=ben,
-                power=pow_,
+                ipc_orientation=ipc_o,
                 affect_intensity=ai,
-                r_squared=r2,
-                confidence=_clamp(float(parsed.get("confidence", imp.confidence)), 0.0, 1.0),
-                last_reinforced_at=time.time(),
+                r_squared=rs,
+                confidence=rs,
+                evidence_event_ids=shared,
             )
             await impression_repo.upsert(new_imp)
             updated += 1
-
-        except asyncio.TimeoutError:
-            logger.warning(
-                "[Aggregation] timeout for %s→%s",
-                imp.observer_uid[:8], imp.subject_uid[:8],
-            )
         except Exception as exc:
             logger.warning(
-                "[Aggregation] failed for %s→%s: %s",
+                "[Recalculation] failed for %s→%s: %s",
                 imp.observer_uid[:8], imp.subject_uid[:8], exc,
             )
 
-    logger.info("[Aggregation] impression aggregation: %d updated", updated)
+    logger.info("[Recalculation] impression recalculation: %d updated", updated)
     return updated

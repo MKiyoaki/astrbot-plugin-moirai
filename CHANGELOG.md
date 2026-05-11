@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## [v0.7.12] — 2026-05-11
+
+### 数据流优化：周期任务精简与 Pipeline 效率提升
+
+#### 周期任务重构
+
+- **`core/tasks/synthesis.py`**：删除 LLM 版 `run_impression_aggregation`（因 `evidence_event_ids` 始终为空而形同死代码），替换为纯算法版 `run_impression_recalculation`：
+  - 通过 `ipc_model.derive_fields(B, P)` 重算 `ipc_orientation` / `affect_intensity` / `r_squared` / `confidence`，保持衍生字段与公式常数同步。
+  - 批量预加载所有涉及 uid 的事件集合（每 uid 一次 DB 查询），在内存中做集合求交重建 `evidence_event_ids`，将原 O(impressions) 次 DB 查询降至 O(unique_uids) 次。
+  - `run_persona_synthesis`：`content_tags` 改为从事件 `chat_content_tags` 频率统计（`collections.Counter`）得出，不再请求 LLM；LLM 仅负责 `description` 和 `affect_type`。
+- **`core/plugin_initializer.py`**：合并 `salience_decay` + `memory_cleanup` + `projection` 三个独立定时任务为单一 `daily_maintenance`；`impression_aggregation` → `impression_recalculation`（无 `provider_getter`）。
+
+#### 数据流 Bug 修复
+
+- **`core/social/orientation_analyzer.py`**：`analyze()` 和 `_upsert_impression()` 新增 `event_id` 参数，修复原来 `evidence_event_ids` 始终写入空列表的 Bug，上限 100 条。
+
+#### 性能小优化
+
+- **`core/managers/memory_manager.py`**：`stats()` 改为并发 SQL `COUNT(*)` 查询，不再全表扫描。新增 `count_by_status()` 抽象方法及实现（`base.py` / `sqlite.py` / `memory.py`）。
+- **`core/extractor/extractor.py`**：`_init_tag_seeds()` 改用 `encode_batch()` 单次批量编码所有种子标签。
+- **`core/social/big_five_scorer.py`**：`BigFiveBuffer._texts` 新增 `_max_texts = x_messages × 2` 上限，防止长会话内存无限增长。
+
+#### 测试
+
+- **`tests/test_tasks.py`**：删除旧 `run_impression_aggregation` 测试，新增 `run_impression_recalculation` 测试四个。
+- **`tests/test_memory_repo.py`**：新增 `count_by_status` 两个测试。
+- **`tests/test_extractor.py`**：新增 `BigFiveBuffer` maxlen 两个测试。
+
+---
+
 ## [v0.7.11] — 2026-05-11
 
 ### Unified Extraction：人格评分与事件提取合并为单次 LLM 调用
