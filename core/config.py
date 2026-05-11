@@ -204,6 +204,16 @@ class IPCConfig:
 
 
 @dataclass
+class SoulConfig:
+    enabled: bool = False
+    decay_rate: float = 0.1
+    recall_depth_init: float = 0.0
+    impression_depth_init: float = 0.0
+    expression_desire_init: float = 0.0
+    creativity_init: float = 0.0
+
+
+@dataclass
 class ExtractorConfig:
     max_context_messages: int = 20
     llm_timeout: float = 30.0
@@ -394,6 +404,16 @@ class PluginConfig:
                 "bigfive_llm_timeout_seconds", 30.0),
         )
 
+    def get_soul_config(self) -> SoulConfig:
+        return SoulConfig(
+            enabled=self._bool("soul_enabled", False),
+            decay_rate=self._float("soul_decay_rate", 0.1),
+            recall_depth_init=self._float("soul_recall_depth_init", 0.0),
+            impression_depth_init=self._float("soul_impression_depth_init", 0.0),
+            expression_desire_init=self._float("soul_expression_desire_init", 0.0),
+            creativity_init=self._float("soul_creativity_init", 0.0),
+        )
+
     def get_extractor_config(self) -> ExtractorConfig:
         custom_prompt = self._str("extractor_system_prompt", "").strip()
         custom_distill_prompt = self._str(
@@ -564,7 +584,11 @@ class PluginConfig:
 
     @property
     def impression_update_alpha(self) -> float:
-        return self._float("impression_update_alpha", 0.3)
+        return self._float("impression_update_alpha", 0.4)
+
+    @property
+    def persona_default_confidence(self) -> float:
+        return self._float("persona_default_confidence", 0.5)
 
     # ------------------------------------------------------------------
     # Raw dict passthrough (for subsystems that need the full dict)

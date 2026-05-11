@@ -124,7 +124,15 @@ async def run_persona_synthesis(
             # Always overwrite with the algorithmically-derived tags.
             new_attrs["content_tags"] = top_tags
 
-            await persona_repo.upsert(dataclasses.replace(persona, persona_attrs=new_attrs))
+            # Update confidence based on BigFive coverage quality (dims with valid scores / 5).
+            merged_bf_for_quality: dict = new_attrs.get("big_five", {})
+            quality = len(merged_bf_for_quality) / 5.0
+            old_conf = float(persona.confidence)
+            new_confidence = round(alpha * quality + (1.0 - alpha) * old_conf, 4)
+
+            await persona_repo.upsert(
+                dataclasses.replace(persona, confidence=new_confidence, persona_attrs=new_attrs)
+            )
             updated += 1
 
         except asyncio.TimeoutError:

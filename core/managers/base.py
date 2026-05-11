@@ -169,18 +169,16 @@ class BaseRecallManager(BaseManager, ABC):
         req: object,
         session_id: str,
         group_id: str | None = None,
+        sender_uid: str | None = None,
     ) -> int:
         """Recall events and inject them into the ProviderRequest.
 
+        sender_uid is used to look up the sender's persona for OCEAN injection.
         Returns the number of events actually injected.
         """
         ...
 
     @abstractmethod
-    def clear_previous_injection(self, req: object) -> int:
-        """Remove previously injected memory markers from req.
-
-        Clears system_prompt, prompt, and contexts fields.
-        Returns the count of injection blocks removed.
-        """
+    def get_soul_states(self) -> dict[str, Any]:
+        """Return all active soul states (emotional states per session)."""
         ...

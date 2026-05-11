@@ -29,6 +29,12 @@ export const zh = {
     recall: '混合召回',
     coreProtected: '核心记忆受保护中',
     manageLibrary: '管理信息库',
+    soulMonitor: 'Soul Layer 情绪状态',
+    soulNoActive: '当前暂无活跃会话的情绪状态',
+    recallDepth: '记忆检索驱动',
+    impressionDepth: '社交关注度',
+    expressionDesire: '表达欲',
+    creativity: '创意度',
     enter: '进入',
   },
   page: {
@@ -448,6 +454,7 @@ export const zh = {
       retrieval: '检索参数',
       boundary: '事件流',
       vcm: '虚拟上下文 (VCM)',
+      soul: '情绪系统 (Soul Layer)',
       cleanup: '记忆清理',
       summaries: '摘要记忆',
       relation: '社会关系',
@@ -475,6 +482,32 @@ export const zh = {
       context_max_sessions: { label: '最大缓存会话数', hint: '内存中保留的活跃会话上限' },
       context_session_idle_seconds: { label: '会话过期时间 (秒)', hint: '无新消息自动释放内存的时间' },
       context_window_size: { label: '上下文窗口大小', hint: '传给 LLM 的历史消息条数' },
+      soul_enabled: { label: '启用情绪四维状态', hint: '开启后 Soul Layer 将随对话动态更新并注入 system prompt' },
+      soul_decay_rate: { 
+        label: '情绪衰减率', 
+        hint: '情绪向中性回归的速度。0.1 表示每轮衰减 10%',
+        tooltip: '决定情绪消退的速度。值越大，Bot 的情绪变化越快（健忘）；值越小，情绪越持久稳定。'
+      },
+      soul_recall_depth_init: {
+        label: '记忆检索驱动初始值',
+        hint: '记忆检索的活跃基调。正值→主动回忆往事（博学/念旧），负值→聚焦当前对话。',
+        tooltip: 'RecallDepth 基调，范围 -20 到 +20'
+      },
+      soul_impression_depth_init: {
+        label: '社交关注度初始值',
+        hint: '社交关注的活跃基调。正值→在意对方人格与彼此关系，负值→公事公办风格。',
+        tooltip: 'ImpressionDepth 基调，范围 -20 到 +20'
+      },
+      soul_expression_desire_init: {
+        label: '表达欲初始值',
+        hint: '表达欲望的活跃基调。正值→长句多段落（话痨），负值→回复精简（高冷）。',
+        tooltip: 'ExpressionDesire 基调，范围 -20 到 +20'
+      },
+      soul_creativity_init: {
+        label: '创意度初始值',
+        hint: '思维活跃基调。正值→使用比喻/联想/跳跃话题，负值→表达平实逻辑化。',
+        tooltip: 'Creativity 基调，范围 -20 到 +20'
+      },
       memory_cleanup_enabled: { label: '启用自动清理', hint: '定期清理低重要度记忆' },
       memory_cleanup_threshold: { label: '清理阈值', hint: '低于此重要度将被删除' },
       memory_cleanup_interval_days: { label: '清理周期 (天)', hint: '执行清理任务的时间间隔' },
@@ -597,12 +630,18 @@ export const ja = {
     recall: 'ハイブリッド想起',
     coreProtected: 'コアメモリ保護中',
     manageLibrary: 'ライブラリ管理',
+    soulMonitor: 'ソウルレイヤー監視',
+    soulNoActive: 'アクティブなセッションの感情状態はありません',
+    recallDepth: '記憶検索駆動',
+    impressionDepth: '社会的関心度',
+    expressionDesire: '表現欲',
+    creativity: '創造性',
     enter: '入る',
   },
   page: {
     events: {
       title: 'イベントフロー',
-      description: 'タイムライン形式で対話イベントを表示。検索、作成、編集、事件回收箱に対応。',
+      description: 'タイムライン形式で対話イベントを表示。検索、作成、編集、イベントゴミ箱に対応。',
     },
     graph: {
       title: '関係図',
@@ -632,7 +671,7 @@ export const ja = {
     },
     stats: {
       title: 'データ統計',
-      description: '記憶バンクの运行ステータスとデータインサイトを表示します。',
+      description: '記憶バンクの実行ステータスとデータインサイトを表示します。',
     },
   },
   auth: {
@@ -721,13 +760,13 @@ export const ja = {
     selectEventHint: '左側のリストからイベントを選択して詳細を表示します。',
     lockedMemory: '記憶のロック',
     lockedMemoryDesc: 'ロックすると、自動クリーンアップタスクによって削除されなくなります。',
-    moveBinSuccess: 'イベントを事件回收箱に移動しました',
+    moveBinSuccess: 'イベントをイベントゴミ箱に移動しました',
     deleteFailed: '削除に失敗しました',
     createSuccess: 'イベントを作成しました',
-    binLoadError: '事件回收箱の読み込みに失敗しました',
-    binClearSuccess: '事件回收箱を空にしました',
+    binLoadError: 'イベントゴミ箱の読み込みに失敗しました',
+    binClearSuccess: 'イベントゴミ箱を空にしました',
     lockedDeleteHint: 'この記憶はロックされています。削除する前にロックを解除してください。',
-    threadScale: '轴スケール',
+    threadScale: '軸スケール',
     lock: 'ロック',
     unlock: 'ロック解除',
     archive: 'アーカイブ',
@@ -1016,6 +1055,7 @@ export const ja = {
       retrieval: '検索パラメータ',
       boundary: 'イベントフロー',
       vcm: '仮想コンテキスト (VCM)',
+      soul: '感情システム (Soul Layer)',
       cleanup: '記憶のクリーンアップ',
       summaries: '要約記憶',
       relation: '社会的関係',
@@ -1043,6 +1083,12 @@ export const ja = {
       context_max_sessions: { label: '最大キャッシュセッション数', hint: 'メモリに保持されるアクティブセッションの上限' },
       context_session_idle_seconds: { label: 'セッション有効期限 (秒)', hint: '新しいメッセージがない場合にメモリを自動解放する時間' },
       context_window_size: { label: 'コンテキストウィンドウサイズ', hint: 'LLM に渡される履歴メッセージ数' },
+      soul_enabled: { label: '感情四次元状態を有効にする', hint: 'Soul Layer を有効にするとシステムプロンプトに注入されます' },
+      soul_decay_rate: { label: '感情減衰率（ターンごと）', hint: '各ターン後に次元がゼロへ減衰する割合、0.1 = 10% 減衰', tooltip: '感情の消退速度を決定します。値が大きいほど変化が速く（忘れっぽい）、値が小さいほど感情が持続します。' },
+      soul_recall_depth_init: { label: '記憶検索駆動の初期値', hint: '記憶検索の基調。正値→過去を積極的に想起（博識/郷愁）、負値→現在の会話に集中。', tooltip: 'RecallDepth の基調、範囲 -20 ～ +20' },
+      soul_impression_depth_init: { label: '社会的関心度の初期値', hint: '社会的関心の基調。正値→相手の人格や関係性を重視、負値→ビジネスライクな応対。', tooltip: 'ImpressionDepth の基調、範囲 -20 ～ +20' },
+      soul_expression_desire_init: { label: '表現欲の初期値', hint: '表現欲の基調。正値→長文・多段落（饒舌）、負値→簡潔な応答（クール）。', tooltip: 'ExpressionDesire の基調、範囲 -20 ～ +20' },
+      soul_creativity_init: { label: '創造性の初期値', hint: '思考活性の基調。正値→比喩・連想・脱線を促す、負値→論理的で平易な表現。', tooltip: 'Creativity の基調、範囲 -20 ～ +20' },
       memory_cleanup_enabled: { label: '自動クリーンアップを有効にする', hint: '重要度の低いメモリを定期的にクリーンアップします' },
       memory_cleanup_threshold: { label: 'クリーンアップしきい値', hint: 'この重要度を下回ると削除されます' },
       memory_cleanup_interval_days: { label: 'クリーンアップ周期 (日)', hint: 'クリーンアップタスクを実行する間隔' },
@@ -1057,17 +1103,17 @@ export const ja = {
       impression_event_trigger_threshold: { label: 'トリガーしきい値', hint: '必要な最小共有イベント数' },
       impression_trigger_debounce_hours: { label: 'トリガーデバウンス (時間)', hint: '頻繁な更新を避けるための最小間隔' },
       impression_update_alpha: { label: '平滑化係数 (Alpha)', hint: '値が大きいほど新しい印象を早く受け入れます' },
-      decay_interval_hours: { label: '減衰タスク間隔 (時間)', hint: '重要度减衰を実行する頻度' },
-      summary_interval_hours: { label: '要约生成頻度 (時間)', hint: 'グループ要約を生成する頻度' },
-      summary_word_limit: { label: '要约の文字数制限', hint: '200〜500文字の間で設定することをお勧めします' },
+      decay_interval_hours: { label: '減衰タスク間隔 (時間)', hint: '重要度減衰を実行する頻度' },
+      summary_interval_hours: { label: '要約生成頻度 (時間)', hint: 'グループ要約を生成する頻度' },
+      summary_word_limit: { label: '要約の文字数制限', hint: '200〜500文字の間で設定することをお勧めします' },
       summary_mood_source: { label: '感情動態データソース', hint: '要約内の[感情動態]の生成方法を決定します。' },
       persona_synthesis_interval_hours: { label: 'パーソナ合成間隔 (時間)', hint: 'ユーザーパーソナプロファイルを合成する頻度' },
       impression_aggregation_interval_hours: { label: '印象集約間隔 (時間)', hint: 'LLM を介して印象を集約する頻度' },
-      file_watcher_poll_seconds: { label: 'ファイル監視間隔 (秒)', hint: 'ローカルファイルの编辑を検出する頻度' },
+      file_watcher_poll_seconds: { label: 'ファイル監視間隔 (秒)', hint: 'ローカルファイルの編集を検出する頻度' },
       extraction_strategy: { label: 'イベント分割戦略', hint: 'LLMは正確ですが遅く、Semanticは高速でトピックの交錯を処理できます。' },
       semantic_clustering_eps: { label: 'セマンティッククラスタリング感度 (Eps)', hint: 'Semantic戦略のみ。値が小さいほどトピックが細かくなります。' },
       semantic_clustering_min_samples: { label: 'クラスタリング最小メッセージ数', hint: 'Semantic戦略のみ。トピックに含まれる最小メッセージ数。' },
-      tag_normalization_threshold: { label: 'タグ正規化しきい値', hint: '既存のタグとの類似度がこれを超えると自动的に統合されます。' },
+      tag_normalization_threshold: { label: 'タグ正規化しきい値', hint: '既存のタグとの類似度がこれを超えると自動的に統合されます。' },
       tag_seeds: { label: 'タグシードリスト', hint: 'コンマ区切り。システムの記憶の抽象的な階層を定義します。' },
       persona_default_confidence: { label: 'パーソナデフォルト信頼度', hint: '新規パーソナ作成時の初期信頼値' },
       },
@@ -1165,6 +1211,12 @@ export const en = {
     recall: 'Recall',
     coreProtected: 'Core Memories Protected',
     manageLibrary: 'Manage Library',
+    soulMonitor: 'Soul Layer Monitor',
+    soulNoActive: 'No active session emotional states',
+    recallDepth: 'Recall Depth',
+    impressionDepth: 'Impression Depth',
+    expressionDesire: 'Expression Desire',
+    creativity: 'Creativity',
     enter: 'Open',
   },
   page: {
@@ -1584,6 +1636,7 @@ export const en = {
       retrieval: 'Retrieval Parameters',
       boundary: 'Event Flow',
       vcm: 'Virtual Context (VCM)',
+      soul: 'Emotion System (Soul Layer)',
       cleanup: 'Memory Cleanup',
       summaries: 'Summaries',
       relation: 'Social Relations',
@@ -1611,6 +1664,32 @@ export const en = {
       context_max_sessions: { label: 'Max Cached Sessions', hint: 'Active sessions kept in memory' },
       context_session_idle_seconds: { label: 'Session Idle Timeout', hint: 'Seconds before idle session is evicted' },
       context_window_size: { label: 'Context Window Size', hint: 'History messages sent to LLM' },
+      soul_enabled: { label: 'Enable Soul Layer', hint: 'Injects dynamic 4D emotional state into system prompt' },
+      soul_decay_rate: { 
+        label: 'Emotion Decay Rate', 
+        hint: 'Speed of return to neutral. 0.1 means 10% decay per turn',
+        tooltip: 'Determines how fast emotions fade. Higher values make the Bot more volatile (forgetful); lower values make emotions more persistent.'
+      },
+      soul_recall_depth_init: {
+        label: 'Recall Depth Init',
+        hint: 'The baseline for memory retrieval. Positive values make the Bot prone to recalling past events (erudite/nostalgic); negative values focus on the current moment.',
+        tooltip: 'RecallDepth baseline, range -20 to +20'
+      },
+      soul_impression_depth_init: {
+        label: 'Impression Depth Init',
+        hint: 'The baseline for social attention. Positive values make the Bot care more about the user\'s personality and relationship; negative values make it more business-like.',
+        tooltip: 'ImpressionDepth baseline, range -20 to +20'
+      },
+      soul_expression_desire_init: {
+        label: 'Expression Desire Init',
+        hint: 'The baseline for the urge to express. Positive values lead to longer sentences and multiple paragraphs (talkative); negative values make replies concise (cool).',
+        tooltip: 'ExpressionDesire baseline, range -20 to +20'
+      },
+      soul_creativity_init: {
+        label: 'Creativity Init',
+        hint: 'The baseline for thinking activity. Positive values guide the Bot to use metaphors, associations, or jump topics; negative values make speech more plain and logical.',
+        tooltip: 'Creativity baseline, range -20 to +20'
+      },
       memory_cleanup_enabled: { label: 'Enable Auto Cleanup', hint: 'Periodically delete low salience memories' },
       memory_cleanup_threshold: { label: 'Cleanup Threshold', hint: 'Memories below this salience are deleted' },
       memory_cleanup_interval_days: { label: 'Cleanup Interval (Days)', hint: 'Frequency of cleanup tasks' },

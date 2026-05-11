@@ -44,11 +44,26 @@ class EventHandler:
         try:
             session_id = event.unified_msg_origin
             group_id = event.get_group_id() or None
+
+            # Resolve sender uid for OCEAN persona injection (best-effort).
+            sender_uid: str | None = None
+            resolver = self._init.resolver
+            if resolver is not None:
+                try:
+                    sender_uid = await resolver.get_or_create_uid(
+                        platform=event.get_platform_name(),
+                        physical_id=event.get_sender_id(),
+                        display_name=event.get_sender_name(),
+                    )
+                except Exception:
+                    pass
+
             await recall.recall_and_inject(
                 query=query,
                 req=req,
                 session_id=session_id,
                 group_id=group_id,
+                sender_uid=sender_uid,
             )
         except Exception as exc:
             astrbot_logger.warning("[%s] recall hook failed: %s", _PLUGIN_NAME, exc)

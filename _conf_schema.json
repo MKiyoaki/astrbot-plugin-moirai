@@ -258,8 +258,59 @@
     "impression_update_alpha": {
         "description": "印象更新平滑系数 (Alpha)",
         "type": "float",
-        "hint": "数值越大则越快接受新印象，数值越小越倾向于维持旧印象。0.3 表示新信息占比 30%，旧记忆占比 70%。",
-        "default": 0.3
+        "hint": "数值越大则越快接受新印象，数值越小越倾向于维持旧印象。0.4 表示新信息占比 40%，旧记忆占比 60%。",
+        "default": 0.4
+    },
+    "soul_enabled": {
+        "description": "启用情绪四维状态 (Soul Layer)",
+        "type": "bool",
+        "hint": "开启后，RecallDepth / ImpressionDepth / ExpressionDesire / Creativity 四维情绪状态将随对话动态更新，并注入 system prompt 以影响回复风格。",
+        "default": false
+    },
+    "soul_decay_rate": {
+        "description": "情绪衰减率（每轮）",
+        "type": "float",
+        "hint": "每轮对话后各情绪维度向零衰减的比例，0.1 表示每轮衰减 10%。",
+        "default": 0.1,
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.01
+    },
+    "soul_recall_depth_init": {
+        "description": "记忆检索驱动初始值",
+        "type": "float",
+        "hint": "RecallDepth 维度的初始值，范围 -20 到 +20，0 为中性。",
+        "default": 0.0,
+        "min": -20.0,
+        "max": 20.0,
+        "step": 0.5
+    },
+    "soul_impression_depth_init": {
+        "description": "社交关注度初始值",
+        "type": "float",
+        "hint": "ImpressionDepth 维度的初始值，范围 -20 到 +20，0 为中性。",
+        "default": 0.0,
+        "min": -20.0,
+        "max": 20.0,
+        "step": 0.5
+    },
+    "soul_expression_desire_init": {
+        "description": "表达欲初始值",
+        "type": "float",
+        "hint": "ExpressionDesire 维度的初始值，范围 -20 到 +20，0 为中性。",
+        "default": 0.0,
+        "min": -20.0,
+        "max": 20.0,
+        "step": 0.5
+    },
+    "soul_creativity_init": {
+        "description": "创意度初始值",
+        "type": "float",
+        "hint": "Creativity 维度的初始值，范围 -20 到 +20，0 为中性。",
+        "default": 0.0,
+        "min": -20.0,
+        "max": 20.0,
+        "step": 0.5
     },
     "vcm_enabled": {
         "description": "启用 VCM 状态机",

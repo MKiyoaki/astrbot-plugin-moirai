@@ -78,6 +78,8 @@ class PluginInitializer:
         self.webui = None
         self.watcher: FileWatcher | None = None
         self.syncer: ReverseSyncer | None = None
+        self.persona_repo = None
+        self.resolver = None
 
     async def initialize(self) -> None:
         cfg = self._cfg
@@ -155,10 +157,13 @@ class PluginInitializer:
             decay_config=cfg.get_decay_config(),
         )
 
+        self.persona_repo = persona_repo
         self.recall = RecallManager(
             retriever=retriever,
             retrieval_config=cfg.get_retrieval_config(),
             injection_config=cfg.get_injection_config(),
+            persona_repo=persona_repo,
+            soul_config=cfg.get_soul_config(),
         )
 
         ipc_cfg = cfg.get_ipc_config()
@@ -198,7 +203,8 @@ class PluginInitializer:
         # also extracted instead of silently dropped.
         self.context_manager._evict_callback = on_event_close
 
-        resolver = IdentityResolver(persona_repo)
+        resolver = IdentityResolver(persona_repo, default_confidence=cfg.persona_default_confidence)
+        self.resolver = resolver
         detector = EventBoundaryDetector(cfg.get_boundary_config())
         self.router = MessageRouter(
             event_repo=event_repo,

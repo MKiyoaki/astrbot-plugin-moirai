@@ -42,13 +42,14 @@ export const auth = {
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────
-export interface Stats {
+export interface PluginStats {
   personas: number
   events: number
   locked_count: number
   impressions: number
   groups: number
   version: string
+  soul_enabled?: boolean
   perf?: {
     avg_extraction_time: number
     avg_partition_time: number
@@ -58,8 +59,22 @@ export interface Stats {
     avg_response_time: number
   }
 }
+
+export type Stats = PluginStats
+
+export interface SoulState {
+  recall_depth: number
+  impression_depth: number
+  expression_desire: number
+  creativity: number
+}
+
+export const soul = {
+  getStates: () => request<{ states: Record<string, SoulState> }>('/api/soul/states'),
+}
+
 export const stats = {
-  get: () => request<Stats>('/api/stats'),
+  get: () => request<PluginStats>('/api/stats'),
 }
 
 // ── Events ────────────────────────────────────────────────────────────────
@@ -183,8 +198,11 @@ export interface ConfSchemaField {
   description: string
   hint?: string
   type: 'bool' | 'int' | 'float' | 'string' | 'text' | 'object' | 'list' | 'select'
-  options?: string[]
+  options?: (string | { value: string; label: string })[]
   default: unknown
+  min?: number
+  max?: number
+  step?: number
 }
 export interface PluginConfigResponse {
   schema: Record<string, ConfSchemaField>
@@ -196,4 +214,18 @@ export const pluginConfig = {
     request<{ ok: boolean; saved: string[] }>('/api/config', {
       method: 'PUT', body: JSON.stringify(values),
     }),
+}
+
+// ── Global API Export ──────────────────────────────────────────────────────
+export const api = {
+  auth,
+  stats,
+  events,
+  graph,
+  summaries,
+  recall,
+  admin,
+  tags,
+  config: pluginConfig,
+  soul,
 }

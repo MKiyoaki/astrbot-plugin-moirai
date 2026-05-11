@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 import time
 from math import exp, log
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..config import (
     FAKE_TOOL_CALL_ID_PREFIX,
@@ -21,13 +21,15 @@ from ..config import (
     MEMORY_INJECTION_HEADER,
 )
 from ..domain.models import Event
-from ..utils.formatter import format_events_for_fake_tool_call, format_events_for_prompt
+from ..utils.formatter import format_events_for_fake_tool_call, format_events_for_prompt, format_persona_for_prompt
 from ..retrieval.rrf import rrf_scores
 from .base import BaseRecallManager
+from ..social.soul_state import SoulState, apply_decay, apply_tanh_elastic, format_soul_for_prompt, from_config
 
 if TYPE_CHECKING:
-    from ..config import InjectionConfig, RetrievalConfig
+    from ..config import InjectionConfig, RetrievalConfig, SoulConfig
     from ..retrieval.hybrid import HybridRetriever
+    from ..repository.base import PersonaRepository
 
 _LOG2 = log(2)
 
@@ -45,15 +47,20 @@ class RecallManager(BaseRecallManager):
         retriever: HybridRetriever,
         retrieval_config: RetrievalConfig,
         injection_config: InjectionConfig,
+        persona_repo: PersonaRepository | None = None,
+        soul_config: SoulConfig | None = None,
     ) -> None:
         super().__init__()
         self._retriever = retriever
         self._rcfg = retrieval_config
         self._icfg = injection_config
+        self._persona_repo = persona_repo
+        self._soul_cfg = soul_config
+        self._soul_states: dict[str, SoulState] = {}
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+    def get_soul_states(self) -> dict[str, Any]:
+        """Return all active soul states as a dict of dicts."""
+        return {sid: state.__dict__.copy() for sid, state in self._soul_states.items()}
 
     async def recall(self, query: str, group_id: str | None = None) -> list[Event]:
         """Return re-ranked events for injection."""
@@ -107,6 +114,7 @@ class RecallManager(BaseRecallManager):
         req: object,
         session_id: str,
         group_id: str | None = None,
+        sender_uid: str | None = None,
     ) -> int:
         """Recall and inject memory into req. Returns the number of events injected."""
         from ..utils.perf import performance_timer
@@ -115,13 +123,13 @@ class RecallManager(BaseRecallManager):
                 self.clear_previous_injection(req)
 
             events = await self.recall(query, group_id=group_id)
-            if not events:
-                return 0
 
             position = self._icfg.position
             token_budget = self._icfg.token_budget
 
             if position == "fake_tool_call":
+                if not events:
+                    return 0
                 messages = format_events_for_fake_tool_call(
                     events, query, token_budget=token_budget
                 )
@@ -132,11 +140,57 @@ class RecallManager(BaseRecallManager):
                     contexts.extend(messages)
                 return len(events) if messages else 0
 
-            body = format_events_for_prompt(events, token_budget=token_budget)
-            if not body:
+            # Build memory body (may be empty if no events).
+            body = format_events_for_prompt(events, token_budget=token_budget) if events else ""
+
+            # OCEAN persona injection — soft stylistic heuristic, system_prompt only.
+            persona_segment = ""
+            if sender_uid and self._persona_repo and position in ("system_prompt", None, ""):
+                try:
+                    persona = await self._persona_repo.get_by_uid(sender_uid)
+                    if persona:
+                        persona_segment = format_persona_for_prompt(persona)
+                except Exception:
+                    pass
+
+            # Soul Layer injection — short-term emotional state.
+            soul_segment = ""
+            if self._soul_cfg and self._soul_cfg.enabled:
+                state = self._soul_states.get(session_id)
+                if state is None:
+                    state = from_config(self._soul_cfg)
+                # Decay first, then boost recall_depth based on how many events were found.
+                state = apply_decay(state, self._soul_cfg.decay_rate)
+                delta_recall = min(5.0, len(events) * 0.5)
+                state = SoulState(
+                    recall_depth=apply_tanh_elastic(state.recall_depth, delta_recall),
+                    impression_depth=state.impression_depth,
+                    expression_desire=state.expression_desire,
+                    creativity=state.creativity,
+                )
+                self._soul_states[session_id] = state
+                soul_segment = format_soul_for_prompt(state)
+
+            # Nothing to inject — exit early only if all three segments are empty.
+            if not body and not persona_segment and not soul_segment:
                 return 0
 
-            wrapped = MEMORY_INJECTION_HEADER + "\n" + body + "\n" + MEMORY_INJECTION_FOOTER
+            # Assemble injection block.
+            segments: list[str] = []
+            if body:
+                segments.append(body)
+            if persona_segment:
+                segments.append(persona_segment)
+            if soul_segment:
+                segments.append(soul_segment)
+
+            wrapped = (
+                MEMORY_INJECTION_HEADER
+                + "\n"
+                + "\n\n".join(segments)
+                + "\n"
+                + MEMORY_INJECTION_FOOTER
+            )
 
             if position == "system_prompt":
                 sep = "\n\n" if getattr(req, "system_prompt", "") else ""

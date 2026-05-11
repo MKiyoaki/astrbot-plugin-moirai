@@ -117,6 +117,9 @@ export default function HomePage() {
           ))}
         </div>
 
+        {/* Row 1.5: Soul Monitor */}
+        <SoulMonitor />
+
         {/* Row 2: Recent Activity & System Health */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
           {/* Recent Events */}
@@ -274,6 +277,88 @@ export default function HomePage() {
           </div>
         </div>
       </main>
+    </div>
+  )
+}
+
+function SoulMonitor() {
+  const { i18n, stats } = useApp()
+  const [states, setStates] = useState<Record<string, api.SoulState>>({})
+
+  useEffect(() => {
+    if (!stats?.soul_enabled) return
+    const fetchStates = () => {
+      api.soul.getStates().then(res => setStates(res.states)).catch(() => {})
+    }
+    fetchStates()
+    const timer = setInterval(fetchStates, 5000)
+    return () => clearInterval(timer)
+  }, [stats?.soul_enabled])
+
+  if (!stats?.soul_enabled) return null
+
+  const activeSessions = Object.entries(states)
+  
+  return (
+    <Card className="relative overflow-hidden border-amber-500/20 bg-amber-500/[0.02]">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base font-medium flex items-center gap-2">
+            <Zap className="size-4 text-amber-500 fill-amber-500/20" />
+            {i18n.landing.soulMonitor}
+          </CardTitle>
+          <div className="flex items-center gap-1.5">
+            <div className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Realtime</span>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {activeSessions.length === 0 ? (
+          <div className="h-24 flex flex-col items-center justify-center border rounded-lg border-dashed bg-muted/5">
+            <MessageSquare className="size-5 text-muted-foreground/20 mb-2" />
+            <p className="text-[10px] text-muted-foreground/60 italic">{i18n.landing.soulNoActive}</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {activeSessions.map(([sid, s]) => (
+              <div key={sid} className="space-y-3 p-3 rounded-lg border bg-background/50 shadow-sm transition-all hover:shadow-md">
+                <div className="flex items-center justify-between mb-1 border-b border-border/50 pb-1.5">
+                  <span className="text-[11px] font-mono font-medium truncate max-w-[150px] flex items-center gap-1.5" title={sid}>
+                    <Activity className="size-3 text-muted-foreground/50" />
+                    {sid}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+                  <SoulBar label={i18n.landing.recallDepth} value={s.recall_depth} color="bg-blue-500" />
+                  <SoulBar label={i18n.landing.expressionDesire} value={s.expression_desire} color="bg-emerald-500" />
+                  <SoulBar label={i18n.landing.impressionDepth} value={s.impression_depth} color="bg-purple-500" />
+                  <SoulBar label={i18n.landing.creativity} value={s.creativity} color="bg-pink-500" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function SoulBar({ label, value, color }: { label: string, value: number, color: string }) {
+  // Map [-20, 20] to [0, 100]
+  const percentage = ((value + 20) / 40) * 100
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[9px] uppercase tracking-tighter">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-mono font-bold">{value > 0 ? '+' : ''}{value.toFixed(1)}</span>
+      </div>
+      <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
+        <div 
+          className={cn("h-full transition-all duration-1000 ease-out shadow-[0_0_8px_rgba(0,0,0,0.1)]", color)} 
+          style={{ width: `${Math.max(2, Math.min(100, percentage))}%` }}
+        />
+      </div>
     </div>
   )
 }

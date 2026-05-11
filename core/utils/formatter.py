@@ -1,4 +1,4 @@
-"""Format retrieved events into injectable prompt content.
+"""Format retrieved events and persona data into injectable prompt content.
 
 Greedy fill: sort by salience descending, add entries until token_budget
 is exhausted. Conservative token estimate: len(text) // 2 (handles
@@ -9,9 +9,13 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from typing import TYPE_CHECKING
 
 from ..config import FAKE_TOOL_CALL_ID_PREFIX
 from ..domain.models import Event
+
+if TYPE_CHECKING:
+    from ..domain.models import Persona
 
 _TOKEN_BUDGET = 800
 _CHARS_PER_TOKEN = 2
@@ -61,6 +65,43 @@ def format_events_for_prompt(
         return ""
 
     return header + "\n".join(lines)
+
+
+_DIM_NAMES = {"O": "开放性", "C": "尽责性", "E": "外向性", "A": "宜人性", "N": "神经质"}
+
+
+def format_persona_for_prompt(persona: Persona) -> str:
+    """Return a brief system-prompt segment with the user's OCEAN personality profile.
+
+    Injects personality data as a soft stylistic hint — the model should adjust
+    its tone accordingly but must NOT mention or reference this data in its output.
+    Returns empty string when no BigFive data is available.
+    """
+    attrs = persona.persona_attrs
+    bf: dict = attrs.get("big_five", {})
+    if not bf:
+        return ""
+
+    evidence = attrs.get("big_five_evidence", {})
+    name = persona.primary_name or "用户"
+    lines = [
+        f"[用户画像参考] {name} 的性格倾向（据此调整措辞风格，不要在回复中提及）："
+    ]
+    for dim in ["O", "C", "E", "A", "N"]:
+        val = bf.get(dim)
+        if val is None:
+            continue
+        pct = round((float(val) + 1.0) / 2.0 * 100)
+        label = _DIM_NAMES[dim]
+        ev = evidence.get(dim, "") if isinstance(evidence, dict) else ""
+        line = f"- {label} {pct}%"
+        if ev:
+            line += f"：{ev[:60]}"
+        lines.append(line)
+
+    if len(lines) == 1:
+        return ""
+    return "\n".join(lines)
 
 
 def format_events_for_fake_tool_call(

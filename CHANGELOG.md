@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## [v0.7.27] — 2026-05-11
+
+### IPC Alpha / Persona 置信度 / OCEAN 注入 / Soul Layer / 三语修复
+
+- **IPC EMA Alpha 配置化**：印象更新 alpha 从硬编码 0.3 改为配置项 `impression_update_alpha`（默认 0.4）
+- **Persona 置信度动态化**：`run_persona_synthesis` 以 BigFive 维度覆盖率为质量指标，通过 EMA 更新 `persona.confidence`，不再固定为 0.5
+- **OCEAN 人格注入**：新增 `format_persona_for_prompt()`，将大五人格向量格式化为软风格启发式段注入 system prompt（不要求模型在回复中提及）
+- **Soul Layer**（新系统）：新建 `core/social/soul_state.py`，实现四维情绪状态（RecallDepth / ImpressionDepth / ExpressionDesire / Creativity）；tanh 软天花板更新 + 每轮衰减；`RecallManager` 负责状态管理与 system prompt 注入；首页新增 Soul Layer 实时监看看板
+- **配置页扩展**：在"VCM"与"记忆清理"之间新增"情绪系统"配置段（6 个字段，支持三语 Tooltip）
+- **日文 i18n 修复**：清除混入日文字串的中文字符，涉及 `イベントゴミ箱`、`実行ステータス`、`軸スケール`、`重要度減衰`、`要約`、`編集`、`自動的` 等 13 处
+
 ## [v0.7.26] — 2026-05-11
 
 ### 大五人格每维度 evidence 句 + EMA 历史合并 + 百分比显示

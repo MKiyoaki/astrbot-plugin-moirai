@@ -14,8 +14,9 @@ from ..repository.base import PersonaRepository
 
 
 class IdentityResolver:
-    def __init__(self, persona_repo: PersonaRepository) -> None:
+    def __init__(self, persona_repo: PersonaRepository, default_confidence: float = 0.5) -> None:
         self._repo = persona_repo
+        self._default_confidence = default_confidence
         # (platform, physical_id) → uid; avoids one DB round-trip per message
         self._cache: dict[tuple[str, str], str] = {}
 
@@ -41,7 +42,7 @@ class IdentityResolver:
                 bound_identities=[(platform, physical_id)],
                 primary_name=display_name or "User",
                 persona_attrs={},
-                confidence=0.5,
+                confidence=self._default_confidence,
                 created_at=now,
                 last_active_at=now,
             )

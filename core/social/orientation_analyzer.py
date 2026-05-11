@@ -171,7 +171,7 @@ class SocialOrientationAnalyzer:
                 last_reinforced_at=time.time(),
             )
         else:
-            alpha = 0.3
+            alpha = self._cfg.impression_update_alpha if self._cfg else 0.4
             # Append this event to evidence list (cap at 100 to bound DB growth).
             evidence = list(existing.evidence_event_ids)
             if event_id and event_id not in evidence:
@@ -191,6 +191,6 @@ class SocialOrientationAnalyzer:
         await self._impression_repo.upsert(imp)
 
 
-def _ema(new: float, old: float, alpha: float = 0.3) -> float:
+def _ema(new: float, old: float, alpha: float = 0.4) -> float:
     """Exponential moving average: alpha * new + (1 - alpha) * old."""
     return alpha * new + (1.0 - alpha) * old

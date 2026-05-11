@@ -276,6 +276,8 @@ class WebuiServer:
             "/api/summary", self._wrap("auth", self._handle_summary))
         app.router.add_get(
             "/api/stats", self._wrap("auth", self._handle_stats))
+        app.router.add_get(
+            "/api/soul/states", self._wrap("auth", self._handle_soul_states))
 
         # Admin operations (sudo)
         app.router.add_post("/api/admin/run_task",
@@ -526,6 +528,7 @@ class WebuiServer:
             "impressions": impression_count,
             "groups": len(group_ids),
             "version": self._plugin_version,
+            "soul_enabled": bool(self._initial_config.get("soul_enabled", True)),
             "perf": {
                 "avg_extraction_time": round(perf_stats.get("extraction", 0.0), 3),
                 "avg_partition_time": round(perf_stats.get("partition", 0.0), 3),
@@ -668,6 +671,12 @@ class WebuiServer:
 
     async def _handle_stats(self, _: web.Request) -> web.Response:
         return _json(await self.stats_data())
+
+    async def _handle_soul_states(self, _: web.Request) -> web.Response:
+        if self._recall_manager is None:
+            return _json({"states": {}})
+        states = getattr(self._recall_manager, "get_soul_states", lambda: {})()
+        return _json({"states": states})
 
     # Route handlers: Admin operations (sudo)
 
@@ -1561,6 +1570,15 @@ async def main() -> None:
         pass
     finally:
         await srv.stop()
+        print("Stopped.")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+()
         print("Stopped.")
 
 

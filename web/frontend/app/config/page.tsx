@@ -10,6 +10,7 @@ import { Slider } from '@/components/ui/slider'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { PageHeader } from '@/components/layout/page-header'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
@@ -66,21 +67,34 @@ function ConfigField({
   const { i18n } = useApp()
   const id = `cfg-${fieldKey}`
   
-  // Try to get localized label and hint
+  // Try to get localized label, hint, and tooltip
   const localized = (i18n.config as any).fields?.[fieldKey]
   const label = localized?.label || schema.description
   const hint = localized?.hint || schema.hint
+  const tooltip = localized?.tooltip
 
   return (
     <div className={cn("transition-opacity duration-200", disabled && "opacity-40 pointer-events-none")}>
       {schema.type === 'bool' && (
         <div className="flex items-center justify-between py-2">
           <div className="flex-1 pr-4 min-w-0">
-            <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
-              {label}
-            </Label>
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal cursor-pointer">
+                {label}
+              </Label>
+              {tooltip && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="size-3.5 text-muted-foreground/60 hover:text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-[280px] text-xs leading-relaxed">
+                    {tooltip}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
             {hint && (
-              <p className="mt-0.5 text-xs text-muted-foreground break-words whitespace-normal">
+              <p className="text-xs text-muted-foreground break-words whitespace-normal">
                 {hint}
               </p>
             )}
@@ -96,9 +110,21 @@ function ConfigField({
 
       {schema.type === 'select' && schema.options && (
         <div className="py-2 min-w-0">
-          <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
-            {label}
-          </Label>
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal">
+              {label}
+            </Label>
+            {tooltip && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="size-3.5 text-muted-foreground/60 hover:text-muted-foreground cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-[280px] text-xs leading-relaxed">
+                  {tooltip}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
           {hint && (
             <p className="mt-0.5 mb-1.5 text-xs text-muted-foreground break-words whitespace-normal">
               {hint}
@@ -131,23 +157,39 @@ function ConfigField({
       {schema.type === 'float' && (
         <div className="py-2 min-w-0">
           <div className="mb-2 flex items-start justify-between gap-4">
-            <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal flex-1">
-              {label}
-            </Label>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal">
+                  {label}
+                </Label>
+                {tooltip && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="size-3.5 text-muted-foreground/60 hover:text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[280px] text-xs leading-relaxed">
+                      {tooltip}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+              {hint && (
+                <p className="text-xs text-muted-foreground break-words whitespace-normal">
+                  {hint}
+                </p>
+              )}
+            </div>
             <span className="w-12 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
-              {(typeof value === 'number' ? value : parseFloat(String(value)) || 0).toFixed(2)}
+              {(typeof value === 'number' ? value : parseFloat(String(value)) || 0).toFixed(1)}
             </span>
           </div>
-          {hint && (
-            <p className="mb-2 text-xs text-muted-foreground break-words whitespace-normal">
-              {hint}
-            </p>
-          )}
           <Slider
             id={id}
             value={[typeof value === 'number' ? value : parseFloat(String(value)) || 0]}
             onValueChange={(v: unknown) => onChange(Array.isArray(v) ? v[0] : v)}
-            min={0} max={1} step={0.01}
+            min={schema.min ?? 0} 
+            max={schema.max ?? 1} 
+            step={schema.step ?? 0.01}
             disabled={disabled}
           />
         </div>
@@ -155,9 +197,21 @@ function ConfigField({
 
       {(schema.type === 'int' || schema.type === 'string') && (
         <div className="py-2 min-w-0">
-          <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal block">
-            {label}
-          </Label>
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal">
+              {label}
+            </Label>
+            {tooltip && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="size-3.5 text-muted-foreground/60 hover:text-muted-foreground cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-[280px] text-xs leading-relaxed">
+                  {tooltip}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
           {hint && (
             <p className="mt-0.5 mb-1.5 text-xs text-muted-foreground break-words whitespace-normal">
               {hint}
@@ -217,6 +271,10 @@ export default function ConfigPage() {
     {
       label: i18n.config.sections.vcm,
       keys: ['vcm_enabled', 'context_max_sessions', 'context_session_idle_seconds', 'context_window_size'],
+    },
+    {
+      label: i18n.config.sections.soul,
+      keys: ['soul_enabled', 'soul_decay_rate', 'soul_recall_depth_init', 'soul_impression_depth_init', 'soul_expression_desire_init', 'soul_creativity_init'],
     },
     {
       label: i18n.config.sections.cleanup,
@@ -329,6 +387,7 @@ export default function ConfigPage() {
         globalActions={globalActions}
       />
 
+      <TooltipProvider delayDuration={0}>
       <div className="flex-1 overflow-y-auto min-w-0">
         <div className="mx-auto w-full max-w-2xl space-y-6 p-6">
           <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3">
@@ -374,6 +433,7 @@ export default function ConfigPage() {
           )}
         </div>
       </div>
+      </TooltipProvider>
     </div>
   )
 }
