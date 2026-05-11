@@ -19,13 +19,11 @@ import * as api from '@/lib/api'
 
 // Standard shadcn/ui theme definitions
 const SHADCN_THEMES = [
-  { id: 'charon', label: 'Charon' },
+  { id: 'moirai', label: 'Moirai' },
   { id: 'venus', label: 'Venus' },
   { id: 'juno', label: 'Juno' },
   { id: 'augustus', label: 'Augustus' },
-  { id: 'green', label: 'Green' },
-  { id: 'yellow', label: 'Yellow' },
-  { id: 'violet', label: 'Violet' },
+  { id: 'selune', label: 'Selûne' },
 ]
 
 export default function SettingsPage() {

@@ -1,0 +1,97 @@
+/* ==========================================================================
+   Selûne Theme - Lunar Mist & Muted Moonlight
+   ========================================================================== */
+
+.theme-selune {
+  --radius: 0.5rem;
+
+  /* Light Mode - Soft Parchment & Mist */
+  --background: oklch(0.98 0.01 215);
+  --foreground: oklch(0.28 0.02 215);
+  
+  --card: oklch(0.98 0.01 215);
+  --card-foreground: oklch(0.28 0.02 215);
+  
+  --popover: oklch(0.98 0.01 215);
+  --popover-foreground: oklch(0.28 0.02 215);
+
+  /* Primary: Muted Fog Blue (Low saturation, mid-lightness) */
+  --primary: oklch(0.65 0.05 215);
+  --primary-foreground: oklch(0.98 0.01 215);
+
+  /* Secondary: Dusty Moonlight Gold (Muted and warm) */
+  --secondary: oklch(0.85 0.04 85);
+  --secondary-foreground: oklch(0.28 0.02 215);
+
+  --muted: oklch(0.94 0.01 215);
+  --muted-foreground: oklch(0.5 0.02 215);
+
+  /* Accent: Pale Fog highlight */
+  --accent: oklch(0.9 0.03 215);
+  --accent-foreground: oklch(0.65 0.05 215);
+
+  --destructive: oklch(0.55 0.18 25);
+  --destructive-foreground: oklch(0.98 0.01 215);
+
+  /* Unified Border & Separator */
+  --border: oklch(0.88 0.02 215);
+  --input: oklch(0.88 0.02 215);
+  --ring: oklch(0.65 0.05 215);
+
+  /* Sidebar */
+  --sidebar: oklch(0.96 0.01 215);
+  --sidebar-foreground: oklch(0.28 0.02 215);
+  --sidebar-primary: oklch(0.65 0.05 215);
+  --sidebar-primary-foreground: oklch(0.98 0.01 215);
+  --sidebar-accent: oklch(0.92 0.02 215);
+  --sidebar-accent-foreground: oklch(0.65 0.05 215);
+  --sidebar-border: oklch(0.88 0.02 215);
+  --sidebar-ring: oklch(0.65 0.05 215);
+}
+
+.dark.theme-selune,
+.dark .theme-selune {
+  /* Dark Mode - Stone Base (Charcoal) */
+  --background: oklch(0.12 0 0);
+  --foreground: oklch(0.92 0.01 215);
+
+  /* Elevation: Night Mist Blue */
+  --card: oklch(0.18 0.015 215);
+  --card-foreground: oklch(0.92 0.01 215);
+  
+  --popover: oklch(0.15 0.01 215);
+  --popover-foreground: oklch(0.92 0.01 215);
+
+  /* Primary: Glowing Fog Blue (Subtle but distinct) */
+  --primary: oklch(0.78 0.06 215);
+  --primary-foreground: oklch(0.12 0 0);
+
+  /* Secondary: Deep Bronze Moonlight */
+  --secondary: oklch(0.35 0.04 85);
+  --secondary-foreground: oklch(0.92 0.01 215);
+
+  --muted: oklch(0.22 0.01 215);
+  --muted-foreground: oklch(0.6 0.02 215);
+
+  /* Accent: Muted Golden Glow */
+  --accent: oklch(0.28 0.03 85);
+  --accent-foreground: oklch(0.95 0.02 85);
+
+  --destructive: oklch(0.5 0.18 25);
+  --destructive-foreground: oklch(0.95 0.01 215);
+
+  /* Unified Border & Separator (Stone style with blue tint) */
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.78 0.06 215);
+
+  /* Sidebar Dark */
+  --sidebar: oklch(0.14 0.01 215);
+  --sidebar-foreground: oklch(0.92 0.01 215);
+  --sidebar-primary: oklch(0.78 0.06 215);
+  --sidebar-primary-foreground: oklch(0.12 0 0);
+  --sidebar-accent: oklch(0.22 0.02 215);
+  --sidebar-accent-foreground: oklch(0.92 0.01 215);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.78 0.06 215);
+}

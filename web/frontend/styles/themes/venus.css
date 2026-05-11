@@ -1,83 +1,85 @@
 /* ==========================================================================
-   Venus Theme - Optimized for Tailwind v4 & shadcn
+   Venus Theme - Stone & Crimson (Refined Dark Mode)
    ========================================================================== */
 
 .theme-venus {
   --radius: 0.5rem;
-  
-  /* Light Mode */
-  --background: oklch(0.98 0.01 70);
-  --foreground: oklch(0.25 0.02 20);
-  --card: oklch(0.98 0.01 70);
-  --card-foreground: oklch(0.25 0.02 20);
-  --popover: oklch(0.98 0.01 70);
-  --popover-foreground: oklch(0.25 0.02 20);
-  --primary: oklch(0.55 0.22 25);
-  --primary-foreground: oklch(0.98 0.01 70);
-  --secondary: oklch(0.88 0.07 85);
-  --secondary-foreground: oklch(0.35 0.05 30);
-  --muted: oklch(0.92 0.02 70);
-  --muted-foreground: oklch(0.45 0.02 25);
-  --accent: oklch(0.94 0.04 25);
-  --accent-foreground: oklch(0.55 0.22 25);
-  --destructive: oklch(0.45 0.18 25);
-  --destructive-foreground: oklch(0.98 0.01 70);
-  --border: oklch(0.85 0.02 70);
-  --input: oklch(0.85 0.02 70);
-  --ring: oklch(0.55 0.22 25);
 
-  /* Sidebar */
-  --sidebar: oklch(0.96 0.01 70);
-  --sidebar-foreground: oklch(0.25 0.02 20);
-  --sidebar-primary: oklch(0.55 0.22 25);
-  --sidebar-primary-foreground: oklch(0.98 0.01 70);
-  --sidebar-accent: oklch(0.92 0.02 70);
-  --sidebar-accent-foreground: oklch(0.55 0.22 25);
-  --sidebar-border: oklch(0.85 0.02 70);
-  --sidebar-ring: oklch(0.55 0.22 25);
+  /* Light Mode - Warm Marble Base */
+  --background: oklch(0.98 0.01 85);
+  --foreground: oklch(0.22 0.02 85);
+  --card: oklch(0.98 0.01 85);
+  --card-foreground: oklch(0.22 0.02 85);
+  --popover: oklch(0.98 0.01 85);
+  --popover-foreground: oklch(0.22 0.02 85);
+  --primary: oklch(0.55 0.2 25);
+  --primary-foreground: oklch(0.98 0.01 85);
+  --secondary: oklch(0.9 0.03 85);
+  --secondary-foreground: oklch(0.22 0.02 85);
+  --muted: oklch(0.94 0.01 85);
+  --muted-foreground: oklch(0.5 0.02 85);
+  --accent: oklch(0.92 0.05 85);
+  --accent-foreground: oklch(0.22 0.02 85);
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(0.98 0.01 85);
+  --border: oklch(0.88 0.02 85);
+  --input: oklch(0.88 0.02 85);
+  --ring: oklch(0.55 0.2 25);
+
+  --sidebar: oklch(0.96 0.01 85);
+  --sidebar-foreground: oklch(0.22 0.02 85);
+  --sidebar-primary: oklch(0.55 0.2 25);
+  --sidebar-primary-foreground: oklch(0.98 0.01 85);
+  --sidebar-accent: oklch(0.92 0.02 85);
+  --sidebar-accent-foreground: oklch(0.55 0.2 25);
+  --sidebar-border: oklch(0.88 0.02 85);
+  --sidebar-ring: oklch(0.55 0.2 25);
 }
 
 .dark.theme-venus,
 .dark .theme-venus {
-  /* Dark Mode - True Black Background with Gold & Crimson accents */
-  --background: oklch(0.12 0.005 85); 
-  --foreground: oklch(0.92 0.02 85);
+  /* Dark Mode - Stone Palette (Ref: image_53279d.png) */
+  /* Background is now a clean Charcoal Black */
+  --background: oklch(0.12 0 0); 
+  --foreground: oklch(0.95 0.01 85);
   
-  /* Elevation elements using a subtle Gold/Bronze tint */
-  --card: oklch(0.16 0.015 85);
-  --card-foreground: oklch(0.92 0.02 85);
-  --popover: oklch(0.16 0.015 85);
-  --popover-foreground: oklch(0.92 0.02 85);
+  /* Card/Popover: Stone grey elevation, no muddy brown */
+  --card: oklch(0.17 0.01 85); 
+  --card-foreground: oklch(0.95 0.01 85);
+  --popover: oklch(0.17 0.01 85);
+  --popover-foreground: oklch(0.95 0.01 85);
   
-  /* Primary: Crimson Red hair */
-  --primary: oklch(0.6 0.22 25);
+  /* Primary: Vibrant Crimson Red for Buttons/Highlights */
+  --primary: oklch(0.58 0.22 25);
   --primary-foreground: oklch(1 0 0);
   
-  /* Secondary: Muted Gold/Bronze from the accessories */
-  --secondary: oklch(0.4 0.08 85);
-  --secondary-foreground: oklch(0.92 0.02 85);
+  /* Secondary: Neutral Stone Grey (Replaces the "Ugly Gold" button background) */
+  --secondary: oklch(0.24 0.01 85);
+  --secondary-foreground: oklch(0.95 0.01 85);
   
-  --muted: oklch(0.18 0.01 85);
-  --muted-foreground: oklch(0.6 0.04 85);
+  /* Muted states for text and subtle backgrounds */
+  --muted: oklch(0.21 0.01 85);
+  --muted-foreground: oklch(0.6 0.01 85);
   
-  /* Accent: Brighter Gold for highlights and hover states */
-  --accent: oklch(0.7 0.12 85);
-  --accent-foreground: oklch(0.12 0.005 85);
+  /* Accent: Extremely subtle warm grey for hover states */
+  --accent: oklch(0.28 0.02 85);
+  --accent-foreground: oklch(0.95 0.01 85);
   
   --destructive: oklch(0.5 0.2 25);
-  --destructive-foreground: oklch(0.95 0.02 85);
+  --destructive-foreground: oklch(0.95 0.01 85);
   
+  /* Unified Borders & Inputs (Stone style) */
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.6 0.22 25);
+  --ring: oklch(0.58 0.22 25);
 
-  /* Sidebar Dark */
+  /* Sidebar Stone Configuration */
   --sidebar: oklch(0.14 0.01 85);
-  --sidebar-foreground: oklch(0.92 0.02 85);
-  --sidebar-primary: oklch(0.6 0.22 25);
+  --sidebar-foreground: oklch(0.95 0.01 85);
+  --sidebar-primary: oklch(0.58 0.22 25);
   --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.35 0.07 85);
-  --sidebar-accent-foreground: oklch(0.92 0.02 85);
+  --sidebar-accent: oklch(0.22 0.02 85);
+  --sidebar-accent-foreground: oklch(0.95 0.01 85);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.6 0.22 25);
+  --sidebar-ring: oklch(0.58 0.22 25);
 }
