@@ -20,11 +20,10 @@ import * as api from '@/lib/api'
 // Standard shadcn/ui theme definitions
 const SHADCN_THEMES = [
   { id: 'zinc', label: 'Zinc' },
-  { id: 'red', label: 'Red' },
-  { id: 'rose', label: 'Rose' },
+  { id: 'venus', label: 'Venus' },
+  { id: 'juno', label: 'Juno' },
   { id: 'orange', label: 'Orange' },
   { id: 'green', label: 'Green' },
-  { id: 'blue', label: 'Blue' },
   { id: 'yellow', label: 'Yellow' },
   { id: 'violet', label: 'Violet' },
 ]

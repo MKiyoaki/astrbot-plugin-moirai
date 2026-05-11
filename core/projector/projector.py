@@ -20,6 +20,8 @@ from jinja2 import Environment, FileSystemLoader
 
 from ..repository.base import EventRepository, ImpressionRepository, PersonaRepository
 
+from ..utils.i18n import get_string, LANG_ZH
+
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -30,12 +32,12 @@ def _format_time(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def _format_affect(value: float) -> str:
+def _format_affect(value: float, lang: str = LANG_ZH) -> str:
     if value >= THRESHOLD:
-        return f"正面（{value:+.2f}）"
+        return get_string("projector.affect_positive", lang).format(value=value)
     if value <= -THRESHOLD:
-        return f"负面（{value:+.2f}）"
-    return f"中性（{value:+.2f}）"
+        return get_string("projector.affect_negative", lang).format(value=value)
+    return get_string("projector.affect_neutral", lang).format(value=value)
 
 
 class MarkdownProjector:
@@ -52,11 +54,13 @@ class MarkdownProjector:
         persona_repo: PersonaRepository,
         event_repo: EventRepository,
         impression_repo: ImpressionRepository,
+        lang: str = LANG_ZH,
     ) -> None:
         self._data_dir = data_dir
         self._persona_repo = persona_repo
         self._event_repo = event_repo
         self._impression_repo = impression_repo
+        self._lang = lang
         self._env = self._build_env()
 
     def _build_env(self) -> Environment:
@@ -67,7 +71,8 @@ class MarkdownProjector:
             lstrip_blocks=True,
         )
         env.filters["format_time"] = _format_time
-        env.filters["format_affect"] = _format_affect
+        env.filters["format_affect"] = lambda v: _format_affect(v, self._lang)
+        env.globals["get_string"] = lambda key, **kwargs: get_string(key, self._lang).format(**kwargs)
         return env
 
     def _render(self, template_name: str, **ctx: object) -> str:
@@ -99,7 +104,7 @@ class MarkdownProjector:
             persona_dir / "IMPRESSIONS.md",
             self._render("persona_impressions.md.j2", persona=persona, impressions=impressions),
         )
-        logger.debug("[Projector] rendered persona %s (%s)", uid, persona.primary_name)
+        logger.debug("[Projector] rendered persona %s (%s) in %s", uid, persona.primary_name, self._lang)
         return True
 
     async def render_all_personas(self) -> int:
@@ -125,5 +130,5 @@ class MarkdownProjector:
             self._data_dir / "global" / "BOT_PERSONA.md",
             self._render("bot_persona.md.j2", persona=persona),
         )
-        logger.debug("[Projector] rendered BOT_PERSONA.md")
+        logger.debug("[Projector] rendered BOT_PERSONA.md in %s", self._lang)
         return True

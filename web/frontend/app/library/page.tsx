@@ -580,29 +580,46 @@ function LibraryContent() {
 
   const actions = (
     <div className="flex items-center gap-2">
-      <div className="relative">
+      <div className="relative hidden md:block">
         <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
         <Input
-          className="h-7 w-48 pl-7 text-xs"
+          className="h-8 w-48 pl-8 text-xs lg:w-64"
           placeholder={i18n.common.search + '…'}
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
       </div>
-      {editMode && selectedIds.size > 0 && (
-        <Button variant="destructive" size="sm" onClick={handleDeleteSelected}>
-          <Trash2 />{L.deleteSelected} ({selectedIds.size})
-        </Button>
-      )}
-      {(tab === 'personas' || tab === 'events' || tab === 'time') && (
-        <Button variant={editMode ? 'default' : 'outline'} size="sm" onClick={() => setEditMode(v => !v)}>
-          <Pencil />{editMode ? L.exitEditMode : L.editMode}
-        </Button>
-      )}
-      <Button variant="ghost" size="icon" onClick={loadData} title={i18n.common.refresh}>
-        <RefreshCw className={cn(isRefreshing && "animate-spin")} />
+
+      <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2" onClick={openBin}>
+        <Trash2 className="size-3.5" />
+        <span className="hidden sm:inline">{i18n.events.recycleBin}</span>
       </Button>
+
+      {editMode && selectedIds.size > 0 && (
+        <Button variant="destructive" size="sm" className="h-8" onClick={handleDeleteSelected}>
+          <Trash2 className="mr-1.5 size-3.5" />
+          <span className="hidden sm:inline">{L.deleteSelected}</span> ({selectedIds.size})
+        </Button>
+      )}
+
+      {(tab === 'personas' || tab === 'events' || tab === 'time') && (
+        <Button 
+          variant={editMode ? 'default' : 'outline'} 
+          size="sm" 
+          className="h-8 gap-1.5 px-2" 
+          onClick={() => setEditMode(v => !v)}
+        >
+          <Pencil className="size-3.5" />
+          <span className="hidden sm:inline">{editMode ? L.exitEditMode : L.editMode}</span>
+        </Button>
+      )}
     </div>
+  )
+
+  const globalActions = (
+    <Button variant="outline" size="icon" onClick={loadData} title={i18n.common.refresh} className="h-8 w-8">
+      <RefreshCw className={cn("size-3.5 transition-transform duration-500", isRefreshing && "animate-spin")} />
+    </Button>
   )
 
   return (
@@ -611,6 +628,7 @@ function LibraryContent() {
         title={i18n.page.library.title}
         description={i18n.page.library.description}
         actions={actions}
+        globalActions={globalActions}
       />
 
       <FilterBar
@@ -630,18 +648,6 @@ function LibraryContent() {
               <TabsTrigger value="personas" className="gap-2"><Users />{i18n.library.tabs.personas}</TabsTrigger>
               <TabsTrigger value="groups" className="gap-2"><Building2 />{i18n.library.tabs.groups}</TabsTrigger>
             </TabsList>
-
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-9 gap-2 px-3" onClick={openBin}>
-                    <Trash2 className="size-4" />
-                    <span className="text-sm">{i18n.events.recycleBin}</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{i18n.events.recycleBinDescription || i18n.events.recycleBin}</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
           </div>
 
           <TabsContent value="events" className="flex-1 overflow-hidden flex flex-col">

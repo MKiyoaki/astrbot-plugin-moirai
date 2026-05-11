@@ -57,24 +57,27 @@ export default function RecallPage() {
 
   const actions = (
     <div className="flex items-center gap-2">
-      <div className="relative">
+      <div className="relative hidden md:block">
         <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
         <Input
-          className="h-8 w-48 pl-8 text-xs sm:w-64"
-          placeholder={i18n.recall.quickSearch}
+          className="h-8 w-48 pl-8 text-xs lg:w-64"
+          placeholder={i18n.common.searchPlaceholder}
           disabled={!searched}
         />
       </div>
-      <Button 
-        variant="outline" 
-        size="icon" 
-        onClick={handleRefresh} 
-        title={i18n.common.refresh} 
-        className="h-8 w-8"
-      >
-        <RefreshCw className={cn("size-3.5 transition-transform duration-500", isRefreshing && "animate-spin")} />
-      </Button>
     </div>
+  )
+
+  const globalActions = (
+    <Button 
+      variant="outline" 
+      size="icon" 
+      onClick={handleRefresh} 
+      title={i18n.common.refresh} 
+      className="h-8 w-8"
+    >
+      <RefreshCw className={cn("size-3.5 transition-transform duration-500", isRefreshing && "animate-spin")} />
+    </Button>
   )
 
   return (
@@ -83,6 +86,7 @@ export default function RecallPage() {
         title={i18n.page.recall.title}
         description={i18n.page.recall.description}
         actions={actions}
+        globalActions={globalActions}
       />
 
       <div className="flex flex-1 flex-col gap-4 overflow-hidden p-6 min-w-0">

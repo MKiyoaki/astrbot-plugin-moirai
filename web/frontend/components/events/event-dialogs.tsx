@@ -667,7 +667,6 @@ export function RecycleBinDialog({ open, items, loading, onClose, onRestore, onC
   const { i18n } = useApp()
   return (
     <Dialog open={open} onOpenChange={(v: boolean) => !v && onClose()}>
-...
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{i18n.events.recycleBin}</DialogTitle>

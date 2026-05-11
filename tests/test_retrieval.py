@@ -45,8 +45,11 @@ class _FixedEncoder:
     def dim(self) -> int:
         return self._dim
 
-    def encode(self, text: str) -> list[float]:  # noqa: ARG002
+    async def encode(self, text: str) -> list[float]:  # noqa: ARG002
         return self._value
+
+    async def encode_batch(self, texts: list[str]) -> list[list[float]]:
+        return [self._value for _ in texts]
 
 
 # ---------------------------------------------------------------------------
@@ -235,3 +238,92 @@ async def test_sqlite_upsert_vector_overwrite(tmp_path: Path) -> None:
         results = await repo.search_vector([0.0, 0.99, 0.0, 0.0], limit=1)
         assert len(results) == 1
         assert results[0].event_id == "ev1"
+
+
+# ---------------------------------------------------------------------------
+# Weighted random retrieval
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_weighted_random_off_returns_deterministic_top_k() -> None:
+    """With weighted_random=False, results are always the top-k by RRF score."""
+    repo = InMemoryEventRepository()
+    for i in range(5):
+        ev = make_event(f"e{i}", topic=f"topic {i}")
+        await repo.upsert(ev)
+    retriever = HybridRetriever(repo, encoder=NullEncoder(), weighted_random=False)
+    r1 = await retriever.search("topic", limit=3)
+    r2 = await retriever.search("topic", limit=3)
+    assert [e.event_id for e in r1] == [e.event_id for e in r2]
+    assert len(r1) == 3
+
+
+@pytest.mark.asyncio
+async def test_weighted_random_on_returns_correct_count() -> None:
+    """With weighted_random=True, result count still respects limit."""
+    repo = InMemoryEventRepository()
+    for i in range(10):
+        await repo.upsert(make_event(f"e{i}", topic=f"topic {i}"))
+    retriever = HybridRetriever(repo, encoder=NullEncoder(), weighted_random=True, sampling_temperature=1.0)
+    results = await retriever.search("topic", limit=5)
+    assert len(results) == 5
+
+
+@pytest.mark.asyncio
+async def test_weighted_random_on_no_duplicates() -> None:
+    """Sampling without replacement: no duplicate events in result."""
+    repo = InMemoryEventRepository()
+    for i in range(10):
+        await repo.upsert(make_event(f"e{i}", topic=f"topic {i}"))
+    retriever = HybridRetriever(repo, encoder=NullEncoder(), weighted_random=True, sampling_temperature=1.0)
+    results = await retriever.search("topic", limit=8)
+    ids = [e.event_id for e in results]
+    assert len(ids) == len(set(ids))
+
+
+@pytest.mark.asyncio
+async def test_weighted_random_limit_larger_than_candidates() -> None:
+    """If limit > candidate count, return all candidates without error."""
+    repo = InMemoryEventRepository()
+    for i in range(3):
+        await repo.upsert(make_event(f"e{i}", topic="topic"))
+    retriever = HybridRetriever(repo, encoder=NullEncoder(), weighted_random=True)
+    results = await retriever.search("topic", limit=10)
+    assert len(results) == 3
+
+
+@pytest.mark.asyncio
+async def test_weighted_random_high_temperature_produces_variety() -> None:
+    """High temperature flattens distribution — over many runs all events should appear."""
+    import random as _random
+    _random.seed(42)
+    repo = InMemoryEventRepository()
+    for i in range(6):
+        await repo.upsert(make_event(f"e{i}", topic="topic"))
+    retriever = HybridRetriever(repo, encoder=NullEncoder(), weighted_random=True, sampling_temperature=10.0)
+    seen: set[str] = set()
+    for _ in range(50):
+        results = await retriever.search("topic", limit=2)
+        seen.update(e.event_id for e in results)
+    # With high temperature and 50 runs sampling 2 from 6, expect all 6 seen
+    assert len(seen) == 6
+
+
+@pytest.mark.asyncio
+async def test_weighted_random_low_temperature_favors_top() -> None:
+    """Low temperature sharpens distribution — top event should dominate."""
+    import random as _random
+    _random.seed(0)
+    repo = InMemoryEventRepository()
+    # Insert events; BM25 ranks by term match — "aaa" appears more times → higher rank
+    await repo.upsert(make_event("top", topic="aaa aaa aaa"))
+    for i in range(5):
+        await repo.upsert(make_event(f"other{i}", topic="aaa"))
+    retriever = HybridRetriever(repo, encoder=NullEncoder(), weighted_random=True, sampling_temperature=0.05)
+    top_count = 0
+    for _ in range(30):
+        results = await retriever.search("aaa", limit=1)
+        if results and results[0].event_id == "top":
+            top_count += 1
+    # With very low temperature, top event should win the majority of runs
+    assert top_count >= 20

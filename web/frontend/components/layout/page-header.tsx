@@ -7,34 +7,47 @@ interface PageHeaderProps {
   title: string
   description?: string
   actions?: ReactNode
+  globalActions?: ReactNode
   className?: string
 }
 
-export function PageHeader({ title, description, actions, className }: PageHeaderProps) {
+export function PageHeader({ title, description, actions, globalActions, className }: PageHeaderProps) {
   return (
     <div className="flex flex-col">
       <header
         className={cn(
-          // Adopted Shadcn standard header transition classes for smoother UI sync
           'flex h-16 shrink-0 items-center gap-2 px-6 bg-transparent transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12',
           className
         )}
       >
         <div className="flex flex-1 items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <SidebarTrigger className="-ml-1" />
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <SidebarTrigger className="-ml-1 shrink-0" />
             <div className="flex flex-col gap-0.5 min-w-0">
-              <h1 className="text-xl font-semibold tracking-tight leading-none truncate whitespace-nowrap">{title}</h1>
+              <h1 className="text-xl font-semibold tracking-tight leading-none truncate">{title}</h1>
               {description && (
-                <p className="text-muted-foreground text-xs truncate whitespace-nowrap">{description}</p>
+                <p className="text-muted-foreground text-[10px] md:text-xs truncate hidden sm:block">{description}</p>
               )}
             </div>
           </div>
-          {actions && (
-            <div className="flex shrink-0 items-center gap-2">
-              {actions}
-            </div>
-          )}
+          
+          <div className="flex shrink-0 items-center gap-2">
+            {actions && (
+              <div className="flex items-center gap-2">
+                {actions}
+              </div>
+            )}
+            
+            {actions && globalActions && (
+              <Separator orientation="vertical" className="mx-1 h-4" />
+            )}
+
+            {globalActions && (
+              <div className="flex items-center gap-2">
+                {globalActions}
+              </div>
+            )}
+          </div>
         </div>
       </header>
       <Separator />

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Plus, RefreshCw, Trash2, Search, Info } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, Search, Info, SlidersHorizontal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
@@ -14,6 +14,12 @@ import {
   CreateEventDialog, EditEventDialog, RecycleBinDialog, EventDetailCard,
   type EventFormData,
 } from '@/components/events/event-dialogs'
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle,
+} from '@/components/ui/sheet'
+import {
+  Popover, PopoverTrigger, PopoverContent,
+} from '@/components/ui/popover'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -243,22 +249,55 @@ export default function EventsPage() {
 
   const actions = (
     <div className="flex items-center gap-2">
-      <div className="relative">
+      <div className="relative hidden md:block">
         <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
         <Input
-          className="h-8 w-48 pl-8 text-xs sm:w-64"
-          placeholder={i18n.events.search}
+          className="h-8 w-48 pl-8 text-xs lg:w-64"
+          placeholder={i18n.common.searchPlaceholder}
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
       </div>
+
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2">
+            <SlidersHorizontal className="size-3.5" />
+            <span className="hidden sm:inline">{GAP_OPTIONS.find(o => o.value === timeGap)?.label}</span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-60 p-4" align="end">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground uppercase font-bold tracking-tight">
+              <span>{i18n.events.threadScale}</span>
+              <span className="text-primary">{GAP_OPTIONS.find(o => o.value === timeGap)?.label}</span>
+            </div>
+            <Slider
+              value={[GAP_OPTIONS.findIndex(o => o.value === timeGap)]}
+              min={0}
+              max={GAP_OPTIONS.length - 1}
+              step={1}
+              onValueChange={([val]) => setTimeGap(GAP_OPTIONS[val].value)}
+            />
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2" onClick={openBin}>
+        <Trash2 className="size-3.5" />
+        <span className="hidden sm:inline">{i18n.events.recycleBin}</span>
+      </Button>
+
       <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo} className="h-8">
         <Plus className="mr-1.5 size-3.5" />{i18n.common.create}
       </Button>
-      <Button variant="outline" size="icon" onClick={loadEvents} title={i18n.common.refresh} className="h-8 w-8">
-        <RefreshCw className={cn("size-3.5 transition-transform duration-500", isRefreshing && "animate-spin")} />
-      </Button>
     </div>
+  )
+
+  const globalActions = (
+    <Button variant="outline" size="icon" onClick={loadEvents} title={i18n.common.refresh} className="h-8 w-8">
+      <RefreshCw className={cn("size-3.5 transition-transform duration-500", isRefreshing && "animate-spin")} />
+    </Button>
   )
 
   return (
@@ -267,6 +306,7 @@ export default function EventsPage() {
         title={i18n.page.events.title}
         description={i18n.page.events.description}
         actions={actions}
+        globalActions={globalActions}
       />
 
       {/* Full-width Filter Bar */}
@@ -279,8 +319,8 @@ export default function EventsPage() {
       />
 
       <div className="flex flex-1 overflow-hidden relative">
-        {/* Main Timeline View */}
-        <div className={cn("flex flex-1 flex-col overflow-hidden transition-all duration-300 ease-in-out", detailEvent && "opacity-40 sm:opacity-100")}>
+        {/* Main Timeline View - Always full width */}
+        <div className="flex flex-1 flex-col overflow-hidden">
           <EventTimeline
             events={filtered}
             timeGap={timeGap}
@@ -295,87 +335,58 @@ export default function EventsPage() {
           />
         </div>
 
-        {/* Permanent Control & Info Sidebar */}
-        <aside className={cn(
-          "flex flex-col border-l bg-muted/5 transition-all duration-300 ease-in-out overflow-hidden",
-          detailEvent ? "w-[400px] xl:w-1/3" : "w-80"
-        )}>
-          <div className="flex h-full flex-col">
-            {/* Timeline Controls - Only show when no event selected or in a condensed form */}
-            <div className={cn("p-4 space-y-3 shrink-0", detailEvent && "hidden")}>
-              <div className="flex items-center justify-between text-[11px] text-muted-foreground uppercase font-bold tracking-tight px-1">
-                <span>{i18n.events.threadScale}</span>
-                <span className="text-primary">{GAP_OPTIONS.find(o => o.value === timeGap)?.label}</span>
+        {/* Responsive Detail Sheet */}
+        <Sheet open={!!detailEvent} onOpenChange={(v) => !v && setDetailEvent(null)}>
+          <SheetContent 
+            side="right" 
+            className="w-full sm:max-w-[440px] lg:max-w-[35vw] p-0 flex flex-col gap-0 border-l bg-background shadow-2xl"
+          >
+            {detailEvent && (
+              <div className="flex flex-col h-full overflow-hidden">
+                <div className="flex items-center justify-between p-4 border-b shrink-0 bg-background/80 backdrop-blur sticky top-0 z-10">
+                  <div className="flex flex-col min-w-0 pr-6">
+                    <SheetTitle className="text-sm font-semibold truncate">
+                      {i18n.events.detailTitle}
+                    </SheetTitle>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold truncate">
+                      {detailEvent.group || i18n.events.privateChat} Axis
+                    </p>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="size-8 shrink-0 -mr-2" 
+                    onClick={() => setDetailEvent(null)}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+                
+                <ScrollArea className="flex-1 overscroll-contain">
+                  <div className="p-4 space-y-4">
+                    {app.rawEvents
+                      .filter(e => e.group === detailEvent.group)
+                      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+                      .map(ev => (
+                        <div key={ev.id} ref={ev.id === detailEvent.id ? focusedCardRef : null}>
+                          <EventDetailCard
+                            event={ev}
+                            isFocused={ev.id === detailEvent.id}
+                            onEdit={ev => setEditEvent(ev)}
+                            onDelete={handleDelete}
+                            onLockToggle={handleLockToggle}
+                            onSelect={() => setDetailEvent(ev)}
+                            sudoMode={app.sudo}
+                          />
+                        </div>
+                      ))
+                    }
+                  </div>
+                </ScrollArea>
               </div>
-              <Slider
-                value={[GAP_OPTIONS.findIndex(o => o.value === timeGap)]}
-                min={0}
-                max={GAP_OPTIONS.length - 1}
-                step={1}
-                onValueChange={([val]) => setTimeGap(GAP_OPTIONS[val].value)}
-                className="py-1"
-              />
-              <Button variant="outline" size="sm" className="w-full h-8 text-xs" onClick={openBin}>
-                <Trash2 className="mr-1.5 size-3.5" />{i18n.events.recycleBin}
-              </Button>
-              <Separator />
-            </div>
-
-            {/* Event Detail / Selection View */}
-            <div className="flex-1 overflow-hidden flex flex-col">
-              {detailEvent ? (
-                <div className="flex flex-col h-full animate-in fade-in slide-in-from-right-4 duration-300">
-                  <div className="flex items-center justify-between p-4 border-b shrink-0 bg-background/50 backdrop-blur">
-                    <div className="flex flex-col">
-                      <h3 className="font-semibold text-sm">{i18n.events.detailTitle}</h3>
-                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">
-                        {detailEvent.group || i18n.events.privateChat} Axis
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={openBin}>
-                        <Trash2 className="mr-1 size-3" />{i18n.events.recycleBin}
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setDetailEvent(null)}>✕</Button>
-                    </div>
-                  </div>
-                  
-                  <ScrollArea className="flex-1 overscroll-contain">
-                    <div className="p-4 space-y-4">
-                      {app.rawEvents
-                        .filter(e => e.group === detailEvent.group)
-                        .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
-                        .map(ev => (
-                          <div key={ev.id} ref={ev.id === detailEvent.id ? focusedCardRef : null}>
-                            <EventDetailCard
-                              event={ev}
-                              isFocused={ev.id === detailEvent.id}
-                              onEdit={ev => setEditEvent(ev)}
-                              onDelete={handleDelete}
-                              onLockToggle={handleLockToggle}
-                              onSelect={() => setDetailEvent(ev)}
-                              sudoMode={app.sudo}
-                            />
-                          </div>
-                        ))
-                      }
-                    </div>
-                  </ScrollArea>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-12 px-6 text-center text-muted-foreground animate-in fade-in duration-500">
-                  <div className="bg-muted rounded-full p-4 mb-4">
-                    <Info className="size-8 opacity-40" />
-                  </div>
-                  <h3 className="font-medium text-sm mb-1">{i18n.events.detailTitle}</h3>
-                  <p className="text-xs leading-relaxed opacity-60">
-                    {i18n.events.selectEventHint}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </aside>
+            )}
+          </SheetContent>
+        </Sheet>
       </div>
 
       <CreateEventDialog

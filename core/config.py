@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from core.boundary.detector import BoundaryConfig
+from core.utils.i18n import LANG_ZH, LANG_EN, LANG_JA
 
 # ---------------------------------------------------------------------------
 # Default extractor system prompt (kept here so _conf_schema.json can
@@ -98,6 +99,8 @@ class SynthesisConfig:
     max_events: int = 10
     persona_system_prompt: str = _DEFAULT_PERSONA_SYSTEM_PROMPT
     impression_system_prompt: str = _DEFAULT_IMPRESSION_SYSTEM_PROMPT
+    language: str = LANG_ZH
+    llm_provider: str | None = None
 
 
 _DEFAULT_SUMMARY_SYSTEM_PROMPT = (
@@ -123,6 +126,8 @@ class SummaryConfig:
     system_prompt: str = _DEFAULT_SUMMARY_SYSTEM_PROMPT
     mood_source: str = "llm"
     mood_prompt: str = _DEFAULT_SUMMARY_MOOD_PROMPT
+    language: str = LANG_ZH
+    llm_provider: str | None = None
 
 
 @dataclass
@@ -138,6 +143,8 @@ class RetrievalConfig:
     # Fall back to vec-only when BM25 returns nothing
     vector_fallback_enabled: bool = True
     active_only: bool = True          # Exclude archived events from search
+    weighted_random: bool = False     # Use softmax sampling instead of Top-K
+    sampling_temperature: float = 1.0 # Temperature for softmax sampling
 
 
 # Sentinel strings used to wrap injected memory blocks for auto-clear.
@@ -179,6 +186,9 @@ class ExtractorConfig:
     tag_normalization_threshold: float = 0.85
     tag_seeds: list[str] = field(default_factory=lambda: [
                                  "社交", "日常", "技术", "知识", "工作", "娱乐", "艺术", "情感", "资讯"])
+    language: str = LANG_ZH
+    llm_provider: str | None = None
+
 
 
 @dataclass
@@ -256,6 +266,20 @@ class PluginConfig:
         val = self._raw.get(key)
         return str(val) if val is not None else default
 
+    @property
+    def language(self) -> str:
+        val = self._str("language", LANG_ZH)
+        # Normalise to supported constants
+        if val in {"zh", "zh-CN", "chinese"}: return LANG_ZH
+        if val in {"en", "en-US", "english"}: return LANG_EN
+        if val in {"ja", "ja-JP", "japanese"}: return LANG_JA
+        return val if val in {LANG_ZH, LANG_EN, LANG_JA} else LANG_ZH
+
+    @property
+    def llm_provider(self) -> str | None:
+        val = self._str("llm_provider", "").strip()
+        return val if val else None
+
     # ------------------------------------------------------------------
     # Subsystem config objects
     # ------------------------------------------------------------------
@@ -284,6 +308,8 @@ class PluginConfig:
             max_events=self._int("synthesis_max_events", 10),
             persona_system_prompt=persona_prompt or _DEFAULT_PERSONA_SYSTEM_PROMPT,
             impression_system_prompt=impression_prompt or _DEFAULT_IMPRESSION_SYSTEM_PROMPT,
+            language=self.language,
+            llm_provider=self.llm_provider,
         )
 
     def get_summary_config(self) -> SummaryConfig:
@@ -298,6 +324,8 @@ class PluginConfig:
             system_prompt=prompt or _DEFAULT_SUMMARY_SYSTEM_PROMPT,
             mood_source=self._str("summary_mood_source", "llm"),
             mood_prompt=mood_prompt or _DEFAULT_SUMMARY_MOOD_PROMPT,
+            language=self.language,
+            llm_provider=self.llm_provider,
         )
 
     def get_retrieval_config(self) -> RetrievalConfig:
@@ -314,6 +342,8 @@ class PluginConfig:
             vector_fallback_enabled=self._bool(
                 "retrieval_vector_fallback_enabled", True),
             active_only=self._bool("retrieval_active_only", True),
+            weighted_random=self._bool("retrieval_weighted_random", False),
+            sampling_temperature=self._float("retrieval_sampling_temperature", 1.0),
         )
 
     def get_injection_config(self) -> InjectionConfig:
@@ -355,6 +385,7 @@ class PluginConfig:
             tag_normalization_threshold=self._float(
                 "tag_normalization_threshold", 0.85),
             tag_seeds=tag_seeds,
+            llm_provider=self.llm_provider,
         )
 
     def get_context_config(self) -> ContextConfig:

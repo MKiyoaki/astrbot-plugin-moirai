@@ -1,90 +1,70 @@
-# Implementation TODO
+# TODO
 
-## [情感动态] Data Source Options (for SummaryConfig.mood_source)
+## 待讨论
 
-Two implementation strategies are available. Currently **Option B (LLM)** is active (`mood_source = "llm"`).
+### 情绪四维状态（Soul Layer）设计
+参考 angel_memory 的 tanh 弹性算法，用四个 -20~+20 能量维度（RecallDepth / ImpressionDepth / ExpressionDesire / Creativity）映射为行为参数。结合 SOUL.md 形成双层体系：
+- **长期人格层**：Big Five（由 `persona_synthesis` 周期生成，写入 SOUL.md）
+- **短期状态层**：四维能量（每轮对话后 tanh 衰减更新，写入 session 状态）
+- 两层分别注入 system prompt 不同位置（长期在 persona 段，短期在当前状态段）
 
-### Option A — Impression DB (future upgrade)
-- Set `mood_source = "impression_db"` in `SummaryConfig`
-- In `core/tasks/summary.py`: after building [事件列表], collect all participant UIDs from events
-- For each UID call `impression_repo.get_latest(observer=BOT_UID, subject=uid)` → get `benevolence`, `power`, `ipc_orientation`
-- Aggregate group centroid: mean `benevolence` and mean `power` across members with valid impressions
-- Classify centroid via `ipc_model.orientation_from_bp(mean_b, mean_p)`
-- Members with confidence < threshold (default 0.3) listed as "位置尚未确定"
-- **Fallback**: if fewer than 2 members have impression data, fall back to Option B automatically
-- Requires: adding `impression_repo` param to `run_group_summary` (already added as optional `persona_repo`)
-- Pros: ML-grounded, no extra LLM call. Cons: sparse data risk for new groups.
+---
 
-### Option B — LLM Inference (current)
-- Passes event chain (topics, tags, content previews, participants) to second LLM call
-- Prompt: `_DEFAULT_SUMMARY_MOOD_PROMPT` in `core/config.py`
-- Expects single-line JSON: `{"orientation": "...", "benevolence": 0.x, "power": 0.x, "positions": {"uid": "..."}}`
-- Pros: always produces output. Cons: +1 LLM call per summary run, estimated values only.
+## 待实现
 
-## [Done] Pure Batch LLM Event Partitioning (Implemented)
+### 加权随机检索
+在 `HybridRetriever` 的 RRF 融合结果上加一层 softmax 采样，替代确定性 top-K 截断。用分数作为权重做带放回采样，让 bot 的记忆表现更接近人类的"有时想起、有时忘记"，避免永远只检索到同几条高分事件。改动范围：`core/retrieval/hybrid.py` 一个函数，可配置开关。
 
-### 1. Objective
-Refactor event generation to be strictly triggered by message count (`max_messages`). The LLM will partition the batch (e.g., 20 messages) into one or more `Event` objects, using timestamps and recent context to maintain logical continuity.
+### LLM 主动记忆工具调用
+在 AstrBot `@filter.on_llm_request()` 钩子层面注册两个 tool：
+- `core_memory_remember(content, strength)`：模型主动触发存储，写入 Event
+- `core_memory_recall(query)`：模型主动触发检索，返回相关记忆片段
 
-### 2. Core Tasks
-- [x] **Config**: Simplify `BoundaryConfig` to prioritize `max_messages`. Update `DEFAULT_EXTRACTOR_SYSTEM_PROMPT` for JSON Array output.
-- [x] **Detector**: Simplified heuristics; `should_close` primarily triggers on message count and time gap.
-- [x] **Extractor Logic**:
-    - Update `prompts.py` to add message index numbers.
-    - Update `parser.py` to handle JSON Array parsing with `start_idx`/`end_idx`.
-    - Update `extractor.py` to generate multiple UUIDs and construct/upsert multiple Events.
-- [x] **Router**: Adjust `MessageRouter` to pass the full window to the extractor without pre-creating an Event shell.
-- [x] **Testing**: Updated unit tests to verify multi-event partitioning and `inherit_from` linking.
+让模型自主决定何时存储和检索，而不是系统被动注入。不改 `core/` 存储层，只在 adapter 层增加 tool 定义。
 
-### 3. Verification
-- [x] Verify that a 3-day gap in messages is correctly identified by the LLM as a topic boundary.
-- [x] Verify that topics spanning across batches are linked via `inherit_from`.
-- [x] Ensure extraction tasks are bundled and controlled by `max_messages`.
+### Sleep Consolidation 强化
+在 `daily_maintenance` 的 cleanup 阶段，将"显著性低于阈值"的事件改为降级到 `archived` 状态，而非直接物理删除。只有 `archived` 超过保留期（如 30 天）的事件才真正删除。现有 `archive_event()` 接口已存在，只需修改 `run_memory_cleanup` 的删除逻辑。
 
-## [Done] Encoder-Driven Semantic Partitioning & Distillation (Implemented)
+### 指令集配置
+使用 `@filter.command()` 体系为插件注册管理指令，按 command group 层级组织：
 
-### 1. Objective
-Further refine memory quality and efficiency by using a lightweight Encoder (Embedding) model for real-time topic boundary detection and de-interleaving. Shift the LLM's role from "partitioning" to "semantic distillation" (summarization), ensuring memory remains high-signal and low-noise.
+```
+/mrm
+  ├── status          查询插件运行状态（事件数、任务状态）
+  ├── run <task>      手动触发周期任务（decay / synthesis / summary）
+  ├── flush           清空当前 session 窗口
+  ├── recall <query>  手动触发记忆检索并返回结果
+  ├── webui on        启用并返回webUI访问链接
+  └── webui off       关闭webUI功能
+```
 
-### 2. Core Tasks
-- [x] **Semantic Boundary Detector**:
-    - Implement `SemanticPartitioner` in `core/extractor/partitioner.py` using DBSCAN clustering.
-    - Added support for "Strategy Pattern" allowing users to choose between LLM-based and Semantic-based partitioning.
-- [x] **De-interleaving (Clustering)**:
-    - Use semantic clustering to separate interleaved topics within a `MessageWindow`.
-    - Automatically handle "Noise" messages via vector outlier detection.
-- [x] **Semantic Distillation (LLM)**:
-    - Updated `Event` model to include a `summary` field (DB Migration 005).
-    - Refactored LLM Prompts and Extractor to focus on generating concise, conclusion-oriented summaries.
-- [x] **Performance Monitoring**:
-    - Implemented `PerfTracker` and `performance_timer` in `core/utils/perf.py`.
-    - Integrated tracking for `partition`, `distill`, `retrieval`, and `recall` phases.
+### 插件多语言支持（i18n）
+在 `.astrbot-plugin/i18n/` 下创建 `zh-CN.json` 和 `en-US.json`，覆盖：
+- `metadata.yaml` 的 `display_name`、`desc`
+- `_conf_schema.json` 所有字段的 `description`、`hint`、`labels`
 
-## Tag Abstraction & Normalization (Planned)
+不动源码，只新增两个 JSON 文件。
 
-### 1. Objective
-Solve the "Tag Proliferation" problem by introducing a two-layer abstraction: Topic (specific) and Tags (macro/笼统). Use a combination of Few-shot prompt steering and Encoder-based vector alignment to ensure a stable, clean tagging system without additional LLM calls for merging.
+### WebUI 接入 AstrBot 官方 Plugin Pages (https://docs.astrbot.app/dev/star/guides/plugin-pages.html)
 
-### 2. Core Tasks
-- [ ] **Repository Enhancement**:
-    - Implement `get_frequent_tags(limit=50)` using SQLite `json_each` to aggregate existing tags.
-    - Create a `tags_vec` table (vec0) to store embeddings for unique canonical tags.
-- [ ] **Few-shot Prompt Steering**:
-    - Update `core/extractor/prompts.py` to inject the top-N existing tags into the LLM context.
-    - Clarify the role of `Topic` (concrete/narrative) vs `Tags` (abstract/categorical).
-- [ ] **Vector Alignment Logic (In-Extractor)**:
-    - Before persisting a new event, encode its LLM-generated tags.
-    - Perform a local vector search against the existing tag pool.
-    - **Silent Alignment**: If similarity > threshold (e.g., 0.85), replace the generated tag with the existing canonical tag.
-    - **Evolution**: If distance is large, treat as a new canonical tag and add to the pool.
-- [ ] **WebUI Integration**:
-    - Expose the canonical tag list to the frontend for management (rename/merge).
+当前架构：独立 `aiohttp` server（端口 2655）+ Next.js SPA（`web/frontend/output/`）+ 自定义 Session 鉴权（`web/auth.py`）。
 
-### 3. Verification
-- [ ] Verify that "买东西" and "购车" are both automatically tagged as "购物" while keeping their distinct topics.
-- [ ] Ensure that system performance remains stable with 1000+ events (tag pool is small, so vector overhead is negligible).
-- [ ] Validate that new, unrelated topics (e.g., "色图讨论") correctly spawn new canonical tags.
+目标：迁移到 AstrBot Plugin Pages 标准（`pages/moirai/index.html` + `context.register_web_api()` + `window.AstrBotPluginPage` bridge），由 AstrBot 统一管理端口和鉴权。`core/` 全程不动。
 
-- [x] Verified that interleaved topics are split into distinct Events via `tests/experimental`.
-- [x] Confirmed 100% test pass rate (315+ tests) including new `summary` field and `partitioner` logic.
-- [x] Validated Dataflow E2E via `run_dataflow_dev.py`.
+**阶段 1 — 后端路由迁移**（可独立先做）
+- 从 `web/server.py` 提取所有 handler 函数到 `web/plugin_routes.py`
+- 改用 `context.register_web_api()` 批量注册（约 40 条路由），挂载到 `/api/plug/<plugin_name>/`
+- 删除 `web/auth.py`（鉴权交 AstrBot）和 `web/registry.py`（PanelRegistry）
+- 考虑在Astrbot的规范下PanelRegistry的功能是否还可以实现，如何可以的话怎么实现
+- `web/server.py` 降级为纯本地调试入口
+- `main.py` 替换 `WebuiServer.start()` 为路由注册调用
+
+**阶段 2 — 前端构建适配**（主要风险点）
+- `next.config.mjs` 加 `output: 'export'` + `trailingSlash: true`，`distDir` 指向 `../../pages/moirai`
+- 验证 Next.js App Router 静态导出后客户端路由能否从单一 `index.html` 入口正常工作（AstrBot iframe 不做 SPA fallback）
+
+**阶段 3 — API 适配层**
+- `web/frontend/lib/api.ts` 加 bridge 检测：`window.AstrBotPluginPage` 存在时走 `apiGet/apiPost`，否则走原 `fetch`，保留本地调试双路径兼容
+
+---
+

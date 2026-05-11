@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from ..domain.models import Event
     from ..repository.base import EventRepository, PersonaRepository, ImpressionRepository
 
+from ..utils.i18n import get_string, LANG_ZH
+
 logger = logging.getLogger(__name__)
 _MODULE_NAME = "Summary"
 
@@ -30,14 +32,15 @@ _MODULE_NAME = "Summary"
 def _build_event_list_section(
     events: list[Event],
     uid_to_name: dict[str, str],
+    lang: str = LANG_ZH,
 ) -> str:
     """Deterministically build the [事件列表] chain from Event fields."""
     if not events:
-        return "（暂无事件）"
+        return get_string("summary.no_events", lang)
 
     parts: list[str] = []
     for i, ev in enumerate(events):
-        entry = f"[{ev.topic or '未命名话题'}] - [{ev.event_id[:8]}]"
+        entry = f"[{ev.topic or get_string('summary.untitled_topic', lang)}] - [{ev.event_id[:8]}]"
         parts.append(entry)
         if i < len(events) - 1:
             last_msg = ev.interaction_flow[-1] if ev.interaction_flow else None
@@ -46,7 +49,8 @@ def _build_event_list_section(
                 raw = last_msg.content_preview or ""
                 preview = raw[:20]
                 ellipsis = "…" if len(raw) > 20 else ""
-                parts.append(f"*在{sender}发出「{preview}{ellipsis}」后话题转向了")
+                shift_tpl = get_string("summary.topic_shift", lang)
+                parts.append(shift_tpl.format(sender=sender, preview=f"{preview}{ellipsis}"))
     return " | ".join(parts)
 
 
@@ -55,6 +59,7 @@ async def _build_mood_section_db(
     uid_to_name: dict[str, str],
     impression_repo: ImpressionRepository,
     persona_repo: PersonaRepository | None = None,
+    lang: str = LANG_ZH,
 ) -> str | None:
     """Option A: Aggregate group mood from Impression DB. 
     Returns None if data density is too low for fallback.
@@ -99,6 +104,8 @@ async def _build_mood_section_db(
 
     from ..social import ipc_model
     orientation = ipc_model.classify_octant(avg_b, avg_p)
+    # Localize orientation label
+    orientation_label = get_string(f"ipc.{orientation.lower() if hasattr(orientation, 'lower') else orientation}", lang)
     
     # Group names by their orientation
     orientation_map: dict[str, list[str]] = {}
@@ -107,21 +114,25 @@ async def _build_mood_section_db(
         orientation_map.setdefault(imp.ipc_orientation, []).append(name)
     
     position_clauses = []
+    known_tpl = get_string("summary.position_known", lang)
     for label, names in sorted(orientation_map.items()):
-        position_clauses.append(f"[{', '.join(names)}处于群体中的{label}位置]")
+        # Localize label if possible
+        localized_label = get_string(f"ipc.{label.lower()}", lang)
+        position_clauses.append(known_tpl.format(names=", ".join(names), label=localized_label))
     
     # Participants with unknown position
     covered_uids = {i[0] for i in valid_impressions}
     unknown_names = sorted([uid_to_name.get(u, u) for u in participants if u not in covered_uids])
     if unknown_names:
-        position_clauses.append(f"[{', '.join(unknown_names)}位置尚未确定]")
+        unknown_tpl = get_string("summary.position_unknown", lang)
+        position_clauses.append(unknown_tpl.format(names=", ".join(unknown_names)))
 
     b_str = f"{avg_b:+.2f}"
     p_str = f"{avg_p:+.2f}"
     
+    overall_tpl = get_string("summary.mood_overall", lang)
     return (
-        f"群体情感动态整体偏向[{orientation}] | "
-        f"[平均亲和度：{b_str}；平均支配度：{p_str}] | "
+        overall_tpl.format(orientation=orientation_label, b=b_str, p=p_str) +
         f"{' | '.join(position_clauses)}"
     )
 
@@ -133,15 +144,17 @@ async def _build_mood_section_llm(
     cfg: SummaryConfig,
 ) -> str:
     """Call LLM to infer group mood (Option B). Returns formatted [情感动态] string."""
+    lang = cfg.language or LANG_ZH
     participants: set[str] = set()
     for ev in events:
         for uid in (ev.participants or []):
             participants.add(uid)
 
     event_lines = "\n".join(
-        "- [{}] 话题：{}，标签：{}，参与者：{}".format(
+        "- [{}] {}{}，标签：{}，参与者：{}".format(
             datetime.fromtimestamp(e.start_time, tz=timezone.utc).strftime("%m-%d %H:%M"),
-            e.topic or "未知",
+            get_string("summary.section_topic", lang).strip("[]") + "：",
+            e.topic or get_string("summary.untitled_topic", lang),
             "、".join(e.chat_content_tags) if e.chat_content_tags else "无",
             "、".join(uid_to_name.get(u, u) for u in (e.participants or [])),
         )
@@ -161,6 +174,9 @@ async def _build_mood_section_llm(
             raw = raw.rsplit("```", 1)[0].strip()
         data = json.loads(raw)
         orientation = data.get("orientation", "亲和")
+        # Localize orientation if it matches an IPC label key
+        orientation_label = get_string(f"ipc.{orientation.lower()}", lang)
+        
         benevolence = float(data.get("benevolence", 0.0))
         power = float(data.get("power", 0.0))
         positions: dict = data.get("positions", {})
@@ -171,29 +187,34 @@ async def _build_mood_section_llm(
             name = uid_to_name.get(uid, uid)
             if isinstance(pos, dict):
                 pos = pos.get("orientation", pos.get("position", "未知位置"))
-            orientation_groups.setdefault(str(pos), []).append(name)
+            
+            localized_pos = get_string(f"ipc.{str(pos).lower()}", lang)
+            orientation_groups.setdefault(localized_pos, []).append(name)
 
         # Build the position clause list; any participants missing get "未知位置"
         all_named = {uid_to_name.get(u, u) for u in participants}
         covered = {n for names in orientation_groups.values() for n in names}
         unknown = all_named - covered
         if unknown:
-            orientation_groups.setdefault("未知位置", []).extend(sorted(unknown))
+            unknown_label = get_string("ipc.unknown", lang)
+            orientation_groups.setdefault(unknown_label, []).extend(sorted(unknown))
 
+        known_tpl = get_string("summary.position_known", lang)
         position_clauses = " | ".join(
-            f"[{', '.join(names)}处于群体中的{pos}位置]"
+            known_tpl.format(names=", ".join(names), label=pos)
             for pos, names in orientation_groups.items()
         )
         b_str = f"{benevolence:+.2f}"
         p_str = f"{power:+.2f}"
+        
+        overall_tpl = get_string("summary.mood_overall", lang)
         return (
-            f"群体情感动态整体偏向[{orientation}] | "
-            f"[亲和度：{b_str}；支配度：{p_str}] | "
-            f"{position_clauses}"
+            overall_tpl.format(orientation=orientation_label, b=b_str, p=p_str) +
+            position_clauses
         )
     except (asyncio.TimeoutError, json.JSONDecodeError, Exception) as exc:
         logger.warning(f"[{_MODULE_NAME}] mood LLM failed: %s", exc)
-        return "（情感动态生成失败）"
+        return get_string("summary.mood_failed", lang)
 
 
 async def _generate_summary_for_group(
@@ -207,7 +228,8 @@ async def _generate_summary_for_group(
     persona_repo: PersonaRepository | None = None,
 ) -> str:
     """Generate the full three-section markdown content for one group."""
-    group_label = group_id or "私聊"
+    lang = cfg.language or LANG_ZH
+    group_label = group_id or get_string("summary.private_chat", lang)
     start_ts = min(e.start_time for e in events)
     end_ts = max(e.end_time for e in events)
     start_str = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%H:%M")
@@ -217,7 +239,7 @@ async def _generate_summary_for_group(
     event_lines = "\n".join(
         "- [{}] {}{}".format(
             datetime.fromtimestamp(e.start_time, tz=timezone.utc).strftime("%m-%d %H:%M"),
-            e.topic,
+            e.topic or get_string("summary.untitled_topic", lang),
             "（{}）".format("、".join(e.chat_content_tags)) if e.chat_content_tags else "",
         )
         for e in events
@@ -225,7 +247,7 @@ async def _generate_summary_for_group(
     topic_prompt = (
         f"群组：{group_label}，统计日期：{today}。\n"
         f"事件列表：\n{event_lines}\n"
-        "请生成主要话题摘要。"
+        f"{get_string('summary.word_limit_hint', lang)}"
     )
     try:
         resp = await asyncio.wait_for(
@@ -235,29 +257,31 @@ async def _generate_summary_for_group(
         topic_text = resp.completion_text.strip()
     except asyncio.TimeoutError:
         logger.warning(f"[{_MODULE_NAME}] topic LLM timeout for group %r", group_label)
-        topic_text = "（生成超时）"
+        topic_text = get_string("summary.timeout", lang)
     except Exception as exc:
         logger.warning(f"[{_MODULE_NAME}] topic LLM failed for group %r: %s", group_label, exc)
-        topic_text = "（生成失败）"
+        topic_text = get_string("summary.failed", lang)
 
     # Section 2: [事件列表] — Deterministic
-    event_list_text = _build_event_list_section(events, uid_to_name)
+    event_list_text = _build_event_list_section(events, uid_to_name, lang=lang)
 
     # Section 3: [情感动态] — LLM (Option B) or impression DB (Option A)
     mood_text = None
     if cfg.mood_source == "impression_db" and impression_repo:
-        mood_text = await _build_mood_section_db(events, uid_to_name, impression_repo, persona_repo)
+        mood_text = await _build_mood_section_db(events, uid_to_name, impression_repo, persona_repo, lang=lang)
     
     if not mood_text:
         # Fallback to Option B (LLM)
         mood_text = await _build_mood_section_llm(events, uid_to_name, provider, cfg)
 
-    header = f"# {group_label} 活动摘要 — {today} {start_str} - {end_str}"
+    header = get_string("summary.header", lang).format(
+        label=group_label, date=today, start=start_str, end=end_str
+    )
     return (
         f"{header}\n\n"
-        f"[主要话题]\n{topic_text}\n\n"
-        f"[事件列表]\n{event_list_text}\n\n"
-        f"[情感动态]\n{mood_text}\n"
+        f"{get_string('summary.section_topic', lang)}\n{topic_text}\n\n"
+        f"{get_string('summary.section_events', lang)}\n{event_list_text}\n\n"
+        f"{get_string('summary.section_mood', lang)}\n{mood_text}\n"
     )
 
 

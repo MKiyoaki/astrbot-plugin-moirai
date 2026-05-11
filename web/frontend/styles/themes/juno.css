@@ -1,0 +1,95 @@
+/* ==========================================================================
+   Juno Theme - Harmonized Storm & Magenta Energy
+   ========================================================================== */
+
+.theme-juno {
+  --radius: 0.5rem;
+
+  /* Light Mode - Muted Cyan-Grey Base (from skin/cloud tones) */
+  --background: oklch(0.97 0.01 215);
+  --foreground: oklch(0.25 0.04 215);
+  
+  --card: oklch(0.97 0.01 215);
+  --card-foreground: oklch(0.25 0.04 215);
+  
+  --popover: oklch(0.97 0.01 215);
+  --popover-foreground: oklch(0.25 0.04 215);
+
+  /* Primary: Deep Magenta/Burgundy (from the swirling clouds) */
+  --primary: oklch(0.45 0.16 345);
+  --primary-foreground: oklch(0.98 0.01 215);
+
+  /* Secondary: Muted Cyan-Blue (from shadows and hair) */
+  --secondary: oklch(0.75 0.06 215);
+  --secondary-foreground: oklch(0.2 0.05 215);
+
+  --muted: oklch(0.92 0.02 215);
+  --muted-foreground: oklch(0.45 0.04 215);
+
+  /* Accent: Harmonized Magenta highlight */
+  --accent: oklch(0.92 0.06 345);
+  --accent-foreground: oklch(0.45 0.16 345);
+
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(0.98 0.01 215);
+
+  --border: oklch(0.85 0.03 215);
+  --input: oklch(0.85 0.03 215);
+  --ring: oklch(0.45 0.16 345);
+
+  /* Sidebar */
+  --sidebar: oklch(0.95 0.02 215);
+  --sidebar-foreground: oklch(0.25 0.04 215);
+  --sidebar-primary: oklch(0.45 0.16 345);
+  --sidebar-primary-foreground: oklch(0.98 0.01 215);
+  --sidebar-accent: oklch(0.88 0.05 215);
+  --sidebar-accent-foreground: oklch(0.45 0.16 345);
+  --sidebar-border: oklch(0.88 0.03 215);
+  --sidebar-ring: oklch(0.45 0.16 345);
+}
+
+.dark.theme-juno,
+.dark .theme-juno {
+  /* Dark Mode - True Black Background */
+  --background: oklch(0.1 0 0);
+  --foreground: oklch(0.92 0.02 215);
+
+  /* Elevation: Deep Stormy Cyan-Blue (Muted for harmony) */
+  --card: oklch(0.18 0.03 215);
+  --card-foreground: oklch(0.92 0.02 215);
+  
+  --popover: oklch(0.15 0.02 215);
+  --popover-foreground: oklch(0.92 0.02 215);
+
+  /* Primary: Vibrant but controlled Magenta */
+  --primary: oklch(0.55 0.2 345);
+  --primary-foreground: oklch(0.1 0 0);
+
+  /* Secondary: Muted Night Blue */
+  --secondary: oklch(0.28 0.06 215);
+  --secondary-foreground: oklch(0.92 0.02 215);
+
+  --muted: oklch(0.2 0.03 215);
+  --muted-foreground: oklch(0.65 0.05 215);
+
+  /* Accent: Soft Glow Magenta */
+  --accent: oklch(0.3 0.12 345);
+  --accent-foreground: oklch(0.95 0.02 345);
+
+  --destructive: oklch(0.5 0.2 25);
+  --destructive-foreground: oklch(0.95 0.02 215);
+
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.55 0.2 345);
+
+  /* Sidebar Dark */
+  --sidebar: oklch(0.14 0.01 215);
+  --sidebar-foreground: oklch(0.92 0.02 215);
+  --sidebar-primary: oklch(0.55 0.2 345);
+  --sidebar-primary-foreground: oklch(0.1 0 0);
+  --sidebar-accent: oklch(0.22 0.05 215);
+  --sidebar-accent-foreground: oklch(0.92 0.02 215);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.55 0.2 345);
+}

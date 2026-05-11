@@ -15,13 +15,13 @@ if TYPE_CHECKING:
     from astrbot.api.provider import ProviderRequest
     from astrbot.api.star import Context, Star
 
-_PLUGIN_VERSION = "0.4.4"
+_PLUGIN_VERSION = "0.7.20"
 
 
 @register(
     "moirai",
-    "DrGariton",
-    "三轴长期记忆插件：在多维世界线下管理机器人的命运与记忆。",
+    "DrGariton, MKiyoaki",
+    "三轴长期记忆插件：在多维世界线下管理机器人的记忆和社交关系理解。",
     _PLUGIN_VERSION,
     "https://github.com/MKiyoaki/astrbot-plugin-moirai",
 )

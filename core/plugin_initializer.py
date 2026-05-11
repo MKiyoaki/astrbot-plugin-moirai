@@ -105,6 +105,7 @@ class PluginInitializer:
             persona_repo=persona_repo,
             event_repo=event_repo,
             impression_repo=impression_repo,
+            lang=cfg.language,
         )
 
         # Encoder: try local/API model, fall back to null (BM25-only) on any error
@@ -136,12 +137,15 @@ class PluginInitializer:
             evict_callback=None,  # set after extractor is built below
         )
 
+        retrieval_cfg = cfg.get_retrieval_config()
         retriever = HybridRetriever(
             event_repo=event_repo,
             encoder=self.embedding_manager,  # Use manager as encoder
-            bm25_limit=cfg.get_retrieval_config().bm25_limit,
-            vec_limit=cfg.get_retrieval_config().vec_limit,
-            rrf_k=cfg.get_retrieval_config().rrf_k,
+            bm25_limit=retrieval_cfg.bm25_limit,
+            vec_limit=retrieval_cfg.vec_limit,
+            rrf_k=retrieval_cfg.rrf_k,
+            weighted_random=retrieval_cfg.weighted_random,
+            sampling_temperature=retrieval_cfg.sampling_temperature,
         )
 
         self.memory = MemoryManager(
@@ -171,9 +175,14 @@ class PluginInitializer:
                 cfg=cfg,
             )
 
+        def provider_getter():
+            if cfg.llm_provider:
+                return self._context.get_using_provider(cfg.llm_provider)
+            return self._context.get_using_provider()
+
         extractor = EventExtractor(
             event_repo=event_repo,
-            provider_getter=lambda: self._context.get_using_provider(),
+            provider_getter=provider_getter,
             encoder=self.embedding_manager,
             extractor_config=cfg.get_extractor_config(),
             big_five_buffer=big_five_buffer,
@@ -198,9 +207,6 @@ class PluginInitializer:
             context_manager=self.context_manager,
             on_event_close=on_event_close,
         )
-
-        def provider_getter():
-            return self._context.get_using_provider()
 
         synthesis_cfg = cfg.get_synthesis_config()
         summary_cfg = cfg.get_summary_config()

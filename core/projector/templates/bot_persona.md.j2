@@ -1,33 +1,33 @@
-# Bot 身份档案
+# {{ get_string("projector.bot_persona_title") }}
 
-> 本文件记录机器人自身的 Persona 信息，由插件自动生成。
+> {{ get_string("projector.bot_persona_desc").strip("> ") }}
 
-## 基本信息
+## {{ get_string("projector.base_info") }}
 
-| 字段 | 值 |
+| {{ get_string("projector.field") }} | {{ get_string("projector.value") }} |
 |------|----|
-| 名称 | {{ persona.primary_name }} |
+| {{ get_string("projector.name") }} | {{ persona.primary_name }} |
 | UID | `{{ persona.uid }}` |
-| 置信度 | {{ (persona.confidence * 100) | int }}% |
-| 创建时间 | {{ persona.created_at | format_time }} |
-| 最后活跃 | {{ persona.last_active_at | format_time }} |
+| {{ get_string("projector.confidence") }} | {{ (persona.confidence * 100) | int }}% |
+| {{ get_string("projector.created_at") }} | {{ persona.created_at | format_time }} |
+| {{ get_string("projector.last_active") }} | {{ persona.last_active_at | format_time }} |
 
-## 绑定身份
+## {{ get_string("projector.bindings") }}
 
 {% if persona.bound_identities %}
 {% for platform, pid in persona.bound_identities %}
 - {{ platform }}: `{{ pid }}`
 {% endfor %}
 {% else %}
-暂无绑定身份
+{{ get_string("projector.no_bindings") }}
 {% endif %}
 
-## 属性
+## {{ get_string("projector.attrs") }}
 
 {% if persona.persona_attrs %}
 {% for key, value in persona.persona_attrs.items() %}
 - **{{ key }}**: {{ value }}
 {% endfor %}
 {% else %}
-暂无属性记录
+{{ get_string("projector.no_attrs") }}
 {% endif %}

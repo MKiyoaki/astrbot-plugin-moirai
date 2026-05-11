@@ -134,48 +134,64 @@ export default function SummaryPage() {
 
   const actions = (
     <div className="flex items-center gap-2">
-      <div className="relative">
+      <div className="relative hidden md:block">
         <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
         <Input
-          className="h-7 w-40 pl-7 text-xs"
-          placeholder={i18n.summary.search}
+          className="h-8 w-48 pl-8 text-xs lg:w-64"
+          placeholder={i18n.common.searchPlaceholder}
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
       </div>
-      {current.date && (
+
+      {current.date && !editing && (
         <Button
           variant="outline"
           size="sm"
+          className="h-8 gap-1.5 px-2"
           disabled={!app.sudo || regenerating}
           onClick={() => setConfirmOpen(true)}
           title={!app.sudo ? i18n.common.needSudo : undefined}
         >
-          <RotateCcw className="mr-1 size-3.5" />
-          {regenerating ? i18n.common.loading : i18n.summary.regenerate}
+          <RotateCcw className="size-3.5" />
+          <span className="hidden sm:inline">
+            {regenerating ? i18n.common.loading : i18n.summary.regenerate}
+          </span>
         </Button>
       )}
+
       {!editing ? (
         <Button
           variant="outline"
           size="sm"
+          className="h-8 gap-1.5 px-2"
           disabled={!current.date || !app.sudo}
           onClick={() => { setEditing(true); setEditTopic(sections.topic) }}
         >
-          <Pencil className="mr-1 size-3.5" />{i18n.summary.edit}
+          <Pencil className="size-3.5" />
+          <span className="hidden sm:inline">{i18n.summary.edit}</span>
         </Button>
       ) : (
         <>
-          <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
-            <X className="mr-1 size-3.5" />{i18n.summary.cancel}
+          <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2" onClick={() => setEditing(false)}>
+            <X className="size-3.5" />
+            <span className="hidden sm:inline">{i18n.summary.cancel}</span>
           </Button>
-          <Button size="sm" onClick={handleSave}>
-            <Save className="mr-1 size-3.5" />{i18n.summary.save}
+          <Button size="sm" className="h-8 gap-1.5 px-2" onClick={handleSave}>
+            <Save className="size-3.5" />
+            <span className="hidden sm:inline">{i18n.summary.save}</span>
           </Button>
         </>
       )}
-      <Button variant="ghost" size="icon" onClick={loadList} title={i18n.common.refresh}>
-        <RefreshCw />
+
+      <Button 
+        variant="outline" 
+        size="icon" 
+        onClick={loadList} 
+        title={i18n.common.refresh} 
+        className="h-8 w-8"
+      >
+        <RefreshCw className={cn("size-3.5 transition-transform duration-500", loading && "animate-spin")} />
       </Button>
     </div>
   )

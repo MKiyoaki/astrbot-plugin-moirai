@@ -292,21 +292,32 @@ export default function ConfigPage() {
   const actions = (
     <div className="flex items-center gap-2">
       {dirtyCount > 0 && (
-        <Badge variant="secondary" className="text-xs">
+        <Badge variant="secondary" className="text-xs h-6 px-2 flex items-center">
           {i18n.config.modifiedItems.replace('{count}', String(dirtyCount))}
         </Badge>
       )}
-      <Button variant="ghost" size="icon" onClick={load} title={i18n.common.refresh}>
-        <RefreshCw className={loading ? 'animate-spin' : ''} />
-      </Button>
       <Button
         size="sm"
+        className="h-8 gap-1.5 px-2"
         onClick={handleSave}
         disabled={!sudo || saving || dirtyCount === 0}
       >
-        <Save className="mr-1 size-3.5" />{i18n.config.save}
+        <Save className="size-3.5" />
+        <span className="hidden sm:inline">{i18n.config.save}</span>
       </Button>
     </div>
+  )
+
+  const globalActions = (
+    <Button 
+      variant="outline" 
+      size="icon" 
+      onClick={load} 
+      title={i18n.common.refresh} 
+      className="h-8 w-8"
+    >
+      <RefreshCw className={cn("size-3.5 transition-transform duration-500", loading && "animate-spin")} />
+    </Button>
   )
 
   return (
@@ -315,6 +326,7 @@ export default function ConfigPage() {
         title={i18n.page.config.title}
         description={i18n.page.config.description}
         actions={actions}
+        globalActions={globalActions}
       />
 
       <div className="flex-1 overflow-y-auto min-w-0">

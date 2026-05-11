@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { UserPlus, RefreshCw, ChevronLeft, Maximize2, XCircle } from 'lucide-react'
+import { UserPlus, RefreshCw, ChevronLeft, Maximize2, XCircle, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/layout/page-header'
 import { FilterBar } from '@/components/shared/filter-bar'
 import { DateRange } from 'react-day-picker'
@@ -46,6 +47,7 @@ export default function GraphPage() {
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [search, setSearch] = useState('')
 
   // ── Graph interaction state ─────────────────────────────────────────────────
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
@@ -93,7 +95,7 @@ export default function GraphPage() {
       setLoading(false)
       setTimeout(() => setIsRefreshing(false), 600)
     }
-  }, [app.setRawGraph, app.toast, physics.biWeight])
+  }, [app.setRawGraph, app.toast, physics.biWeight, i18n.graph.loadError])
 
   useEffect(() => {
     loadGraph().then(() => {
@@ -170,6 +172,10 @@ export default function GraphPage() {
   // ── Tag & Date-filtered group cards ─────────────────────────────────────────
   const filteredGroups = useMemo(() => {
     let gs = groupCards
+    if (search) {
+      const q = search.toLowerCase()
+      gs = gs.filter(g => (g.name || '').toLowerCase().includes(q) || g.group_id.toLowerCase().includes(q))
+    }
     if (activeTags.size > 0) {
       gs = gs.filter(g =>
         g.nodes.some(n =>
@@ -189,7 +195,7 @@ export default function GraphPage() {
       )
     }
     return gs
-  }, [groupCards, activeTags, dateRange])
+  }, [groupCards, activeTags, dateRange, search])
 
   // ── Open group ──────────────────────────────────────────────────────────────
   const handleOpenGroup = (groupId: string) => {
@@ -270,23 +276,40 @@ export default function GraphPage() {
     sessionStorage.setItem('em_highlight_events', JSON.stringify([eventId]))
   }
 
+  // ── Standard Utilities ──────────────────────────────────────────────────────
+  const globalActions = (
+    <Button variant="outline" size="icon" onClick={loadGraph} title={i18n.common.refresh} className="h-8 w-8">
+      <RefreshCw className={cn("size-3.5 transition-transform duration-500", isRefreshing && "animate-spin")} />
+    </Button>
+  )
+
   // ── Group list view ─────────────────────────────────────────────────────────
   if (!expandedGroupId) {
+    const listActions = (
+      <div className="flex items-center gap-2">
+        <div className="relative hidden md:block">
+          <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
+          <Input
+            className="h-8 w-48 pl-8 text-xs lg:w-64"
+            placeholder={i18n.common.searchPlaceholder}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+        <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo} className="h-8 gap-1.5">
+          <UserPlus className="size-3.5" />
+          <span className="hidden sm:inline">{i18n.graph.createPersona}</span>
+        </Button>
+      </div>
+    )
+
     return (
       <div className="flex h-screen flex-col overflow-hidden">
         <PageHeader
           title={i18n.page.graph.title}
           description={i18n.graph.groupCount.replace('{count}', String(groupCards.length))}
-          actions={
-            <div className="flex items-center gap-2">
-              <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo}>
-                <UserPlus className="mr-1 size-3.5" />{i18n.graph.createPersona}
-              </Button>
-              <Button variant="ghost" size="icon" onClick={loadGraph} title={i18n.common.refresh}>
-                <RefreshCw className={cn("size-4 transition-transform duration-500", isRefreshing && "animate-spin")} />
-              </Button>
-            </div>
-          }
+          actions={listActions}
+          globalActions={globalActions}
         />
         <FilterBar 
           tags={tagList} 
@@ -385,17 +408,17 @@ export default function GraphPage() {
         description={`${i18n.graph.nodeCount} ${activeNodes.length} · ${i18n.graph.edgePairCount} ${activePairs.length}`}
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={handleBackToList}>
-              <ChevronLeft className="mr-1 size-3.5" />{i18n.graph.backToList}
+            <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2" onClick={handleBackToList}>
+              <ChevronLeft className="size-3.5" />
+              <span className="hidden sm:inline">{i18n.graph.backToList}</span>
             </Button>
-            <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo}>
-              <UserPlus className="mr-1 size-3.5" />{i18n.graph.createPersona}
-            </Button>
-            <Button variant="ghost" size="icon" onClick={loadGraph} title={i18n.common.refresh}>
-              <RefreshCw className={cn("size-4 transition-transform duration-500", isRefreshing && "animate-spin")} />
+            <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo} className="h-8 gap-1.5">
+              <UserPlus className="size-3.5" />
+              <span className="hidden sm:inline">{i18n.graph.createPersona}</span>
             </Button>
           </div>
         }
+        globalActions={globalActions}
       />
 
       <div className="flex flex-1 overflow-hidden">

@@ -1,6 +1,6 @@
 export const zh = {
   app: {
-    name: 'Moirai',
+    name: 'Μοίραι',
     subtitle: '三轴长期记忆面板',
     description: '多维世界线下的聊天机器人长期记忆管理。',
   },
@@ -510,6 +510,7 @@ export const zh = {
     confirm: '确认',
     close: '关闭',
     search: '搜索',
+    searchPlaceholder: '搜索…',
     refresh: '刷新',
     noData: '暂无数据',
     loading: '加载中…',
@@ -564,7 +565,7 @@ export const zh = {
 
 export const ja = {
   app: {
-    name: 'Moirai',
+    name: 'Μοίραι',
     subtitle: '3轴長期記憶パネル',
     description: '多次元的な世界線におけるチャットボットの長期記憶管理。',
   },
@@ -1074,6 +1075,7 @@ export const ja = {
     confirm: '確認',
     close: '閉じる',
     search: '検索',
+    searchPlaceholder: '検索…',
     refresh: '更新',
     noData: 'データなし',
     loading: '読み込み中...',
@@ -1128,7 +1130,7 @@ export const ja = {
 
 export const en = {
   app: {
-    name: 'Moirai',
+    name: 'Μοίραι',
     subtitle: 'Three-Axis Long-Term Memory Panel',
     description: 'Long-term memory management for chatbots across multidimensional world lines.',
   },
@@ -1638,6 +1640,7 @@ export const en = {
     confirm: 'Confirm',
     close: 'Close',
     search: 'Search',
+    searchPlaceholder: 'Search…',
     refresh: 'Refresh',
     noData: 'No data',
     loading: 'Loading...',

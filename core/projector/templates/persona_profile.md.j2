@@ -1,39 +1,39 @@
 # {{ persona.primary_name }}
 
-> 本文件由插件自动生成，请勿直接编辑。如需修改印象记录，请编辑同目录下的 IMPRESSIONS.md。
+> {{ get_string("projector.profile_desc").strip("> ") }}
 
-## 基本信息
+## {{ get_string("projector.base_info") }}
 
-| 字段 | 值 |
+| {{ get_string("projector.field") }} | {{ get_string("projector.value") }} |
 |------|----|
-| 内部 UID | `{{ persona.uid }}` |
-| 置信度 | {{ (persona.confidence * 100) | int }}% |
-| 创建时间 | {{ persona.created_at | format_time }} |
-| 最后活跃 | {{ persona.last_active_at | format_time }} |
+| {{ get_string("projector.uid") }} | `{{ persona.uid }}` |
+| {{ get_string("projector.confidence") }} | {{ (persona.confidence * 100) | int }}% |
+| {{ get_string("projector.created_at") }} | {{ persona.created_at | format_time }} |
+| {{ get_string("projector.last_active") }} | {{ persona.last_active_at | format_time }} |
 
-## 绑定身份
+## {{ get_string("projector.bindings") }}
 
 {% if persona.bound_identities %}
-| 平台 | 物理 ID |
+| {{ get_string("projector.platform") }} | {{ get_string("projector.physical_id") }} |
 |------|---------|
 {% for platform, pid in persona.bound_identities %}
 | {{ platform }} | `{{ pid }}` |
 {% endfor %}
 {% else %}
-暂无绑定身份
+{{ get_string("projector.no_bindings") }}
 {% endif %}
 
-## 个人属性
+## {{ get_string("projector.personal_attrs") }}
 
 {% if persona.persona_attrs %}
 {% for key, value in persona.persona_attrs.items() %}
 - **{{ key }}**: {{ value }}
 {% endfor %}
 {% else %}
-暂无属性记录
+{{ get_string("projector.no_attrs") }}
 {% endif %}
 
-## 近期参与事件（最近 {{ events | length }} 条）
+## {{ get_string("projector.recent_events", count=(events | length)) }}
 
 {% if events %}
 {% for event in events %}
@@ -41,5 +41,5 @@
 
 {% endfor %}
 {% else %}
-暂无事件记录
+{{ get_string("projector.no_events") }}
 {% endif %}

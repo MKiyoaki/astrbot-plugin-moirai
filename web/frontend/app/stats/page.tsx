@@ -3,9 +3,10 @@
 import { useEffect, useState, useMemo } from 'react'
 import {
   Activity, Users, Share2, Lock,
-  TrendingUp, Hash, Zap, BarChart3, Search, Clock
+  TrendingUp, Hash, Zap, BarChart3, Search, Clock, RefreshCw
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/layout/page-header'
 import {
   ChartContainer,
@@ -28,17 +29,26 @@ export default function StatsPage() {
   const [events, setEvents] = useState<api.ApiEvent[]>([])
   const [graph, setGraph] = useState<api.GraphData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
-  useEffect(() => {
+  const loadData = async () => {
+    setIsRefreshing(true)
     refreshStats()
-    Promise.all([
-      api.events.list(2000),
-      api.graph.get()
-    ]).then(([evs, g]) => {
+    try {
+      const [evs, g] = await Promise.all([
+        api.events.list(2000),
+        api.graph.get()
+      ])
       setEvents(evs.items)
       setGraph(g)
       setLoading(false)
-    })
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 600)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
   }, [])
 
   // ── Data Processing ──────────────────────────────────────────────────────
@@ -90,11 +100,24 @@ export default function StatsPage() {
     },
   }
 
+  const globalActions = (
+    <Button 
+      variant="outline" 
+      size="icon" 
+      onClick={loadData} 
+      title={i18n.common.refresh} 
+      className="h-8 w-8"
+    >
+      <RefreshCw className={cn("size-3.5 transition-transform duration-500", isRefreshing && "animate-spin")} />
+    </Button>
+  )
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <PageHeader
         title={i18n.page.stats.title}
         description={i18n.page.stats.description}
+        globalActions={globalActions}
       />
 
       <div className="flex-1 overflow-y-auto p-6 pt-2">
