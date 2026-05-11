@@ -80,6 +80,7 @@ class PluginInitializer:
         self.syncer: ReverseSyncer | None = None
         self.persona_repo = None
         self.resolver = None
+        self.command_manager = None
 
     async def initialize(self) -> None:
         cfg = self._cfg
@@ -305,6 +306,14 @@ class PluginInitializer:
         await self.watcher.start()
         if self.embedding_manager:
             await self.embedding_manager.start()
+
+        from .managers.command_manager import CommandManager
+        self.command_manager = CommandManager(
+            scheduler=self.scheduler,
+            recall=self.recall,
+            context_manager=self.context_manager,
+            webui=self.webui,
+        )
 
         astrbot_logger.info("[%s] initialized — DB at %s",
                             _PLUGIN_NAME, db_path)

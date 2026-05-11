@@ -183,6 +183,26 @@ class InMemoryEventRepository(EventRepository):
             del self._store[eid]
         return len(to_delete)
 
+    async def archive_low_salience_events(self, threshold: float) -> int:
+        import dataclasses
+        from ..domain.models import EventStatus
+        count = 0
+        for eid, ev in list(self._store.items()):
+            if ev.salience < threshold and not ev.is_locked and ev.status == EventStatus.ACTIVE:
+                self._store[eid] = dataclasses.replace(ev, status=EventStatus.ARCHIVED)
+                count += 1
+        return count
+
+    async def delete_old_archived_events(self, cutoff_ts: float) -> int:
+        from ..domain.models import EventStatus
+        to_delete = [
+            eid for eid, ev in self._store.items()
+            if ev.status == EventStatus.ARCHIVED and ev.end_time < cutoff_ts and not ev.is_locked
+        ]
+        for eid in to_delete:
+            del self._store[eid]
+        return len(to_delete)
+
     async def get_rowid(self, event_id: str) -> int | None:
         # In-memory has no rowid concept; return position index as a surrogate
         for i, key in enumerate(self._store):

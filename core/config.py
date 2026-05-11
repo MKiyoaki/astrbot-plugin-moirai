@@ -244,6 +244,7 @@ class CleanupConfig:
     enabled: bool = True
     threshold: float = 0.3
     interval_days: int = 7
+    retention_days: int = 30
 
 
 @dataclass
@@ -452,6 +453,7 @@ class PluginConfig:
             enabled=self._bool("memory_cleanup_enabled", True),
             threshold=self._float("memory_cleanup_threshold", 0.3),
             interval_days=self._int("memory_cleanup_interval_days", 7),
+            retention_days=self._int("memory_cleanup_retention_days", 30),
         )
 
     def get_embedding_config(self) -> EmbeddingConfig:

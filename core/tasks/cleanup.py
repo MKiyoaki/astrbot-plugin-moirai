@@ -1,7 +1,16 @@
-"""Periodic task for cleaning up low-salience events."""
+"""Periodic task for cleaning up low-salience events.
+
+Two-phase strategy:
+  1. Archive active events below salience threshold (soft delete).
+  2. Permanently delete archived events older than retention_days (hard delete).
+
+This avoids silent data loss: events are demoted to 'archived' first and can
+be inspected / restored before they are permanently removed.
+"""
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -15,15 +24,32 @@ async def run_memory_cleanup(
     event_repo: EventRepository,
     cleanup_config: CleanupConfig,
 ) -> int:
-    """Delete non-locked events with salience below threshold."""
+    """Two-phase cleanup: archive low-salience events, then delete old archived ones."""
     if not cleanup_config.enabled:
         return 0
-        
+
+    total = 0
     try:
-        count = await event_repo.cleanup_low_salience_events(cleanup_config.threshold)
-        if count > 0:
-            logger.info("[CleanupTask] deleted %d low-salience events (threshold=%.2f)", count, cleanup_config.threshold)
-        return count
+        # Phase 1: demote low-salience active events to archived.
+        archived = await event_repo.archive_low_salience_events(cleanup_config.threshold)
+        if archived > 0:
+            logger.info(
+                "[CleanupTask] archived %d low-salience events (threshold=%.2f)",
+                archived, cleanup_config.threshold,
+            )
+        total += archived
+
+        # Phase 2: permanently delete archived events past the retention window.
+        cutoff_ts = time.time() - cleanup_config.retention_days * 86400.0
+        deleted = await event_repo.delete_old_archived_events(cutoff_ts)
+        if deleted > 0:
+            logger.info(
+                "[CleanupTask] permanently deleted %d archived events (retention=%d days)",
+                deleted, cleanup_config.retention_days,
+            )
+        total += deleted
+
     except Exception as exc:
         logger.error("[CleanupTask] failed: %s", exc)
-        return 0
+
+    return total

@@ -1,0 +1,30 @@
+{
+  "display_name": "Moirai 三轴记忆",
+  "desc": "三轴长期记忆插件：在多维世界线下管理机器人的情节记忆、社交关系与摘要叙述。",
+  "config": {
+    "webui_port": { "description": "WebUI 端口", "hint": "插件管理界面绑定的端口号" },
+    "webui_auth_enabled": { "description": "启用 WebUI 认证", "hint": "开启后需要密码才能访问 WebUI" },
+    "webui_session_hours": { "description": "登录会话有效期（小时）", "hint": "登录 token 的有效时长" },
+    "webui_sudo_minutes": { "description": "Sudo 权限有效期（分钟）", "hint": "提权操作的有效时长" },
+    "embedding_enabled": { "description": "启用向量嵌入", "hint": "关闭后仅使用 BM25 关键词检索" },
+    "embedding_provider": { "description": "嵌入提供商", "hint": "local = 本地模型，api = 远程 API" },
+    "embedding_model": { "description": "嵌入模型名称" },
+    "embedding_api_url": { "description": "嵌入 API 地址" },
+    "embedding_api_key": { "description": "嵌入 API 密钥" },
+    "retrieval_top_k": { "description": "最大注入事件数", "hint": "注入 Prompt 的记忆事件数量上限" },
+    "retrieval_token_budget": { "description": "Token 上限", "hint": "记忆注入的 Token 消耗限制" },
+    "retrieval_active_only": { "description": "仅检索活跃事件", "hint": "开启则排除已归档记忆" },
+    "retrieval_weighted_random": { "description": "加权随机检索", "hint": "Softmax 采样替代确定性 Top-K" },
+    "retrieval_sampling_temperature": { "description": "检索采样温度", "hint": "仅加权随机模式生效；1.0 为标准采样" },
+    "memory_isolation_enabled": { "description": "启用记忆隔离", "hint": "按群组 ID 隔离检索结果" },
+    "vcm_enabled": { "description": "启用 VCM 状态机", "hint": "启用虚拟上下文管理" },
+    "soul_enabled": { "description": "启用情绪系统 (Soul Layer)" },
+    "soul_decay_rate": { "description": "情绪衰减率", "hint": "每轮衰减比例，0.1 = 10%" },
+    "memory_cleanup_enabled": { "description": "启用自动清理" },
+    "memory_cleanup_threshold": { "description": "清理阈值" },
+    "memory_cleanup_interval_days": { "description": "清理周期（天）" },
+    "memory_cleanup_retention_days": { "description": "归档保留期（天）", "hint": "超过后归档事件才被永久删除" },
+    "relation_enabled": { "description": "启用社交关系推断" },
+    "impression_update_alpha": { "description": "印象 EMA 学习率", "hint": "印象更新的指数移动平均系数" }
+  }
+}

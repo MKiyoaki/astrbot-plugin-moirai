@@ -580,6 +580,46 @@ class SQLiteEventRepository(EventRepository):
         await self._db.commit()
         return count
 
+    async def archive_low_salience_events(self, threshold: float) -> int:
+        """Set status='archived' for non-locked active events below threshold."""
+        cursor = await self._db.execute(
+            "UPDATE events SET status = 'archived' WHERE salience < ? AND is_locked = 0 AND status = 'active'",
+            (threshold,),
+        )
+        count = cursor.rowcount
+        await self._db.commit()
+        return count
+
+    async def delete_old_archived_events(self, cutoff_ts: float) -> int:
+        """Permanently delete non-locked archived events older than cutoff_ts."""
+        async with self._db.execute(
+            "SELECT event_id FROM events WHERE status = 'archived' AND end_time < ? AND is_locked = 0",
+            (cutoff_ts,),
+        ) as cur:
+            ids = [row[0] for row in await cur.fetchall()]
+
+        if not ids:
+            return 0
+
+        try:
+            for eid in ids:
+                await self._db.execute(
+                    "DELETE FROM events_vec WHERE rowid = "
+                    "(SELECT rowid FROM events WHERE event_id = ?)",
+                    (eid,),
+                )
+        except Exception:
+            pass
+
+        placeholders = ",".join(["?"] * len(ids))
+        cursor = await self._db.execute(
+            f"DELETE FROM events WHERE event_id IN ({placeholders})",
+            ids,
+        )
+        count = cursor.rowcount
+        await self._db.commit()
+        return count
+
     async def get_rowid(self, event_id: str) -> int | None:
         async with self._db.execute(
             "SELECT rowid FROM events WHERE event_id = ?", (event_id,)

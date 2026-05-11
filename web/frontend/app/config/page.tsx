@@ -35,9 +35,13 @@ const FIELD_DEPENDENCIES: Record<string, string> = {
   'context_session_idle_seconds': 'vcm_enabled',
   'context_window_size': 'vcm_enabled',
   
+  // Retrieval
+  'retrieval_sampling_temperature': 'retrieval_weighted_random',
+
   // Cleanup
   'memory_cleanup_threshold': 'memory_cleanup_enabled',
   'memory_cleanup_interval_days': 'memory_cleanup_enabled',
+  'memory_cleanup_retention_days': 'memory_cleanup_enabled',
   
   // Relation
   'persona_isolation_enabled': 'relation_enabled',
@@ -266,7 +270,7 @@ export default function ConfigPage() {
     },
     {
       label: i18n.config.sections.retrieval,
-      keys: ['retrieval_top_k', 'retrieval_token_budget', 'retrieval_active_only', 'memory_isolation_enabled'],
+      keys: ['retrieval_top_k', 'retrieval_token_budget', 'retrieval_active_only', 'memory_isolation_enabled', 'retrieval_weighted_random', 'retrieval_sampling_temperature'],
     },
     {
       label: i18n.config.sections.vcm,
@@ -278,7 +282,7 @@ export default function ConfigPage() {
     },
     {
       label: i18n.config.sections.cleanup,
-      keys: ['memory_cleanup_enabled', 'memory_cleanup_threshold', 'memory_cleanup_interval_days'],
+      keys: ['memory_cleanup_enabled', 'memory_cleanup_threshold', 'memory_cleanup_interval_days', 'memory_cleanup_retention_days'],
     },
     {
       label: i18n.config.sections.summaries,

@@ -354,6 +354,12 @@
         "hint": "每隔多少天执行一次自动清理任务",
         "default": 7
     },
+    "memory_cleanup_retention_days": {
+        "description": "归档保留期（天）",
+        "type": "int",
+        "hint": "已归档事件在真正删除前保留的天数，超过后才会被永久清除",
+        "default": 30
+    },
     "summary_word_limit": {
         "description": "摘要字数限制",
         "type": "int",

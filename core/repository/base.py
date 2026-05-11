@@ -142,6 +142,16 @@ class EventRepository(ABC):
         ...
 
     @abstractmethod
+    async def archive_low_salience_events(self, threshold: float) -> int:
+        """Set status=archived for non-locked active events with salience < threshold. Returns count archived."""
+        ...
+
+    @abstractmethod
+    async def delete_old_archived_events(self, cutoff_ts: float) -> int:
+        """Permanently delete non-locked archived events with end_time < cutoff_ts. Returns count deleted."""
+        ...
+
+    @abstractmethod
     async def get_rowid(self, event_id: str) -> int | None:
         """Return the SQLite integer rowid for an event (used for FTS5/vec joins)."""
         ...

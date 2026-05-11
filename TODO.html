@@ -67,7 +67,7 @@
 
 <h2>待讨论</h2>
 
-<h3>情绪四维状态（Soul Layer）设计</h3>
+<h3>情绪四维状态（Soul Layer）设计 ✅ 已实现</h3>
 <p>参考 angel_memory 的 tanh 弹性算法，用四个 -20~+20 能量维度（RecallDepth / ImpressionDepth / ExpressionDesire / Creativity）映射为行为参数。结合 SOUL.md 形成双层体系：</p>
 <ul>
     <li><strong>长期人格层</strong>：Big Five（由 <code>persona_synthesis</code> 周期生成，写入 SOUL.md）</li>
@@ -79,39 +79,41 @@
 
 <h2>待实现</h2>
 
-<h3>加权随机检索</h3>
-<p>在 <code>HybridRetriever</code> 的 RRF 融合结果上加一层 softmax 采样，替代确定性 top-K 截断。用分数作为权重做带放回采样，让 bot 的记忆表现更接近人类的"有时想起、有时忘记"，避免永远只检索到同几条高分事件。改动范围：<code>core/retrieval/hybrid.py</code> 一个函数，可配置开关。</p>
+<h3>✅ 加权随机检索 <small>（v0.7.20 后端 / v0.7.28 前端曝光）</small></h3>
+<p>在 <code>HybridRetriever</code> 的 RRF 融合结果上加一层 softmax 采样，替代确定性 top-K 截断。用分数作为权重做带放回采样，让 bot 的记忆表现更接近人类的"有时想起、有时忘记"，避免永远只检索到同几条高分事件。<br>
+<strong>实现</strong>：<code>core/retrieval/hybrid.py</code>；配置开关 <code>retrieval_weighted_random</code> + <code>retrieval_sampling_temperature</code> 已在配置页"检索"段曝光。</p>
 
-<h3>LLM 主动记忆工具调用</h3>
-<p>在 AstrBot <code>@filter.on_llm_request()</code> 钩子层面注册两个 tool：</p>
+<h3>✅ LLM 主动记忆工具调用 <small>（v0.7.28）</small></h3>
+<p>在 <code>main.py</code> 用 <code>@filter.llm_tool</code> 注册两个工具：</p>
 <ul>
-    <li><code>core_memory_remember(content, strength)</code>：模型主动触发存储，写入 Event</li>
-    <li><code>core_memory_recall(query)</code>：模型主动触发检索，返回相关记忆片段</li>
+    <li><code>core_memory_remember(content, strength)</code>：模型主动触发存储，直接写入 Event（<code>topic="主动记忆"</code>）</li>
+    <li><code>core_memory_recall(query)</code>：模型主动触发检索，返回格式化记忆片段</li>
 </ul>
-<p>让模型自主决定何时存储和检索，而不是系统被动注入。不改 <code>core/</code> 存储层，只在 adapter 层增加 tool 定义。</p>
+<p>不改 <code>core/</code> 存储层，只在 <code>main.py</code> adapter 层定义。</p>
 
-<h3>Sleep Consolidation 强化</h3>
-<p>在 <code>daily_maintenance</code> 的 cleanup 阶段，将"显著性低于阈值"的事件改为降级到 <code>archived</code> 状态，而非直接物理删除。只有 <code>archived</code> 超过保留期（如 30 天）的事件才真正删除。现有 <code>archive_event()</code> 接口已存在，只需修改 <code>run_memory_cleanup</code> 的删除逻辑。</p>
+<h3>✅ Sleep Consolidation 强化 <small>（v0.7.28）</small></h3>
+<p><code>run_memory_cleanup</code> 改为两阶段：先将显著性低于阈值的事件归档（<code>status=archived</code>），超过 <code>memory_cleanup_retention_days</code>（默认 30 天）后才永久删除。<br>
+<strong>实现</strong>：<code>core/tasks/cleanup.py</code>、<code>core/repository/base.py</code>、<code>core/repository/sqlite.py</code>、<code>core/repository/memory.py</code>。</p>
 
-<h3>指令集配置</h3>
-<p>使用 <code>@filter.command()</code> 体系为插件注册管理指令，按 command group 层级组织：</p>
+<h3>✅ 指令集配置 <small>（v0.7.28）</small></h3>
+<p>使用 <code>@filter.command_group("mrm")</code> 注册管理指令，<code>CommandManager</code> 完整实现：</p>
 
 <pre><code>/mrm
   ├── status          查询插件运行状态（事件数、任务状态）
-  ├── run &lt;task&gt;      手动触发周期任务（decay / synthesis / summary）
+  ├── run &lt;task&gt;      手动触发周期任务（decay / synthesis / summary / cleanup）
   ├── flush           清空当前 session 窗口
   ├── recall &lt;query&gt;  手动触发记忆检索并返回结果
-  ├── webui on        启用并返回webUI访问链接
-  └── webui off       关闭webUI功能
+  ├── webui on        启用并返回 WebUI 访问链接
+  └── webui off       关闭 WebUI 功能
 </code></pre>
 
-<h3>插件多语言支持（i18n）</h3>
-<p>在 <code>.astrbot-plugin/i18n/</code> 下创建 <code>zh-CN.json</code> 和 <code>en-US.json</code>，覆盖：</p>
+<h3>✅ 插件多语言支持（i18n）<small>（v0.7.28）</small></h3>
+<p>在 <code>.astrbot-plugin/i18n/zh_CN/plugin.json</code> 和 <code>en_US/plugin.json</code> 中覆盖：</p>
 <ul>
-    <li><code>metadata.yaml</code> 的 <code>display_name</code>、<code>desc</code></li>
-    <li><code>_conf_schema.json</code> 所有字段的 <code>description</code>、<code>hint</code>、<code>labels</code></li>
+    <li><code>display_name</code>、<code>desc</code></li>
+    <li>主要配置字段的 <code>description</code>、<code>hint</code></li>
 </ul>
-<p>不动源码，只新增两个 JSON 文件。</p>
+<p>未动源码，仅新增两个 JSON 文件。</p>
 
 <h3>WebUI 接入 AstrBot 官方 Plugin Pages (https://docs.astrbot.app/dev/star/guides/plugin-pages.html)</h3>
 <p>当前架构：独立 <code>aiohttp</code> server（端口 2655）+ Next.js SPA（<code>web/frontend/output/</code>）+ 自定义 Session 鉴权（<code>web/auth.py</code>）。</p>

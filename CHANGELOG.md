@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [v0.7.28] — 2026-05-12
+
+### 加权检索曝光 / LLM 工具调用 / Sleep Consolidation / 指令集 / AstrBot i18n
+
+- **加权随机检索前端曝光**：`retrieval_weighted_random` 和 `retrieval_sampling_temperature` 出现在配置页"检索"段，启用后采样温度字段自动激活
+- **LLM 主动记忆工具**：新增 `@filter.llm_tool` 工具 `core_memory_remember(content, strength)` 和 `core_memory_recall(query)`，让模型自主决定何时存储与检索记忆
+- **Sleep Consolidation 强化**：`run_memory_cleanup` 改为两阶段——先将低显著性事件归档（`status=archived`），超过 `retention_days`（默认 30 天）后才永久删除；`EventRepository` 新增 `archive_low_salience_events` 和 `delete_old_archived_events` 接口
+- **指令集**：新增 `/mrm` 指令组（`status` / `run <task>` / `flush` / `recall <query>` / `webui on|off`）；`CommandManager` 从空 stub 实现为完整的逻辑层
+- **AstrBot 插件 i18n**：新建 `.astrbot-plugin/i18n/zh_CN/plugin.json` 和 `en_US/plugin.json`，覆盖插件管理界面的显示名、描述及主要配置字段翻译
+
 ## [v0.7.27] — 2026-05-11
 
 ### IPC Alpha / Persona 置信度 / OCEAN 注入 / Soul Layer / 三语修复

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -7,15 +9,17 @@ from astrbot.api.event import filter
 from astrbot.api.star import StarTools, register
 
 from core.config import PluginConfig
+from core.domain.models import Event
 from core.event_handler import EventHandler
 from core.plugin_initializer import PluginInitializer
+from core.utils.formatter import format_events_for_prompt
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
     from astrbot.api.provider import ProviderRequest
     from astrbot.api.star import Context, Star
 
-_PLUGIN_VERSION = "0.7.20"
+_PLUGIN_VERSION = "0.7.27"
 
 
 @register(
@@ -55,6 +59,106 @@ class MoiraiPlugin(Star):
     async def on_message(self, event: AstrMessageEvent) -> None:
         if self._handler:
             await self._handler.handle_message(event)
+
+    # ── LLM Tools ────────────────────────────────────────────────────────────
+
+    @filter.llm_tool(name="core_memory_remember")
+    async def tool_remember(self, event: AstrMessageEvent, content: str, strength: float):
+        '''主动将重要信息存入长期记忆。仅在用户明确表示"记住"或对话中出现值得永久保存的关键事实时调用。
+
+        Args:
+            content(string): 要记住的内容，应为完整的一句话或一段描述
+            strength(float): 重要程度，0.0（低）到 1.0（高），默认 0.7
+        '''
+        if not self._initializer:
+            yield event.plain_result("记忆系统未初始化。")
+            return
+        salience = max(0.0, min(1.0, float(strength)))
+        now = time.time()
+        group_id = event.get_group_id() if hasattr(event, "get_group_id") else None
+        new_event = Event(
+            event_id=str(uuid.uuid4()),
+            group_id=group_id,
+            start_time=now,
+            end_time=now,
+            topic="主动记忆",
+            summary=content[:200],
+            salience=salience,
+            confidence=0.9,
+        )
+        await self._initializer.memory.add_event(new_event)
+        yield event.plain_result(f"已记住（重要度 {salience:.1f}）。")
+
+    @filter.llm_tool(name="core_memory_recall")
+    async def tool_recall(self, event: AstrMessageEvent, query: str):
+        '''主动检索与当前话题相关的历史记忆。仅在需要回忆过去对话内容时调用，不要在每次对话中都调用。
+
+        Args:
+            query(string): 检索关键词或问题描述
+        '''
+        if not self._initializer:
+            yield event.plain_result("记忆系统未初始化。")
+            return
+        group_id = event.get_group_id() if hasattr(event, "get_group_id") else None
+        results = await self._initializer.recall.recall(query, group_id=group_id)
+        if not results:
+            yield event.plain_result("未找到相关记忆。")
+            return
+        formatted = format_events_for_prompt(results, token_budget=600)
+        yield event.plain_result(formatted)
+
+    # ── Commands ──────────────────────────────────────────────────────────────
+
+    @filter.command_group("mrm")
+    def mrm(self):
+        pass
+
+    @mrm.command("status")
+    async def mrm_status(self, event: AstrMessageEvent):
+        '''查询插件运行状态。用法：/mrm status'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        cmd = self._initializer.command_manager
+        yield event.plain_result(await cmd.status())
+
+    @mrm.command("run")
+    async def mrm_run(self, event: AstrMessageEvent, task: str):
+        '''手动触发周期任务。用法：/mrm run <task>（decay / synthesis / summary / cleanup）'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        cmd = self._initializer.command_manager
+        yield event.plain_result(await cmd.run_task(task))
+
+    @mrm.command("flush")
+    async def mrm_flush(self, event: AstrMessageEvent):
+        '''清空当前会话的上下文窗口。用法：/mrm flush'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        cmd = self._initializer.command_manager
+        session_id = event.unified_msg_origin
+        yield event.plain_result(await cmd.flush(session_id))
+
+    @mrm.command("recall")
+    async def mrm_recall(self, event: AstrMessageEvent, query: str):
+        '''手动触发记忆检索并返回结果。用法：/mrm recall <关键词>'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        cmd = self._initializer.command_manager
+        group_id = event.get_group_id() if hasattr(event, "get_group_id") else None
+        yield event.plain_result(await cmd.recall(query, group_id=group_id))
+
+    @mrm.command("webui")
+    async def mrm_webui(self, event: AstrMessageEvent, action: str):
+        '''启用或关闭 WebUI。用法：/mrm webui on | off'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        cmd = self._initializer.command_manager
+        yield event.plain_result(await cmd.webui(action))
 
     async def terminate(self) -> None:
         if self._initializer:
