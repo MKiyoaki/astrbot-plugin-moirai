@@ -60,15 +60,11 @@ class EventExtractor:
         big_five_buffer: BigFiveBuffer | None = None,
         orientation_analyzer: SocialOrientationAnalyzer | None = None,
         ipc_enabled: bool = True,
-        impression_repo = None,
-        plugin_config = None,
         persona_repo: PersonaRepository | None = None,
     ) -> None:
         from ..config import ExtractorConfig as _EC
         cfg = extractor_config or _EC()
         self._event_repo = event_repo
-        self._impression_repo = impression_repo
-        self._plugin_config = plugin_config
         self._persona_repo = persona_repo
         self._provider_getter = provider_getter
         self._encoder: Encoder = encoder or NullEncoder()
@@ -84,8 +80,10 @@ class EventExtractor:
         self._orientation_analyzer = orientation_analyzer
         self._ipc_enabled = ipc_enabled and (big_five_buffer is not None) and (orientation_analyzer is not None)
 
-        # Initialize canonical tags from seeds asynchronously
-        asyncio.create_task(self._init_tag_seeds())
+        # Tag seeds are initialized lazily on first __call__ so that constructing
+        # EventExtractor outside an async context (e.g., during import-time tests)
+        # does not raise RuntimeError: no running event loop.
+        self._seeds_initialized: bool = False
 
         # Initialize partitioner
         if self._strategy == "semantic":
@@ -121,21 +119,29 @@ class EventExtractor:
         """
         from ..utils.perf import performance_timer
 
-        # 0. Fetch existing tags and merge with seeds for few-shot steering
+        # 0. Lazy-initialize tag seeds (safe: we are inside an async context here)
+        if not self._seeds_initialized:
+            self._seeds_initialized = True
+            await self._init_tag_seeds()
+
+        # 1. Fetch bot persona once — shared by all partitions and result-loop iterations
+        bot_name, bot_desc = await self._get_bot_persona()
+
+        # 2. Fetch existing tags and merge with seeds for few-shot steering
         frequent_tags = await self._event_repo.list_frequent_tags(limit=20)
         steering_tags = list(dict.fromkeys(self._tag_seeds + frequent_tags))[:30]
 
-        # 1. Partitioning
+        # 3. Partitioning
         async with performance_timer("partition"):
             partitions = await self._partitioner.partition(window)
 
-        # 2. Extract fields
+        # 4. Extract fields
         extracted_results: list[tuple[list[int], dict]] = []  # (indices, result_dict)
 
         if self._strategy == "llm":
             # One batch call: LLM handles both splitting and field extraction.
             async with performance_timer("extraction"):
-                batch_results = await self._extract_batch(window, existing_tags=steering_tags)
+                batch_results = await self._extract_batch(window, existing_tags=steering_tags, bot_persona_desc=bot_desc)
                 for res in batch_results:
                     start, end = res["start_idx"], res["end_idx"]
                     extracted_results.append((list(range(start, end + 1)), res))
@@ -146,7 +152,7 @@ class EventExtractor:
                 if not sub_messages:
                     continue
                 async with performance_timer("distill"):
-                    res = await self._distill(sub_messages, existing_tags=steering_tags)
+                    res = await self._distill(sub_messages, existing_tags=steering_tags, bot_persona_desc=bot_desc)
                     extracted_results.append((part.indices, res))
 
         # 3. Persistence
@@ -205,23 +211,11 @@ class EventExtractor:
                 last_accessed_at=sub_messages[-1].timestamp,
             )
 
-            if self._persona_influenced_summary:
-                bot_name = await self._get_bot_persona_name()
-                if bot_name:
-                    event = dataclasses.replace(event, bot_persona_name=bot_name)
+            if self._persona_influenced_summary and bot_name:
+                event = dataclasses.replace(event, bot_persona_name=bot_name)
 
             await self._event_repo.upsert(event)
             await self._index_vector(event)
-
-            # Rule-based impression trigger
-            if self._plugin_config and self._plugin_config.relation_enabled and \
-               self._plugin_config.impression_event_trigger_enabled and self._impression_repo:
-                from ..plugin_initializer import _maybe_trigger_impression
-                asyncio.create_task(
-                    _maybe_trigger_impression(
-                        event, self._impression_repo, self._event_repo, self._plugin_config
-                    )
-                )
 
             if self._ipc_enabled:
                 ipc_tasks.append(
@@ -236,44 +230,48 @@ class EventExtractor:
             await asyncio.gather(*ipc_tasks)
 
     async def _align_tags(self, raw_tags: list[str]) -> list[str]:
-        """Normalize tags by aligning them to existing canonical tags via vector similarity."""
-        if not raw_tags:
-            return []
-        
-        aligned = []
-        for tag in raw_tags:
-            tag = tag.strip()
-            if not tag:
-                continue
-            
-            # 1. Vector encoding (local/CPU usually)
-            try:
-                embedding = await self._encoder.encode(tag)
-            except Exception as exc:
-                logger.debug("[EventExtractor] tag encoding failed: %s", exc)
-                aligned.append(tag)
-                continue
-                
-            # 2. Search for existing canonical tags in tags_vec
-            matches = await self._event_repo.search_canonical_tag(
-                embedding, threshold=self._tag_normalization_threshold
-            )
-            
-            if matches:
-                # Similarity is high enough, align to the existing one
-                best_match, _ = matches[0]
-                aligned.append(best_match)
-            else:
-                # No close match, this is a new canonical tag category
-                await self._event_repo.upsert_canonical_tag(tag, embedding)
-                aligned.append(tag)
-                
-        return list(dict.fromkeys(aligned)) # preserve order, remove duplicates
+        """Normalize tags by aligning them to existing canonical tags via vector similarity.
 
-    async def _get_bot_persona_desc(self) -> str | None:
-        """Return the bot persona description if persona-influenced summary is enabled."""
+        Encodes all tags in one encode_batch() call, then searches concurrently.
+        """
+        clean_tags = [t.strip() for t in raw_tags if t.strip()]
+        if not clean_tags:
+            return []
+
+        # 1. Batch encode all tags in one call
+        try:
+            embeddings = await self._encoder.encode_batch(clean_tags)
+        except Exception as exc:
+            logger.debug("[EventExtractor] tag batch encoding failed: %s", exc)
+            return clean_tags
+
+        # 2. Concurrent canonical-tag search for every embedding
+        async def _resolve(tag: str, embedding: list[float]) -> str:
+            try:
+                matches = await self._event_repo.search_canonical_tag(
+                    embedding, threshold=self._tag_normalization_threshold
+                )
+            except Exception as exc:
+                logger.debug("[EventExtractor] canonical tag search failed: %s", exc)
+                return tag
+            if matches:
+                return matches[0][0]
+            await self._event_repo.upsert_canonical_tag(tag, embedding)
+            return tag
+
+        resolved = await asyncio.gather(
+            *(_resolve(tag, emb) for tag, emb in zip(clean_tags, embeddings))
+        )
+        return list(dict.fromkeys(resolved))  # preserve order, remove duplicates
+
+    async def _get_bot_persona(self) -> tuple[str | None, str | None]:
+        """Return (primary_name, description) for the bot persona in one list_all call.
+
+        Returns (None, None) when persona_influenced_summary is disabled or no bot
+        persona is found.  Callers receive both values from a single DB round-trip.
+        """
         if not self._persona_influenced_summary or self._persona_repo is None:
-            return None
+            return None, None
         try:
             personas = await self._persona_repo.list_all()
             bot = next(
@@ -285,35 +283,16 @@ class EventExtractor:
             )
             if bot:
                 desc = bot.persona_attrs.get("description", "") if isinstance(bot.persona_attrs, dict) else ""
-                return desc or bot.primary_name or None
+                return bot.primary_name or None, desc or bot.primary_name or None
         except Exception as exc:
             logger.debug("[EventExtractor] bot persona lookup failed: %s", exc)
-        return None
+        return None, None
 
-    async def _get_bot_persona_name(self) -> str | None:
-        """Return the bot persona primary_name for display purposes."""
-        if self._persona_repo is None:
-            return None
-        try:
-            personas = await self._persona_repo.list_all()
-            bot = next(
-                (p for p in personas if any(
-                    (bi[0] if isinstance(bi, tuple) else getattr(bi, "platform", None)) == "internal"
-                    for bi in (p.bound_identities or [])
-                )),
-                None,
-            )
-            return bot.primary_name if bot else None
-        except Exception as exc:
-            logger.debug("[EventExtractor] bot persona name lookup failed: %s", exc)
-        return None
-
-    async def _extract_batch(self, window: MessageWindow, existing_tags: list[str] | None = None) -> list[dict]:
+    async def _extract_batch(self, window: MessageWindow, existing_tags: list[str] | None = None, bot_persona_desc: str | None = None) -> list[dict]:
         provider = self._provider_getter()
         if provider is None:
             return fallback_extraction(window)
 
-        bot_persona_desc = await self._get_bot_persona_desc()
         prompt = build_user_prompt(
             window, 
             self._max_context_messages, 
@@ -333,7 +312,7 @@ class EventExtractor:
 
         return fallback_extraction(window)
 
-    async def _distill(self, messages: list, existing_tags: list[str] | None = None) -> dict:
+    async def _distill(self, messages: list, existing_tags: list[str] | None = None, bot_persona_desc: str | None = None) -> dict:
         """Call LLM to summarize a specific cluster of messages."""
         provider = self._provider_getter()
         if provider is None:
@@ -348,7 +327,6 @@ class EventExtractor:
                 "inherit": False
             }
 
-        bot_persona_desc = await self._get_bot_persona_desc()
         prompt = build_distillation_prompt(
             messages, 
             bot_persona_desc=bot_persona_desc,

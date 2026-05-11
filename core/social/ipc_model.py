@@ -86,20 +86,32 @@ def affect_intensity(benevolence: float, power: float) -> float:
 def r_squared(benevolence: float, power: float) -> float:
     """Octant-belonging confidence: how well the point fits its assigned octant.
 
-    Formula: R² = 1 − d² / (r + ε)²
-      d  = Euclidean distance from (B, P) to the assigned octant's unit-circle centroid
-      r  = modulus √(B² + P²)
-      ε  = small epsilon to avoid division by zero
-
-    R² = 1 means the point lies exactly on the octant centroid (perfect fit).
-    R² approaches 0 as the point moves toward the boundary between octants.
+    Calculates angular fit to the nearest octant centroid. 
+    1.0 means perfect alignment with octant center.
+    0.0 means the point lies on the boundary between two octants.
     """
-    label = classify_octant(benevolence, power)
-    octant = next(o for o in _OCTANTS if o.label == label)
-    d = math.sqrt((benevolence - octant.centroid_b) ** 2 + (power - octant.centroid_p) ** 2)
     r = math.sqrt(benevolence ** 2 + power ** 2)
-    result = 1.0 - (d ** 2) / ((r + _EPS) ** 2)
-    return min(1.0, max(0.0, result))
+    if r < 1e-6:
+        return 0.5  # Neutral point has medium confidence (unknown direction)
+    
+    label = classify_octant(benevolence, power)
+    # Find centroid angle for the label
+    target_angle = 0.0
+    for octant in _OCTANTS:
+        if octant.label == label:
+            target_angle = octant.angle_deg
+            break
+            
+    current_angle = math.degrees(math.atan2(power, benevolence)) % 360.0
+    
+    # Shortest angular distance
+    diff = abs(current_angle - target_angle)
+    if diff > 180:
+        diff = 360 - diff
+        
+    # Boundary is at 22.5 degrees (45/2)
+    # Result: 1.0 at 0 deg diff, 0.0 at 22.5 deg diff.
+    return max(0.0, 1.0 - (diff / 22.5))
 
 
 # Approximate rotation coefficients from DeYoung et al. 2013 / Markey & Markey 2013.

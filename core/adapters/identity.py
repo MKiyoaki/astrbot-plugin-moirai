@@ -16,13 +16,21 @@ from ..repository.base import PersonaRepository
 class IdentityResolver:
     def __init__(self, persona_repo: PersonaRepository) -> None:
         self._repo = persona_repo
+        # (platform, physical_id) → uid; avoids one DB round-trip per message
+        self._cache: dict[tuple[str, str], str] = {}
 
     async def get_or_create_uid(
         self, platform: str, physical_id: str, display_name: str
     ) -> str:
         """Return stable uid for (platform, physical_id), creating a Persona if new."""
+        key = (platform, physical_id)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+
         persona = await self._repo.get_by_identity(platform, physical_id)
         if persona is not None:
+            self._cache[key] = persona.uid
             return persona.uid
 
         now = time.time()
@@ -38,6 +46,7 @@ class IdentityResolver:
                 last_active_at=now,
             )
         )
+        self._cache[key] = uid
         return uid
 
     async def touch_last_active(self, uid: str) -> None:

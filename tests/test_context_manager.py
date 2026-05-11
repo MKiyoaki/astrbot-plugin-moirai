@@ -1,4 +1,5 @@
 """Tests for ContextManager: LRU, TTL, and VCM state machine."""
+import asyncio
 import pytest
 import time
 from core.managers.context_manager import ContextManager
@@ -80,7 +81,45 @@ def test_vcm_disabled(context_cfg):
     mgr = ContextManager(context_cfg)
     session_id = "s1"
     mgr.get_window(session_id, create=True)
-    
+
     # Should always stay FOCUSED
     state = mgr.update_state(session_id, drift_detected=True)
     assert state == VCMState.FOCUSED
+
+
+# ---------------------------------------------------------------------------
+# P0-1: LRU eviction must trigger evict_callback so messages are not silently lost
+# ---------------------------------------------------------------------------
+
+async def test_lru_eviction_triggers_evict_callback():
+    evicted_sessions: list[str] = []
+
+    async def capture(window):
+        evicted_sessions.append(window.session_id)
+
+    cfg = ContextConfig(max_sessions=2, vcm_enabled=False, session_idle_seconds=3600)
+    mgr = ContextManager(cfg, evict_callback=capture)
+
+    mgr.get_window("s1", create=True)
+    mgr.get_window("s2", create=True)
+    # Adding s3 must evict s1 (LRU) and call the callback
+    mgr.get_window("s3", create=True)
+
+    # Let the asyncio task scheduled by _evict_lru run
+    await asyncio.sleep(0)
+
+    assert evicted_sessions == ["s1"]
+
+
+async def test_lru_eviction_without_callback_does_not_raise():
+    """Existing behaviour without callback should be unaffected."""
+    cfg = ContextConfig(max_sessions=2, vcm_enabled=False)
+    mgr = ContextManager(cfg)  # no evict_callback
+
+    mgr.get_window("s1", create=True)
+    mgr.get_window("s2", create=True)
+    mgr.get_window("s3", create=True)  # evicts s1, no callback
+
+    await asyncio.sleep(0)
+    assert mgr.get_window("s1") is None
+    assert mgr.get_window("s2") is not None

@@ -255,38 +255,38 @@ export default function StatsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-6 mt-2">
-                <MetricItem 
+             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 mt-2">
+                <PerfMetricItem 
                   icon={Clock} 
                   label={i18n.stats.avgResponse} 
                   value={(stats.perf?.avg_response_time ?? 0) + 's'} 
                   sub={lang === 'zh' ? '总平均处理时长' : (lang === 'ja' ? '総平均処理時間' : 'Total avg duration')}
                 />
-                <MetricItem 
+                <PerfMetricItem 
                   icon={Activity} 
                   label={i18n.stats.avgExtraction} 
                   value={(stats.perf?.avg_extraction_time ?? 0) + 's'} 
                   sub={lang === 'zh' ? '从消息中提取情节' : (lang === 'ja' ? 'メッセージからの抽出' : 'Extracting episodes')}
                 />
-                <MetricItem 
+                <PerfMetricItem 
                   icon={Zap} 
                   label={i18n.stats.avgPartition} 
                   value={(stats.perf?.avg_partition_time ?? 0) + 's'} 
                   sub={lang === 'zh' ? '自动对话边界检测' : (lang === 'ja' ? '会話境界の検出' : 'Boundary detection')}
                 />
-                <MetricItem 
+                <PerfMetricItem 
                   icon={TrendingUp} 
                   label={i18n.stats.avgDistill} 
                   value={(stats.perf?.avg_distill_time ?? 0) + 's'} 
                   sub={lang === 'zh' ? '长对话精简提炼' : (lang === 'ja' ? '要約と精緻化' : 'Condensing dialogues')}
                 />
-                <MetricItem 
+                <PerfMetricItem 
                   icon={Share2} 
                   label={i18n.stats.avgRetrieval} 
                   value={(stats.perf?.avg_retrieval_time ?? 0) + 's'} 
                   sub={lang === 'zh' ? 'Prompt 记忆注入' : (lang === 'ja' ? 'プロンプト注入' : 'Context injection')}
                 />
-                <MetricItem 
+                <PerfMetricItem 
                   icon={Search} 
                   label={i18n.stats.avgRecall} 
                   value={(stats.perf?.avg_recall_time ?? 0) + 's'} 
@@ -300,7 +300,24 @@ export default function StatsPage() {
   )
 }
 
-function MetricItem({ icon: Icon, label, value, sub }: { icon: any, label: string, value: string | number, subTextText?: string, sub: string }) {
+function PerfMetricItem({ icon: Icon, label, value, sub }: { icon: any, label: string, value: string | number, sub: string }) {
+  return (
+    <Card className="shadow-none border-muted/50 bg-muted/5 hover:bg-muted/10 transition-colors">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+        <CardTitle className="text-xs font-medium text-muted-foreground">{label}</CardTitle>
+        <div className="bg-primary/10 p-1.5 rounded-md">
+          <Icon className="h-3.5 w-3.5 text-primary" />
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold tabular-nums">{value}</div>
+        <p className="text-[10px] text-muted-foreground mt-1 line-clamp-1" title={sub}>{sub}</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function MetricItem({ icon: Icon, label, value, sub }: { icon: any, label: string, value: string | number, sub: string }) {
   return (
     <div className="flex items-center">
       <div className="bg-primary/10 p-2 rounded-lg mr-4">

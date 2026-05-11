@@ -21,6 +21,16 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
+  --color-chart-20: var(--chart-20);
+  --color-chart-19: var(--chart-19);
+  --color-chart-18: var(--chart-18);
+  --color-chart-17: var(--chart-17);
+  --color-chart-16: var(--chart-16);
+  --color-chart-15: var(--chart-15);
+  --color-chart-14: var(--chart-14);
+  --color-chart-13: var(--chart-13);
+  --color-chart-12: var(--chart-12);
+  --color-chart-11: var(--chart-11);
   --color-chart-10: var(--chart-10);
   --color-chart-9: var(--chart-9);
   --color-chart-8: var(--chart-8);
@@ -84,6 +94,24 @@
   }
 }
 
+@keyframes graph-pulse {
+  0% { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+@keyframes graph-edge-flow {
+  from { stroke-dashoffset: 20; }
+  to { stroke-dashoffset: 0; }
+}
+
+.animate-graph-pulse {
+  animation: graph-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-graph-flow {
+  animation: graph-edge-flow 0.8s linear infinite;
+}
+
 /* ==========================================================================
    Base Colors (Fallback if no theme class is applied)
    Defaults to Zinc
@@ -118,6 +146,16 @@
   --chart-8: oklch(0.65 0.12 280);
   --chart-9: oklch(0.75 0.12 110);
   --chart-10: oklch(0.65 0.12 330);
+  --chart-11: oklch(0.55 0.04 250);
+  --chart-12: oklch(0.60 0.05 160);
+  --chart-13: oklch(0.58 0.06 15);
+  --chart-14: oklch(0.70 0.04 80);
+  --chart-15: oklch(0.62 0.06 290);
+  --chart-16: oklch(0.55 0.08 120);
+  --chart-17: oklch(0.50 0.07 200);
+  --chart-18: oklch(0.58 0.1 40);
+  --chart-19: oklch(0.52 0.08 240);
+  --chart-20: oklch(0.55 0.08 320);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -159,6 +197,16 @@
   --chart-8: oklch(0.7 0.14 280);
   --chart-9: oklch(0.8 0.14 110);
   --chart-10: oklch(0.75 0.14 330);
+  --chart-11: oklch(0.65 0.05 250);
+  --chart-12: oklch(0.70 0.06 160);
+  --chart-13: oklch(0.68 0.07 15);
+  --chart-14: oklch(0.75 0.05 80);
+  --chart-15: oklch(0.72 0.07 290);
+  --chart-16: oklch(0.65 0.09 120);
+  --chart-17: oklch(0.60 0.08 200);
+  --chart-18: oklch(0.68 0.11 40);
+  --chart-19: oklch(0.62 0.09 240);
+  --chart-20: oklch(0.65 0.09 320);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);

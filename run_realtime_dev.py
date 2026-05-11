@@ -402,11 +402,13 @@ async def main() -> None:
             encoder=encoder,
             extractor_config=extractor_cfg,
             big_five_buffer=BigFiveBuffer(x_messages=10),
-            orientation_analyzer=SocialOrientationAnalyzer(impression_repo),
+            orientation_analyzer=SocialOrientationAnalyzer(
+                impression_repo=impression_repo,
+                event_repo=event_repo,
+                cfg=cfg,
+            ),
             ipc_enabled=True,
             persona_repo=persona_repo,
-            impression_repo=impression_repo,
-            plugin_config=cfg,
         )
 
         extraction_futures: list[asyncio.Task] = []

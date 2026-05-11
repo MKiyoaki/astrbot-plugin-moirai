@@ -1,10 +1,11 @@
 """ContextManager: centralized session window management and VCM state machine."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections import OrderedDict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 from ..boundary.window import MessageWindow
 from ..utils.context_state_utils import VCMState, determine_next_state
@@ -17,13 +18,22 @@ logger = logging.getLogger(__name__)
 
 class ContextManager:
     """Manages active MessageWindows with LRU caching and TTL eviction.
-    
+
     Also implements the VCM (Virtual Context Management) state machine
     for each session.
+
+    evict_callback: optional async callable invoked with the evicted window when
+    LRU pressure forces a session out.  Wire up MessageRouter._flush_window here
+    so that evicted sessions are extracted rather than silently dropped.
     """
 
-    def __init__(self, config: ContextConfig) -> None:
+    def __init__(
+        self,
+        config: ContextConfig,
+        evict_callback: Callable[[MessageWindow], Awaitable[None]] | None = None,
+    ) -> None:
         self._cfg = config
+        self._evict_callback = evict_callback
         # session_id -> MessageWindow
         self._windows: OrderedDict[str, MessageWindow] = OrderedDict()
         # session_id -> VCMState
@@ -107,13 +117,22 @@ class ContextManager:
         return len(to_remove)
 
     def _evict_lru(self) -> None:
-        """Remove the oldest session to make room."""
+        """Remove the oldest session to make room.
+
+        If evict_callback is registered, schedules it as an asyncio task so the
+        evicted window is not silently dropped — the extractor can still process it.
+        """
         if not self._windows:
             return
-        sid, _ = self._windows.popitem(last=False)
+        sid, window = self._windows.popitem(last=False)
         self._states.pop(sid, None)
         self._last_active.pop(sid, None)
         logger.debug("[ContextManager] LRU eviction of session %s", sid)
+        if self._evict_callback is not None:
+            try:
+                asyncio.get_running_loop().create_task(self._evict_callback(window))
+            except RuntimeError:
+                logger.warning("[ContextManager] evict_callback skipped: no running event loop")
 
     @property
     def active_sessions_count(self) -> int:

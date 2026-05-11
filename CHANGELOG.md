@@ -1,5 +1,62 @@
 # CHANGELOG
 
+## [v0.7.11] — 2026-05-11
+
+### Unified Extraction：人格评分与事件提取合并为单次 LLM 调用
+
+- **`core/config.py`**：`DEFAULT_EXTRACTOR_SYSTEM_PROMPT` 和 `DEFAULT_DISTILLATION_SYSTEM_PROMPT` 均新增 `participants_personality` 字段定义（inline JSON schema + 字段说明）。LLM 在提取事件信息的同时输出参与者五大人格评分（O/C/E/A/N，-1.0~1.0），字段可选，不确定时省略。
+- **`core/extractor/prompts.py`**：`build_distillation_prompt` 末尾 inline 示例中补充 `participants_personality` 字段，与 system prompt 保持一致。
+- **效果**：IPC 启用时，`participants_personality` 返回值直接写入 `BigFiveBuffer._cache`，`maybe_score()` 在计数未达阈值时跳过独立的 Big Five LLM 调用，每次 event close 节省约 1 次 LLM 调用。两条路径（`llm` 策略走 extractor、`semantic` 策略走 distillation）输出格式现已统一。
+- 前端页面 **event timeline** 视觉效果增强。
+
+## [v0.7.10] — 2026-05-11
+
+### 数据流 Bug 修复与性能优化 (Dataflow Bugfixes & Performance)
+
+#### P0 Bug 修复
+
+- **`core/managers/context_manager.py`**：`ContextManager` 新增可选 `evict_callback` 参数。LRU 驱逐时会通过 `asyncio.create_task` 调用该回调，确保被驱逐的 window 不再静默丢失，而是触发 `EventExtractor` 正常提取。
+- **`core/plugin_initializer.py`**：初始化时将 `on_event_close` 同时注入 `ContextManager.evict_callback`，完成回调的端到端接线。
+- **`core/adapters/astrbot.py`**：移除 `drift_detected = (reason == "topic_drift")` 死代码——`EventBoundaryDetector` v1 从不返回 `"topic_drift"` reason，此表达式永远为 `False`，改为直接传递默认值 `False`，避免误导性代码。
+
+#### P1 性能优化
+
+- **`core/adapters/identity.py`**：`IdentityResolver` 新增 `(platform, physical_id) → uid` 内存缓存，同一用户的后续消息不再重复打 DB，热路径 DB 调用降至每用户首次出现一次。
+- **`core/extractor/extractor.py`**：合并 `_get_bot_persona_desc()` 和 `_get_bot_persona_name()` 为单一 `_get_bot_persona() -> (name, desc)`，并在 `__call__` 顶部调用一次后共享给所有 partition 和 result 循环，每次 event close 的 `persona_repo.list_all()` 调用从 N 次降至 1 次。
+
+#### P2 性能 & 稳定性优化
+
+- **`core/extractor/extractor.py`**：`_align_tags()` 改用 `encode_batch(all_tags)` 一次性编码所有标签，再通过 `asyncio.gather` 并发执行 `search_canonical_tag`，消除原有的 N 次串行 encode + N 次串行 DB 查询模式。
+- **`core/extractor/extractor.py`**：将 `asyncio.create_task(self._init_tag_seeds())` 从 `__init__` 移除，改为在首次 `__call__` 时懒初始化（通过 `_seeds_initialized` 标志位）。修复在无事件循环的同步上下文中构造 `EventExtractor` 时抛出 `RuntimeError: no running event loop` 的问题。
+
+#### 测试
+
+- **`tests/test_context_manager.py`**：新增 `test_lru_eviction_triggers_evict_callback`、`test_lru_eviction_without_callback_does_not_raise`。
+- **`tests/test_message_router.py`**：新增 `test_router_drift_detected_is_false_for_time_gap_close`，验证 v1 的 drift_detected 始终为 False。
+- **`tests/test_identity_resolver.py`**（新文件）：覆盖 uid 稳定性、平台隔离、缓存命中跳过 DB 等场景。
+- **`tests/test_extractor.py`**：新增 `test_bot_persona_list_all_called_once_per_extractor_call`。
+- **`tests/test_tag_normalization.py`**：新增 `test_align_tags_uses_batch_encode_not_per_tag_encode`、`test_align_tags_empty_list_no_encode`、`test_extractor_construction_outside_event_loop_does_not_raise`、`test_tag_seeds_initialized_on_first_call_not_at_construction`。
+
+---
+
+## [v0.7.9] — 2026-05-11
+
+### 统一提取策略与 IPC 鲁棒性优化 (Unified Extraction & IPC Robustness)
+
+#### 后端 (`core/`)
+- **`core/extractor/parser.py`**：重构解析器，新增对统一LLM调用prompt中 JSON 字段的解析与数值校验逻辑。
+- **`core/extractor/extractor.py`**：重构提取流程。现在优先使用 LLM 随事件返回的性格数据来预热缓存，并同步等待所有 IPC 分析任务完成，彻底解决了数据更新的竞态条件。
+- **`core/social/ipc_model.py`**：修复置信度归零 Bug。重构 `r_squared` 计算公式，从“距离占比”改为“角度拟合度”，并为中立原点（B=0, P=0）提供 0.5 的默认置信度。
+- **`core/social/orientation_analyzer.py`**：
+    - **EMA 逻辑修复**：确保现有记录的 `confidence` 会随新数据滚动更新。
+    - **管道整合**：将原本独立的基于交互频率的启发式规则整合为分析器的 **Fallback 路径**。现在系统优先采用 LLM 的科学评分，仅在数据缺失时触发规则兜底，消除了多源写入冲突。
+- **`core/plugin_initializer.py`**：移除了废弃的 `_maybe_trigger_impression` 后台任务，简化了组件初始化依赖。
+
+#### 测试
+- **`tests/test_extractor.py`**：新增 `test_extractor_unified_personality_priming` 集成测试，验证统一提取路径下的性格数据流转与印象更新。
+
+---
+
 ## [v0.7.8] — 2026-05-11
 
 ### 数据驱动的情感动态分析 (Data-Driven Mood Analysis)

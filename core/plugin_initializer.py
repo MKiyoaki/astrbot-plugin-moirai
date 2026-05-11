@@ -131,7 +131,10 @@ class PluginInitializer:
 
         self.embedding_manager = EmbeddingManager(encoder, embed_cfg)
 
-        self.context_manager = ContextManager(cfg.get_context_config())
+        self.context_manager = ContextManager(
+            cfg.get_context_config(),
+            evict_callback=None,  # set after extractor is built below
+        )
 
         retriever = HybridRetriever(
             event_repo=event_repo,
@@ -162,7 +165,11 @@ class PluginInitializer:
                 x_messages=ipc_cfg.bigfive_x_messages,
                 llm_timeout=ipc_cfg.bigfive_llm_timeout,
             )
-            orientation_analyzer = SocialOrientationAnalyzer(impression_repo)
+            orientation_analyzer = SocialOrientationAnalyzer(
+                impression_repo=impression_repo,
+                event_repo=event_repo,
+                cfg=cfg,
+            )
 
         extractor = EventExtractor(
             event_repo=event_repo,
@@ -172,13 +179,15 @@ class PluginInitializer:
             big_five_buffer=big_five_buffer,
             orientation_analyzer=orientation_analyzer,
             ipc_enabled=ipc_cfg.enabled,
-            impression_repo=impression_repo,
-            plugin_config=cfg,
             persona_repo=persona_repo,
         )
 
         async def on_event_close(window: MessageWindow) -> None:
             asyncio.create_task(extractor(window))
+
+        # Wire the same callback into ContextManager so LRU-evicted windows are
+        # also extracted instead of silently dropped.
+        self.context_manager._evict_callback = on_event_close
 
         resolver = IdentityResolver(persona_repo)
         detector = EventBoundaryDetector(cfg.get_boundary_config())
@@ -310,113 +319,4 @@ def _get_plugin_version() -> str:
         return "0.6.0"
 
 
-async def _maybe_trigger_impression(
-    event: Event,
-    impression_repo,
-    event_repo,
-    cfg: PluginConfig,
-) -> None:
-    """Rule-based impression update triggered on event close.
 
-    Iterates all (observer, subject) pairs among event participants.
-    Skips a pair if:
-    - debounce window not elapsed since last_reinforced_at
-    - shared event count in this scope < threshold
-
-    On trigger: maps heuristic signals to IPC coordinates (no LLM, no ML).
-    colleague (≥10 shared events) → 支配友好 (B=0.4, P=0.2)
-    stranger  (<10 shared events) → 友好      (B=0.2, P=0.0)
-    """
-    import math
-    from .domain.models import Impression
-
-    uids = event.participants
-    if len(uids) < 2:
-        return
-
-    scope = event.group_id or "global"
-    threshold = cfg.impression_event_trigger_threshold
-    debounce_sec = cfg.impression_trigger_debounce_hours * 3600
-    now = time.time()
-
-    for i, observer in enumerate(uids):
-        for subject in uids[i + 1:]:
-            for obs, subj in [(observer, subject), (subject, observer)]:
-                try:
-                    existing = await impression_repo.get(obs, subj, scope)
-
-                    # Debounce
-                    if existing and (now - existing.last_reinforced_at) < debounce_sec:
-                        continue
-
-                    # Count shared events in this scope
-                    obs_events = await event_repo.list_by_participant(obs, limit=200)
-                    subj_ids = {
-                        e.event_id
-                        for e in await event_repo.list_by_participant(subj, limit=200)
-                    }
-                    shared = [
-                        e for e in obs_events
-                        if e.event_id in subj_ids
-                        and (e.group_id or "global") == scope
-                    ]
-
-                    if len(shared) < threshold:
-                        continue
-
-                    # Rule-based IPC heuristics
-                    count = len(shared)
-                    avg_salience = sum(e.salience for e in shared) / count
-                    # colleague → 支配友好 (B=0.4, P=0.2); stranger → 友好 (B=0.2, P=0.0)
-                    if count >= 10:
-                        ipc_orientation = "支配友好"
-                        benevolence = min(1.0, 0.3 + avg_salience * 0.4)
-                        power = 0.2
-                    else:
-                        ipc_orientation = "友好"
-                        benevolence = min(1.0, 0.1 + avg_salience * 0.3)
-                        power = 0.0
-                    affect_intensity = min(1.0, math.sqrt(
-                        benevolence ** 2 + power ** 2) / math.sqrt(2))
-                    r_squared = 0.3  # low confidence — rule-based signal only
-
-                    if existing:
-                        alpha = cfg.impression_update_alpha
-                        new_imp = dataclasses.replace(
-                            existing,
-                            ipc_orientation=ipc_orientation,
-                            benevolence=round(
-                                existing.benevolence * (1 - alpha) + benevolence * alpha, 3),
-                            power=round(existing.power *
-                                        (1 - alpha) + power * alpha, 3),
-                            affect_intensity=round(
-                                existing.affect_intensity * (1 - alpha) + affect_intensity * alpha, 3),
-                            r_squared=round(
-                                existing.r_squared * (1 - alpha) + r_squared * alpha, 3),
-                            last_reinforced_at=now,
-                        )
-                    else:
-                        new_imp = Impression(
-                            observer_uid=obs,
-                            subject_uid=subj,
-                            ipc_orientation=ipc_orientation,
-                            benevolence=benevolence,
-                            power=power,
-                            affect_intensity=affect_intensity,
-                            r_squared=r_squared,
-                            confidence=0.3,
-                            scope=scope,
-                            evidence_event_ids=[
-                                e.event_id for e in shared[-5:]],
-                            last_reinforced_at=now,
-                        )
-
-                    await impression_repo.upsert(new_imp)
-                    logger.debug(
-                        "[ImpressionTrigger] %s→%s scope=%s updated (count=%d, ipc=%s)",
-                        obs[:8], subj[:8], scope, count, ipc_orientation,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "[ImpressionTrigger] failed for %s→%s: %s", obs[:8], subj[:8], exc
-                    )

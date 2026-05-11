@@ -60,11 +60,9 @@ class MessageRouter:
         uid = await self._resolver.get_or_create_uid(platform, physical_id, display_name)
 
         window = self._context_manager.get_window(session_id, now=now)
-        drift_detected = False
         if window is not None:
-            should_close, reason = self._detector.should_close(window, now)
+            should_close, _ = self._detector.should_close(window, now)
             if should_close:
-                drift_detected = (reason == "topic_drift")
                 await self._flush_window(window)
                 window = None
 
@@ -72,7 +70,7 @@ class MessageRouter:
             window = self._context_manager.get_window(session_id, create=True, group_id=group_id, now=now)
 
         window.add_message(uid, text, now, display_name)
-        self._context_manager.update_state(session_id, drift_detected=drift_detected)
+        self._context_manager.update_state(session_id)
 
     async def flush_all(self) -> None:
         """Flush all open windows (called on plugin shutdown)."""

@@ -5,20 +5,8 @@ import { X, ChevronDown, ChevronUp } from 'lucide-react'
 import { useApp } from '@/lib/store'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { getTagColor } from '@/lib/colors'
 
-// 使用 Tailwind 语义化图表变量
-const THREAD_COLORS = [
-  'var(--color-chart-1)',
-  'var(--color-chart-2)',
-  'var(--color-chart-3)',
-  'var(--color-chart-4)',
-  'var(--color-chart-5)',
-  'var(--color-chart-6)',
-  'var(--color-chart-7)',
-  'var(--color-chart-8)',
-  'var(--color-chart-9)',
-  'var(--color-chart-10)',
-]
 const COLLAPSED_H = 36
 
 export interface TagItem {
@@ -79,26 +67,26 @@ export function TagFilter({ tags, value, onChange }: TagFilterProps) {
         className="flex flex-wrap items-start gap-1.5 overflow-hidden"
         style={{ height: expanded ? undefined : `${COLLAPSED_H}px` }}
       >
-        {tags.map((tag, i) => {
+        {tags.map((tag) => {
           const active = value.has(tag.name)
-          const color = THREAD_COLORS[i % THREAD_COLORS.length]
+          const color = getTagColor(tag.name)
           return (
             <button
               key={tag.name}
               onClick={() => toggle(tag.name)}
-              className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] transition-all"
-              style={active ? {
-                // 利用 color-mix 完美渲染出主题色的微透明高亮效果
-                borderColor: `color-mix(in srgb, ${color} 40%, transparent)`,
-                background: `color-mix(in srgb, ${color} 15%, transparent)`,
-                color
-              } : {}}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] transition-all",
+                active 
+                  ? "bg-secondary border-muted-foreground/20 shadow-sm" 
+                  : "bg-transparent border-transparent hover:bg-muted/50"
+              )}
             >
-              <span className="text-[10px] text-muted-foreground">#</span>
+              <span className="size-1.5 shrink-0 rounded-full" style={{ background: color }} />
               {tag.name}
-              <span className="rounded bg-muted px-1 text-[9px] text-muted-foreground">
+              <span className="ml-0.5 text-[9px] text-muted-foreground opacity-70">
                 {tag.count}
               </span>
+              {active && <X className="ml-0.5 size-2.5 text-muted-foreground" />}
             </button>
           )
         })}

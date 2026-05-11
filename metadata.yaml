@@ -1,6 +1,6 @@
 name: astrbot_plugin_moirai
 display_name: Moirai
 desc: 三轴长期记忆插件（情节轴 × 社会关系轴 × 叙事轴），在多维世界线下管理机器人的命运与记忆。
-version: v0.7.8
+version: v0.7.9
 author: MKiyoaki, DrGariton
 repo: https://github.com/MKiyoaki/astrbot-plugin-moirai

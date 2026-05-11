@@ -48,12 +48,75 @@ _SESSION_COOKIE = "em_session"
 
 
 # Serialization helper functions (pure functions, independently testable)
+def _ts_to_iso(ts: float) -> str:
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
 def _json(data: Any, *, status: int = 200) -> web.Response:
     return web.Response(
         text=json.dumps(data, ensure_ascii=False),
         content_type="application/json",
         status=status,
     )
+
+
+def event_to_dict(event: Event) -> dict[str, Any]:
+    return {
+        "id": event.event_id,
+        "content": event.topic or event.event_id[:8],
+        "topic": event.topic or "",
+        "summary": event.summary or "",
+        "start": _ts_to_iso(event.start_time),
+        "end": _ts_to_iso(event.end_time),
+        "start_ts": event.start_time,
+        "end_ts": event.end_time,
+        "group": event.group_id,
+        "salience": round(event.salience, 3) if event.salience is not None else 0.5,
+        "confidence": round(event.confidence, 3) if event.confidence is not None else 0.8,
+        "tags": event.chat_content_tags if event.chat_content_tags is not None else [],
+        "inherit_from": event.inherit_from if event.inherit_from is not None else [],
+        "participants": event.participants if event.participants is not None else [],
+        "status": event.status or "active",
+        "is_locked": bool(event.is_locked),
+        "bot_persona_name": event.bot_persona_name,
+    }
+
+
+def persona_to_node(persona: Persona) -> dict[str, Any]:
+    return {
+        "data": {
+            "id": persona.uid,
+            "label": persona.primary_name,
+            "confidence": round(persona.confidence, 3),
+            "attrs": persona.persona_attrs,
+            "bound_identities": [
+                {"platform": p, "physical_id": pid}
+                for p, pid in persona.bound_identities
+            ],
+            "created_at": _ts_to_iso(persona.created_at),
+            "last_active_at": _ts_to_iso(persona.last_active_at),
+            "is_bot": any(p == "internal" for p, _ in persona.bound_identities),
+        }
+    }
+
+
+def impression_to_edge(imp: Impression) -> dict[str, Any]:
+    return {
+        "data": {
+            "id": f"{imp.observer_uid}--{imp.subject_uid}--{imp.scope}",
+            "source": imp.observer_uid,
+            "target": imp.subject_uid,
+            "label": imp.ipc_orientation,
+            "affect": round(imp.benevolence, 3),
+            "intensity": round(imp.affect_intensity, 3),
+            "power": round(imp.power, 3),
+            "r_squared": round(imp.r_squared, 3),
+            "confidence": round(imp.confidence, 3),
+            "scope": imp.scope,
+            "evidence_event_ids": imp.evidence_event_ids,
+            "last_reinforced_at": _ts_to_iso(imp.last_reinforced_at),
+        }
+    }
 
 
 # Demo data summaries (module-level constants, used by _handle_demo)
@@ -145,33 +208,42 @@ class WebuiServer:
     def _ensure_frontend_build(self) -> None:
         """Automated build logic: Triggers static build only in dev environment when the static folder is missing."""
         frontend_src = Path(__file__).parent / "frontend"
-        
+
         # If the static folder exists and is not empty, proceed directly (user-side execution logic)
         if _STATIC_DIR.exists() and any(_STATIC_DIR.iterdir()):
-            logger.info("[WebUI] Static resources are ready, loading directly.")
+            logger.info(
+                "[WebUI] Static resources are ready, loading directly.")
             return
-            
+
         # If frontend source code exists, it indicates a dev environment, execute the build process
         if (frontend_src / "package.json").exists():
-            logger.info("[WebUI] First run or missing static assets, automating frontend build, please wait...")
+            logger.info(
+                "[WebUI] First run or missing static assets, automating frontend build, please wait...")
             try:
                 # Use shell=True to inherit system NVM environment
-                logger.info("[WebUI] Installing frontend dependencies (npm install)...")
-                subprocess.run("npm install", cwd=frontend_src, shell=True, check=True)
-                
-                logger.info("[WebUI] Executing static compilation (npm run build)...")
-                subprocess.run("npm run build", cwd=frontend_src, shell=True, check=True)
-                
-                logger.info("[WebUI] Frontend static compilation completed! Resources saved to: %s", _STATIC_DIR)
+                logger.info(
+                    "[WebUI] Installing frontend dependencies (npm install)...")
+                subprocess.run("npm install", cwd=frontend_src,
+                               shell=True, check=True)
+
+                logger.info(
+                    "[WebUI] Executing static compilation (npm run build)...")
+                subprocess.run("npm run build", cwd=frontend_src,
+                               shell=True, check=True)
+
+                logger.info(
+                    "[WebUI] Frontend static compilation completed! Resources saved to: %s", _STATIC_DIR)
             except subprocess.CalledProcessError as e:
-                logger.error("[WebUI] Automated build failed. Please check your Node.js environment or manually run build in the web/web directory. Error: %s", e)
+                logger.error(
+                    "[WebUI] Automated build failed. Please check your Node.js environment or manually run build in the web/web directory. Error: %s", e)
         else:
-            logger.warning("[WebUI] Cannot start frontend: Static assets folder 'static' not found and source directory is missing.")
+            logger.warning(
+                "[WebUI] Cannot start frontend: Static assets folder 'static' not found and source directory is missing.")
 
     # Application construction
     def _build_app(self) -> web.Application:
         app = web.Application()
-        
+
         # Authentication
         app.router.add_get("/api/auth/status",
                            self._wrap("public", self._handle_auth_status))
@@ -189,7 +261,7 @@ class WebuiServer:
             "/api/auth/password",
             self._wrap("sudo", self._handle_change_password),
         )
-        
+
         # Data queries
         app.router.add_get(
             "/api/events", self._wrap("auth", self._handle_events))
@@ -201,7 +273,7 @@ class WebuiServer:
             "/api/summary", self._wrap("auth", self._handle_summary))
         app.router.add_get(
             "/api/stats", self._wrap("auth", self._handle_stats))
-            
+
         # Admin operations (sudo)
         app.router.add_post("/api/admin/run_task",
                             self._wrap("sudo", self._handle_run_task))
@@ -211,11 +283,11 @@ class WebuiServer:
             "/api/summary/regenerate", self._wrap("sudo", self._handle_regenerate_summary))
         app.router.add_post("/api/admin/demo",
                             self._wrap("sudo", self._handle_demo))
-                            
+
         # Memory recall testing
         app.router.add_get(
             "/api/recall", self._wrap("auth", self._handle_recall))
-            
+
         # Event CRUD
         app.router.add_post(
             "/api/events", self._wrap("sudo", self._handle_create_event))
@@ -225,7 +297,7 @@ class WebuiServer:
             "/api/events/{event_id}", self._wrap("sudo", self._handle_delete_event))
         app.router.add_delete(
             "/api/events", self._wrap("sudo", self._handle_clear_events))
-            
+
         # Recycle bin
         app.router.add_get("/api/recycle_bin",
                            self._wrap("auth", self._handle_recycle_bin_list))
@@ -233,7 +305,7 @@ class WebuiServer:
                             self._wrap("sudo", self._handle_recycle_bin_restore))
         app.router.add_delete(
             "/api/recycle_bin", self._wrap("sudo", self._handle_recycle_bin_clear))
-            
+
         # Persona CRUD
         app.router.add_post(
             "/api/personas", self._wrap("sudo", self._handle_create_persona))
@@ -241,13 +313,13 @@ class WebuiServer:
             "/api/personas/{uid}", self._wrap("sudo", self._handle_update_persona))
         app.router.add_delete(
             "/api/personas/{uid}", self._wrap("sudo", self._handle_delete_persona))
-            
+
         # Impression updates
         app.router.add_put(
             "/api/impressions/{observer}/{subject}/{scope}",
             self._wrap("sudo", self._handle_update_impression_guarded),
         )
-        
+
         # Tags aggregation
         app.router.add_get(
             "/api/tags", self._wrap("auth", self._handle_tags))
@@ -263,7 +335,7 @@ class WebuiServer:
         # Third-party panel registration
         app.router.add_get(
             "/api/panels", self._wrap("auth", self._handle_panels_list))
-            
+
         # Inject routes registered by third-party plugins
         for route in self.registry.all_routes():
             app.router.add_route(
@@ -276,7 +348,7 @@ class WebuiServer:
         # Static files and SPA route fallback (must be placed last)
         app.router.add_get("/", self._handle_spa_fallback)
         app.router.add_get("/{tail:.*}", self._handle_spa_fallback)
-        
+
         return app
 
     async def _handle_spa_fallback(self, request: web.Request) -> web.Response:
@@ -284,13 +356,13 @@ class WebuiServer:
         # Prevent accidental interception of API requests
         if request.path.startswith("/api/"):
             return web.Response(status=404, text="API Endpoint Not Found")
-            
+
         path = request.match_info.get("tail", "").strip("/")
         if not path:
             path = "index.html"
-            
+
         target_file = _STATIC_DIR / path
-        
+
         # Security check: Prevent path traversal attacks
         try:
             target_file.resolve().relative_to(_STATIC_DIR.resolve())
@@ -330,7 +402,7 @@ class WebuiServer:
     async def start(self) -> None:
         # Ensure static resources are ready
         self._ensure_frontend_build()
-        
+
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, "0.0.0.0", self._port)
@@ -359,7 +431,8 @@ class WebuiServer:
                 request["auth"] = state
                 return await handler(request)
             except Exception as exc:
-                logger.exception("[WebUI] Unhandled error in %s %s", request.method, request.path)
+                logger.exception(
+                    "[WebUI] Unhandled error in %s %s", request.method, request.path)
                 return _json({"error": str(exc)}, status=500)
         return wrapped
 
@@ -377,7 +450,7 @@ class WebuiServer:
             for gid in group_ids:
                 events.extend(await self._event_repo.list_by_group(gid, limit=per_group))
             events = events[:limit]
-        return {"items": [e.to_web_dict() for e in events], "total": len(events)}
+        return {"items": [event_to_dict(e) for e in events], "total": len(events)}
 
     async def graph_data(self) -> dict[str, Any]:
         personas = await self._persona_repo.list_all()
@@ -385,7 +458,7 @@ class WebuiServer:
 
         nodes = []
         for p in personas:
-            node = p.to_web_node()
+            node = persona_to_node(p)
             node["data"]["msg_count"] = uid_msg_counts.get(p.uid, 0)
             nodes.append(node)
 
@@ -393,7 +466,7 @@ class WebuiServer:
         for persona in personas:
             imps = await self._impression_repo.list_by_observer(persona.uid)
             for imp in imps:
-                edge = imp.to_web_edge()
+                edge = impression_to_edge(imp)
                 edge["data"]["msg_count"] = await self._event_repo.count_edge_messages(
                     imp.observer_uid, imp.subject_uid, imp.scope
                 )
@@ -519,7 +592,7 @@ class WebuiServer:
 
         body = await request.json()
         token = request.cookies.get(_SESSION_COOKIE)
-        
+
         # Prefer using state from middleware if available
         state = request.get("auth")
         if not state:
@@ -527,13 +600,13 @@ class WebuiServer:
 
         if not token or not state.is_authenticated:
             return _json({"error": "session expired, please login again"}, status=401)
-            
+
         if not self._auth.verify_password(body.get("password", "")):
             return _json({"error": "invalid password"}, status=401)
-            
+
         if not self._auth.verify_sudo(token, body.get("password", "")):
             return _json({"error": "sudo activation failed"}, status=500)
-            
+
         state = self._auth.check(token)
         return _json({"ok": True, "sudo_remaining_seconds": state.sudo_remaining_seconds})
 
@@ -711,10 +784,13 @@ class WebuiServer:
             Event(
                 event_id="demo_evt_001", group_id="demo_group_001",
                 start_time=now - 10 * DAY, end_time=now - 10 * DAY + 1200,
-                participants=["demo_uid_alice", "demo_uid_bob", "demo_uid_bot"],
+                participants=["demo_uid_alice",
+                              "demo_uid_bob", "demo_uid_bot"],
                 interaction_flow=[
-                    MessageRef("demo_uid_alice", now - 10 * DAY, "h1", "大家早安！"),
-                    MessageRef("demo_uid_bob", now - 10 * DAY + 60, "h2", "早，Alice。"),
+                    MessageRef("demo_uid_alice", now -
+                               10 * DAY, "h1", "大家早安！"),
+                    MessageRef("demo_uid_bob", now - 10 *
+                               DAY + 60, "h2", "早，Alice。"),
                 ],
                 topic="早安问候",
                 summary="Alice 发起早安问候，Bob 礼貌回应，群组开启了一天的活跃氛围。",
@@ -725,7 +801,8 @@ class WebuiServer:
             Event(
                 event_id="demo_evt_002", group_id="demo_group_001",
                 start_time=now - 8 * DAY, end_time=now - 8 * DAY + 3600,
-                participants=["demo_uid_alice", "demo_uid_bob", "demo_uid_bot"],
+                participants=["demo_uid_alice",
+                              "demo_uid_bob", "demo_uid_bot"],
                 interaction_flow=[],
                 topic="音乐推荐：古典乐之美",
                 summary="Alice 分享了几首德彪西的曲目，Bob 探讨了古典乐对专注力的提升作用。",
@@ -736,7 +813,8 @@ class WebuiServer:
             Event(
                 event_id="demo_evt_003", group_id="demo_group_001",
                 start_time=now - 6 * DAY, end_time=now - 6 * DAY + 5400,
-                participants=["demo_uid_bob", "demo_uid_charlie", "demo_uid_bot"],
+                participants=["demo_uid_bob",
+                              "demo_uid_charlie", "demo_uid_bot"],
                 interaction_flow=[],
                 topic="异步 IO 性能调优",
                 summary="Bob 与 Charlie 深入讨论了 Python asyncio 的事件循环机制及在高并发场景下的优化策略。",
@@ -747,7 +825,8 @@ class WebuiServer:
             Event(
                 event_id="demo_evt_004", group_id="demo_group_002",
                 start_time=now - 4 * DAY, end_time=now - 4 * DAY + 2400,
-                participants=["demo_uid_alice", "demo_uid_diana", "demo_uid_bot"],
+                participants=["demo_uid_alice",
+                              "demo_uid_diana", "demo_uid_bot"],
                 interaction_flow=[],
                 topic="周末徒步计划",
                 summary="Alice 邀请 Diana 周末去西山徒步，Diana 建议携带专业摄影器材记录秋景。",
@@ -769,7 +848,8 @@ class WebuiServer:
             Event(
                 event_id="demo_evt_006", group_id="demo_group_001",
                 start_time=now - DAY, end_time=now - DAY + 4200,
-                participants=["demo_uid_alice", "demo_uid_bob", "demo_uid_charlie", "demo_uid_bot"],
+                participants=["demo_uid_alice", "demo_uid_bob",
+                              "demo_uid_charlie", "demo_uid_bot"],
                 interaction_flow=[],
                 topic="AI 伦理与长期记忆",
                 summary="群组讨论了机器人拥有长期记忆后可能带来的隐私风险及相关的伦理边界问题。",
@@ -792,7 +872,8 @@ class WebuiServer:
             Event(
                 event_id="demo_evt_008", group_id="demo_group_001",
                 start_time=now - 6 * 3600, end_time=now - 5 * 3600,
-                participants=["demo_uid_alice", "demo_uid_bob", "demo_uid_bot"],
+                participants=["demo_uid_alice",
+                              "demo_uid_bob", "demo_uid_bot"],
                 interaction_flow=[],
                 topic="项目周报同步",
                 summary="Alice 汇总了本周的讨论热点，Bob 确认了技术分享的排期，群组达成阶段性一致。",
@@ -808,7 +889,8 @@ class WebuiServer:
                 ipc_orientation="友好", benevolence=0.85, power=0.1,
                 affect_intensity=0.6, r_squared=0.88, confidence=0.92,
                 scope="global",
-                evidence_event_ids=["demo_evt_001", "demo_evt_002", "demo_evt_004", "demo_evt_006"],
+                evidence_event_ids=[
+                    "demo_evt_001", "demo_evt_002", "demo_evt_004", "demo_evt_006"],
                 last_reinforced_at=now - 12 * 3600,
             ),
             Impression(
@@ -816,7 +898,8 @@ class WebuiServer:
                 ipc_orientation="支配友好", benevolence=0.3, power=0.45,
                 affect_intensity=0.38, r_squared=0.75, confidence=0.89,
                 scope="global",
-                evidence_event_ids=["demo_evt_001", "demo_evt_003", "demo_evt_005", "demo_evt_006", "demo_evt_008"],
+                evidence_event_ids=["demo_evt_001", "demo_evt_003",
+                                    "demo_evt_005", "demo_evt_006", "demo_evt_008"],
                 last_reinforced_at=now - 3600,
             ),
             Impression(
@@ -861,12 +944,16 @@ class WebuiServer:
             ),
         ]
 
-        for p in personas: await self._persona_repo.upsert(p)
-        for e in events: await self._event_repo.upsert(e)
-        for imp in impressions: await self._impression_repo.upsert(imp)
+        for p in personas:
+            await self._persona_repo.upsert(p)
+        for e in events:
+            await self._event_repo.upsert(e)
+        for imp in impressions:
+            await self._impression_repo.upsert(imp)
 
         for date, content in [("2026-05-01", _DEMO_SUMMARY_1), ("2026-05-02", _DEMO_SUMMARY_2)]:
-            path = self._data_dir / "groups" / "demo_group_001" / "summaries" / f"{date}.md"
+            path = self._data_dir / "groups" / \
+                "demo_group_001" / "summaries" / f"{date}.md"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
 
@@ -1011,17 +1098,17 @@ class WebuiServer:
             import traceback
             traceback.print_exc()
             return _json({"error": str(exc)}, status=400)
-        
+
         try:
             await self._event_repo.upsert(event)
         except Exception as exc:
             import traceback
             traceback.print_exc()
             return _json({"error": f"Database error: {str(exc)}"}, status=500)
-            
+
         self._recycle_bin = [
             x for x in self._recycle_bin if x["id"] != event_id]
-        return _json({"ok": True, "event": event.to_web_dict()})
+        return _json({"ok": True, "event": event_to_dict(event)})
 
     async def _handle_recycle_bin_clear(self, _: web.Request) -> web.Response:
         count = len(self._recycle_bin)
@@ -1056,7 +1143,7 @@ class WebuiServer:
         except (ValueError, TypeError) as exc:
             return _json({"error": str(exc)}, status=400)
         await self._persona_repo.upsert(persona)
-        return _json({"ok": True, "persona": persona.to_web_node()}, status=201)
+        return _json({"ok": True, "persona": persona_to_node(persona)}, status=201)
 
     async def _handle_update_persona(self, request: web.Request) -> web.Response:
         uid = request.match_info["uid"]
@@ -1092,7 +1179,7 @@ class WebuiServer:
         except (ValueError, TypeError) as exc:
             return _json({"error": str(exc)}, status=400)
         await self._persona_repo.upsert(updated)
-        return _json({"ok": True, "persona": updated.to_web_node()})
+        return _json({"ok": True, "persona": persona_to_node(updated)})
 
     async def _handle_delete_persona(self, request: web.Request) -> web.Response:
         uid = request.match_info["uid"]
@@ -1115,15 +1202,15 @@ class WebuiServer:
                 observer_uid=observer,
                 subject_uid=subject,
                 ipc_orientation=body.get("relation_type",
-                                       existing.ipc_orientation if existing else "友好"),
+                                         existing.ipc_orientation if existing else "友好"),
                 benevolence=float(body.get("affect",
-                                      existing.benevolence if existing else 0.0)),
+                                           existing.benevolence if existing else 0.0)),
                 power=float(body.get("power",
-                                    existing.power if existing else 0.0)),
+                                     existing.power if existing else 0.0)),
                 affect_intensity=float(body.get("intensity",
-                                         existing.affect_intensity if existing else 0.5)),
+                                                existing.affect_intensity if existing else 0.5)),
                 r_squared=float(body.get("r_squared",
-                                        existing.r_squared if existing else 0.7)),
+                                         existing.r_squared if existing else 0.7)),
                 confidence=float(body.get("confidence",
                                           existing.confidence if existing else 0.7)),
                 scope=scope,
@@ -1134,7 +1221,7 @@ class WebuiServer:
         except (ValueError, TypeError) as exc:
             return _json({"error": str(exc)}, status=400)
         await self._impression_repo.upsert(impression)
-        return _json({"ok": True, "impression": impression.to_web_edge()["data"]})
+        return _json({"ok": True, "impression": impression_to_edge(impression)["data"]})
 
     # Route handlers: Tags aggregation
 
@@ -1164,7 +1251,8 @@ class WebuiServer:
         merged.update(self._initial_config)
         if self._config_path.exists():
             try:
-                saved = json.loads(self._config_path.read_text(encoding="utf-8"))
+                saved = json.loads(
+                    self._config_path.read_text(encoding="utf-8"))
                 merged.update(saved)
             except Exception:
                 pass
@@ -1202,7 +1290,8 @@ class WebuiServer:
         existing: dict = {}
         if self._config_path.exists():
             try:
-                existing = json.loads(self._config_path.read_text(encoding="utf-8"))
+                existing = json.loads(
+                    self._config_path.read_text(encoding="utf-8"))
             except Exception:
                 pass
         existing.update(coerced)
@@ -1264,7 +1353,8 @@ async def _seed(
             uid="demo_uid_alice",
             bound_identities=[("qq", "demo_10001")],
             primary_name="Alice",
-            persona_attrs={"description": "热情开朗，喜爱音乐与游戏", "affect_type": "积极", "content_tags": ["音乐", "游戏", "聊天"]},
+            persona_attrs={"description": "热情开朗，喜爱音乐与游戏",
+                           "affect_type": "积极", "content_tags": ["音乐", "游戏", "聊天"]},
             confidence=0.88,
             created_at=now - 30 * DAY,
             last_active_at=now - DAY,
@@ -1273,7 +1363,8 @@ async def _seed(
             uid="demo_uid_bob",
             bound_identities=[("qq", "demo_10002")],
             primary_name="Bob",
-            persona_attrs={"description": "理性谨慎，热衷技术讨论", "affect_type": "中性", "content_tags": ["技术", "编程"]},
+            persona_attrs={"description": "理性谨慎，热衷技术讨论",
+                           "affect_type": "中性", "content_tags": ["技术", "编程"]},
             confidence=0.82,
             created_at=now - 25 * DAY,
             last_active_at=now - 2 * DAY,
@@ -1282,7 +1373,8 @@ async def _seed(
             uid="demo_uid_charlie",
             bound_identities=[("telegram", "demo_tg_charlie")],
             primary_name="Charlie",
-            persona_attrs={"description": "神秘低调，偶尔参与讨论", "affect_type": "消极", "content_tags": ["旅行", "摄影"]},
+            persona_attrs={"description": "神秘低调，偶尔参与讨论",
+                           "affect_type": "消极", "content_tags": ["旅行", "摄影"]},
             confidence=0.65,
             created_at=now - 15 * DAY,
             last_active_at=now - 5 * DAY,
@@ -1291,7 +1383,8 @@ async def _seed(
             uid="demo_uid_bot",
             bound_identities=[("internal", "bot")],
             primary_name="BOT",
-            persona_attrs={"description": "AI 助手", "affect_type": "中性", "content_tags": []},
+            persona_attrs={"description": "AI 助手",
+                           "affect_type": "中性", "content_tags": []},
             confidence=1.0,
             created_at=now - 60 * DAY,
             last_active_at=now,
@@ -1323,7 +1416,8 @@ async def _seed(
         Event(
             event_id="demo_evt_003", group_id="demo_group_001",
             start_time=now - 5 * DAY, end_time=now - 5 * DAY + 2700,
-            participants=["demo_uid_alice", "demo_uid_charlie", "demo_uid_bot"],
+            participants=["demo_uid_alice",
+                          "demo_uid_charlie", "demo_uid_bot"],
             interaction_flow=[], topic="游戏约定",
             summary="Alice 和 Charlie 约定在周末一起进行在线游戏，讨论了具体的时间和游戏类型。",
             chat_content_tags=["游戏", "约定", "娱乐"],
@@ -1359,7 +1453,8 @@ async def _seed(
             ipc_orientation="友好", benevolence=0.7, power=0.0,
             affect_intensity=0.5, r_squared=0.8, confidence=0.85,
             scope="global",
-            evidence_event_ids=["demo_evt_001", "demo_evt_002", "demo_evt_005"],
+            evidence_event_ids=["demo_evt_001",
+                                "demo_evt_002", "demo_evt_005"],
             last_reinforced_at=now - DAY,
         ),
         Impression(
@@ -1401,7 +1496,8 @@ async def _seed(
         ("2026-05-01", _DEMO_SUMMARY_1),
         ("2026-05-02", _DEMO_SUMMARY_2),
     ]:
-        path = data_dir / "groups" / "demo_group_001" / "summaries" / f"{date}.md"
+        path = data_dir / "groups" / "demo_group_001" / \
+            "summaries" / f"{date}.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 
@@ -1411,8 +1507,8 @@ async def main() -> None:
     data_dir = _DATA_DIR
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    persona_repo    = InMemoryPersonaRepository()
-    event_repo      = InMemoryEventRepository()
+    persona_repo = InMemoryPersonaRepository()
+    event_repo = InMemoryEventRepository()
     impression_repo = InMemoryImpressionRepository()
 
     await _seed(persona_repo, event_repo, impression_repo, data_dir)

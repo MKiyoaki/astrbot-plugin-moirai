@@ -161,6 +161,51 @@ async def test_router_flush_all_clears_windows() -> None:
     assert len(router._context_manager._windows) == 0
 
 
+# ---------------------------------------------------------------------------
+# P0-2: topic_drift dead code — boundary detector never returns "topic_drift";
+#        drift_detected in MessageRouter must be False for all v1 close reasons.
+# ---------------------------------------------------------------------------
+
+async def test_router_drift_detected_is_false_for_time_gap_close() -> None:
+    """drift_detected must be False when a window closes due to a time gap.
+
+    In v1, EventBoundaryDetector does not implement topic_drift detection.
+    The old code `drift_detected = (reason == "topic_drift")` was always False;
+    after the fix it is statically False so the intent is explicit.
+    """
+    from core.utils.context_state_utils import VCMState
+    from core.managers.context_manager import ContextManager as _CM
+    from core.config import ContextConfig
+
+    states_seen: list[VCMState] = []
+
+    class _TrackingContextManager(_CM):
+        def update_state(self, session_id, drift_detected=False, recall_hit=False):
+            state = super().update_state(session_id, drift_detected=drift_detected, recall_hit=recall_hit)
+            states_seen.append(state)
+            # drift_detected must always be False in v1
+            assert drift_detected is False, "drift_detected should be False in v1"
+            return state
+
+    persona_repo = InMemoryPersonaRepository()
+    event_repo = InMemoryEventRepository()
+    ctx_mgr = _TrackingContextManager(ContextConfig())
+    router = MessageRouter(
+        event_repo=event_repo,
+        identity_resolver=IdentityResolver(persona_repo),
+        detector=EventBoundaryDetector(BoundaryConfig(time_gap_minutes=1.0)),
+        context_manager=ctx_mgr,
+        on_event_close=None,
+    )
+
+    t = 1000.0
+    await router.process("qq", "u1", "Alice", "msg1", "g1", now=t)
+    # 2-minute gap closes the window, then new message arrives
+    await router.process("qq", "u1", "Alice", "msg2", "g1", now=t + 120)
+
+    assert len(states_seen) >= 1
+
+
 async def test_router_same_platform_different_users_share_group_window() -> None:
     router, event_repo = make_router()
     t = 1000.0

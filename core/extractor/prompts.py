@@ -85,6 +85,7 @@ def build_distillation_prompt(
     lines.append(
         "\n请为这段对话提炼结构化信息，输出单个 JSON 对象，包含以下字段：\n"
         '{"topic": "核心主题(≤30字)", "summary": "摘要", '
-        '"chat_content_tags": ["标签1", "标签2"], "salience": 0.5, "confidence": 0.8, "inherit": false}'
+        '"chat_content_tags": ["标签1", "标签2"], "salience": 0.5, "confidence": 0.8, "inherit": false, '
+        '"participants_personality": {"Alice": {"O": 0.6, "C": 0.5, "E": 0.7, "A": 0.4, "N": -0.2}}}'
     )
     return "\n".join(lines)

@@ -18,7 +18,8 @@ import { FieldGroup, Field, FieldLabel, FieldContent, FieldDescription } from '@
 import { TagSelector } from '@/components/shared/tag-selector'
 import { type ApiEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
-import { cn } from '@/lib/utils'
+import { cn, parseSummaryTopics } from '@/lib/utils'
+import { getTagColor } from '@/lib/colors'
 
 export interface EventFormData {
   topic: string
@@ -38,19 +39,6 @@ const toLocalIso = (ts: number) =>
   new Date(ts * 1000).toISOString().slice(0, 16)
 
 // ── Helpers ───────────────────────────────────────────────────────────────
-
-function parseSummaryTopics(summary: string): { what: string; who: string; how: string; eval?: string }[] | null {
-  const topics = summary.split('|').map(s => s.trim()).filter(Boolean)
-  const result: { what: string; who: string; how: string; eval?: string }[] = []
-  for (const t of topics) {
-    const what = t.match(/\[What\]\s*([^\[]+)/)?.[1]?.trim()
-    const who  = t.match(/\[Who\]\s*([^\[]+)/)?.[1]?.trim()
-    const how  = t.match(/\[How\]\s*([^\[]+)/)?.[1]?.trim()
-    const eval_ = t.match(/\[Eval\]\s*([^\[]+)/)?.[1]?.trim()
-    if (what && who && how) result.push({ what, who, how, ...(eval_ ? { eval: eval_ } : {}) })
-  }
-  return result.length > 0 ? result : null
-}
 
 function GroupPicker({
   value,
@@ -838,11 +826,23 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
 
       {event.tags?.length > 0 && (
         <div className="flex flex-wrap gap-1.5 pl-2">
-          {event.tags.map(t => (
-            <Badge key={t} variant="outline" className="text-[10px] bg-background/50 py-0 px-2 h-5">
-              #{t}
-            </Badge>
-          ))}
+          {event.tags.map(t => {
+            const tagColor = getTagColor(t)
+            return (
+              <Badge 
+                key={t} 
+                variant="secondary" 
+                className="text-[10px] py-0 px-2 h-5 font-medium"
+                style={{ 
+                  background: `color-mix(in srgb, ${tagColor} 12%, transparent)`, 
+                  color: tagColor,
+                  borderColor: `color-mix(in srgb, ${tagColor} 30%, transparent)`
+                }}
+              >
+                #{t}
+              </Badge>
+            )
+          })}
         </div>
       )}
 

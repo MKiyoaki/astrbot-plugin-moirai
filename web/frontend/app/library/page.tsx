@@ -42,7 +42,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { buttonVariants } from '@/components/ui/button'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { cn, parseSummaryTopics } from '@/lib/utils'
 
 // ── Shared Sub-components ─────────────────────────────────────────────────
 
@@ -205,11 +205,35 @@ function EventDetailRow({
               )}
             </div>
             
-            {ev.summary && (
-              <div className="bg-muted/30 rounded p-2 text-xs text-muted-foreground leading-relaxed border-l-2 border-primary/20">
-                {ev.summary}
-              </div>
-            )}
+            {ev.summary && (() => {
+              const topics = parseSummaryTopics(ev.summary)
+              return (
+                <div className="bg-muted/30 rounded p-2 text-xs text-muted-foreground leading-relaxed border-l-2 border-primary/20">
+                  {topics ? (
+                    <div className="flex flex-col gap-2">
+                      {topics.map((tp, i) => (
+                        <div key={i} className="flex flex-col gap-1">
+                          {i > 0 && <div className="border-t border-primary/10 my-1" />}
+                          {([
+                            [i18n.events.summaryWhat, tp.what],
+                            [i18n.events.summaryWho,  tp.who],
+                            [i18n.events.summaryHow,  tp.how],
+                            [i18n.events.summaryEval, tp.eval ?? i18n.events.summaryEvalNone],
+                          ] as [string, string][]).map(([label, val]) => (
+                            <div key={label} className="flex gap-2 leading-snug">
+                              <span className="text-[10px] uppercase font-bold text-primary/60 tracking-tight w-14 shrink-0 pt-0.5">{label}</span>
+                              <span className="text-foreground/90 font-medium">{val}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div>{ev.summary}</div>
+                  )}
+                </div>
+              )
+            })()}
 
             {(ev.inherit_from?.length ?? 0) > 0 && (
                 <div className="col-span-2">

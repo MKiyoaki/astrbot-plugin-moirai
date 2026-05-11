@@ -175,6 +175,77 @@ class _MockProvider:
         return r
 
 
+# ---------------------------------------------------------------------------
+# P1-2: bot persona list_all should be called once per extractor invocation,
+#        not once per partition / once per extracted result.
+# ---------------------------------------------------------------------------
+
+class _CountingPersonaRepo:
+    """Minimal PersonaRepository that counts list_all calls."""
+
+    def __init__(self) -> None:
+        self.list_all_calls: int = 0
+        self._personas: list = []
+
+    async def list_all(self):
+        self.list_all_calls += 1
+        return self._personas
+
+    async def get(self, uid):
+        return None
+
+    async def get_by_identity(self, platform, physical_id):
+        return None
+
+    async def upsert(self, persona):
+        self._personas.append(persona)
+
+    async def delete(self, uid):
+        return False
+
+    async def search(self, query, limit=10):
+        return []
+
+
+async def test_bot_persona_list_all_called_once_per_extractor_call() -> None:
+    """list_all on persona_repo must be called at most once per __call__,
+    regardless of how many partitions / extracted results there are.
+
+    persona_influenced_summary=True activates the _get_bot_persona paths.
+    Without the fix: list_all is called once per extracted result in the loop
+    (_get_bot_persona_name) plus once per partition (_get_bot_persona_desc in
+    _distill).  With the fix: exactly one call at the top of __call__.
+    """
+    from core.repository.memory import InMemoryEventRepository as _ERepo
+    from core.config import ExtractorConfig
+
+    event_repo = _ERepo()
+    persona_repo = _CountingPersonaRepo()
+
+    # LLM returns two events — triggers two _get_bot_persona_name calls in the loop
+    json_resp = (
+        '[{"start_idx": 0, "end_idx": 0, "topic": "t1", "summary": "s1", '
+        '"chat_content_tags": [], "salience": 0.5, "confidence": 0.5},'
+        ' {"start_idx": 1, "end_idx": 1, "topic": "t2", "summary": "s2", '
+        '"chat_content_tags": [], "salience": 0.5, "confidence": 0.5}]'
+    )
+    provider = _MockProvider(json_resp)
+
+    extractor_cfg = ExtractorConfig(persona_influenced_summary=True)
+    extractor = EventExtractor(
+        event_repo=event_repo,
+        provider_getter=lambda: provider,
+        persona_repo=persona_repo,
+        extractor_config=extractor_cfg,
+    )
+
+    w = make_window([("u1", "Alice", "msg1"), ("u2", "Bob", "msg2")])
+    await extractor(w)
+
+    # Must be at most 1 call regardless of partition/result count
+    assert persona_repo.list_all_calls <= 1
+
+
 async def test_extractor_creates_events_from_llm(tmp_path) -> None:
     event_repo = InMemoryEventRepository()
     

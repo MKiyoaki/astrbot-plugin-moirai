@@ -18,20 +18,23 @@ from core.boundary.detector import BoundaryConfig
 DEFAULT_DISTILLATION_SYSTEM_PROMPT = (
     "你是一个聊天记录分析助手。你的任务是为一段已经语义聚类好的对话片段提炼结构化信息。\n\n"
     "只输出单个 JSON 对象，不输出任何其他文字或 markdown 代码块，格式如下：\n"
-    '{"topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false, '
-    '"participants_personality": {"用户A": {"O": 0.3, "C": 0.1, "E": 0.7, "A": 0.5, "N": -0.2}}}\n\n'
+    '{"topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false, "participants_personality": {"Alice": {"O": 0.6, "C": 0.5, "E": 0.7, "A": 0.4, "N": -0.2}}}\n\n'
     "字段说明：\n"
     "- topic: 该段对话的核心主题，简洁明了，30字以内\n"
     "- summary: 该段对话的摘要，提炼关键结论和信息，过滤口水话。"
     "按以下格式，每个小话题用 [What]/[Who]/[How] 三元组描述，多个小话题之间用 \" | \" 分隔，"
     "小话题数量与 chat_content_tags 对应（1-5个）。"
     "[What] 和 [How] 各写1-2句，说清楚具体发生了什么或得出了什么结论、以何种方式推进或结束（可包含情绪/态度/结果）；[Who] 保持简短只列人名。"
-    "若提示词中提供了 [Bot 视角人格]，则每个三元组末尾还需加上 [Eval] 字段（从该人格视角对该话题的一句话评价）。\n"
+    "若提示词中提供了 [Bot 视角人格]，则每个三元组末尾还需加上 [Eval] 字段（从该人格视角对该话题的一句话评价）。"
+    "格式示例（无人格）：\n"
+    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 | [What] 话题转向了近期音乐会安排，Alice 推荐了一场即将上演的室内乐 [Who] Alice [How] 对话在期待中结束，未确定是否同去\n"
+    "格式示例（有人格）：\n"
+    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 [Eval] 这段交流展现了对方对古典音乐的真诚热情，值得深入记录\n"
     "- chat_content_tags: 2~5个关键词标签\n"
     "- salience: 重要性分值 0.0~1.0\n"
     "- confidence: 本次提取结果的置信度 0.0~1.0\n"
     "- inherit: 是否是上一个事件的直接延续（true/false）\n"
-    "- participants_personality: (可选) 对该片段中活跃参与者的大五人格倾向评估。字段：O（开放性）、C（尽责性）、E（外倾性）、A（宜人性）、N（神经质），范围 -1.0 到 1.0。"
+    "- participants_personality: （可选）参与者五大人格估计，键为显示名，值含 O/C/E/A/N（-1.0~1.0）；不确定时省略该字段"
 )
 
 DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
@@ -42,8 +45,7 @@ DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
     "3. 连续性：如果对话虽然中断但随后继续讨论同一话题，可以视为同一事件的延续（设置 inherit 为 true）。\n\n"
     "输出格式（仅输出一个 JSON Array，包含一个或多个对象，不输出任何其他文字或 markdown 代码块）：\n"
     '[\n'
-    '  {"start_idx": 0, "end_idx": 10, "topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false, '
-    '"participants_personality": {"用户A": {"O": 0.3, "C": 0.1, "E": 0.7, "A": 0.5, "N": -0.2}}},\n'
+    '  {"start_idx": 0, "end_idx": 10, "topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false, "participants_personality": {"Alice": {"O": 0.6, "C": 0.5, "E": 0.7, "A": 0.4, "N": -0.2}}},\n'
     '  {"start_idx": 11, "end_idx": 19, "topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.3, "confidence": 0.9, "inherit": true}\n'
     ']\n\n'
     "字段说明：\n"
@@ -54,12 +56,19 @@ DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
     "按以下格式，每个小话题用 [What]/[Who]/[How] 三元组描述，多个小话题之间用 \" | \" 分隔，"
     "小话题数量与 chat_content_tags 对应（1-5个）。"
     "[What] 和 [How] 各写1-2句，说清楚具体发生了什么或得出了什么结论、以何种方式推进或结束（可包含情绪/态度/结果）；[Who] 保持简短只列人名。"
-    "若提示词中提供了 [Bot 视角人格]，则每个三元组末尾还需加上 [Eval] 字段（从该人格视角对该话题的一句话评价）。\n"
+    "若提示词中提供了 [Bot 视角人格]，则每个三元组末尾还需加上 [Eval] 字段（从该人格视角对该话题的一句话评价）。"
+    "格式示例（无人格）：\n"
+    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 | [What] 话题转向了近期音乐会安排，Alice 推荐了一场即将上演的室内乐 [Who] Alice [How] 对话在期待中结束，未确定是否同去\n"
+    "格式示例（有人格）：\n"
+    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 [Eval] 这段交流展现了对方对古典音乐的真诚热情，值得深入记录\n"
     "- chat_content_tags: 2~5个关键词标签\n"
     "- salience: 重要性分值 0.0~1.0\n"
     "- confidence: 本次提取结果的置信度 0.0~1.0\n"
     "- inherit: 是否继承上一个已知事件的主题（即本段是上段的延续）\n"
-    "- participants_personality: (可选) 对该事件中活跃参与者的大五人格倾向评估。字段：O（开放性）、C（尽责性）、E（外倾性）、A（宜人性）、N（神经质），范围 -1.0 到 1.0。"
+    "- participants_personality: （可选）对话参与者的人格特征估计。"
+    "仅在对话内容足以推断时填写，不确定时省略该字段。"
+    "以参与者的显示名称为键，值为包含五大人格维度评分的对象（O=开放性、C=尽责性、E=外向性、A=宜人性、N=神经质），"
+    "评分范围 -1.0（极低）到 1.0（极高），0.0 表示中等水平。"
 )
 
 
@@ -112,7 +121,7 @@ class SummaryConfig:
     max_events: int = 20
     word_limit: int = 300
     system_prompt: str = _DEFAULT_SUMMARY_SYSTEM_PROMPT
-    mood_source: str = "llm"  # "llm" | "impression_db" (see TODO.md for Option A details)
+    mood_source: str = "llm"
     mood_prompt: str = _DEFAULT_SUMMARY_MOOD_PROMPT
 
 
@@ -126,7 +135,8 @@ class RetrievalConfig:
     recency_weight: float = 0.2       # Weight for recency decay in final score
     relevance_weight: float = 0.5     # Weight for normalised RRF score
     recency_half_life_days: float = 30.0  # Half-life for recency exponential decay
-    vector_fallback_enabled: bool = True  # Fall back to vec-only when BM25 returns nothing
+    # Fall back to vec-only when BM25 returns nothing
+    vector_fallback_enabled: bool = True
     active_only: bool = True          # Exclude archived events from search
 
 
@@ -167,7 +177,8 @@ class ExtractorConfig:
     semantic_clustering_min_samples: int = 2
     persona_influenced_summary: bool = False
     tag_normalization_threshold: float = 0.85
-    tag_seeds: list[str] = field(default_factory=lambda: ["社交", "日常", "技术", "知识", "工作", "娱乐", "艺术", "情感", "资讯"])
+    tag_seeds: list[str] = field(default_factory=lambda: [
+                                 "社交", "日常", "技术", "知识", "工作", "娱乐", "艺术", "情感", "资讯"])
 
 
 @dataclass
@@ -253,7 +264,8 @@ class PluginConfig:
         return BoundaryConfig(
             time_gap_minutes=self._float("boundary_time_gap_minutes", 30.0),
             max_messages=self._int("boundary_max_messages", 20),
-            max_duration_minutes=self._float("boundary_max_duration_minutes", 60.0),
+            max_duration_minutes=self._float(
+                "boundary_max_duration_minutes", 60.0),
         )
 
     def get_decay_config(self) -> DecayConfig:
@@ -263,8 +275,10 @@ class PluginConfig:
         )
 
     def get_synthesis_config(self) -> SynthesisConfig:
-        persona_prompt = self._str("synthesis_persona_system_prompt", "").strip()
-        impression_prompt = self._str("synthesis_impression_system_prompt", "").strip()
+        persona_prompt = self._str(
+            "synthesis_persona_system_prompt", "").strip()
+        impression_prompt = self._str(
+            "synthesis_impression_system_prompt", "").strip()
         return SynthesisConfig(
             llm_timeout=self._float("synthesis_llm_timeout_seconds", 30.0),
             max_events=self._int("synthesis_max_events", 10),
@@ -295,14 +309,17 @@ class PluginConfig:
             salience_weight=self._float("retrieval_salience_weight", 0.3),
             recency_weight=self._float("retrieval_recency_weight", 0.2),
             relevance_weight=self._float("retrieval_relevance_weight", 0.5),
-            recency_half_life_days=self._float("retrieval_recency_half_life_days", 30.0),
-            vector_fallback_enabled=self._bool("retrieval_vector_fallback_enabled", True),
+            recency_half_life_days=self._float(
+                "retrieval_recency_half_life_days", 30.0),
+            vector_fallback_enabled=self._bool(
+                "retrieval_vector_fallback_enabled", True),
             active_only=self._bool("retrieval_active_only", True),
         )
 
     def get_injection_config(self) -> InjectionConfig:
         pos = self._str("injection_position", "system_prompt").strip()
-        valid = {"system_prompt", "user_message_before", "user_message_after", "fake_tool_call"}
+        valid = {"system_prompt", "user_message_before",
+                 "user_message_after", "fake_tool_call"}
         return InjectionConfig(
             position=pos if pos in valid else "system_prompt",
             auto_clear=self._bool("injection_auto_clear", True),
@@ -313,12 +330,14 @@ class PluginConfig:
         return IPCConfig(
             enabled=self._bool("ipc_enabled", True),
             bigfive_x_messages=self._int("bigfive_x_messages", 10),
-            bigfive_llm_timeout=self._float("bigfive_llm_timeout_seconds", 30.0),
+            bigfive_llm_timeout=self._float(
+                "bigfive_llm_timeout_seconds", 30.0),
         )
 
     def get_extractor_config(self) -> ExtractorConfig:
         custom_prompt = self._str("extractor_system_prompt", "").strip()
-        custom_distill_prompt = self._str("distillation_system_prompt", "").strip()
+        custom_distill_prompt = self._str(
+            "distillation_system_prompt", "").strip()
         tag_seeds_str = self._str("tag_seeds", "社交,日常,技术,知识,工作,娱乐,艺术,情感,资讯")
         tag_seeds = [s.strip() for s in tag_seeds_str.split(",") if s.strip()]
         return ExtractorConfig(
@@ -327,10 +346,14 @@ class PluginConfig:
             system_prompt=custom_prompt or DEFAULT_EXTRACTOR_SYSTEM_PROMPT,
             distillation_system_prompt=custom_distill_prompt or DEFAULT_DISTILLATION_SYSTEM_PROMPT,
             strategy=self._str("extraction_strategy", "llm"),
-            semantic_clustering_eps=self._float("semantic_clustering_eps", 0.45),
-            semantic_clustering_min_samples=self._int("semantic_clustering_min_samples", 2),
-            persona_influenced_summary=self._bool("persona_influenced_summary", False),
-            tag_normalization_threshold=self._float("tag_normalization_threshold", 0.85),
+            semantic_clustering_eps=self._float(
+                "semantic_clustering_eps", 0.45),
+            semantic_clustering_min_samples=self._int(
+                "semantic_clustering_min_samples", 2),
+            persona_influenced_summary=self._bool(
+                "persona_influenced_summary", False),
+            tag_normalization_threshold=self._float(
+                "tag_normalization_threshold", 0.85),
             tag_seeds=tag_seeds,
         )
 
@@ -338,7 +361,8 @@ class PluginConfig:
         return ContextConfig(
             vcm_enabled=self._bool("vcm_enabled", True),
             max_sessions=self._int("context_max_sessions", 100),
-            session_idle_seconds=self._int("context_session_idle_seconds", 3600),
+            session_idle_seconds=self._int(
+                "context_session_idle_seconds", 3600),
             window_size=self._int("context_window_size", 50),
         )
 
@@ -359,7 +383,8 @@ class PluginConfig:
             concurrency=self._int("embedding_concurrency", 1),
             batch_interval_ms=self._int("embedding_batch_interval_ms", 0),
             request_interval_ms=self._int("embedding_request_interval_ms", 0),
-            failure_tolerance_ratio=self._float("embedding_failure_tolerance_ratio", 0.0),
+            failure_tolerance_ratio=self._float(
+                "embedding_failure_tolerance_ratio", 0.0),
             retry_max=self._int("embedding_retry_max", 3),
             retry_delay_ms=self._int("embedding_retry_delay_ms", 1000),
         )
