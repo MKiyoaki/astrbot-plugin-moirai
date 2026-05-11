@@ -19,10 +19,10 @@ import * as api from '@/lib/api'
 
 // Standard shadcn/ui theme definitions
 const SHADCN_THEMES = [
-  { id: 'zinc', label: 'Zinc' },
+  { id: 'charon', label: 'Charon' },
   { id: 'venus', label: 'Venus' },
   { id: 'juno', label: 'Juno' },
-  { id: 'orange', label: 'Orange' },
+  { id: 'augustus', label: 'Augustus' },
   { id: 'green', label: 'Green' },
   { id: 'yellow', label: 'Yellow' },
   { id: 'violet', label: 'Violet' },
@@ -35,7 +35,7 @@ export default function SettingsPage() {
   
   // Default to zinc, the standard shadcn base
   const [colorScheme, setColorScheme] = useState(() =>
-    typeof localStorage !== 'undefined' ? (localStorage.getItem('em_color_scheme') || 'zinc') : 'zinc',
+    typeof localStorage !== 'undefined' ? (localStorage.getItem('em_color_scheme') || 'charon') : 'charon',
   )
 
   const TASKS = useMemo(() => [

@@ -3,9 +3,10 @@
 @import "shadcn/tailwind.css";
 
 /* Theme Isolation Imports */
-@import "../styles/themes/base.css";
+@import "../styles/themes/charon.css";
 @import "../styles/themes/venus.css";
 @import "../styles/themes/juno.css";
+@import "../styles/themes/augustus.css";
 
 @source not "../output/**";
 @source not "../.next/**";
