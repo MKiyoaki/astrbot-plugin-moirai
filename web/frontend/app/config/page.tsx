@@ -570,7 +570,7 @@ export default function ConfigPage() {
                   <Card className="overflow-hidden border-muted/60 shadow-sm hover:shadow-md transition-shadow">
                     <CardHeader className="border-b border-border/50 pb-4">
                       <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg font-serif font-bold tracking-tight">{section.label}</CardTitle>
+                        <CardTitle className="text-lg font-bold tracking-tight">{section.label}</CardTitle>
                         <Badge variant="outline" className="font-mono text-[10px] opacity-70">
                           {section.id.toUpperCase()}
                         </Badge>

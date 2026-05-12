@@ -31,9 +31,13 @@
   --muted: oklch(0.950 0.012 295);
   --muted-foreground: oklch(0.50 0.028 290);
 
-  /* Accent surface: warm antique gold — featured card gets a golden blush in light mode */
-  --accent: oklch(0.900 0.055 84);
-  --accent-foreground: oklch(0.46 0.140 76);
+  /* Accent surface: faint lavender wash — card tint stays in the purple family,
+     never warm-yellow. Gold is expressed only through accent-foreground.
+     accent-foreground: deep amber at hue 65 — same warm family as #EBBE68
+     but darker (L=0.50) so it reads on the pale lavender bg and looks rich
+     as a chart bar fill, not muddy. */
+  --accent: oklch(0.945 0.018 295);
+  --accent-foreground: oklch(0.679 0.106 70);
 
   --destructive: oklch(0.54 0.20 27);
   --destructive-foreground: oklch(0.978 0.008 295);
@@ -47,7 +51,7 @@
   --sidebar-primary: oklch(0.53 0.130 295);
   --sidebar-primary-foreground: oklch(0.978 0.008 295);
   --sidebar-accent: oklch(0.910 0.028 295);
-  --sidebar-accent-foreground: oklch(0.46 0.140 76);
+  --sidebar-accent-foreground: oklch(0.679 0.106 70);
   --sidebar-border: oklch(0.860 0.020 295);
   --sidebar-ring: oklch(0.53 0.130 295);
 }
@@ -59,43 +63,45 @@
   /* Background: very deep near-black, violet cast dialled way back.
      The purple lives in interactive elements, not the room walls. */
   --background: oklch(0.11 0.010 288);
-  --foreground: oklch(0.93 0.010 295);
+  /* Foreground pulled back from 0.93 → 0.86: softer contrast, less glaring white */
+  --foreground: oklch(0.86 0.010 295);
 
   --card: oklch(0.16 0.013 290);
-  --card-foreground: oklch(0.93 0.010 295);
+  --card-foreground: oklch(0.86 0.010 295);
 
   --popover: oklch(0.16 0.013 290);
-  --popover-foreground: oklch(0.93 0.010 295);
+  --popover-foreground: oklch(0.86 0.010 295);
 
   /* Primary: lavender glow, soft — not neon */
-  --primary: oklch(0.66 0.112 295);
+  --primary: oklch(0.64 0.105 295);
   --primary-foreground: oklch(0.11 0.010 288);
 
   /* Secondary: muted dark surface */
   --secondary: oklch(0.22 0.016 290);
-  --secondary-foreground: oklch(0.93 0.010 295);
+  --secondary-foreground: oklch(0.86 0.010 295);
 
   --muted: oklch(0.19 0.012 290);
-  --muted-foreground: oklch(0.60 0.016 290);
+  --muted-foreground: oklch(0.55 0.014 290);
 
-  /* Accent surface: dark lavender — bg-accent/25 → subtle purple-tinted card,
-     not brown. Gold is expressed only through accent-foreground. */
+  /* Accent surface: dark lavender — bg-accent/25 → subtle purple-tinted card.
+     accent-foreground: warm amber synced to light-mode gold family, toned down. */
   --accent: oklch(0.22 0.028 292);
-  --accent-foreground: oklch(0.76 0.088 82);
+  /* Close to #EBBE68 — champagne gold that glows on dark bg without being harsh */
+  --accent-foreground: oklch(0.767 0.113 80);
 
   --destructive: oklch(0.52 0.20 27);
   --destructive-foreground: oklch(0.95 0.010 295);
 
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 13%);
-  --ring: oklch(0.66 0.112 295);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.64 0.105 295);
 
   --sidebar: oklch(0.13 0.010 288);
-  --sidebar-foreground: oklch(0.93 0.010 295);
-  --sidebar-primary: oklch(0.66 0.112 295);
+  --sidebar-foreground: oklch(0.86 0.010 295);
+  --sidebar-primary: oklch(0.64 0.105 295);
   --sidebar-primary-foreground: oklch(0.11 0.010 288);
   --sidebar-accent: oklch(0.20 0.022 292);
-  --sidebar-accent-foreground: oklch(0.76 0.088 82);
+  --sidebar-accent-foreground: oklch(0.767 0.113 80);
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.66 0.112 295);
 }

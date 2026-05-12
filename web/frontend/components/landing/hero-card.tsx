@@ -32,7 +32,7 @@ export function HeroCard({ stats }: HeroCardProps) {
         <h1 className="text-4xl font-serif font-bold leading-tight tracking-tight text-foreground">
           {i18n.app.name}
         </h1>
-        <p className="text-accent-foreground/70 text-sm font-serif italic leading-snug max-w-xs">
+        <p className="text-primary/70 text-sm font-serif italic leading-snug max-w-xs">
           {i18n.landing.heroSubtitle}
         </p>
       </div>
