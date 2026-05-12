@@ -8,6 +8,7 @@
 @import "../styles/themes/juno.css";
 @import "../styles/themes/augustus.css";
 @import "../styles/themes/selune.css";
+@import "../styles/themes/folio.css";
 
 @source not "../output/**";
 @source not "../.next/**";

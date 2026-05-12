@@ -1,97 +1,94 @@
 /* ==========================================================================
-   Selûne Theme - Lunar Mist & Muted Moonlight
+   Aether Theme - Cyber Dark
+   Steel blue-grey structure + muted mint CTA. Dark-first, eye-strain minimal.
+   Ref palette: Soft Dark #1A1D24 / Dim White #C8CDD6 / Steel Gray #3E4C5E / Muted Mint #68A691
    ========================================================================== */
 
 .theme-selune {
   --radius: 0.5rem;
 
-  /* Light Mode - Soft Parchment & Mist */
-  --background: oklch(0.98 0.01 215);
-  --foreground: oklch(0.28 0.02 215);
-  
-  --card: oklch(0.98 0.01 215);
-  --card-foreground: oklch(0.28 0.02 215);
-  
-  --popover: oklch(0.98 0.01 215);
-  --popover-foreground: oklch(0.28 0.02 215);
+  /* Light Mode (derived) */
+  --background: oklch(0.97 0.008 250);
+  --foreground: oklch(0.36 0.05 250);
 
-  /* Primary: Muted Fog Blue (Low saturation, mid-lightness) */
-  --primary: oklch(0.65 0.05 215);
-  --primary-foreground: oklch(0.98 0.01 215);
+  --card: oklch(0.97 0.008 250);
+  --card-foreground: oklch(0.36 0.05 250);
 
-  /* Secondary: Dusty Moonlight Gold (Muted and warm) */
-  --secondary: oklch(0.85 0.04 85);
-  --secondary-foreground: oklch(0.28 0.02 215);
+  --popover: oklch(0.97 0.008 250);
+  --popover-foreground: oklch(0.36 0.05 250);
 
-  --muted: oklch(0.94 0.01 215);
-  --muted-foreground: oklch(0.5 0.02 215);
+  /* Primary: Steel Navy (derived for light mode) */
+  --primary: oklch(0.44 0.07 250);
+  --primary-foreground: oklch(0.97 0.008 250);
 
-  /* Accent: Pale Fog highlight */
-  --accent: oklch(0.9 0.03 215);
-  --accent-foreground: oklch(0.65 0.05 215);
+  /* Secondary: Soft Blue-Grey */
+  --secondary: oklch(0.88 0.025 250);
+  --secondary-foreground: oklch(0.36 0.05 250);
 
-  --destructive: oklch(0.55 0.18 25);
-  --destructive-foreground: oklch(0.98 0.01 215);
+  --muted: oklch(0.93 0.01 250);
+  --muted-foreground: oklch(0.55 0.04 250);
 
-  /* Unified Border & Separator */
-  --border: oklch(0.88 0.02 215);
-  --input: oklch(0.88 0.02 215);
-  --ring: oklch(0.65 0.05 215);
+  /* Accent: Muted Mint tint */
+  --accent: oklch(0.88 0.08 175);
+  --accent-foreground: oklch(0.44 0.07 250);
 
-  /* Sidebar */
-  --sidebar: oklch(0.96 0.01 215);
-  --sidebar-foreground: oklch(0.28 0.02 215);
-  --sidebar-primary: oklch(0.65 0.05 215);
-  --sidebar-primary-foreground: oklch(0.98 0.01 215);
-  --sidebar-accent: oklch(0.92 0.02 215);
-  --sidebar-accent-foreground: oklch(0.65 0.05 215);
-  --sidebar-border: oklch(0.88 0.02 215);
-  --sidebar-ring: oklch(0.65 0.05 215);
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(0.97 0.008 250);
+
+  --border: oklch(0.86 0.03 250);
+  --input: oklch(0.86 0.03 250);
+  --ring: oklch(0.44 0.07 250);
+
+  --sidebar: oklch(0.94 0.015 250);
+  --sidebar-foreground: oklch(0.36 0.05 250);
+  --sidebar-primary: oklch(0.44 0.07 250);
+  --sidebar-primary-foreground: oklch(0.97 0.008 250);
+  --sidebar-accent: oklch(0.88 0.04 250);
+  --sidebar-accent-foreground: oklch(0.44 0.07 250);
+  --sidebar-border: oklch(0.86 0.03 250);
+  --sidebar-ring: oklch(0.44 0.07 250);
 }
 
 .dark.theme-selune,
 .dark .theme-selune {
-  /* Dark Mode - Stone Base (Charcoal) */
-  --background: oklch(0.12 0 0);
-  --foreground: oklch(0.92 0.01 215);
+  /* Dark Mode - #1A1D24 Soft Dark (main palette) */
+  --background: oklch(0.16 0.02 250);
+  --foreground: oklch(0.83 0.02 250);
 
-  /* Elevation: Night Mist Blue */
-  --card: oklch(0.18 0.015 215);
-  --card-foreground: oklch(0.92 0.01 215);
-  
-  --popover: oklch(0.15 0.01 215);
-  --popover-foreground: oklch(0.92 0.01 215);
+  --card: oklch(0.20 0.025 250);
+  --card-foreground: oklch(0.83 0.02 250);
 
-  /* Primary: Glowing Fog Blue (Subtle but distinct) */
-  --primary: oklch(0.78 0.06 215);
-  --primary-foreground: oklch(0.12 0 0);
+  --popover: oklch(0.18 0.02 250);
+  --popover-foreground: oklch(0.83 0.02 250);
 
-  /* Secondary: Deep Bronze Moonlight */
-  --secondary: oklch(0.35 0.04 85);
-  --secondary-foreground: oklch(0.92 0.01 215);
+  /* Primary: Muted Mint as CTA in dark (chroma bumped slightly) */
+  --primary: oklch(0.63 0.11 175);
+  --primary-foreground: oklch(0.16 0.02 250);
 
-  --muted: oklch(0.22 0.01 215);
-  --muted-foreground: oklch(0.6 0.02 215);
+  /* Secondary: Steel Gray panel */
+  --secondary: oklch(0.38 0.055 250);
+  --secondary-foreground: oklch(0.83 0.02 250);
 
-  /* Accent: Muted Golden Glow */
-  --accent: oklch(0.28 0.03 85);
-  --accent-foreground: oklch(0.95 0.02 85);
+  --muted: oklch(0.24 0.025 250);
+  --muted-foreground: oklch(0.60 0.02 250);
 
-  --destructive: oklch(0.5 0.18 25);
-  --destructive-foreground: oklch(0.95 0.01 215);
+  /* Accent: Subtle steel hover */
+  --accent: oklch(0.28 0.04 250);
+  --accent-foreground: oklch(0.83 0.02 250);
 
-  /* Unified Border & Separator (Stone style with blue tint) */
+  --destructive: oklch(0.5 0.2 25);
+  --destructive-foreground: oklch(0.95 0.01 250);
+
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.78 0.06 215);
+  --ring: oklch(0.63 0.11 175);
 
-  /* Sidebar Dark */
-  --sidebar: oklch(0.14 0.01 215);
-  --sidebar-foreground: oklch(0.92 0.01 215);
-  --sidebar-primary: oklch(0.78 0.06 215);
-  --sidebar-primary-foreground: oklch(0.12 0 0);
-  --sidebar-accent: oklch(0.22 0.02 215);
-  --sidebar-accent-foreground: oklch(0.92 0.01 215);
+  --sidebar: oklch(0.18 0.02 250);
+  --sidebar-foreground: oklch(0.83 0.02 250);
+  --sidebar-primary: oklch(0.63 0.11 175);
+  --sidebar-primary-foreground: oklch(0.16 0.02 250);
+  --sidebar-accent: oklch(0.26 0.03 250);
+  --sidebar-accent-foreground: oklch(0.83 0.02 250);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.78 0.06 215);
+  --sidebar-ring: oklch(0.63 0.11 175);
 }

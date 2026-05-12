@@ -20,10 +20,11 @@ import * as api from '@/lib/api'
 // Standard shadcn/ui theme definitions
 const SHADCN_THEMES = [
   { id: 'moirai', label: 'Moirai' },
-  { id: 'venus', label: 'Venus' },
-  { id: 'juno', label: 'Juno' },
+  { id: 'venus', label: 'Aurora' },
+  { id: 'juno', label: 'Cirrus' },
   { id: 'augustus', label: 'Augustus' },
-  { id: 'selune', label: 'Selûne' },
+  { id: 'selune', label: 'Aether' },
+  { id: 'folio', label: 'Folio' },
 ]
 
 export default function SettingsPage() {
@@ -57,13 +58,10 @@ export default function SettingsPage() {
   const [newPw, setNewPw] = useState('')
   const [taskStatus, setTaskStatus] = useState<Record<string, string>>({})
   const [extPanels, setExtPanels] = useState<{ plugin_id: string; title: string }[]>([])
-  const [panelsLoaded, setPanelsLoaded] = useState(false)
 
-  // Load ext panels on first render
-  if (!panelsLoaded) {
-    setPanelsLoaded(true)
+  useEffect(() => {
     api.admin.panels().then(r => setExtPanels(r.panels)).catch(() => {})
-  }
+  }, [])
 
   const toggleTheme = () => {
     setTheme(isDark ? 'light' : 'dark')
