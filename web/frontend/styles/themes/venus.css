@@ -1,85 +1,100 @@
 /* ==========================================================================
-   Venus Theme - Warm Marble
+   Venus Theme — Crimson & Gilt
+   Inspired by: ivy-wrapped stone, gilded headband, crimson petals, moonlit cloud
    ========================================================================== */
 
 .theme-venus {
   --radius: 0.5rem;
-  
-  /* Light Mode - Warm Marble and Ivory */
-  --background: oklch(0.98 0.01 70);
-  --foreground: oklch(0.25 0.02 20);
-  --card: oklch(0.98 0.01 70);
-  --card-foreground: oklch(0.25 0.02 20);
-  --popover: oklch(0.98 0.01 70);
-  --popover-foreground: oklch(0.25 0.02 20); 
-  --primary: oklch(0.55 0.22 25);
-  --primary-foreground: oklch(0.98 0.01 70);
-  --secondary: oklch(0.9 0.02 70);
-  --secondary-foreground: oklch(0.25 0.02 20);
-  --muted: oklch(0.94 0.01 70);
-  --muted-foreground: oklch(0.45 0.02 25);
-  --accent: oklch(0.92 0.04 25);
-  --accent-foreground: oklch(0.55 0.22 25);
-  --destructive: oklch(0.45 0.18 25);
-  --destructive-foreground: oklch(0.98 0.01 70);
-  --border: oklch(0.88 0.02 70);
-  --input: oklch(0.88 0.02 70);
-  --ring: oklch(0.55 0.22 25);
 
-  /* Sidebar */
-  --sidebar: oklch(0.96 0.01 70);
-  --sidebar-foreground: oklch(0.25 0.02 20);
-  --sidebar-primary: oklch(0.55 0.22 25);
-  --sidebar-primary-foreground: oklch(0.98 0.01 70);
-  --sidebar-accent: oklch(0.92 0.02 70);
-  --sidebar-accent-foreground: oklch(0.55 0.22 25);
-  --sidebar-border: oklch(0.88 0.02 70);
-  --sidebar-ring: oklch(0.55 0.22 25);
+  /* ---------- Light Mode — Ivory Marble with Stone undertone ---------- */
+  /* Background: warm ivory, faintly cool to read as marble rather than cream */
+  --background: oklch(0.975 0.006 75);
+  --foreground: oklch(0.22 0.025 30);
+
+  --card: oklch(0.99 0.005 75);
+  --card-foreground: oklch(0.22 0.025 30);
+  --popover: oklch(0.99 0.005 75);
+  --popover-foreground: oklch(0.22 0.025 30);
+
+  /* Primary: Crimson — pulled deeper & more chromatic-balanced (less neon) */
+  --primary: oklch(0.52 0.205 25);
+  --primary-foreground: oklch(0.985 0.006 75);
+
+  /* Secondary: Soft stone, slightly cooler than bg for separation */
+  --secondary: oklch(0.92 0.012 80);
+  --secondary-foreground: oklch(0.28 0.025 30);
+
+  --muted: oklch(0.945 0.008 75);
+  --muted-foreground: oklch(0.48 0.018 40);
+
+  /* Accent: Gilt — the gold from the headband, finally promoted */
+  --accent: oklch(0.93 0.045 85);
+  --accent-foreground: oklch(0.42 0.10 75);
+
+  --destructive: oklch(0.5 0.2 27);
+  --destructive-foreground: oklch(0.985 0.006 75);
+
+  --border: oklch(0.88 0.012 75);
+  --input: oklch(0.9 0.012 75);
+  --ring: oklch(0.52 0.205 25);
+
+  /* Sidebar — a touch cooler & darker than canvas, like stone vs marble */
+  --sidebar: oklch(0.955 0.008 80);
+  --sidebar-foreground: oklch(0.25 0.022 30);
+  --sidebar-primary: oklch(0.52 0.205 25);
+  --sidebar-primary-foreground: oklch(0.985 0.006 75);
+  --sidebar-accent: oklch(0.91 0.015 80);
+  --sidebar-accent-foreground: oklch(0.52 0.205 25);
+  --sidebar-border: oklch(0.86 0.012 75);
+  --sidebar-ring: oklch(0.52 0.205 25);
 }
 
+/* ============================================================
+   Dark Mode — Night Stone & Petal
+   Walls in the painting are slate-teal, not brown. We honor that.
+   ============================================================ */
 .dark.theme-venus,
 .dark .theme-venus {
-  /* Dark Mode - Stone & Taupe Aesthetic (Refined Surface Colors) */
-  /* Background: Deep Stone Charcoal */
-  --background: oklch(0.13 0.005 50); 
-  --foreground: oklch(0.94 0.01 70);
-  
-  /* Card/Popover: Warm Taupe-Grey elevation (Replaces muddy browns) */
-  --card: oklch(0.18 0.015 50);
-  --card-foreground: oklch(0.94 0.01 70);
-  --popover: oklch(0.18 0.015 50);
-  --popover-foreground: oklch(0.94 0.01 70);
-  
-  /* Primary: Vibrant Venus Crimson */
-  --primary: oklch(0.58 0.22 25);
-  --primary-foreground: oklch(1 0 0);
-  
-  /* Secondary: Muted Stone-Taupe (Neutralized interactive surface) */
-  --secondary: oklch(0.25 0.02 50);
-  --secondary-foreground: oklch(0.94 0.01 70);
-  
-  --muted: oklch(0.22 0.01 50);
-  --muted-foreground: oklch(0.65 0.01 70);
-  
-  /* Accent: Subtle Gold/Taupe highlight for focus/hover */
-  --accent: oklch(0.3 0.03 60);
-  --accent-foreground: oklch(0.75 0.12 75);
-  
-  --destructive: oklch(0.5 0.2 25);
-  --destructive-foreground: oklch(0.95 0.02 70);
-  
-  /* Unified Borders & Inputs (Stone/Taupe subtle transparency) */
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.58 0.22 25);
+  /* Background: deep stone with a whisper of cool teal — feels like wet slate at night */
+  --background: oklch(0.145 0.012 220);
+  --foreground: oklch(0.93 0.012 75);
 
-  /* Sidebar Dark */
-  --sidebar: oklch(0.15 0.01 50);
-  --sidebar-foreground: oklch(0.94 0.01 70);
-  --sidebar-primary: oklch(0.58 0.22 25);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.22 0.01 50);
-  --sidebar-accent-foreground: oklch(0.94 0.01 70);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.58 0.22 25);
+  /* Card / Popover: one stop up, same teal-stone family — clear elevation without going brown */
+  --card: oklch(0.19 0.014 215);
+  --card-foreground: oklch(0.93 0.012 75);
+  --popover: oklch(0.19 0.014 215);
+  --popover-foreground: oklch(0.93 0.012 75);
+
+  /* Primary: Crimson — brighter in the dark, mirrors the petals against stone */
+  --primary: oklch(0.62 0.22 25);
+  --primary-foreground: oklch(0.99 0.005 75);
+
+  /* Secondary: muted stone interactive surface, still in the teal family */
+  --secondary: oklch(0.26 0.015 215);
+  --secondary-foreground: oklch(0.93 0.012 75);
+
+  --muted: oklch(0.22 0.012 215);
+  --muted-foreground: oklch(0.68 0.012 75);
+
+  /* Accent: Gilt — like the moonlit cloud breaking through the night sky */
+  --accent: oklch(0.32 0.04 80);
+  --accent-foreground: oklch(0.82 0.13 82);
+
+  --destructive: oklch(0.55 0.21 27);
+  --destructive-foreground: oklch(0.98 0.01 75);
+
+  /* Borders: warm-tinted translucent so they read on both teal cards and crimson buttons */
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.62 0.22 25);
+
+  /* Sidebar: deepest surface — the shadowed alcove behind the figure */
+  --sidebar: oklch(0.165 0.013 220);
+  --sidebar-foreground: oklch(0.93 0.012 75);
+  --sidebar-primary: oklch(0.62 0.22 25);
+  --sidebar-primary-foreground: oklch(0.99 0.005 75);
+  --sidebar-accent: oklch(0.23 0.014 215);
+  --sidebar-accent-foreground: oklch(0.82 0.13 82);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.62 0.22 25);
 }
