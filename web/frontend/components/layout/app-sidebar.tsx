@@ -110,8 +110,8 @@ export function AppSidebar() {
                 <Link href="/">
                   <div className="grid flex-1 text-left leading-tight ml-2">
                     <span className="truncate font-serif text-xl font-bold tracking-tighter text-primary">{i18n.app.name}</span>
-                    <span className="text-muted-foreground truncate text-[10px] uppercase tracking-widest opacity-70">
-                      Memory Engine v{app.stats.version}
+                    <span className="text-muted-foreground truncate text-[9px] font-mono uppercase tracking-[0.18em] opacity-60">
+                      Memory Engine · v{app.stats.version}
                     </span>
                   </div>
                 </Link>
@@ -122,7 +122,7 @@ export function AppSidebar() {
 
         <SidebarContent className="flex-1 overflow-y-auto min-w-0">
           <SidebarGroup>
-            <SidebarGroupLabel>{i18n.nav.visualization}</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/60">{i18n.nav.visualization}</SidebarGroupLabel>
             {/* 严格补充 SidebarGroupContent，修复点击事件丢失 */}
             <SidebarGroupContent>
               <SidebarMenu>
@@ -146,7 +146,7 @@ export function AppSidebar() {
           <SidebarSeparator />
 
           <SidebarGroup>
-            <SidebarGroupLabel>{i18n.nav.tools}</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/60">{i18n.nav.tools}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {NAV_TOOLS.map((item) => {
@@ -169,7 +169,7 @@ export function AppSidebar() {
           <SidebarSeparator />
 
           <SidebarGroup>
-            <SidebarGroupLabel>{i18n.nav.admin}</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/60">{i18n.nav.admin}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {NAV_ADMIN.map((item) => {
@@ -192,12 +192,12 @@ export function AppSidebar() {
 
         {/* 锁定底部的空间，防止透明溢出遮挡上面的菜单 */}
         <SidebarFooter className="mt-auto shrink-0 border-t border-border p-2">
-          <div className="flex items-center gap-2 px-3 py-2 text-xs font-medium">
-            <span className="relative flex h-2 w-2 shrink-0">
+          <div className="flex items-center gap-2 px-3 py-2">
+            <span className="relative flex h-1.5 w-1.5 shrink-0">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500"></span>
             </span>
-            <span className="group-data-[collapsible=icon]:hidden truncate">
+            <span className="group-data-[collapsible=icon]:hidden truncate text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/60">
               {i18n.landing.engineActive}
             </span>
           </div>

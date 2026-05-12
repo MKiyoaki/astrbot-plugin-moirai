@@ -1,93 +1,100 @@
 /* ==========================================================================
-   Augustus Theme - Imperial Navy & Stone Gold
+   Augustus Theme — Ivory, Indigo & Gilded Fire
+   Inspired by: the luminous ivory-white figure (dominant), deep indigo cloak,
+   amber-gold halo, scorched-orange explosion clouds, and obsidian starfield.
    ========================================================================== */
 
 .theme-augustus {
   --radius: 0.5rem;
 
-  /* --- Light Mode (Marble & Ivory) --- */
-  --background: oklch(0.98 0.01 95);
-  --foreground: oklch(0.2 0.04 245);
-  --card: oklch(0.98 0.01 95);
-  --card-foreground: oklch(0.2 0.04 245);
-  --popover: oklch(0.98 0.01 95);
-  --popover-foreground: oklch(0.2 0.04 245);
+  /* --- Light Mode (Cool Ivory & Gilt) --- */
+  /* Background: the painting's dominant tone — cool, luminous ivory-white,
+     slightly off-neutral so it reads as cloth rather than blank paper */
+  --background: oklch(0.975 0.008 88);
+  --foreground: oklch(0.16 0.035 240);
 
-  /* Primary: Polished Imperial Gold */
-  --primary: oklch(0.75 0.13 85);
-  --primary-foreground: oklch(0.2 0.05 85);
+  --card: oklch(0.99 0.006 88);
+  --card-foreground: oklch(0.16 0.035 240);
+  --popover: oklch(0.99 0.006 88);
+  --popover-foreground: oklch(0.16 0.035 240);
 
-  /* Secondary: Imperial Navy */
-  --secondary: oklch(0.32 0.07 245);
-  --secondary-foreground: oklch(0.98 0.01 95);
+  /* Primary: Amber Gold — the gilded halo */
+  --primary: oklch(0.65 0.155 80);
+  --primary-foreground: oklch(0.985 0.006 88);
 
-  --muted: oklch(0.92 0.02 95);
-  --muted-foreground: oklch(0.45 0.05 245);
+  /* Secondary: Deep indigo — the heavy cloak draped across the figure */
+  --secondary: oklch(0.30 0.075 258);
+  --secondary-foreground: oklch(0.975 0.008 88);
 
-  --accent: oklch(0.94 0.04 85);
-  --accent-foreground: oklch(0.75 0.13 85);
+  --muted: oklch(0.935 0.010 88);
+  --muted-foreground: oklch(0.44 0.030 240);
 
-  --destructive: oklch(0.55 0.18 25);
-  --destructive-foreground: oklch(0.98 0.01 95);
+  /* Accent: Tawny ember — the near-field edge of the fire clouds */
+  --accent: oklch(0.91 0.048 72);
+  --accent-foreground: oklch(0.48 0.165 50);
 
-  --border: oklch(0.85 0.05 85);
-  --input: oklch(0.85 0.05 85);
-  --ring: oklch(0.75 0.13 85);
+  --destructive: oklch(0.54 0.20 28);
+  --destructive-foreground: oklch(0.985 0.006 88);
 
-  --sidebar: oklch(0.96 0.01 95);
-  --sidebar-foreground: oklch(0.2 0.04 245);
-  --sidebar-primary: oklch(0.75 0.13 85);
-  --sidebar-primary-foreground: oklch(0.2 0.05 85);
-  --sidebar-accent: oklch(0.9 0.04 85);
-  --sidebar-accent-foreground: oklch(0.32 0.07 245);
-  --sidebar-border: oklch(0.85 0.05 85);
-  --sidebar-ring: oklch(0.75 0.13 85);
+  --border: oklch(0.87 0.014 88);
+  --input: oklch(0.89 0.012 88);
+  --ring: oklch(0.65 0.155 80);
+
+  /* Sidebar: slightly cooler than canvas, like the shadow side of the figure */
+  --sidebar: oklch(0.955 0.010 88);
+  --sidebar-foreground: oklch(0.18 0.032 240);
+  --sidebar-primary: oklch(0.65 0.155 80);
+  --sidebar-primary-foreground: oklch(0.985 0.006 88);
+  --sidebar-accent: oklch(0.90 0.020 88);
+  --sidebar-accent-foreground: oklch(0.30 0.075 258);
+  --sidebar-border: oklch(0.85 0.012 88);
+  --sidebar-ring: oklch(0.65 0.155 80);
 }
 
 .dark.theme-augustus,
 .dark .theme-augustus {
-  /* --- Dark Mode (Navy Stone) --- */
-  /* Deep Navy Charcoal Background (Ref: Stone layout + Navy tint) */
-  --background: oklch(0.14 0.015 245); 
-  --foreground: oklch(0.95 0.01 245);
+  /* --- Dark Mode (Obsidian Night & Ember Glow) --- */
+  /* Background: the painting's night sky — very deep, near-black,
+     with the faintest indigo-charcoal cast from the unseen stars above */
+  --background: oklch(0.11 0.020 252);
+  --foreground: oklch(0.95 0.010 88);
 
-  /* Elevation: Muted Navy-Stone elevation for panels */
-  --card: oklch(0.18 0.02 245);
-  --card-foreground: oklch(0.95 0.01 245);
-  
-  --popover: oklch(0.18 0.02 245);
-  --popover-foreground: oklch(0.95 0.01 245);
+  /* Card: one elevation up — the dark indigo of the shadowed cloak interior */
+  --card: oklch(0.16 0.028 255);
+  --card-foreground: oklch(0.95 0.010 88);
+  --popover: oklch(0.16 0.028 255);
+  --popover-foreground: oklch(0.95 0.010 88);
 
-  /* Primary: Consistent Imperial Gold */
-  --primary: oklch(0.75 0.13 85);
-  --primary-foreground: oklch(0.12 0.01 245);
+  /* Primary: Amber Gold — halo luminance pulled forward from the dark */
+  --primary: oklch(0.76 0.168 81);
+  --primary-foreground: oklch(0.11 0.020 252);
 
-  /* Secondary: Matte Navy Stone (For consistent secondary buttons/elements) */
-  --secondary: oklch(0.25 0.02 245);
-  --secondary-foreground: oklch(0.95 0.01 245);
+  /* Secondary: Mid-indigo — the cloak at its brightest fold */
+  --secondary: oklch(0.24 0.040 255);
+  --secondary-foreground: oklch(0.95 0.010 88);
 
-  --muted: oklch(0.21 0.02 245);
-  --muted-foreground: oklch(0.6 0.02 245);
+  --muted: oklch(0.20 0.030 253);
+  --muted-foreground: oklch(0.64 0.018 88);
 
-  /* Accent: Subtle Navy highlight for hover states */
-  --accent: oklch(0.28 0.03 245);
-  --accent-foreground: oklch(0.95 0.01 245);
+  /* Accent: Smouldering orange — the explosion clouds in the mid-ground */
+  --accent: oklch(0.26 0.055 48);
+  --accent-foreground: oklch(0.74 0.200 46);
 
-  --destructive: oklch(0.5 0.18 25);
-  --destructive-foreground: oklch(0.95 0.01 245);
+  --destructive: oklch(0.52 0.20 27);
+  --destructive-foreground: oklch(0.96 0.010 88);
 
-  /* Unified Border & Separator (Subtle Navy style) */
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.75 0.13 85);
+  /* Borders: cold-translucent — like starlight on the edge of the cloak */
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 13%);
+  --ring: oklch(0.76 0.168 81);
 
-  /* Sidebar Dark */
-  --sidebar: oklch(0.16 0.015 245);
-  --sidebar-foreground: oklch(0.95 0.01 245);
-  --sidebar-primary: oklch(0.75 0.13 85);
-  --sidebar-primary-foreground: oklch(0.12 0.01 245);
-  --sidebar-accent: oklch(0.22 0.02 245);
-  --sidebar-accent-foreground: oklch(0.95 0.01 245);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.75 0.13 85);
+  /* Sidebar: the deepest indigo-void, just past the figure's shadow */
+  --sidebar: oklch(0.13 0.022 252);
+  --sidebar-foreground: oklch(0.95 0.010 88);
+  --sidebar-primary: oklch(0.76 0.168 81);
+  --sidebar-primary-foreground: oklch(0.11 0.020 252);
+  --sidebar-accent: oklch(0.20 0.034 254);
+  --sidebar-accent-foreground: oklch(0.74 0.200 46);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.76 0.168 81);
 }

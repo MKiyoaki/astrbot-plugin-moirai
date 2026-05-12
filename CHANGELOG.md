@@ -10,6 +10,7 @@
   - Aurora 主题（薰衣草紫 + 金色调色板）重命名为 **Moirai**，成为插件默认配色方案（CSS 选择器 `.theme-moirai`）。
   - 原 Moirai 主题（标准灰度）重命名为 **Nox**，新增 `nox.css`，占据原 Aurora 在主题选择器中的位置。
 - **globals.css 更新**：新增 `@import "../styles/themes/nox.css"`。
+- **前端landing page和stat page设计更新**: 组件重构，设计语言更新。
 
 ## [v0.9.1] — 2026-05-12
 
