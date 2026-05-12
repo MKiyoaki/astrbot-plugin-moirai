@@ -20,7 +20,8 @@ import * as api from '@/lib/api'
 // Standard shadcn/ui theme definitions
 const SHADCN_THEMES = [
   { id: 'moirai', label: 'Moirai' },
-  { id: 'venus', label: 'Aurora' },
+  { id: 'venus', label: 'Venus' },
+  { id: 'aurora', label: 'Aurora' },
   { id: 'juno', label: 'Cirrus' },
   { id: 'augustus', label: 'Augustus' },
   { id: 'selune', label: 'Aether' },
@@ -122,7 +123,7 @@ export default function SettingsPage() {
       : i18n.auth.status.notLoggedIn
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
         title={i18n.page.settings.title}
         description={i18n.page.settings.description}

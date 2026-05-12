@@ -164,11 +164,29 @@
         "hint": "单个事件窗口超过此时长时强制关闭",
         "default": 60
     },
+    "boundary_topic_drift_enabled": {
+        "description": "启用话题漂移检测",
+        "type": "bool",
+        "hint": "开启后将通过向量余弦距离检测话题切换，动态关闭事件。计算开销较高，若感觉对话变卡建议关闭。",
+        "default": true
+    },
     "boundary_topic_drift_threshold": {
         "description": "事件边界：话题漂移阈值",
         "type": "float",
-        "hint": "0–1 之间的余弦距离值，超过此值且消息数 ≥ 20 时触发话题切换检测（需启用向量检索）",
+        "hint": "0–1 之间的余弦距离值，超过此值时触发话题切换检测（需启用向量检索）",
         "default": 0.6
+    },
+    "boundary_topic_drift_min_messages": {
+        "description": "事件边界：漂移检测最小消息数",
+        "type": "int",
+        "hint": "单个事件窗口内消息数量达到此值后才开始进行话题漂移检测",
+        "default": 20
+    },
+    "boundary_topic_drift_interval": {
+        "description": "事件边界：话题漂移检测步进",
+        "type": "int",
+        "hint": "每隔多少条消息进行一次话题漂移检测。设为 1 则每条消息都检测，设为 5 则每 5 条检测一次。推荐 3-10。",
+        "default": 5
     },
     "persona_influenced_summary": {
         "description": "根据当前性格记忆事件",

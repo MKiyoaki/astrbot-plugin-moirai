@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Plus, RefreshCw, Trash2, Search, Info, SlidersHorizontal, X } from 'lucide-react'
+import { Plus, Trash2, Search, Info, SlidersHorizontal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
@@ -20,6 +20,7 @@ import {
 import {
   Popover, PopoverTrigger, PopoverContent,
 } from '@/components/ui/popover'
+import { RefreshButton } from '@/components/shared/refresh-button'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -295,13 +296,14 @@ export default function EventsPage() {
   )
 
   const globalActions = (
-    <Button variant="outline" size="icon" onClick={loadEvents} title={i18n.common.refresh} className="h-8 w-8">
-      <RefreshCw className={cn("size-3.5 transition-transform duration-500", isRefreshing && "animate-spin")} />
-    </Button>
+    <RefreshButton 
+      onClick={loadEvents} 
+      loading={isRefreshing} 
+    />
   )
 
   return (
-    <div className="flex h-svh flex-col overflow-hidden">
+    <div className="flex h-svh flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
         title={i18n.page.events.title}
         description={i18n.page.events.description}
@@ -367,8 +369,13 @@ export default function EventsPage() {
                     {app.rawEvents
                       .filter(e => e.group === detailEvent.group)
                       .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
-                      .map(ev => (
-                        <div key={ev.id} ref={ev.id === detailEvent.id ? focusedCardRef : null}>
+                      .map((ev, idx) => (
+                        <div 
+                          key={ev.id} 
+                          ref={ev.id === detailEvent.id ? focusedCardRef : null}
+                          className="animate-in fade-in slide-in-from-right-4 duration-300 fill-mode-both"
+                          style={{ animationDelay: `${Math.min(idx * 50, 300)}ms` }}
+                        >
                           <EventDetailCard
                             event={ev}
                             isFocused={ev.id === detailEvent.id}

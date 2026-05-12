@@ -56,12 +56,20 @@ async def run_persona_synthesis(
         return 0
 
     personas = await persona_repo.list_all()
-    updated = 0
+    updated_count = 0
+    
+    # Use a semaphore to limit concurrent LLM calls
+    sem = asyncio.Semaphore(3)
 
-    for persona in personas:
+    async def _process_one(persona) -> bool:
+        # Optimization: Skip personas with no new activity since last synthesis
+        last_synth = persona.persona_attrs.get("last_synthesized_at", 0)
+        if persona.last_active_at <= last_synth and last_synth > 0:
+            return False
+
         events = await event_repo.list_by_participant(persona.uid, limit=cfg.max_events)
         if not events:
-            continue
+            return False
 
         # --- Algorithmic: aggregate content_tags from event history ---
         tag_counter: Counter = Counter()
@@ -76,72 +84,77 @@ async def run_persona_synthesis(
             f"当前属性：{json.dumps(persona.persona_attrs, ensure_ascii=False)}。\n"
             "请更新属性。"
         )
-        try:
-            resp = await asyncio.wait_for(
-                provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
-                timeout=cfg.llm_timeout,
-            )
-            parsed = _safe_parse(resp.completion_text)
-            if parsed is None:
-                logger.warning("[Synthesis] unparseable response for %s", persona.uid)
-                continue
+        
+        async with sem:
+            try:
+                resp = await asyncio.wait_for(
+                    provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
+                    timeout=cfg.llm_timeout,
+                )
+                parsed = _safe_parse(resp.completion_text)
+                if parsed is None:
+                    logger.warning("[Synthesis] unparseable response for %s", persona.uid)
+                    return False
 
-            new_attrs = dict(persona.persona_attrs)
-            if "description" in parsed:
-                new_attrs["description"] = str(parsed["description"])[:80]
-            if "big_five" in parsed and isinstance(parsed["big_five"], dict):
-                old_bf = persona.persona_attrs.get("big_five", {})
-                alpha = cfg.ema_alpha
-                merged_bf: dict[str, float] = {}
-                for k in ["O", "C", "E", "A", "N"]:
-                    nv = parsed["big_five"].get(k)
-                    if nv is not None and isinstance(nv, (int, float)):
-                        new_clamped = max(-1.0, min(1.0, float(nv)))
-                        ov = old_bf.get(k)
-                        if ov is not None:
-                            merged_bf[k] = round(alpha * new_clamped + (1 - alpha) * float(ov), 4)
-                        else:
-                            merged_bf[k] = new_clamped
-                if merged_bf:
-                    new_attrs["big_five"] = merged_bf
-            ev = parsed.get("big_five_evidence")
-            if isinstance(ev, dict):
-                final_bf: dict[str, float] = new_attrs.get("big_five", {})
-                cleaned: dict[str, str] = {}
-                for k, v in ev.items():
-                    if k not in ("O", "C", "E", "A", "N") or not isinstance(v, str) or not v.strip():
-                        continue
-                    sentence = str(v)[:120]
-                    # Replace any percentage in the sentence with the value derived
-                    # from the actual merged score so they always match the UI display.
-                    if k in final_bf:
-                        correct_pct = round((final_bf[k] + 1) / 2 * 100)
-                        sentence = re.sub(r"\d+%", f"{correct_pct}%", sentence)
-                    cleaned[k] = sentence
-                new_attrs["big_five_evidence"] = cleaned
-            elif isinstance(ev, str) and ev.strip():
-                new_attrs["big_five_evidence"] = str(ev)[:120]
-            # Always overwrite with the algorithmically-derived tags.
-            new_attrs["content_tags"] = top_tags
+                new_attrs = dict(persona.persona_attrs)
+                if "description" in parsed:
+                    new_attrs["description"] = str(parsed["description"])[:80]
+                if "big_five" in parsed and isinstance(parsed["big_five"], dict):
+                    old_bf = persona.persona_attrs.get("big_five", {})
+                    alpha = cfg.ema_alpha
+                    merged_bf: dict[str, float] = {}
+                    for k in ["O", "C", "E", "A", "N"]:
+                        nv = parsed["big_five"].get(k)
+                        if nv is not None and isinstance(nv, (int, float)):
+                            new_clamped = max(-1.0, min(1.0, float(nv)))
+                            ov = old_bf.get(k)
+                            if ov is not None:
+                                merged_bf[k] = round(alpha * new_clamped + (1 - alpha) * float(ov), 4)
+                            else:
+                                merged_bf[k] = new_clamped
+                    if merged_bf:
+                        new_attrs["big_five"] = merged_bf
+                ev = parsed.get("big_five_evidence")
+                if isinstance(ev, dict):
+                    final_bf: dict[str, float] = new_attrs.get("big_five", {})
+                    cleaned: dict[str, str] = {}
+                    for k, v in ev.items():
+                        if k not in ("O", "C", "E", "A", "N") or not isinstance(v, str) or not v.strip():
+                            continue
+                        sentence = str(v)[:120]
+                        if k in final_bf:
+                            correct_pct = round((final_bf[k] + 1) / 2 * 100)
+                            sentence = re.sub(r"\d+%", f"{correct_pct}%", sentence)
+                        cleaned[k] = sentence
+                    new_attrs["big_five_evidence"] = cleaned
+                elif isinstance(ev, str) and ev.strip():
+                    new_attrs["big_five_evidence"] = str(ev)[:120]
+                
+                # Metadata update
+                new_attrs["content_tags"] = top_tags
+                new_attrs["last_synthesized_at"] = max(e.end_time for e in events)
 
-            # Update confidence based on BigFive coverage quality (dims with valid scores / 5).
-            merged_bf_for_quality: dict = new_attrs.get("big_five", {})
-            quality = len(merged_bf_for_quality) / 5.0
-            old_conf = float(persona.confidence)
-            new_confidence = round(alpha * quality + (1.0 - alpha) * old_conf, 4)
+                merged_bf_for_quality: dict = new_attrs.get("big_five", {})
+                quality = len(merged_bf_for_quality) / 5.0
+                old_conf = float(persona.confidence)
+                new_confidence = round(alpha * quality + (1.0 - alpha) * old_conf, 4)
 
-            await persona_repo.upsert(
-                dataclasses.replace(persona, confidence=new_confidence, persona_attrs=new_attrs)
-            )
-            updated += 1
+                await persona_repo.upsert(
+                    dataclasses.replace(persona, confidence=new_confidence, persona_attrs=new_attrs)
+                )
+                return True
 
-        except asyncio.TimeoutError:
-            logger.warning("[Synthesis] timeout for persona %s", persona.uid)
-        except Exception as exc:
-            logger.warning("[Synthesis] failed for persona %s: %s", persona.uid, exc)
+            except asyncio.TimeoutError:
+                logger.warning("[Synthesis] timeout for persona %s", persona.uid)
+            except Exception as exc:
+                logger.warning("[Synthesis] failed for persona %s: %s", persona.uid, exc)
+            return False
 
-    logger.info("[Synthesis] persona synthesis: %d/%d updated", updated, len(personas))
-    return updated
+    results = await asyncio.gather(*[_process_one(p) for p in personas])
+    updated_count = sum(1 for r in results if r)
+
+    logger.info("[Synthesis] persona synthesis: %d/%d updated", updated_count, len(personas))
+    return updated_count
 
 
 async def run_impression_recalculation(

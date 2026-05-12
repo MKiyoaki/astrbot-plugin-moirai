@@ -327,3 +327,67 @@ async def test_weighted_random_low_temperature_favors_top() -> None:
             top_count += 1
     # With very low temperature, top event should win the majority of runs
     assert top_count >= 20
+
+
+# ---------------------------------------------------------------------------
+# RecallManager: Neighbor Expansion (Primary Thread Filling)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_recall_manager_neighbor_expansion_logic():
+    from core.managers.recall_manager import RecallManager
+    from core.config import RetrievalConfig, InjectionConfig
+    
+    repo = InMemoryEventRepository()
+    retriever = HybridRetriever(repo, NullEncoder())
+    rcfg = RetrievalConfig(final_limit=5)
+    icfg = InjectionConfig()
+    recall_manager = RecallManager(retriever, rcfg, icfg)
+    
+    # Chain: A -> B (Anchor) -> C
+    await repo.upsert(make_event("A", topic="Context A", salience=0.3))
+    await repo.upsert(make_event("B", topic="Target B", salience=0.9)) # B is top anchor
+    await repo.upsert(make_event("C", topic="Topic C", salience=0.3))
+    # Update B to inherit from A
+    ev_b = await repo.get("B")
+    ev_b.inherit_from = ["A"]
+    await repo.upsert(ev_b)
+    # Update C to inherit from B
+    ev_c = await repo.get("C")
+    ev_c.inherit_from = ["B"]
+    await repo.upsert(ev_c)
+    
+    # Event D: unrelated anchor
+    await repo.upsert(make_event("D", topic="Target D", salience=0.1))
+    
+    # Search for "Target" -> B and D are anchors. B is top.
+    results = await recall_manager.recall("Target")
+    
+    # Order: B (Top Anchor) -> A (Parent) -> C (Child) -> D (Next Anchor)
+    ids = [e.event_id for e in results]
+    assert ids == ["B", "A", "C", "D"]
+
+
+@pytest.mark.asyncio
+async def test_recall_manager_expansion_deduplication():
+    from core.managers.recall_manager import RecallManager
+    from core.config import RetrievalConfig, InjectionConfig
+    
+    repo = InMemoryEventRepository()
+    retriever = HybridRetriever(repo, NullEncoder())
+    recall_manager = RecallManager(retriever, RetrievalConfig(final_limit=5), InjectionConfig())
+    
+    # A -> B. A is also an anchor.
+    await repo.upsert(make_event("A", topic="Target A", salience=0.5))
+    await repo.upsert(make_event("B", topic="Target B", salience=0.9)) # B is top anchor
+    ev_b = await repo.get("B")
+    ev_b.inherit_from = ["A"]
+    await repo.upsert(ev_b)
+    
+    results = await recall_manager.recall("Target")
+    
+    # Result list should not contain duplicates
+    ids = [e.event_id for e in results]
+    assert len(ids) == len(set(ids))
+    # Order: B (Anchor1) -> A (Neighbor of B) -> (Anchor A is skipped as duplicate)
+    assert ids == ["B", "A"]

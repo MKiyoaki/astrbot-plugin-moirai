@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from .domain.models import Event, EventStatus, Impression, Persona
+from .utils.version import get_plugin_version
 
 if TYPE_CHECKING:
     from .managers.memory_manager import MemoryManager
@@ -88,10 +89,13 @@ async def get_stats(
     persona_repo: PersonaRepository,
     event_repo: EventRepository,
     impression_repo: ImpressionRepository,
-    plugin_version: str = "0.1.0",
+    plugin_version: str = "0.7.31",
 ) -> dict[str, Any]:
+
+    if plugin_version is None:
+        plugin_version = get_plugin_version()
     from .utils.perf import tracker
-    perf_stats = await tracker.get_averages()
+    perf_metrics = await tracker.get_metrics()
     
     personas = await persona_repo.list_all()
     group_ids = await event_repo.list_group_ids()
@@ -105,6 +109,24 @@ async def get_stats(
     for p in personas:
         imps = await impression_repo.list_by_observer(p.uid)
         impression_count += len(imps)
+
+    # Format detailed perf stats for frontend
+    perf_stats = {}
+    for phase, m in perf_metrics.items():
+        perf_stats[phase] = {
+            "avg_ms": round(m.get("avg", 0.0) * 1000, 2),
+            "last_ms": round(m.get("last", 0.0) * 1000, 2),
+            "avg_hits": round(m.get("avg_hits", 0.0), 2),
+            "last_hits": int(m.get("last_hits", 0)),
+        }
+    
+    # Backward compatibility for existing flat fields (in seconds)
+    legacy_perf = {
+        f"avg_{phase}_time": round(m.get("avg", 0.0), 3)
+        for phase, m in perf_metrics.items()
+    }
+    perf_stats.update(legacy_perf)
+
     return {
         "personas": len(personas),
         "events": event_count,
@@ -112,13 +134,7 @@ async def get_stats(
         "impressions": impression_count,
         "groups": len(group_ids),
         "version": plugin_version,
-        "perf": {
-            "avg_extraction_time": round(perf_stats.get("extraction", 0.0), 3),
-            "avg_partition_time": round(perf_stats.get("partition", 0.0), 3),
-            "avg_distill_time": round(perf_stats.get("distill", 0.0), 3),
-            "avg_retrieval_time": round(perf_stats.get("retrieval", 0.0), 3),
-            "avg_recall_time": round(perf_stats.get("recall", 0.0), 3),
-        }
+        "perf": perf_stats
     }
 
 

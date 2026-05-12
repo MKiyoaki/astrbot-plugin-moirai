@@ -56,7 +56,7 @@ export default function HomePage() {
   ], [i18n])
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-muted/5">
+    <div className="flex h-full flex-col overflow-hidden bg-muted/5 animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader 
         title={i18n.app.name} 
         description={i18n.app.description}
@@ -101,10 +101,10 @@ export default function HomePage() {
           {QUICK_ACTIONS.map((action) => (
             <Link key={action.href} href={action.href}>
               <Card className="h-full hover:bg-accent/50 transition-colors cursor-pointer group relative overflow-hidden">
-                <CardContent className="p-6 flex flex-col justify-between h-full">
-                  <div className={cn("p-2 w-fit rounded-lg mb-4 transition-transform group-hover:scale-110", action.bg, action.color)}>
-                    <action.icon size={20} />
-                  </div>
+                <div className={cn("absolute top-0 right-0 p-4 opacity-[0.08] group-hover:scale-110 transition-transform duration-500 pointer-events-none", action.color)}>
+                  <action.icon size={80} />
+                </div>
+                <CardContent className="p-6 flex flex-col justify-end h-full min-h-[120px]">
                   <div>
                     <h3 className="font-semibold text-lg">{action.title}</h3>
                     <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1 group-hover:text-primary transition-colors">
@@ -123,8 +123,11 @@ export default function HomePage() {
         {/* Row 2: Recent Activity & System Health */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
           {/* Recent Events */}
-          <Card className="lg:col-span-2 flex flex-col">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <Card className="lg:col-span-2 flex flex-col relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:scale-110 transition-transform duration-500 pointer-events-none">
+              <Clock size={120} />
+            </div>
+            <CardHeader className="flex flex-row items-center justify-between pb-2 relative z-10">
               <div>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Clock size={18} className="text-primary" />
@@ -140,7 +143,7 @@ export default function HomePage() {
                 </Button>
               </Link>
             </CardHeader>
-            <CardContent className="flex-1 overflow-hidden p-0">
+            <CardContent className="flex-1 overflow-hidden p-0 relative z-10">
               <ScrollArea className="h-full px-6">
                 <div className="space-y-4 pb-6">
                   {loading ? (
@@ -211,14 +214,17 @@ export default function HomePage() {
 
           {/* System Health / Performance */}
           <div className="flex flex-col gap-6">
-            <Card className="flex-1">
-              <CardHeader className="pb-2">
+            <Card className="flex-1 relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-6 opacity-[0.05] group-hover:scale-110 transition-transform duration-500 pointer-events-none text-amber-500">
+                <Zap size={100} />
+              </div>
+              <CardHeader className="pb-2 relative z-10">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Zap size={18} className="text-amber-500" />
                   {i18n.landing.cognitiveEngine}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-4 relative z-10">
                 <div className="flex flex-col gap-1">
                   <div className="flex justify-between text-xs mb-1">
                     <span className="text-muted-foreground">{i18n.landing.latency} (Avg)</span>
@@ -236,17 +242,17 @@ export default function HomePage() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 mt-4">
-                  <div className="bg-muted/50 p-3 rounded-lg border border-border/50">
+                  <div className="bg-muted/50 p-3 rounded-lg border border-border/50 backdrop-blur-sm">
                     <div className="text-[10px] text-muted-foreground uppercase mb-1">{i18n.landing.extraction}</div>
                     <div className="text-lg font-bold tabular-nums">{stats.perf?.avg_extraction_time ?? '0.000'}s</div>
                   </div>
-                  <div className="bg-muted/50 p-3 rounded-lg border border-border/50">
+                  <div className="bg-muted/50 p-3 rounded-lg border border-border/50 backdrop-blur-sm">
                     <div className="text-[10px] text-muted-foreground uppercase mb-1">{i18n.landing.recall}</div>
                     <div className="text-lg font-bold tabular-nums">{stats.perf?.avg_recall_time ?? '0.000'}s</div>
                   </div>
                 </div>
               </CardContent>
-              <CardFooter className="pt-0 pb-4">
+              <CardFooter className="pt-0 pb-4 relative z-10">
                 <Link href="/stats" className="w-full">
                   <Button variant="outline" size="sm" className="w-full text-xs gap-2">
                     {i18n.nav.stats} <ExternalLink size={12} />
@@ -300,8 +306,11 @@ function SoulMonitor() {
   const activeSessions = Object.entries(states)
   
   return (
-    <Card className="relative overflow-hidden border-amber-500/20 bg-amber-500/[0.02]">
-      <CardHeader className="pb-3">
+    <Card className="relative overflow-hidden border-amber-500/20 bg-amber-500/[0.02] group">
+      <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:scale-110 transition-transform duration-500 pointer-events-none text-amber-500">
+        <Zap size={140} />
+      </div>
+      <CardHeader className="pb-3 relative z-10">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base font-medium flex items-center gap-2">
             <Zap className="size-4 text-amber-500 fill-amber-500/20" />
@@ -313,7 +322,7 @@ function SoulMonitor() {
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="relative z-10">
         {activeSessions.length === 0 ? (
           <div className="h-24 flex flex-col items-center justify-center border rounded-lg border-dashed bg-muted/5">
             <MessageSquare className="size-5 text-muted-foreground/20 mb-2" />

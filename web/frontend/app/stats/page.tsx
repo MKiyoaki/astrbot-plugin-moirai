@@ -3,11 +3,12 @@
 import { useEffect, useState, useMemo } from 'react'
 import {
   Activity, Users, Share2, Lock,
-  TrendingUp, Hash, Zap, BarChart3, Search, Clock, RefreshCw
+  TrendingUp, Hash, Zap, BarChart3, Search, Clock
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/layout/page-header'
+import { RefreshButton } from '@/components/shared/refresh-button'
 import {
   ChartContainer,
   ChartTooltip,
@@ -101,19 +102,14 @@ export default function StatsPage() {
   }
 
   const globalActions = (
-    <Button 
-      variant="outline" 
-      size="icon" 
+    <RefreshButton 
       onClick={loadData} 
-      title={i18n.common.refresh} 
-      className="h-8 w-8"
-    >
-      <RefreshCw className={cn("size-3.5 transition-transform duration-500", isRefreshing && "animate-spin")} />
-    </Button>
+      loading={isRefreshing} 
+    />
   )
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
         title={i18n.page.stats.title}
         description={i18n.page.stats.description}
@@ -283,36 +279,42 @@ export default function StatsPage() {
                   icon={Clock} 
                   label={i18n.stats.avgResponse} 
                   value={(stats.perf?.avg_response_time ?? 0) + 's'} 
+                  details={stats.perf?.response}
                   sub={lang === 'zh' ? '总平均处理时长' : (lang === 'ja' ? '総平均処理時間' : 'Total avg duration')}
                 />
                 <PerfMetricItem 
                   icon={Activity} 
                   label={i18n.stats.avgExtraction} 
                   value={(stats.perf?.avg_extraction_time ?? 0) + 's'} 
+                  details={stats.perf?.extraction}
                   sub={lang === 'zh' ? '从消息中提取情节' : (lang === 'ja' ? 'メッセージからの抽出' : 'Extracting episodes')}
                 />
                 <PerfMetricItem 
                   icon={Zap} 
                   label={i18n.stats.avgPartition} 
                   value={(stats.perf?.avg_partition_time ?? 0) + 's'} 
+                  details={stats.perf?.partition}
                   sub={lang === 'zh' ? '自动对话边界检测' : (lang === 'ja' ? '会話境界の検出' : 'Boundary detection')}
                 />
                 <PerfMetricItem 
                   icon={TrendingUp} 
                   label={i18n.stats.avgDistill} 
                   value={(stats.perf?.avg_distill_time ?? 0) + 's'} 
+                  details={stats.perf?.distill}
                   sub={lang === 'zh' ? '长对话精简提炼' : (lang === 'ja' ? '要約と精緻化' : 'Condensing dialogues')}
                 />
                 <PerfMetricItem 
                   icon={Share2} 
                   label={i18n.stats.avgRetrieval} 
                   value={(stats.perf?.avg_retrieval_time ?? 0) + 's'} 
+                  details={stats.perf?.retrieval}
                   sub={lang === 'zh' ? 'Prompt 记忆注入' : (lang === 'ja' ? 'プロンプト注入' : 'Context injection')}
                 />
                 <PerfMetricItem 
                   icon={Search} 
                   label={i18n.stats.avgRecall} 
                   value={(stats.perf?.avg_recall_time ?? 0) + 's'} 
+                  details={stats.perf?.recall}
                   sub={lang === 'zh' ? '全文与向量混合搜索' : (lang === 'ja' ? 'ハイブリッド検索' : 'Hybrid search')}
                 />
              </div>
@@ -323,7 +325,11 @@ export default function StatsPage() {
   )
 }
 
-function PerfMetricItem({ icon: Icon, label, value, sub }: { icon: any, label: string, value: string | number, sub: string }) {
+function PerfMetricItem({ 
+  icon: Icon, label, value, sub, details 
+}: { 
+  icon: any, label: string, value: string | number, sub: string, details?: api.PerfPhaseInfo 
+}) {
   return (
     <Card className="shadow-none border-muted/50 bg-muted/5 hover:bg-muted/10 transition-colors">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
@@ -334,7 +340,20 @@ function PerfMetricItem({ icon: Icon, label, value, sub }: { icon: any, label: s
       </CardHeader>
       <CardContent>
         <div className="text-2xl font-bold tabular-nums">{value}</div>
-        <p className="text-[10px] text-muted-foreground mt-1 line-clamp-1" title={sub}>{sub}</p>
+        <p className="text-[10px] text-muted-foreground mt-1 line-clamp-1 mb-2" title={sub}>{sub}</p>
+        
+        {details && (
+          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-muted/50">
+            <div className="flex flex-col">
+              <span className="text-[9px] text-muted-foreground uppercase">Last</span>
+              <span className="text-xs font-mono font-medium">{details.last_ms}ms</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[9px] text-muted-foreground uppercase">Hits</span>
+              <span className="text-xs font-mono font-medium">{details.last_hits}</span>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   )

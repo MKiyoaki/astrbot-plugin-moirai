@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Pencil, RefreshCw, Save, X, Search, RotateCcw } from 'lucide-react'
+import { Pencil, Save, X, Search, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -18,6 +18,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { PageHeader } from '@/components/layout/page-header'
+import { RefreshButton } from '@/components/shared/refresh-button'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -34,10 +35,19 @@ interface Sections {
   mood: string
 }
 
+const MARKER_TOPIC = '[主要话题]'
+const MARKER_EVENTS = '[事件列表]'
+const MARKER_MOOD = '[情感动态]'
+
 function parseSections(content: string): Sections {
-  const topicMatch = content.match(/\[主要话题\]\n([\s\S]*?)(?=\n\[事件列表\]|\n\[情感动态\]|$)/)
-  const eventsMatch = content.match(/\[事件列表\]\n([\s\S]*?)(?=\n\[情感动态\]|$)/)
-  const moodMatch = content.match(/\[情感动态\]\n([\s\S]*?)$/)
+  const topicRegex = new RegExp(`\\${MARKER_TOPIC}\\n([\\s\\S]*?)(?=\\n\\${MARKER_EVENTS}|\\n\\${MARKER_MOOD}|$)`)
+  const eventsRegex = new RegExp(`\\${MARKER_EVENTS}\\n([\\s\\S]*?)(?=\\n\\${MARKER_MOOD}|$)`)
+  const moodRegex = new RegExp(`\\${MARKER_MOOD}\\n([\\s\\S]*?)$`)
+  
+  const topicMatch = content.match(topicRegex)
+  const eventsMatch = content.match(eventsRegex)
+  const moodMatch = content.match(moodRegex)
+  
   return {
     topic: topicMatch?.[1]?.trim() ?? content,
     events: eventsMatch?.[1]?.trim() ?? '',
@@ -47,9 +57,9 @@ function parseSections(content: string): Sections {
 
 function assembleSections(sections: Sections): string {
   const parts: string[] = []
-  if (sections.topic) parts.push(`[主要话题]\n${sections.topic}`)
-  if (sections.events) parts.push(`[事件列表]\n${sections.events}`)
-  if (sections.mood) parts.push(`[情感动态]\n${sections.mood}`)
+  if (sections.topic) parts.push(`${MARKER_TOPIC}\n${sections.topic}`)
+  if (sections.events) parts.push(`${MARKER_EVENTS}\n${sections.events}`)
+  if (sections.mood) parts.push(`${MARKER_MOOD}\n${sections.mood}`)
   return parts.join('\n\n') + '\n'
 }
 
@@ -74,9 +84,9 @@ export default function SummaryPage() {
         loadSummary(list[0].group_id, list[0].date)
       }
     } catch {
-      app.toast('加载失败', 'destructive')
+      app.toast(i18n.common.error, 'destructive')
     }
-  }, [app, current.date]) // eslint-disable-line
+  }, [app, current.date, i18n.common.error]) // eslint-disable-line
 
   useEffect(() => {
     loadList()
@@ -106,7 +116,7 @@ export default function SummaryPage() {
       setEditing(false)
       app.toast(i18n.summary.saveSuccess)
     } catch (e: unknown) {
-      app.toast(i18n.summary.saveError + '：' + (e as api.ApiError).body, 'destructive')
+      app.toast(`${i18n.summary.saveError}: ${(e as api.ApiError).body}`, 'destructive')
     }
   }
 
@@ -120,7 +130,7 @@ export default function SummaryPage() {
       setEditing(false)
       app.toast(i18n.summary.regenerateSuccess)
     } catch (e: unknown) {
-      app.toast(i18n.summary.regenerateError + '：' + (e as api.ApiError).body, 'destructive')
+      app.toast(`${i18n.summary.regenerateError}: ${(e as api.ApiError).body}`, 'destructive')
     } finally {
       setRegenerating(false)
     }
@@ -183,25 +193,23 @@ export default function SummaryPage() {
           </Button>
         </>
       )}
-
-      <Button 
-        variant="outline" 
-        size="icon" 
-        onClick={loadList} 
-        title={i18n.common.refresh} 
-        className="h-8 w-8"
-      >
-        <RefreshCw className={cn("size-3.5 transition-transform duration-500", loading && "animate-spin")} />
-      </Button>
     </div>
   )
 
+  const globalActions = (
+    <RefreshButton 
+      onClick={loadList} 
+      loading={loading} 
+    />
+  )
+
   return (
-    <div className="flex w-full flex-1 h-full flex-col min-w-0 overflow-hidden">
+    <div className="flex w-full flex-1 h-full flex-col min-w-0 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
         title={i18n.page.summary.title}
         description={i18n.page.summary.description}
         actions={actions}
+        globalActions={globalActions}
       />
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -230,10 +238,10 @@ export default function SummaryPage() {
                   <button
                     key={`${s.group_id ?? ''}-${s.date}`}
                     className={cn(
-                      'w-full rounded-lg px-3 py-2 text-left text-sm transition-colors',
+                      'w-full rounded-lg px-3 py-2 text-left text-sm transition-all duration-200',
                       current.date === s.date && current.groupId === s.group_id
-                        ? 'bg-accent text-accent-foreground'
-                        : 'hover:bg-muted',
+                        ? 'bg-accent text-accent-foreground shadow-sm'
+                        : 'hover:bg-muted text-muted-foreground hover:text-foreground',
                     )}
                     onClick={() => { setEditing(false); loadSummary(s.group_id, s.date) }}
                   >
@@ -248,16 +256,19 @@ export default function SummaryPage() {
 
         <div className="flex flex-1 flex-col overflow-hidden min-w-0">
           {!current.date ? (
-            <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
+            <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm animate-in fade-in duration-500">
               {i18n.summary.placeholder}
             </div>
           ) : loading ? (
-            <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
+            <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm animate-pulse">
               {i18n.common.loading}
             </div>
           ) : (
             <ScrollArea className="flex-1">
-              <div className="flex flex-col gap-4 p-6">
+              <div 
+                key={`${current.groupId}-${current.date}`}
+                className="flex flex-col gap-4 p-6 animate-in fade-in slide-in-from-right-4 duration-300 ease-out"
+              >
 
                 {/* [主要话题] — editable */}
                 <div className="flex flex-col gap-1.5">
@@ -269,11 +280,11 @@ export default function SummaryPage() {
                       className="min-h-[120px] resize-none font-mono text-sm"
                       value={editTopic}
                       onChange={e => setEditTopic(e.target.value)}
-                      placeholder="主要话题摘要…"
+                      placeholder={i18n.summary.topicPlaceholder}
                     />
                   ) : (
                     <div className="text-sm leading-relaxed whitespace-pre-wrap rounded-md border bg-muted/30 px-3 py-2">
-                      {sections.topic || <span className="text-muted-foreground italic">（暂无内容）</span>}
+                      {sections.topic || <span className="text-muted-foreground italic">{i18n.summary.noTopic}</span>}
                     </div>
                   )}
                 </div>
@@ -286,7 +297,7 @@ export default function SummaryPage() {
                   </div>
                   <div className="rounded-md border bg-muted/30 px-3 py-2">
                     <p className="text-sm font-mono leading-relaxed break-all whitespace-pre-wrap">
-                      {sections.events || <span className="text-muted-foreground italic">（暂无事件列表）</span>}
+                      {sections.events || <span className="text-muted-foreground italic">{i18n.summary.noEvents}</span>}
                     </p>
                   </div>
                 </div>
@@ -299,7 +310,7 @@ export default function SummaryPage() {
                   </div>
                   <div className="rounded-md border bg-muted/30 px-3 py-2">
                     <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                      {sections.mood || <span className="text-muted-foreground italic">（暂无情感动态）</span>}
+                      {sections.mood || <span className="text-muted-foreground italic">{i18n.summary.noMood}</span>}
                     </p>
                   </div>
                 </div>

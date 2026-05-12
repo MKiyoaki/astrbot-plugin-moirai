@@ -171,6 +171,7 @@ class WebuiServer:
         plugin_version: str = "0.1.0",
         initial_config: dict | None = None,
         provider_getter: Callable | None = None,
+        all_providers_getter: Callable | None = None,
         recall_manager: BaseRecallManager | None = None,
     ) -> None:
         self._persona_repo = persona_repo
@@ -192,6 +193,7 @@ class WebuiServer:
         self.registry = registry or PanelRegistry()
         self._task_runner = task_runner
         self._provider_getter = provider_getter
+        self._all_providers_getter = all_providers_getter
         self._plugin_version = plugin_version
 
         # Plugin config: stored at data_dir/plugin_config.json, seeded from initial_config
@@ -336,6 +338,8 @@ class WebuiServer:
             "/api/config", self._wrap("sudo", self._handle_update_config))
         app.router.add_get(
             "/api/config/schema", self._wrap("auth", self._handle_get_config_schema))
+        app.router.add_get(
+            "/api/config/providers", self._wrap("auth", self._handle_get_providers))
 
         # Third-party panel registration
         app.router.add_get(
@@ -1341,6 +1345,35 @@ class WebuiServer:
             json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         return _json({"ok": True, "saved": list(coerced.keys())})
+
+
+    async def _handle_get_providers(self, _: web.Request) -> web.Response:
+        if self._all_providers_getter is None:
+            return _json({"providers": []})
+        try:
+            # get_all_providers() might return a list or (success, list)
+            data = self._all_providers_getter()
+            providers = data
+            if isinstance(data, (tuple, list)) and len(data) == 2 and isinstance(data[0], bool):
+                providers = data[1]
+            
+            # We want to return a list of {id: str, name: str}
+            res = []
+            if isinstance(providers, (list, tuple)):
+                for p in providers:
+                    # Provider objects usually have id and name
+                    p_id = getattr(p, "id", "")
+                    p_name = getattr(p, "name", "")
+                    if not p_id and hasattr(p, "__dict__"):
+                         p_id = p.__dict__.get("id", str(p))
+                    if not p_name and hasattr(p, "__dict__"):
+                         p_name = p.__dict__.get("name", str(p))
+                    
+                    res.append({"id": str(p_id or p), "name": str(p_name or p)})
+            return _json({"providers": res})
+        except Exception as exc:
+            logger.warning("[WebUI] get_providers failed: %s", exc)
+            return _json({"error": str(exc)}, status=500)
 
     # Route handlers: Third-party panel registration
 

@@ -23,7 +23,7 @@ export function GroupCardItem({ group, onClick }: GroupCardProps) {
 
   return (
     <Card
-      className="cursor-pointer transition-all duration-150 hover:shadow-md hover:-translate-y-px"
+      className="cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:border-primary/20 bg-card/50 backdrop-blur-sm"
       onClick={onClick}
     >
       <CardContent className="p-4 space-y-2.5">

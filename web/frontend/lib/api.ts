@@ -42,6 +42,13 @@ export const auth = {
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────
+export interface PerfPhaseInfo {
+  avg_ms: number
+  last_ms: number
+  avg_hits: number
+  last_hits: number
+}
+
 export interface PluginStats {
   personas: number
   events: number
@@ -57,6 +64,8 @@ export interface PluginStats {
     avg_retrieval_time: number
     avg_recall_time: number
     avg_response_time: number
+    // Detailed stats
+    [phase: string]: any // phase-specific PerfPhaseInfo or number
   }
 }
 
@@ -214,6 +223,7 @@ export const pluginConfig = {
     request<{ ok: boolean; saved: string[] }>('/api/config', {
       method: 'PUT', body: JSON.stringify(values),
     }),
+  providers: () => request<{ providers: { id: string; name: string }[] }>('/api/config/providers'),
 }
 
 // ── Global API Export ──────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { Save, RefreshCw, Info } from 'lucide-react'
+import { Save, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { PageHeader } from '@/components/layout/page-header'
+import { RefreshButton } from '@/components/shared/refresh-button'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -38,6 +39,13 @@ const FIELD_DEPENDENCIES: Record<string, string> = {
   // Retrieval
   'retrieval_sampling_temperature': 'retrieval_weighted_random',
 
+  // Soul Layer
+  'soul_decay_rate': 'soul_enabled',
+  'soul_recall_depth_init': 'soul_enabled',
+  'soul_impression_depth_init': 'soul_enabled',
+  'soul_expression_desire_init': 'soul_enabled',
+  'soul_creativity_init': 'soul_enabled',
+
   // Cleanup
   'memory_cleanup_threshold': 'memory_cleanup_enabled',
   'memory_cleanup_interval_days': 'memory_cleanup_enabled',
@@ -61,12 +69,14 @@ function ConfigField({
   value,
   onChange,
   disabled,
+  providers = [],
 }: {
   fieldKey: string
   schema: api.ConfSchemaField
   value: unknown
   onChange: (v: unknown) => void
   disabled: boolean
+  providers?: { id: string; name: string }[]
 }) {
   const { i18n } = useApp()
   const id = `cfg-${fieldKey}`
@@ -76,6 +86,8 @@ function ConfigField({
   const label = localized?.label || schema.description
   const hint = localized?.hint || schema.hint
   const tooltip = localized?.tooltip
+
+  const isSelectProvider = (schema as any)._special === 'select_provider'
 
   return (
     <div className={cn("transition-opacity duration-200", disabled && "opacity-40 pointer-events-none")}>
@@ -112,7 +124,7 @@ function ConfigField({
         </div>
       )}
 
-      {schema.type === 'select' && schema.options && (
+      {(schema.type === 'select' || isSelectProvider) && (
         <div className="py-2 min-w-0">
           <div className="flex items-center gap-1.5 mb-1.5">
             <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal">
@@ -136,25 +148,43 @@ function ConfigField({
           )}
           <Select
             disabled={disabled}
-            value={String(value)}
-            onValueChange={v => onChange(v)}
+            value={isSelectProvider && !value ? '__default__' : String(value ?? '')}
+            onValueChange={v => onChange(v === '__default__' ? '' : v)}
           >
             <SelectTrigger id={id} className="h-8 text-sm w-full">
-              <SelectValue />
+              <SelectValue placeholder={localized?.selectPlaceholder} />
             </SelectTrigger>
             <SelectContent>
-              {schema.options.map(opt => {
-                const isObj = typeof opt === 'object' && opt !== null
-                const val = isObj ? (opt as any).value : String(opt)
-                const lab = isObj ? (opt as any).label : String(opt)
-                return (
-                  <SelectItem key={val} value={val}>
-                    {lab}
+              {isSelectProvider && (
+                <SelectItem value="__default__">
+                  {i18n.common.none} (AstrBot Default)
+                </SelectItem>
+              )}
+              {isSelectProvider ? (
+                providers.map(p => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
                   </SelectItem>
-                )
-              })}
+                ))
+              ) : (
+                schema.options?.map(opt => {
+                  const isObj = typeof opt === 'object' && opt !== null
+                  const val = isObj ? (opt as any).value : String(opt)
+                  const lab = isObj ? (opt as any).label : String(opt)
+                  return (
+                    <SelectItem key={val} value={val}>
+                      {lab}
+                    </SelectItem>
+                  )
+                })
+              )}
             </SelectContent>
           </Select>
+          {isSelectProvider && !value && (
+            <p className="mt-1.5 text-[10px] text-primary/80 font-medium">
+              {localized?.defaultHint}
+            </p>
+          )}
         </div>
       )}
 
@@ -199,7 +229,7 @@ function ConfigField({
         </div>
       )}
 
-      {(schema.type === 'int' || schema.type === 'string') && (
+      {(schema.type === 'int' || schema.type === 'string') && !isSelectProvider && (
         <div className="py-2 min-w-0">
           <div className="flex items-center gap-1.5 mb-1.5">
             <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal">
@@ -243,13 +273,21 @@ export default function ConfigPage() {
   const [schema, setSchema] = useState<Record<string, api.ConfSchemaField>>({})
   const [values, setValues] = useState<Record<string, unknown>>({})
   const [dirty, setDirty] = useState<Record<string, unknown>>({})
+  const [providers, setProviders] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
   const SECTIONS = useMemo(() => [
     {
       label: i18n.config.sections.webui,
-      keys: ['webui_port', 'webui_auth_enabled', 'webui_session_hours', 'webui_sudo_minutes', 'webui_password'],
+      keys: [
+        'llm_provider', 
+        'webui_port', 
+        'webui_auth_enabled', 
+        'webui_session_hours', 
+        'webui_sudo_minutes', 
+        'webui_password'
+      ],
     },
     {
       label: i18n.config.sections.embedding,
@@ -316,10 +354,19 @@ export default function ConfigPage() {
   const load = async () => {
     setLoading(true)
     try {
-      const data = await api.pluginConfig.get()
-      setSchema(data.schema)
-      setValues(data.values)
+      const confData = await api.pluginConfig.get()
+      setSchema(confData.schema)
+      setValues(confData.values)
       setDirty({})
+      
+      // Fetch providers independently and gracefully
+      try {
+        const provData = await api.pluginConfig.providers()
+        setProviders(provData.providers || [])
+      } catch (e) {
+        console.warn('Failed to fetch providers:', e)
+        setProviders([])
+      }
     } catch {
       toast(i18n.config.loadError, 'destructive')
     } finally {
@@ -371,19 +418,14 @@ export default function ConfigPage() {
   )
 
   const globalActions = (
-    <Button 
-      variant="outline" 
-      size="icon" 
+    <RefreshButton 
       onClick={load} 
-      title={i18n.common.refresh} 
-      className="h-8 w-8"
-    >
-      <RefreshCw className={cn("size-3.5 transition-transform duration-500", loading && "animate-spin")} />
-    </Button>
+      loading={loading} 
+    />
   )
 
   return (
-    <div className="flex w-full flex-1 h-full flex-col min-w-0 overflow-hidden">
+    <div className="flex w-full flex-1 h-full flex-col min-w-0 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
         title={i18n.page.config.title}
         description={i18n.page.config.description}
@@ -427,6 +469,7 @@ export default function ConfigPage() {
                           value={values[key] ?? schema[key].default}
                           onChange={val => handleChange(key, val)}
                           disabled={fieldDisabled}
+                          providers={providers}
                         />
                       )
                     })}

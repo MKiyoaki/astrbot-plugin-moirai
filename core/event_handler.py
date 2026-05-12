@@ -58,13 +58,19 @@ class EventHandler:
                 except Exception:
                     pass
 
-            await recall.recall_and_inject(
+            injected_count = await recall.recall_and_inject(
                 query=query,
                 req=req,
                 session_id=session_id,
                 group_id=group_id,
                 sender_uid=sender_uid,
             )
+            
+            # Sync VCM state with hit rate feedback
+            cm = self._init.context_manager
+            if cm is not None:
+                cm.update_state(session_id, recall_hit=(injected_count > 0))
+                
         except Exception as exc:
             astrbot_logger.warning("[%s] recall hook failed: %s", _PLUGIN_NAME, exc)
 

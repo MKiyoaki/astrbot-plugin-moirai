@@ -6,6 +6,7 @@ import pytest
 from core.adapters.astrbot import MessageRouter
 from core.adapters.identity import IdentityResolver
 from core.boundary.detector import BoundaryConfig, EventBoundaryDetector
+from core.embedding.encoder import NullEncoder
 from core.domain.models import Event
 from core.repository.memory import InMemoryEventRepository, InMemoryPersonaRepository
 from core.managers.context_manager import ContextManager
@@ -51,6 +52,7 @@ def make_router(
         identity_resolver=resolver,
         detector=detector,
         context_manager=ContextManager(ContextConfig()),
+        encoder=NullEncoder(),
         on_event_close=mock_on_event_close,
     )
     return router, event_repo
@@ -142,6 +144,7 @@ async def test_router_on_event_close_callback_called() -> None:
         identity_resolver=IdentityResolver(persona_repo),
         detector=EventBoundaryDetector(BoundaryConfig(max_messages=2)),
         context_manager=ContextManager(ContextConfig()),
+        encoder=NullEncoder(),
         on_event_close=capture,
     )
     t = 1000.0
@@ -195,6 +198,7 @@ async def test_router_drift_detected_is_false_for_time_gap_close() -> None:
         identity_resolver=IdentityResolver(persona_repo),
         detector=EventBoundaryDetector(BoundaryConfig(time_gap_minutes=1.0)),
         context_manager=ctx_mgr,
+        encoder=NullEncoder(),
         on_event_close=None,
     )
 
@@ -203,8 +207,10 @@ async def test_router_drift_detected_is_false_for_time_gap_close() -> None:
     # 2-minute gap closes the window, then new message arrives
     await router.process("qq", "u1", "Alice", "msg2", "g1", now=t + 120)
 
-    assert len(states_seen) >= 1
+    import asyncio
+    await asyncio.sleep(0.01) # Wait for background tasks
 
+    assert len(states_seen) >= 1
 
 async def test_router_same_platform_different_users_share_group_window() -> None:
     router, event_repo = make_router()

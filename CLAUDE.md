@@ -300,6 +300,19 @@ This means: `relation_inference.enabled = false` should still leave the memory s
 - Explicit configuration over inferred behavior — every threshold (event boundary, decay rate, retrieval top-k, token budget) must be configurable, with sensible defaults.
 - Add changes into CHANGELOG.md for every modification. 
 
+### Version Management
+
+`metadata.yaml` is the single source of truth for the plugin version. Never hand-edit version numbers in `metadata.yaml`, `README.md`, or anywhere else.
+
+To bump the version, run:
+```bash
+python bump_version.py patch   # 0.7.33 → 0.7.34
+python bump_version.py minor   # 0.7.33 → 0.8.0
+python bump_version.py major   # 0.7.33 → 1.0.0
+```
+
+The script automatically: (1) updates `metadata.yaml`, (2) inserts a new section stub in `CHANGELOG.md`. After running it, fill in the CHANGELOG entry, then commit.
+
 ### Coding Conventions
 
 - Python 3.10+ (use `match` statements where they improve clarity, not for the sake of it)

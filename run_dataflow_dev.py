@@ -40,7 +40,7 @@ MODE = "encoder"  # Options: 'llm' or 'encoder'
 # -----------------------
 
 DEV_DB = Path(".dev_data") / "dataflow_test.db"
-MOCK_DATA_PATH = Path("tests/mock_data/mock_chat.json")
+MOCK_DATA_PATH = Path("tests/mock_data/mock_realtime.json")
 
 async def main():
     from core.utils.llm import SimpleLLMClient, MockProviderBridge
@@ -150,22 +150,14 @@ async def main():
         with open(MOCK_DATA_PATH, "r", encoding="utf-8") as f:
             messages = json.load(f)
 
-        session_id = "test:group_1" # Standard format: platform:group_id
-
         for msg in messages:
-            # Simulate message arrival
-            t_str = msg["time"]
-            t_obj = datetime.strptime(t_str, "%H:%M:%S")
-            now = datetime.now()
-            t_final = now.replace(hour=t_obj.hour, minute=t_obj.minute, second=t_obj.second).timestamp()
-            
             await router.process(
                 platform="test",
-                physical_id=msg["nickname"],
+                physical_id=msg["user_id"],
                 display_name=msg["nickname"],
                 text=msg["content"],
-                raw_group_id="group_1",
-                now=t_final
+                raw_group_id=msg["group_id"],
+                now=msg["timestamp"]
             )
 
         # Force flush at the end to close the last event
@@ -193,9 +185,9 @@ async def main():
         # --- PHASE 2: Retrieval & Prompt Injection ---
         print("\n[Phase 2] Testing RAG Retrieval and Prompt Injection...")
         
-        query = "之前那个叫 Rain 的人是不是含沪量很高？他都说了些什么？"
-        sid_rag = "test:group_1"
-        test_group_id = "group_1"
+        query = "卿泽对原神的看法是什么？大家都说了些什么？"
+        sid_rag = "test:114514"
+        test_group_id = "114514"
 
         # Mock a ProviderRequest (what AstrBot gives us)
         req = ProviderRequest(

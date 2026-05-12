@@ -328,9 +328,13 @@ class PluginConfig:
     def get_boundary_config(self) -> BoundaryConfig:
         return BoundaryConfig(
             time_gap_minutes=self._float("boundary_time_gap_minutes", 30.0),
-            max_messages=self._int("boundary_max_messages", 20),
+            max_messages=self._int("boundary_max_messages", 50),
             max_duration_minutes=self._float(
                 "boundary_max_duration_minutes", 60.0),
+            drift_detection_enabled=self._bool("boundary_topic_drift_enabled", True),
+            drift_threshold=self._float("boundary_topic_drift_threshold", 0.6),
+            drift_min_messages=self._int("boundary_topic_drift_min_messages", 20),
+            drift_check_interval=self._int("boundary_topic_drift_interval", 5),
         )
 
     def get_decay_config(self) -> DecayConfig:

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { UserPlus, RefreshCw, ChevronLeft, Maximize2, XCircle, Search } from 'lucide-react'
+import { UserPlus, ChevronLeft, Maximize2, XCircle, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/layout/page-header'
@@ -14,6 +14,7 @@ import { ParamsPanel } from '@/components/graph/params-panel'
 import { NodeDetail } from '@/components/graph/node-detail'
 import { EdgeDetail } from '@/components/graph/edge-detail'
 import { GroupCardList } from '@/components/graph/group-card-list'
+import { RefreshButton } from '@/components/shared/refresh-button'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -278,10 +279,12 @@ export default function GraphPage() {
 
   // ── Standard Utilities ──────────────────────────────────────────────────────
   const globalActions = (
-    <Button variant="outline" size="icon" onClick={loadGraph} title={i18n.common.refresh} className="h-8 w-8">
-      <RefreshCw className={cn("size-3.5 transition-transform duration-500", isRefreshing && "animate-spin")} />
-    </Button>
+    <RefreshButton 
+      onClick={loadGraph} 
+      loading={isRefreshing} 
+    />
   )
+
 
   // ── Group list view ─────────────────────────────────────────────────────────
   if (!expandedGroupId) {
@@ -304,7 +307,7 @@ export default function GraphPage() {
     )
 
     return (
-      <div className="flex h-screen flex-col overflow-hidden">
+      <div className="flex h-screen flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
         <PageHeader
           title={i18n.page.graph.title}
           description={i18n.graph.groupCount.replace('{count}', String(groupCards.length))}
@@ -318,7 +321,7 @@ export default function GraphPage() {
           dateRange={dateRange}
           onDateRangeChange={setDateRange}
         />
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto animate-in fade-in duration-700 delay-150 fill-mode-both">
           <GroupCardList groups={filteredGroups} onOpen={handleOpenGroup} loading={loading} />
         </div>
 
@@ -385,7 +388,7 @@ export default function GraphPage() {
 
   if (relationEnabled === false) {
     return (
-      <div className="flex h-screen flex-col overflow-hidden">
+      <div className="flex h-screen flex-col overflow-hidden animate-in fade-in duration-500">
         <PageHeader title={i18n.page.graph.title} description={i18n.page.graph.description} />
         <div className="flex flex-1 items-center justify-center p-8">
           <Card className="max-w-md w-full">
@@ -402,7 +405,7 @@ export default function GraphPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
+    <div className="flex h-screen flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-400 ease-out fill-mode-both">
       <PageHeader
         title={currentGroup?.name ?? i18n.page.graph.title}
         description={`${i18n.graph.nodeCount} ${activeNodes.length} · ${i18n.graph.edgePairCount} ${activePairs.length}`}
@@ -439,7 +442,7 @@ export default function GraphPage() {
           />
 
           {/* Bottom toolbar overlay */}
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 animate-in slide-in-from-bottom-2 duration-500 delay-300 fill-mode-both">
             <Button size="sm" variant="secondary" className="text-xs h-7 shadow-sm" onClick={handleFit}>
               <Maximize2 className="mr-1 h-3 w-3" />{i18n.graph.fit}
             </Button>
@@ -456,7 +459,7 @@ export default function GraphPage() {
         </div>
 
         {/* Right panel (fixed 340px) */}
-        <div className="w-[340px] shrink-0 border-l overflow-hidden">
+        <div className="w-[340px] shrink-0 border-l overflow-hidden animate-in slide-in-from-right-4 duration-400 ease-out fill-mode-both">
           {rightPanelContent}
         </div>
       </div>

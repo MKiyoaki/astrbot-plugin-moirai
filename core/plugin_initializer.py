@@ -42,6 +42,7 @@ from .social.big_five_scorer import BigFiveBuffer
 from .social.orientation_analyzer import SocialOrientationAnalyzer
 from .sync.syncer import ReverseSyncer
 from .sync.watcher import FileWatcher
+from .utils.version import get_plugin_version
 from .tasks.cleanup import run_memory_cleanup
 from .tasks.scheduler import TaskScheduler
 from .tasks.summary import run_group_summary
@@ -206,12 +207,13 @@ class PluginInitializer:
 
         resolver = IdentityResolver(persona_repo, default_confidence=cfg.persona_default_confidence)
         self.resolver = resolver
-        detector = EventBoundaryDetector(cfg.get_boundary_config())
+        detector = EventBoundaryDetector(cfg.get_boundary_config(), encoder=self.embedding_manager)
         self.router = MessageRouter(
             event_repo=event_repo,
             identity_resolver=resolver,
             detector=detector,
             context_manager=self.context_manager,
+            encoder=self.embedding_manager,
             on_event_close=on_event_close,
         )
 
@@ -286,8 +288,10 @@ class PluginInitializer:
             port=cfg.webui_port,
             auth_enabled=cfg.webui_auth_enabled,
             task_runner=self.scheduler.run_now,
-            plugin_version=_get_plugin_version(),
+            plugin_version=get_plugin_version(),
             initial_config=cfg.as_dict(),
+            provider_getter=provider_getter,
+            all_providers_getter=self._context.get_all_providers,
             recall_manager=self.recall,
         )
         if cfg.webui_enabled:
@@ -332,14 +336,6 @@ class PluginInitializer:
         if self._exit_stack is not None:
             await self._exit_stack.aclose()
         astrbot_logger.info("[%s] terminated", _PLUGIN_NAME)
-
-
-def _get_plugin_version() -> str:
-    try:
-        from importlib.metadata import version
-        return version("astrbot-plugin-enhanced-memory")
-    except Exception:
-        return "0.6.0"
 
 
 

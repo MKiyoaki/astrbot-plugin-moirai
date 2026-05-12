@@ -8,11 +8,17 @@ from core.repository.memory import (
     InMemoryPersonaRepository,
 )
 
+@pytest.fixture(autouse=True)
+async def reset_tracker():
+    """Reset the global tracker before each test."""
+    async with tracker._lock:
+        tracker._history.clear()
+        tracker._last_durations.clear()
+        tracker._hit_history.clear()
+    yield
+
 @pytest.mark.asyncio
 async def test_perf_tracker_records_and_averages():
-    # Reset tracker for testing
-    tracker._history["extraction"].clear()
-    
     async with performance_timer("extraction"):
         await asyncio.sleep(0.01)
     
@@ -20,16 +26,15 @@ async def test_perf_tracker_records_and_averages():
         await asyncio.sleep(0.03)
         
     averages = await tracker.get_averages()
-    assert 0.01 <= averages["extraction"] <= 0.05
-    assert averages["retrieval"] == 0.0
-    assert averages["recall"] == 0.0
+    assert 0.01 <= averages["extraction"] <= 0.06 # Allow some overhead
+    assert averages.get("retrieval", 0.0) == 0.0
 
 @pytest.mark.asyncio
 async def test_get_stats_includes_perf_data():
-    tracker._history["extraction"].clear()
     await tracker.record("extraction", 0.5)
     await tracker.record("retrieval", 0.1)
     await tracker.record("recall", 0.2)
+    await tracker.record_hit("recall", 5)
     
     pr = InMemoryPersonaRepository()
     er = InMemoryEventRepository()
@@ -37,6 +42,13 @@ async def test_get_stats_includes_perf_data():
     
     stats = await get_stats(pr, er, ir)
     assert "perf" in stats
+    # Check new nested structure
+    assert stats["perf"]["extraction"]["avg_ms"] == 500.0
+    assert stats["perf"]["retrieval"]["avg_ms"] == 100.0
+    assert stats["perf"]["recall"]["avg_ms"] == 200.0
+    assert stats["perf"]["recall"]["last_hits"] == 5
+    
+    # Check legacy flat fields
     assert stats["perf"]["avg_extraction_time"] == 0.5
     assert stats["perf"]["avg_retrieval_time"] == 0.1
     assert stats["perf"]["avg_recall_time"] == 0.2

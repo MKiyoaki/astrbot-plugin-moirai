@@ -3,9 +3,9 @@
 import { useEffect, useState, useCallback, useMemo, Suspense, Fragment } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import {
-  Users, Building2, Activity, Clock, Search,
+  Users, Building2, Activity, Clock, Search, MessageSquare,
   ChevronDown, ChevronRight, Pencil, Trash2,
-  Network, GitBranch, RefreshCw, Lock, Unlock, Undo2
+  Network, GitBranch, Lock, Unlock, Undo2
 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/pagination'
 import { PageHeader } from '@/components/layout/page-header'
 import { FilterBar } from '@/components/shared/filter-bar'
+import { RefreshButton } from '@/components/shared/refresh-button'
 import { DateRange } from 'react-day-picker'
 import { EditPersonaDialog } from '@/components/graph/persona-dialogs'
 import { EditEventDialog, RecycleBinDialog, type EventFormData } from '@/components/events/event-dialogs'
@@ -313,6 +314,76 @@ function EventDetailRow({
   )
 }
 
+interface GroupInfo {
+  id: string;
+  displayName: string;
+  type: 'group' | 'private';
+  event_count: number;
+  last_active?: string;
+  participants: string[];
+}
+
+function GroupDetailRow({ 
+  group, personas, onGoToEvents 
+}: { 
+  group: GroupInfo, personas: api.PersonaNode[], onGoToEvents: (gid: string) => void
+}) {
+  const { i18n } = useApp()
+  
+  // Try to find platform info from participants
+  const groupParticipants = personas.filter(p => group.participants.includes(p.data.id))
+  const platforms = new Set<string>()
+  groupParticipants.forEach(p => p.data.bound_identities?.forEach(b => platforms.add(b.platform)))
+  
+  return (
+    <TableRow className="bg-muted/40 hover:bg-muted/40">
+      <TableCell colSpan={4} className="py-3">
+        <div className="flex flex-col gap-3 px-2">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
+            <div>
+              <span className="text-muted-foreground text-xs">{i18n.library.groups.groupId}</span>
+              <p className="font-mono text-xs break-all">{group.id}</p>
+            </div>
+            {platforms.size > 0 && (
+              <div>
+                <span className="text-muted-foreground text-xs">{i18n.library.groups.platform}</span>
+                <div className="mt-0.5 flex flex-wrap gap-1">
+                  {Array.from(platforms).map(p => (
+                    <Badge key={p} variant="outline" className="text-xs uppercase">{p}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div>
+              <span className="text-muted-foreground text-xs">{i18n.library.groups.type}</span>
+              <p className="text-sm">{group.type === 'group' ? i18n.events.group : i18n.events.privateChat}</p>
+            </div>
+          </div>
+          
+          <div>
+            <span className="text-muted-foreground text-xs">{i18n.events.participants}</span>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {groupParticipants.map(p => (
+                <Badge key={p.data.id} variant="secondary" className="text-xs">
+                  {p.data.label}
+                  {p.data.is_bot && <span className="ml-1 opacity-60">(Bot)</span>}
+                </Badge>
+              ))}
+              {groupParticipants.length === 0 && <span className="text-xs text-muted-foreground italic">{i18n.library.groups.noParticipants}</span>}
+            </div>
+          </div>
+
+          <div className="flex gap-2 mt-1">
+            <Button size="sm" variant="outline" onClick={() => onGoToEvents(group.type === 'group' ? group.id : '')}>
+              <Activity className="mr-2 h-4 w-4" />{i18n.library.groups.viewEvents}
+            </Button>
+          </div>
+        </div>
+      </TableCell>
+    </TableRow>
+  )
+}
+
 // ── Main Content Component ────────────────────────────────────────────────
 
 function LibraryContent() {
@@ -337,7 +408,7 @@ function LibraryContent() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>()
   const [tagList, setTagList] = useState<{ name: string; count: number }[]>([])
   const [personaList, setPersonaList] = useState<api.PersonaNode[]>([])
-  const [groupList, setGroupList] = useState<{ id: string; event_count: number; last_active?: string }[]>([])
+  const [groupList, setGroupList] = useState<GroupInfo[]>([])
   const [eventList, setEventList] = useState<api.ApiEvent[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [editMode, setEditMode] = useState(false)
@@ -405,19 +476,53 @@ function LibraryContent() {
         setPersonaList(graphData.value.nodes)
         setRawGraph(graphData.value)
       }
-      if (eventsData.status === 'fulfilled') {
-        setEventList(eventsData.value.items)
-        const groups = new Map<string, { id: string; event_count: number; last_active?: string }>()
-        eventsData.value.items.forEach(ev => {
-          if (!ev.group) return
-          const existing = groups.get(ev.group)
+      if (eventsData.status === 'fulfilled' && graphData.status === 'fulfilled') {
+        const evs = eventsData.value.items
+        const personas = graphData.value.nodes
+        setEventList(evs)
+        
+        const groups = new Map<string, GroupInfo>()
+        const botNodes = personas.filter(n => n.data.is_bot)
+        const botUids = new Set(botNodes.map(n => n.data.id))
+
+        evs.forEach(ev => {
+          let groupId = ev.group
+          let type: 'group' | 'private' = 'group'
+          let displayName = ev.group || ''
+
+          if (!groupId) {
+            // Private chat identification: find the non-bot participant
+            const other = ev.participants.find(p => !botUids.has(p))
+            if (other) {
+              groupId = `private:${other}`
+              type = 'private'
+              const pNode = personas.find(n => n.data.id === other)
+              displayName = pNode ? pNode.data.label : other
+            } else {
+              groupId = 'private:unknown'
+              type = 'private'
+              displayName = i18n.events.privateChat
+            }
+          }
+
+          const existing = groups.get(groupId)
           if (!existing) {
-            groups.set(ev.group, { id: ev.group, event_count: 1, last_active: ev.start })
+            groups.set(groupId, { 
+              id: groupId, 
+              displayName,
+              type,
+              event_count: 1, 
+              last_active: ev.start,
+              participants: [...ev.participants]
+            })
           } else {
             existing.event_count++
             if (!existing.last_active || ev.start > existing.last_active) {
               existing.last_active = ev.start
             }
+            ev.participants.forEach(p => {
+              if (!existing.participants.includes(p)) existing.participants.push(p)
+            })
           }
         })
         setGroupList(Array.from(groups.values()).sort((a, b) => (b.last_active || '') > (a.last_active || '') ? 1 : -1))
@@ -473,9 +578,14 @@ function LibraryContent() {
     return true
   })
 
-  const tagMatchedGroupIds = activeTags.size > 0 ? new Set(filteredEvents.filter(ev => ev.group).map(ev => ev.group as string)) : null
+  const tagMatchedGroupIds = activeTags.size > 0 ? new Set(filteredEvents.map(ev => {
+    if (ev.group) return ev.group
+    const other = ev.participants.find(p => !personaList.find(n => n.data.id === p)?.data.is_bot)
+    return other ? `private:${other}` : 'private:unknown'
+  })) : null
+
   const filteredGroups = groupList.filter(g => {
-    if (q && !g.id.toLowerCase().includes(q)) return false
+    if (q && !g.id.toLowerCase().includes(q) && !g.displayName.toLowerCase().includes(q)) return false
     if (tagMatchedGroupIds && !tagMatchedGroupIds.has(g.id)) return false
     return true
   })
@@ -643,13 +753,15 @@ function LibraryContent() {
   )
 
   const globalActions = (
-    <Button variant="outline" size="icon" onClick={loadData} title={i18n.common.refresh} className="h-8 w-8">
-      <RefreshCw className={cn("size-3.5 transition-transform duration-500", isRefreshing && "animate-spin")} />
-    </Button>
+    <RefreshButton 
+      onClick={loadData} 
+      loading={isRefreshing} 
+    />
   )
 
+
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
         title={i18n.page.library.title}
         description={i18n.page.library.description}
@@ -863,10 +975,35 @@ function LibraryContent() {
             <ScrollArea className="flex-1">
               <div className="overflow-hidden border-y">
                 <Table>
-                  <TableHeader><TableRow><TableHead>{i18n.library.groups.groupId}</TableHead><TableHead>{i18n.library.groups.events}</TableHead><TableHead>{i18n.library.groups.lastActive}</TableHead></TableRow></TableHeader>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-4"></TableHead>
+                      <TableHead>{i18n.library.groups.groupId}</TableHead>
+                      <TableHead>{i18n.library.groups.events}</TableHead>
+                      <TableHead>{i18n.library.groups.lastActive}</TableHead>
+                    </TableRow>
+                  </TableHeader>
                   <TableBody>
-                    {paginatedGroups.length === 0 ? (<TableRow><TableCell colSpan={3} className="text-muted-foreground text-center py-8">{i18n.library.groups.noGroups}</TableCell></TableRow>) 
-                    : paginatedGroups.map(g => (<TableRow key={g.id}><TableCell className="font-mono text-sm">{g.id}</TableCell><TableCell className="text-sm">{g.event_count}</TableCell><TableCell className="text-sm">{g.last_active ? new Date(g.last_active).toLocaleDateString('zh-CN') : '—'}</TableCell></TableRow>))}
+                    {paginatedGroups.length === 0 ? (
+                      <TableRow><TableCell colSpan={4} className="text-muted-foreground text-center py-8">{i18n.library.groups.noGroups}</TableCell></TableRow>
+                    ) : paginatedGroups.map(g => (
+                      <Fragment key={g.id}>
+                        <TableRow className="cursor-pointer transition-colors" onClick={() => toggleExpand(g.id)}>
+                          <TableCell className="w-4 pr-0 text-muted-foreground">
+                            {expandedId === g.id ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                          </TableCell>
+                          <TableCell className="font-medium flex items-center gap-2">
+                            {g.type === 'group' ? <Building2 className="size-4 text-muted-foreground" /> : <MessageSquare className="size-4 text-muted-foreground" />}
+                            <span className="font-mono text-sm">{g.displayName || g.id}</span>
+                          </TableCell>
+                          <TableCell className="text-sm">{g.event_count}</TableCell>
+                          <TableCell className="text-sm">{g.last_active ? new Date(g.last_active).toLocaleDateString('zh-CN') : '—'}</TableCell>
+                        </TableRow>
+                        {expandedId === g.id && (
+                          <GroupDetailRow group={g} personas={personaList} onGoToEvents={(gid) => { setTab('events'); setSearch(gid) }} />
+                        )}
+                      </Fragment>
+                    ))}
                   </TableBody>
                 </Table>
               </div>

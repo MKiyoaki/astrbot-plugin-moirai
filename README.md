@@ -1,6 +1,6 @@
 # Astrbot Plugin - Enhanced Memory (Moirai)
 
-Version: `0.7.12`
+Version: `0.7.31`
 
 Author: `MKiyoaki`, `Gariton`
 

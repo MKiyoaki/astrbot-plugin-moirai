@@ -12,14 +12,16 @@ from core.config import PluginConfig
 from core.domain.models import Event
 from core.event_handler import EventHandler
 from core.plugin_initializer import PluginInitializer
+from core.utils.version import get_plugin_version
 from core.utils.formatter import format_events_for_prompt
+from core.mixins.commands_mixin import CommandsMixin
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
     from astrbot.api.provider import ProviderRequest
     from astrbot.api.star import Context, Star
 
-_PLUGIN_VERSION = "0.7.27"
+_PLUGIN_VERSION = get_plugin_version()
 
 
 @register(
@@ -29,7 +31,7 @@ _PLUGIN_VERSION = "0.7.27"
     _PLUGIN_VERSION,
     "https://github.com/MKiyoaki/astrbot-plugin-moirai",
 )
-class MoiraiPlugin(Star):
+class MoiraiPlugin(Star, CommandsMixin):
     def __init__(self, context: Context) -> None:
         super().__init__(context)
         self._initializer: PluginInitializer | None = None
@@ -106,59 +108,6 @@ class MoiraiPlugin(Star):
             return
         formatted = format_events_for_prompt(results, token_budget=600)
         yield event.plain_result(formatted)
-
-    # ── Commands ──────────────────────────────────────────────────────────────
-
-    @filter.command_group("mrm")
-    def mrm(self):
-        pass
-
-    @mrm.command("status")
-    async def mrm_status(self, event: AstrMessageEvent):
-        '''查询插件运行状态。用法：/mrm status'''
-        if not self._initializer:
-            yield event.plain_result("插件未初始化。")
-            return
-        cmd = self._initializer.command_manager
-        yield event.plain_result(await cmd.status())
-
-    @mrm.command("run")
-    async def mrm_run(self, event: AstrMessageEvent, task: str):
-        '''手动触发周期任务。用法：/mrm run <task>（decay / synthesis / summary / cleanup）'''
-        if not self._initializer:
-            yield event.plain_result("插件未初始化。")
-            return
-        cmd = self._initializer.command_manager
-        yield event.plain_result(await cmd.run_task(task))
-
-    @mrm.command("flush")
-    async def mrm_flush(self, event: AstrMessageEvent):
-        '''清空当前会话的上下文窗口。用法：/mrm flush'''
-        if not self._initializer:
-            yield event.plain_result("插件未初始化。")
-            return
-        cmd = self._initializer.command_manager
-        session_id = event.unified_msg_origin
-        yield event.plain_result(await cmd.flush(session_id))
-
-    @mrm.command("recall")
-    async def mrm_recall(self, event: AstrMessageEvent, query: str):
-        '''手动触发记忆检索并返回结果。用法：/mrm recall <关键词>'''
-        if not self._initializer:
-            yield event.plain_result("插件未初始化。")
-            return
-        cmd = self._initializer.command_manager
-        group_id = event.get_group_id() if hasattr(event, "get_group_id") else None
-        yield event.plain_result(await cmd.recall(query, group_id=group_id))
-
-    @mrm.command("webui")
-    async def mrm_webui(self, event: AstrMessageEvent, action: str):
-        '''启用或关闭 WebUI。用法：/mrm webui on | off'''
-        if not self._initializer:
-            yield event.plain_result("插件未初始化。")
-            return
-        cmd = self._initializer.command_manager
-        yield event.plain_result(await cmd.webui(action))
 
     async def terminate(self) -> None:
         if self._initializer:

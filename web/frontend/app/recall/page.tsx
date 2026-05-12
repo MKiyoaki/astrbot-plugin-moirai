@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Search, Search as SearchIcon, RefreshCw } from 'lucide-react'
+import { Search, Search as SearchIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { PageHeader } from '@/components/layout/page-header'
+import { RefreshButton } from '@/components/shared/refresh-button'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -69,19 +70,14 @@ export default function RecallPage() {
   )
 
   const globalActions = (
-    <Button 
-      variant="outline" 
-      size="icon" 
+    <RefreshButton 
       onClick={handleRefresh} 
-      title={i18n.common.refresh} 
-      className="h-8 w-8"
-    >
-      <RefreshCw className={cn("size-3.5 transition-transform duration-500", isRefreshing && "animate-spin")} />
-    </Button>
+      loading={isRefreshing} 
+    />
   )
 
   return (
-    <div className="flex w-full flex-1 h-full flex-col min-w-0 overflow-hidden">
+    <div className="flex w-full flex-1 h-full flex-col min-w-0 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
         title={i18n.page.recall.title}
         description={i18n.page.recall.description}

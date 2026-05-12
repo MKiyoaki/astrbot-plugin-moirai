@@ -100,43 +100,65 @@ def test_detector_time_gap_exact_boundary_does_not_fire() -> None:
     assert not should_close
 
 
-def test_detector_max_messages_fires() -> None:
-    cfg = BoundaryConfig(max_messages=10)
-    det = EventBoundaryDetector(cfg)
-    w = _fill_window(10, start=1000.0)
+def test_detector_max_messages_hard_cap_fires() -> None:
+    from core.embedding.encoder import NullEncoder
+    class MockEncoder(NullEncoder):
+        @property
+        def dim(self): return 512
+        
+    # Hard cap is max(50, max_messages * 2) = 100 (since default max_messages is 50)
+    det = EventBoundaryDetector(encoder=MockEncoder())
+    w = _fill_window(100, start=1000.0)
     should_close, reason = det.should_close(w, now=1001.0)
     assert should_close
-    assert reason == "max_messages"
+    assert reason == "max_messages_hard_cap"
 
 
-def test_detector_max_messages_below_threshold_does_not_fire() -> None:
-    cfg = BoundaryConfig(max_messages=10)
-    det = EventBoundaryDetector(cfg)
-    w = _fill_window(9, start=1000.0)
+def test_detector_max_messages_below_hard_cap_does_not_fire() -> None:
+    from core.embedding.encoder import NullEncoder
+    class MockEncoder(NullEncoder):
+        @property
+        def dim(self): return 512
+        
+    det = EventBoundaryDetector(encoder=MockEncoder())
+    w = _fill_window(99, start=1000.0)
     should_close, _ = det.should_close(w, now=1001.0)
     assert not should_close
 
 
-def test_detector_max_duration_fires() -> None:
-    cfg = BoundaryConfig(max_duration_minutes=60)
+async def test_detector_topic_drift_check() -> None:
+    from core.embedding.encoder import NullEncoder
+    
+    cfg = BoundaryConfig(drift_min_messages=5, drift_threshold=0.5, drift_check_interval=1)
     det = EventBoundaryDetector(cfg)
-    w = MessageWindow(session_id="s", group_id="g", start_time=1000.0, last_message_time=1000.0 + 60 * 60)
-    should_close, reason = det.should_close(w, now=1000.0 + 60 * 60 + 1)
-    assert should_close
-    assert reason == "max_duration"
+    
+    vec_a = [1.0] * 512
+    vec_b = [-1.0] * 512
 
-
-def test_detector_topic_drift_removed() -> None:
-    # Topic drift was removed in favor of LLM-based partitioning
-    det = EventBoundaryDetector()
-    assert not hasattr(det.config, "topic_drift_threshold")
+    # 1. Below drift_min_messages: no drift check
+    w = _fill_window(4)
+    # Mock centroid by adding messages with embeddings
+    for m in w.messages:
+        w.attach_embedding(w.messages.index(m), vec_a)
+    assert not await det.check_drift(w, vec_b)
+    
+    # 2. At drift_min_messages, but same topic: no drift
+    w = _fill_window(5)
+    for m in w.messages:
+        w.attach_embedding(w.messages.index(m), vec_a)
+    assert not await det.check_drift(w, vec_a)
+    
+    # 3. At drift_min_messages, different topic: drift!
+    assert await det.check_drift(w, vec_b)
 
 
 def test_detector_defaults_are_reasonable() -> None:
     det = EventBoundaryDetector()
     assert det.config.time_gap_minutes == 30.0
-    assert det.config.max_messages == 20
+    assert det.config.max_messages == 50
     assert det.config.max_duration_minutes == 60.0
+    assert det.config.drift_threshold == 0.6
+    assert det.config.drift_min_messages == 20
 
 
 # ---------------------------------------------------------------------------

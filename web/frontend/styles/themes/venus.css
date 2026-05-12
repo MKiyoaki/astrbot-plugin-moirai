@@ -1,94 +1,85 @@
 /* ==========================================================================
-   Aurora Theme - Creative & Vibrant
-   Warm pearl base + dusty violet primary + muted rose accent. Expressive, soft.
-   Ref palette: Warm Pearl #F9F8F6 / Deep Ink #36333D / Dusty Purple #7A6C8A / Muted Rose #D49A94
+   Venus Theme - Warm Marble
    ========================================================================== */
 
 .theme-venus {
   --radius: 0.5rem;
+  
+  /* Light Mode - Warm Marble and Ivory */
+  --background: oklch(0.98 0.01 70);
+  --foreground: oklch(0.25 0.02 20);
+  --card: oklch(0.98 0.01 70);
+  --card-foreground: oklch(0.25 0.02 20);
+  --popover: oklch(0.98 0.01 70);
+  --popover-foreground: oklch(0.25 0.02 20); 
+  --primary: oklch(0.55 0.22 25);
+  --primary-foreground: oklch(0.98 0.01 70);
+  --secondary: oklch(0.9 0.02 70);
+  --secondary-foreground: oklch(0.25 0.02 20);
+  --muted: oklch(0.94 0.01 70);
+  --muted-foreground: oklch(0.45 0.02 25);
+  --accent: oklch(0.92 0.04 25);
+  --accent-foreground: oklch(0.55 0.22 25);
+  --destructive: oklch(0.45 0.18 25);
+  --destructive-foreground: oklch(0.98 0.01 70);
+  --border: oklch(0.88 0.02 70);
+  --input: oklch(0.88 0.02 70);
+  --ring: oklch(0.55 0.22 25);
 
-  /* Light Mode */
-  --background: oklch(0.98 0.004 80);
-  --foreground: oklch(0.28 0.03 300);
-
-  --card: oklch(0.98 0.004 80);
-  --card-foreground: oklch(0.28 0.03 300);
-
-  --popover: oklch(0.98 0.004 80);
-  --popover-foreground: oklch(0.28 0.03 300);
-
-  /* Primary: Dusty Purple (chroma bumped slightly from ref) */
-  --primary: oklch(0.52 0.12 305);
-  --primary-foreground: oklch(0.98 0.004 80);
-
-  /* Secondary: Soft Lavender tint */
-  --secondary: oklch(0.91 0.04 305);
-  --secondary-foreground: oklch(0.28 0.03 300);
-
-  --muted: oklch(0.95 0.01 85);
-  --muted-foreground: oklch(0.52 0.04 300);
-
-  /* Accent: Muted Rose tint */
-  --accent: oklch(0.94 0.06 20);
-  --accent-foreground: oklch(0.60 0.11 20);
-
-  --destructive: oklch(0.55 0.2 25);
-  --destructive-foreground: oklch(0.98 0.004 80);
-
-  --border: oklch(0.88 0.03 305);
-  --input: oklch(0.88 0.03 305);
-  --ring: oklch(0.52 0.12 305);
-
-  --sidebar: oklch(0.96 0.02 305);
-  --sidebar-foreground: oklch(0.28 0.03 300);
-  --sidebar-primary: oklch(0.52 0.12 305);
-  --sidebar-primary-foreground: oklch(0.98 0.004 80);
-  --sidebar-accent: oklch(0.90 0.05 305);
-  --sidebar-accent-foreground: oklch(0.52 0.12 305);
-  --sidebar-border: oklch(0.88 0.03 305);
-  --sidebar-ring: oklch(0.52 0.12 305);
+  /* Sidebar */
+  --sidebar: oklch(0.96 0.01 70);
+  --sidebar-foreground: oklch(0.25 0.02 20);
+  --sidebar-primary: oklch(0.55 0.22 25);
+  --sidebar-primary-foreground: oklch(0.98 0.01 70);
+  --sidebar-accent: oklch(0.92 0.02 70);
+  --sidebar-accent-foreground: oklch(0.55 0.22 25);
+  --sidebar-border: oklch(0.88 0.02 70);
+  --sidebar-ring: oklch(0.55 0.22 25);
 }
 
 .dark.theme-venus,
 .dark .theme-venus {
-  /* Dark Mode - Deep Purple Slate */
-  --background: oklch(0.18 0.025 300);
-  --foreground: oklch(0.88 0.01 300);
-
-  --card: oklch(0.22 0.03 300);
-  --card-foreground: oklch(0.88 0.01 300);
-
-  --popover: oklch(0.20 0.025 300);
-  --popover-foreground: oklch(0.88 0.01 300);
-
-  /* Primary: Brighter dusty violet for dark backgrounds */
-  --primary: oklch(0.60 0.12 305);
-  --primary-foreground: oklch(0.18 0.025 300);
-
-  /* Secondary: Muted Purple panel */
-  --secondary: oklch(0.28 0.05 305);
-  --secondary-foreground: oklch(0.88 0.01 300);
-
-  --muted: oklch(0.24 0.03 300);
-  --muted-foreground: oklch(0.62 0.04 300);
-
-  /* Accent: Dark muted rose glow */
-  --accent: oklch(0.28 0.06 20);
-  --accent-foreground: oklch(0.78 0.10 20);
-
+  /* Dark Mode - Stone & Taupe Aesthetic (Refined Surface Colors) */
+  /* Background: Deep Stone Charcoal */
+  --background: oklch(0.13 0.005 50); 
+  --foreground: oklch(0.94 0.01 70);
+  
+  /* Card/Popover: Warm Taupe-Grey elevation (Replaces muddy browns) */
+  --card: oklch(0.18 0.015 50);
+  --card-foreground: oklch(0.94 0.01 70);
+  --popover: oklch(0.18 0.015 50);
+  --popover-foreground: oklch(0.94 0.01 70);
+  
+  /* Primary: Vibrant Venus Crimson */
+  --primary: oklch(0.58 0.22 25);
+  --primary-foreground: oklch(1 0 0);
+  
+  /* Secondary: Muted Stone-Taupe (Neutralized interactive surface) */
+  --secondary: oklch(0.25 0.02 50);
+  --secondary-foreground: oklch(0.94 0.01 70);
+  
+  --muted: oklch(0.22 0.01 50);
+  --muted-foreground: oklch(0.65 0.01 70);
+  
+  /* Accent: Subtle Gold/Taupe highlight for focus/hover */
+  --accent: oklch(0.3 0.03 60);
+  --accent-foreground: oklch(0.75 0.12 75);
+  
   --destructive: oklch(0.5 0.2 25);
-  --destructive-foreground: oklch(0.95 0.01 300);
-
+  --destructive-foreground: oklch(0.95 0.02 70);
+  
+  /* Unified Borders & Inputs (Stone/Taupe subtle transparency) */
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.60 0.12 305);
+  --ring: oklch(0.58 0.22 25);
 
-  --sidebar: oklch(0.20 0.025 300);
-  --sidebar-foreground: oklch(0.88 0.01 300);
-  --sidebar-primary: oklch(0.60 0.12 305);
-  --sidebar-primary-foreground: oklch(0.18 0.025 300);
-  --sidebar-accent: oklch(0.26 0.04 305);
-  --sidebar-accent-foreground: oklch(0.88 0.01 300);
+  /* Sidebar Dark */
+  --sidebar: oklch(0.15 0.01 50);
+  --sidebar-foreground: oklch(0.94 0.01 70);
+  --sidebar-primary: oklch(0.58 0.22 25);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.22 0.01 50);
+  --sidebar-accent-foreground: oklch(0.94 0.01 70);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.60 0.12 305);
+  --sidebar-ring: oklch(0.58 0.22 25);
 }

@@ -95,6 +95,9 @@ class EventExtractor:
         else:
             self._partitioner = LlmPartitioner()
 
+        # Cache for bot persona: (name, description)
+        self._bot_persona_cache: tuple[str | None, str | None] | None = None
+
     async def _init_tag_seeds(self) -> None:
         """Initialize canonical_tags from configuration seeds via a single batch encode."""
         if not self._tag_seeds:
@@ -147,7 +150,7 @@ class EventExtractor:
             async with performance_timer("extraction"):
                 batch_results = await self._extract_batch(window, existing_tags=steering_tags, bot_persona_desc=bot_desc)
                 for res in batch_results:
-                    start, end = res["start_idx"], res["end_idx"]
+                    start, end = res.get("start_idx", 0), res.get("end_idx", len(window.messages)-1)
                     extracted_results.append((list(range(start, end + 1)), res))
         else:
             # Per-partition distillation: partitioner already handled splitting.
@@ -159,7 +162,14 @@ class EventExtractor:
                     res = await self._distill(sub_messages, existing_tags=steering_tags, bot_persona_desc=bot_desc)
                     extracted_results.append((part.indices, res))
 
-        # 3. Persistence
+        # 5. Batch tag normalization across all extracted events
+        all_raw_tags = []
+        for _, res in extracted_results:
+            all_raw_tags.extend(res.get("chat_content_tags", []))
+        
+        normalized_map = await self._batch_align_tags(all_raw_tags)
+
+        # 6. Persistence
         from ..domain.models import Event, MessageRef
         import uuid
 
@@ -187,9 +197,9 @@ class EventExtractor:
             start_time = min(timestamps)
             end_time = max(timestamps)
 
-            # --- Tag Abstraction & Normalization ---
+            # Map raw tags to normalized tags
             raw_tags = res.get("chat_content_tags", [])
-            aligned_tags = await self._align_tags(raw_tags)
+            aligned_tags = list(dict.fromkeys(normalized_map.get(tag, tag) for tag in raw_tags))
 
             event = Event(
                 event_id=str(uuid.uuid4()),
@@ -233,49 +243,51 @@ class EventExtractor:
         if ipc_tasks:
             await asyncio.gather(*ipc_tasks)
 
-    async def _align_tags(self, raw_tags: list[str]) -> list[str]:
-        """Normalize tags by aligning them to existing canonical tags via vector similarity.
-
-        Encodes all tags in one encode_batch() call, then searches concurrently.
+    async def _batch_align_tags(self, raw_tags: list[str]) -> dict[str, str]:
+        """Normalize a large list of tags in a single batch operation.
+        
+        Returns a mapping from raw_tag -> normalized_tag.
         """
-        clean_tags = [t.strip() for t in raw_tags if t.strip()]
-        if not clean_tags:
-            return []
+        unique_raw = list(dict.fromkeys(t.strip() for t in raw_tags if t.strip()))
+        if not unique_raw:
+            return {}
 
-        # 1. Batch encode all tags in one call
+        # 1. Batch encode all unique tags
         try:
-            embeddings = await self._encoder.encode_batch(clean_tags)
+            embeddings = await self._encoder.encode_batch(unique_raw)
         except Exception as exc:
             logger.debug("[EventExtractor] tag batch encoding failed: %s", exc)
-            return clean_tags
+            return {t: t for t in unique_raw}
 
-        # 2. Concurrent canonical-tag search for every embedding
-        async def _resolve(tag: str, embedding: list[float]) -> str:
+        # 2. Concurrent canonical-tag search
+        async def _resolve(tag: str, embedding: list[float]) -> tuple[str, str]:
             try:
                 matches = await self._event_repo.search_canonical_tag(
                     embedding, threshold=self._tag_normalization_threshold
                 )
             except Exception as exc:
                 logger.debug("[EventExtractor] canonical tag search failed: %s", exc)
-                return tag
+                return tag, tag
             if matches:
-                return matches[0][0]
+                return tag, matches[0][0]
+            # No match found, upsert as a new canonical tag
             await self._event_repo.upsert_canonical_tag(tag, embedding)
-            return tag
+            return tag, tag
 
-        resolved = await asyncio.gather(
-            *(_resolve(tag, emb) for tag, emb in zip(clean_tags, embeddings))
+        results = await asyncio.gather(
+            *(_resolve(tag, emb) for tag, emb in zip(unique_raw, embeddings))
         )
-        return list(dict.fromkeys(resolved))  # preserve order, remove duplicates
+        return dict(results)
 
     async def _get_bot_persona(self) -> tuple[str | None, str | None]:
-        """Return (primary_name, description) for the bot persona in one list_all call.
-
-        Returns (None, None) when persona_influenced_summary is disabled or no bot
-        persona is found.  Callers receive both values from a single DB round-trip.
+        """Return (primary_name, description) for the bot persona. Use cache if available.
         """
         if not self._persona_influenced_summary or self._persona_repo is None:
             return None, None
+        
+        if self._bot_persona_cache is not None:
+            return self._bot_persona_cache
+
         try:
             personas = await self._persona_repo.list_all()
             bot = next(
@@ -287,10 +299,16 @@ class EventExtractor:
             )
             if bot:
                 desc = bot.persona_attrs.get("description", "") if isinstance(bot.persona_attrs, dict) else ""
-                return bot.primary_name or None, desc or bot.primary_name or None
+                self._bot_persona_cache = (bot.primary_name or None, desc or bot.primary_name or None)
+                return self._bot_persona_cache
         except Exception as exc:
             logger.debug("[EventExtractor] bot persona lookup failed: %s", exc)
         return None, None
+
+    async def _align_tags(self, raw_tags: list[str]) -> list[str]:
+        """Legacy method for single event tag alignment. Prefer _batch_align_tags."""
+        mapping = await self._batch_align_tags(raw_tags)
+        return list(dict.fromkeys(mapping.get(tag, tag) for tag in raw_tags))
 
     async def _extract_batch(self, window: MessageWindow, existing_tags: list[str] | None = None, bot_persona_desc: str | None = None) -> list[dict]:
         provider = self._provider_getter()

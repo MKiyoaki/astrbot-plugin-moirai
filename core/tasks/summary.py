@@ -235,6 +235,10 @@ async def _generate_summary_for_group(
     start_str = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%H:%M")
     end_str = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%H:%M")
 
+    # Parallelize Section 1 (Topic) and Section 3 (Mood LLM) if needed
+    topic_task = None
+    mood_task = None
+
     # Section 1: [主要话题] — LLM
     event_lines = "\n".join(
         "- [{}] {}{}".format(
@@ -249,21 +253,22 @@ async def _generate_summary_for_group(
         f"事件列表：\n{event_lines}\n"
         f"{get_string('summary.word_limit_hint', lang)}"
     )
-    try:
-        resp = await asyncio.wait_for(
-            provider.text_chat(prompt=topic_prompt, system_prompt=cfg.system_prompt),
-            timeout=cfg.llm_timeout,
-        )
-        topic_text = resp.completion_text.strip()
-    except asyncio.TimeoutError:
-        logger.warning(f"[{_MODULE_NAME}] topic LLM timeout for group %r", group_label)
-        topic_text = get_string("summary.timeout", lang)
-    except Exception as exc:
-        logger.warning(f"[{_MODULE_NAME}] topic LLM failed for group %r: %s", group_label, exc)
-        topic_text = get_string("summary.failed", lang)
 
-    # Section 2: [事件列表] — Deterministic
-    event_list_text = _build_event_list_section(events, uid_to_name, lang=lang)
+    async def _get_topic():
+        try:
+            resp = await asyncio.wait_for(
+                provider.text_chat(prompt=topic_prompt, system_prompt=cfg.system_prompt),
+                timeout=cfg.llm_timeout,
+            )
+            return resp.completion_text.strip()
+        except asyncio.TimeoutError:
+            logger.warning(f"[{_MODULE_NAME}] topic LLM timeout for group %r", group_label)
+            return get_string("summary.timeout", lang)
+        except Exception as exc:
+            logger.warning(f"[{_MODULE_NAME}] topic LLM failed for group %r: %s", group_label, exc)
+            return get_string("summary.failed", lang)
+
+    topic_task = asyncio.create_task(_get_topic())
 
     # Section 3: [情感动态] — LLM (Option B) or impression DB (Option A)
     mood_text = None
@@ -271,8 +276,17 @@ async def _generate_summary_for_group(
         mood_text = await _build_mood_section_db(events, uid_to_name, impression_repo, persona_repo, lang=lang)
     
     if not mood_text:
-        # Fallback to Option B (LLM)
-        mood_text = await _build_mood_section_llm(events, uid_to_name, provider, cfg)
+        # Fallback to Option B (LLM) - parallelize it
+        mood_task = asyncio.create_task(_build_mood_section_llm(events, uid_to_name, provider, cfg))
+
+    # Wait for both
+    if mood_task:
+        topic_text, mood_text = await asyncio.gather(topic_task, mood_task)
+    else:
+        topic_text = await topic_task
+
+    # Section 2: [事件列表] — Deterministic
+    event_list_text = _build_event_list_section(events, uid_to_name, lang=lang)
 
     header = get_string("summary.header", lang).format(
         label=group_label, date=today, start=start_str, end=end_str
@@ -317,26 +331,37 @@ async def run_group_summary(
 
     group_ids = await event_repo.list_group_ids()
     today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
-    written = 0
+    
+    # Use a semaphore to limit concurrent LLM calls (summaries are heavy)
+    sem = asyncio.Semaphore(2)
 
-    for group_id in group_ids:
+    async def _process_one(group_id) -> bool:
         events = await event_repo.list_by_group(group_id, limit=cfg.max_events)
         if not events:
-            continue
-        try:
-            content = await _generate_summary_for_group(
-                group_id, events, today, provider, cfg, uid_to_name, impression_repo, persona_repo
-            )
-            if group_id is None:
-                summary_dir = data_dir / "global" / "summaries"
-            else:
-                summary_dir = data_dir / "groups" / group_id / "summaries"
-            summary_dir.mkdir(parents=True, exist_ok=True)
-            (summary_dir / f"{today}.md").write_text(content, encoding="utf-8")
-            written += 1
-            logger.debug(f"[{_MODULE_NAME}] wrote summary for group %r", group_id or "私聊")
-        except Exception as exc:
-            logger.warning(f"[{_MODULE_NAME}] failed for group %r: %s", group_id, exc)
+            return False
+        
+        # Optional: Skip if summary for today already exists and is newer than last event
+        # (For simplicity in dev runner, we just always generate)
+        
+        async with sem:
+            try:
+                content = await _generate_summary_for_group(
+                    group_id, events, today, provider, cfg, uid_to_name, impression_repo, persona_repo
+                )
+                if group_id is None:
+                    summary_dir = data_dir / "global" / "summaries"
+                else:
+                    summary_dir = data_dir / "groups" / group_id / "summaries"
+                summary_dir.mkdir(parents=True, exist_ok=True)
+                (summary_dir / f"{today}.md").write_text(content, encoding="utf-8")
+                logger.debug(f"[{_MODULE_NAME}] wrote summary for group %r", group_id or "私聊")
+                return True
+            except Exception as exc:
+                logger.warning(f"[{_MODULE_NAME}] failed for group %r: %s", group_id, exc)
+                return False
+
+    results = await asyncio.gather(*[_process_one(gid) for gid in group_ids])
+    written = sum(1 for r in results if r)
 
     logger.info(f"[{_MODULE_NAME}] group summaries written: %d/%d", written, len(group_ids))
     return written

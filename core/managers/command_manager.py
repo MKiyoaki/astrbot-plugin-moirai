@@ -66,6 +66,17 @@ class CommandManager:
             return f"未找到与「{query}」相关的记忆。"
         return format_events_for_prompt(results, token_budget=800)
 
+    async def help(self) -> str:
+        return (
+            "【Moirai 插件指令帮助】\n"
+            "/mrm status          - 查询插件运行状态\n"
+            "/mrm run <task>      - 手动触发周期任务 (decay/synthesis/summary/cleanup)\n"
+            "/mrm flush           - 清空当前会话的上下文窗口\n"
+            "/mrm recall <query>  - 手动触发记忆检索\n"
+            "/mrm webui on|off    - 启用或关闭 WebUI\n"
+            "/mrm help            - 显示此帮助信息"
+        )
+
     async def webui(self, action: str) -> str:
         action = action.strip().lower()
         if self._webui is None:

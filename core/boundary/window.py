@@ -11,6 +11,7 @@ class RawMessage:
     text: str
     timestamp: float
     display_name: str = ""
+    embedding: list[float] | None = None
 
 
 @dataclass
@@ -22,6 +23,12 @@ class MessageWindow:
     messages: list[RawMessage] = field(default_factory=list)
     start_time: float = field(default_factory=_time.time)
     last_message_time: float = field(default_factory=_time.time)
+    
+    # Rolling centroid of the current window's embeddings for O(1) topic drift detection.
+    # Centroid is the average vector of all messages in the window that have embeddings.
+    centroid: list[float] | None = None
+    _sum_vec: list[float] | None = None
+    _embedded_count: int = 0
 
     @property
     def message_count(self) -> int:
@@ -35,12 +42,37 @@ class MessageWindow:
         return now - self.last_message_time
 
     def add_message(
-        self, uid: str, text: str, timestamp: float, display_name: str = ""
+        self, uid: str, text: str, timestamp: float, display_name: str = "", 
+        embedding: list[float] | None = None
     ) -> None:
-        self.messages.append(
-            RawMessage(uid=uid, text=text, timestamp=timestamp, display_name=display_name)
-        )
+        msg = RawMessage(uid=uid, text=text, timestamp=timestamp, display_name=display_name, embedding=embedding)
+        self.messages.append(msg)
         self.last_message_time = timestamp
+        
+        if embedding:
+            self._update_centroid(embedding)
+
+    def attach_embedding(self, msg_idx: int, embedding: list[float]) -> None:
+        """Attach an embedding to a message already in the window (for async processing)."""
+        if 0 <= msg_idx < len(self.messages):
+            msg = self.messages[msg_idx]
+            if msg.embedding is None:
+                msg.embedding = embedding
+                self._update_centroid(embedding)
+
+    def _update_centroid(self, vec: list[float]) -> None:
+        """Update the rolling centroid with a new vector (O(1))."""
+        if self._sum_vec is None:
+            self._sum_vec = list(vec)
+            self._embedded_count = 1
+        else:
+            # sum_vec = sum_vec + vec
+            for i in range(len(self._sum_vec)):
+                self._sum_vec[i] += vec[i]
+            self._embedded_count += 1
+        
+        # Recalculate average
+        self.centroid = [v / self._embedded_count for v in self._sum_vec]
 
     @property
     def first_text(self) -> str:

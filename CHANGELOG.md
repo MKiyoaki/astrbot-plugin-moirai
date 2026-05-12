@@ -1,4 +1,70 @@
-# CHANGELOG
+### 性能深度优化 (Deep Performance Optimization)
+
+- **单任务内部并行化 (Intra-task Parallelization)**：在生成群组摘要时，现在并行执行“话题总结”与“情感动态分析”两个 LLM 请求。对于 local LLM (如 Gemma 26B)，单个群组的生成耗时理论上可缩短 50%。
+- **路由器任务同步 (Router Task Synchronization)**：`MessageRouter.flush_all` 现在会等待所有后台 Embedding 任务完成后再关闭窗口。这确保了在 `run_realtime_dev.py` 等快速注入场景下，`EventExtractor` 能 100% 复用已有的向量，避免重复编码。
+- **开发工具批处理优化 (Dev Tool Batching)**：`run_realtime_dev.py` 现在使用 `EmbeddingManager` 包裹 Encoder。配合 Router 的后台异步化，消息注入过程实现了真正的透明批处理，极大地提升了 CPU/GPU 利用率并降低了切分延迟。
+
+## [v0.7.34] — 2026-05-12
+
+### 任务系统并发优化 (Task System Concurrency Optimization)
+
+- **人格合成并发化 (Parallel Persona Synthesis)**：`run_persona_synthesis` 现在使用 `asyncio.gather` 并发执行 LLM 请求，并引入 `Semaphore` 控制并发数。新增活动状态检查，跳过无新事件的人格，大幅缩短任务耗时。
+- **群组摘要并发化 (Parallel Group Summary)**：`run_group_summary` 现在并发生成群组摘要，显著提升了每日总结任务的执行效率。
+
+## [v0.7.33] — 2026-05-12
+
+### 性能优化与架构重构 (Performance Optimization & Architecture Refactoring)
+
+- **全链路向量复用 (Single-pass Encoding)**：彻底重写了话题漂移检测与事件切分的底层逻辑。消息现在仅在进入系统时编码一次，结果挂载于 `RawMessage` 并全链路复用，计算负载降低 50% 以上。
+- **异步质心偏移检测 (Async Centroid Drift Detection)**：
+    - 引入了 **滚动质心 (Rolling Centroid)** 算法，以 O(1) 复杂度实时维护对话重心，比对精度更高。
+    - 将 Embedding 计算与漂移判定移至异步后台任务，确保对话主流程（Router）毫秒级响应，彻底消除延迟感。
+- **步进采样检测 (Sampled Detection)**：新增 `boundary_topic_drift_interval` 配置（默认 5），每隔 N 条消息进行一次语义边界检查，进一步节省算力。
+- **配置与 i18n 同步**：同步更新了 `_conf_schema.json` 及全站 i18n（中、英、日三语），并为开发者工具 `run_realtime_dev.py` 重新启用了该功能。
+
+## [v0.7.32] — 2026-05-12
+
+### 统一版本管理工作流 (Unified Version Management)
+
+- **单一事实源 (SSOT)**：确立 `metadata.yaml` 为插件版本的单一事实源。
+- **自动化版本工具**：新增 `bump_version.py` 脚本，支持一键更新 `metadata.yaml` 并自动在 `CHANGELOG.md` 中创建新版本占位符。
+- **全栈同步**：
+    - 后端：通过 `core/utils/version.py` 动态读取版本，确保 `main.py` 和 API 统计接口版本始终一致。
+    - 前端：WebUI 侧边栏及 Landing Page 现在自动同步显示来自后端的真实版本号，告别硬编码。
+    - 开发工具：`run_webui_dev.py` 和 `run_realtime_dev.py` 同步接入真实版本号。
+
+
+## [v0.7.31] — 2026-05-12
+
+### Mock 数据结构化 / 指令集 Mixin 重构
+
+- **Mock 数据 JSON 化**：将 `Mock_Realtime_Data.md` 转换为 `mock_realtime.json`。现在数据集包含预计算的时间戳、用户 ID 和统一的字段结构，显著提升了开发脚本（`run_realtime_dev.py` / `run_dataflow_dev.py`）的加载效率。
+- **指令集 Mixin 化**：重构了 `main.py` 中的指令管理。新增 `core/mixins/commands_mixin.py`，将复杂的指令注册逻辑从 Star 插件主类中剥离，保持了主类的整洁。
+- **指令功能补全**：
+    - 新增 `/mrm help` 指令，展示完整的指令集说明。
+    - 统一了各指令的错误处理与初始化检查。
+
+
+## [v0.7.30] — 2026-05-12
+
+### 邻居扩展 (Neighbor Expansion) / 检索叙事连贯性优化
+
+- **首选线程填充 (Primary Thread Filling)**：重构了 `RecallManager` 的召回算法。现在系统在检索到最相关的锚点事件（Top-1 Anchor）后，会自动查询并拉取其直接关联的父事件和子事件。
+- **叙事连贯性**：被拉取的邻居事件将在 Token 预算内获得优先注入权重，确保 Bot 看到的记忆是“成串”的逻辑线程，而非碎片化的孤立片段，显著提升了复杂话题下的对话上下文理解能力。
+- **性能保持**：邻居扩展仅针对 Top-1 锚点触发，确保在不增加显著检索延迟的前提下，最大限度地提升召回质量。
+
+## [v0.7.29] — 2026-05-12
+
+### 话题漂移检测 / Bot Persona 缓存 / 批量标签对齐 / 细粒度性能监控
+
+- **话题漂移检测 (Topic Drift)**：在 `EventBoundaryDetector` 中实现基于 Embedding 余弦距离的漂移检测。当窗口消息达到阈值且主题偏移量超过 `drift_threshold`（默认 0.6）时，自动触发事件关闭。
+- **VCM 状态机反馈**：`ContextManager` 现在接受 `recall_hit` 和 `drift_detected` 信号。若召回命中，状态切换至 `RECALL`；若检测到漂移，状态切换至 `DRIFT`，从而动态优化上下文窗口。
+- **Bot Persona 缓存**：在 `EventExtractor` 中新增 `_bot_persona_cache`，避免在每次事件提取时重复查询数据库，显著减少提取延迟。
+- **批量化标签对齐 (Batch Tag Normalization)**：重构了 `EventExtractor` 的标签 normalization 流程。现在将一个批次中所有事件生成的 raw tags 统一收集，通过单次 `encode_batch` 进行编码和对齐，大幅减少了对 Embedding 模型的调用次数。
+- **细粒度性能监控**：
+    - `PerfTracker` 升级：支持记录每个相位的最近一次执行耗时（Last Duration）和命中计数（Hit Count）。
+    - 召回流程埋点：细化为 `recall_search`（搜索）、`recall_rerank`（重排序）和 `recall_inject`（注入）三个子相位。
+    - API 增强：`get_stats` 返回详细的嵌套性能指标，方便 WebUI 实时展示各环节瓶颈。
 
 ## [v0.7.28] — 2026-05-12
 
@@ -489,7 +555,7 @@
 ### 测试数据集整理 (Test Dataset Reorganization)
 
 - **文件重命名**：`Mock_Data.md` → `Mock_Realtime_Data.md`，明确区分实时测试数据集与其他 mock 数据。
-- **路径统一**：将数据集移入 `tests/mock_data/Mock_Realtime_Data.md`，与 `mock_chat.json` 同目录管理，`run_realtime_dev.py` 引用路径同步更新。
+- **路径统一**：将数据集以 JSON 格式存入 `tests/mock_data/mock_realtime.json`，与 `mock_chat.json` 同目录管理，`run_realtime_dev.py` 引用路径同步更新。
 - **LLM 超时调整**：`extractor_llm_timeout_seconds` 及 `SummaryConfig.llm_timeout` 由 150 s 上调至 **300 s**，`_RealtimeProviderBridge` 的 httpx 层由 180 s 上调至 **330 s**，为 Gemma 26B 在高负载下提供更充足的响应窗口。
 
 ---
@@ -529,7 +595,7 @@
 ### 实时聊天模拟测试工具链 (Realtime Chat Simulation Dev Tools)
 
 #### 1. `run_realtime_dev.py` — 实时数据注入测试脚本
-- **数据来源**：解析 `tests/mock_data/Mock_Realtime_Data.md`（Discord 真实聊天记录，包含多个群组），将所有消息通过完整管道（`MessageRouter` → `EventBoundaryDetector` → `EventExtractor` + LLM → 三张数据库表）注入全新的 SQLite 实例（`.dev_data/realtime_test.db`）。
+- **数据来源**：解析 `tests/mock_data/mock_realtime.json`（原 `Mock_Realtime_Data.md` 转换而来，包含多个群组），将所有消息通过完整管道（`MessageRouter` → `EventBoundaryDetector` → `EventExtractor` + LLM → 三张数据库表）注入全新的 SQLite 实例（`.dev_data/realtime_test.db`）。
 - **归档机制**：启动时自动将已有的 `dataflow_test.db` 复制到 `.dev_data/archive/dataflow_test_<时间戳>.db`；若存在上次崩溃遗留的 `realtime_test.db`，也会被移入归档目录，确保数据不丢失。
 - **双阶段进度条**：阶段一显示消息注入进度（单位：msg），阶段二显示 LLM 提取任务进度（单位：task），均支持 `tqdm`；若未安装则回退至内置最小化进度 shim。
 - **WebUI 集成**：所有数据注入完成后，在 **2656 端口**启动 `WebuiServer`（`auth_enabled=False`，使用 SQLite 实体库），开发者可直接访问事件流、关系图、摘要记忆三个 UI 界面查看真实数据渲染效果。

@@ -15,9 +15,9 @@ Configurations:
 """
 
 import asyncio
-import re
 import shutil
 import sys
+import re
 import threading
 import time
 from datetime import datetime
@@ -107,7 +107,7 @@ LLM_API_URL, LLM_API_KEY, LLM_MODEL = _get_model_info(_MODEL_TYPE)
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
 _ROOT = Path(__file__).parent
-MOCK_DATA_PATH = _ROOT / "tests" / "mock_data" / "Mock_Realtime_Data.md"
+MOCK_DATA_PATH = _ROOT / "tests" / "mock_data" / "mock_realtime.json"
 MOCK_PERSONA_PATH = _ROOT / "tests" / "mock_data" / "mock_persona.md"
 DEV_DATA = _ROOT / ".dev_data"
 ARCHIVE_DIR = DEV_DATA / "archive"
@@ -162,55 +162,11 @@ def _archive_step() -> None:
 
 # ── Mock_Data.md parser ───────────────────────────────────────────────────────
 
-_GROUP_HDR = re.compile(r'^## Group ID: (\S+)', re.MULTILINE)
-_MSG_HDR = re.compile(
-    r'^\*\*(.+?) \((\d+)\)\*\* \[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}) ?\]:$'
-)
-
-
 def _parse_mock_data(path: Path) -> list[dict]:
-    """Parse Mock_Data.md into a flat list of message dicts.
-
-    Each dict: group_id, display_name, user_id, timestamp (POSIX float), text.
-    Blocks that contain no message header (preamble, metadata) are skipped.
-    """
-    raw = path.read_text(encoding="utf-8")
-    blocks = re.split(r'\n\n---\n\n', raw)
-
-    messages: list[dict] = []
-    current_group: str | None = None
-
-    for block in blocks:
-        lines = block.strip().splitlines()
-
-        for line in lines:
-            gm = _GROUP_HDR.match(line)
-            if gm:
-                current_group = gm.group(1)
-
-        for i, line in enumerate(lines):
-            mm = _MSG_HDR.match(line)
-            if mm:
-                display_name = mm.group(1)
-                user_id = mm.group(2)
-                ts_str = mm.group(3)
-                body = "\n".join(lines[i + 1:]).strip()
-                try:
-                    dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M")
-                    timestamp = dt.timestamp()
-                except ValueError:
-                    timestamp = time.time()
-                if body:
-                    messages.append({
-                        "group_id":     current_group,
-                        "display_name": display_name,
-                        "user_id":      user_id,
-                        "timestamp":    timestamp,
-                        "text":         body,
-                    })
-                break
-
-    return messages
+    """Load mock messages from the JSON file."""
+    import json
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 # ── Provider bridge for slow local LLMs ──────────────────────────────────────
@@ -310,6 +266,7 @@ async def main() -> None:
     from core.social.orientation_analyzer import SocialOrientationAnalyzer
     from core.embedding.encoder import NullEncoder
     from core.config import PluginConfig
+    from core.utils.version import get_plugin_version
     from web.server import WebuiServer
 
     # Step 3: Parse Mock_Data.md
@@ -328,6 +285,8 @@ async def main() -> None:
             "retrieval_top_k": 3,
             "retrieval_token_budget": 1000,
             "boundary_max_messages": 200,
+            "boundary_topic_drift_enabled": True, # Re-enabled now that it's optimized
+            "boundary_topic_drift_interval": 5,
             "vcm_enabled": True,
             # Gemma 26B on LMStudio needs ~60-90 s per thinking call;
             # set asyncio timeout to 150 s so wait_for never fires first.
@@ -361,10 +320,13 @@ async def main() -> None:
         # Encoder
         if _EVENT_MODE == "encoder":
             from core.embedding.encoder import SentenceTransformerEncoder
+            from core.managers.embedding_manager import EmbeddingManager
             print(
                 f"[Encoder] Loading {cfg.embedding_model} (first run may download ~100 MB) ...")
-            encoder = SentenceTransformerEncoder(
+            base_encoder = SentenceTransformerEncoder(
                 model_name=cfg.embedding_model)
+            encoder = EmbeddingManager(base_encoder, cfg.get_embedding_config())
+            await encoder.start()
         else:
             encoder = NullEncoder()
 
@@ -433,6 +395,7 @@ async def main() -> None:
             identity_resolver=resolver,
             detector=detector,
             context_manager=context_manager,
+            encoder=encoder,
             on_event_close=on_event_close,
         )
 
@@ -443,8 +406,8 @@ async def main() -> None:
                 await router.process(
                     platform="discord",
                     physical_id=msg["user_id"],
-                    display_name=msg["display_name"],
-                    text=msg["text"],
+                    display_name=msg["nickname"],
+                    text=msg["content"],
                     raw_group_id=msg["group_id"],
                     now=msg["timestamp"],
                 )
@@ -551,8 +514,9 @@ async def main() -> None:
             data_dir=DEV_DATA,
             port=PORT,
             auth_enabled=False,
-            plugin_version="realtime-dev",
+            plugin_version=get_plugin_version(),
             provider_getter=lambda: mock_provider,
+
             recall_manager=recall,
             task_runner=_dev_task_runner,
         )
@@ -603,6 +567,8 @@ async def main() -> None:
         finally:
             print("\n[Shutdown] Stopping WebUI server ...")
             await srv.stop()
+            if _EVENT_MODE == "encoder":
+                await encoder.stop()
             _cleanup()
 
 

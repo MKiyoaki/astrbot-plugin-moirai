@@ -55,9 +55,27 @@ class SemanticPartitioner(BasePartitioner):
             logger.warning("[SemanticPartitioner] encoder inactive, falling back to single partition")
             return [Partition(indices=list(range(len(window.messages))))]
 
-        # 1. Encode all messages in the window
-        texts = [f"{m.display_name or m.uid}: {m.text}" for m in window.messages]
-        embeddings = await self._encoder.encode_batch(texts)
+        # 1. Get embeddings (reuse from window or encode if missing)
+        embeddings = []
+        to_encode = []
+        to_encode_indices = []
+        
+        for idx, m in enumerate(window.messages):
+            if m.embedding:
+                # We use message.embedding which was calculated in Router (plain text)
+                embeddings.append(None) # placeholder
+            else:
+                to_encode.append(m.text)
+                to_encode_indices.append(idx)
+        
+        if to_encode:
+            logger.debug("[SemanticPartitioner] encoding %d missing messages", len(to_encode))
+            new_vecs = await self._encoder.encode_batch(to_encode)
+            for idx, vec in zip(to_encode_indices, new_vecs):
+                window.messages[idx].embedding = vec
+        
+        # Build the final embedding list in order
+        embeddings = [m.embedding for m in window.messages]
         
         import numpy as np
         from sklearn.cluster import DBSCAN

@@ -17,11 +17,11 @@ import sys
 import time
 from pathlib import Path
 
-# 确保项目根在 sys.path 中（从任意目录运行时也能找到模块）
 _ROOT = Path(__file__).parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from core.utils.version import get_plugin_version
 from web.server import WebuiServer, _DEMO_SUMMARY_1, _DEMO_SUMMARY_2
 from core.domain.models import Event, Impression, Persona, MessageRef
 from core.repository.memory import (
@@ -291,7 +291,7 @@ async def main() -> None:
         data_dir=data_dir,
         port=port,
         auth_enabled=False,      # 本地调试无需密码
-        plugin_version="dev",
+        plugin_version=get_plugin_version(),
     )
     await srv.start()
 

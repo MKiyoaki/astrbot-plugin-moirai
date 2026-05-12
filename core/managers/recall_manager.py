@@ -64,49 +64,87 @@ class RecallManager(BaseRecallManager):
 
     async def recall(self, query: str, group_id: str | None = None) -> list[Event]:
         """Return re-ranked events for injection."""
+        from ..utils.perf import performance_timer
         cfg = self._rcfg
-        bm25, vec = await self._retriever.search_raw(
-            query, active_only=cfg.active_only, group_id=group_id
-        )
+        
+        async with performance_timer("recall_search"):
+            bm25, vec = await self._retriever.search_raw(
+                query, active_only=cfg.active_only, group_id=group_id
+            )
         
         import logging
         _log = logging.getLogger(__name__)
         _log.debug("[RecallManager] query: %r, group_id: %r", query, group_id)
         _log.debug("[RecallManager] BM25 hits: %d, Vec hits: %d", len(bm25), len(vec))
-        if vec:
-            _log.debug("[RecallManager] Top Vec Topic: %r", vec[0].topic)
 
-        # Vector fallback: if BM25 returned nothing and fallback is enabled, use vec only.
-        if not bm25 and cfg.vector_fallback_enabled and vec:
-            candidates = vec
-            scores: dict[str, float] = {e.event_id: 1.0 / (cfg.rrf_k + 1) for e in vec}
-        else:
-            scores = rrf_scores([bm25, vec], k=cfg.rrf_k)
-            seen: set[str] = set()
-            candidates: list[Event] = []
-            for e in bm25 + vec:
-                if e.event_id not in seen:
-                    seen.add(e.event_id)
-                    candidates.append(e)
+        async with performance_timer("recall_rerank"):
+            # Vector fallback: if BM25 returned nothing and fallback is enabled, use vec only.
+            if not bm25 and cfg.vector_fallback_enabled and vec:
+                candidates = vec
+                scores: dict[str, float] = {e.event_id: 1.0 / (cfg.rrf_k + 1) for e in vec}
+            else:
+                scores = rrf_scores([bm25, vec], k=cfg.rrf_k)
+                seen: set[str] = set()
+                candidates: list[Event] = []
+                for e in bm25 + vec:
+                    if e.event_id not in seen:
+                        seen.add(e.event_id)
+                        candidates.append(e)
 
-        if not candidates:
-            return []
+            if not candidates:
+                return []
 
-        now = time.time()
-        max_rrf = max(scores.values()) if scores else 1.0
+            now = time.time()
+            max_rrf = max(scores.values()) if scores else 1.0
 
-        def _final_score(event: Event) -> float:
-            days = (now - event.end_time) / 86400.0
-            recency = exp(-_LOG2 * days / cfg.recency_half_life_days)
-            rrf = scores.get(event.event_id, 0.0)
-            return (
-                cfg.relevance_weight * rrf / max_rrf
-                + cfg.salience_weight * event.salience
-                + cfg.recency_weight * recency
-            )
+            def _final_score(event: Event) -> float:
+                days = (now - event.end_time) / 86400.0
+                recency = exp(-_LOG2 * days / cfg.recency_half_life_days)
+                rrf = scores.get(event.event_id, 0.0)
+                return (
+                    cfg.relevance_weight * rrf / max_rrf
+                    + cfg.salience_weight * event.salience
+                    + cfg.recency_weight * recency
+                )
 
-        ranked = sorted(candidates, key=_final_score, reverse=True)
-        return ranked[: cfg.final_limit]
+            ranked = sorted(candidates, key=_final_score, reverse=True)
+            anchors = ranked[: cfg.final_limit]
+
+            if not anchors:
+                return []
+
+            # --- Primary Thread Filling (Neighbor Expansion) ---
+            # Fetch context for the Top-1 anchor to provide narrative continuity.
+            result_list: list[Event] = []
+            seen_ids: set[str] = set()
+
+            async def _add_event(ev: Event):
+                if ev.event_id not in seen_ids:
+                    result_list.append(ev)
+                    seen_ids.add(ev.event_id)
+
+            top_anchor = anchors[0]
+            await _add_event(top_anchor)
+
+            # Expand neighbors for the top anchor only
+            async with performance_timer("recall_expand"):
+                # 1. Parent expansion
+                if top_anchor.inherit_from:
+                    for parent_id in top_anchor.inherit_from:
+                        parent = await self._retriever._event_repo.get(parent_id)
+                        if parent:
+                            await _add_event(parent)
+                
+                # 2. Children expansion
+                children = await self._retriever._event_repo.get_children(top_anchor.event_id)
+                for child in children:
+                    await _add_event(child)
+
+            # 3. Add remaining anchors
+            for anchor in anchors[1:]:
+                await _add_event(anchor)
+
+            return result_list
 
     async def recall_and_inject(
         self,
@@ -117,15 +155,17 @@ class RecallManager(BaseRecallManager):
         sender_uid: str | None = None,
     ) -> int:
         """Recall and inject memory into req. Returns the number of events injected."""
-        from ..utils.perf import performance_timer
+        from ..utils.perf import performance_timer, tracker
         async with performance_timer("recall"):
             if self._icfg.auto_clear:
                 self.clear_previous_injection(req)
 
             events = await self.recall(query, group_id=group_id)
+            await tracker.record_hit("recall", len(events))
 
-            position = self._icfg.position
-            token_budget = self._icfg.token_budget
+            async with performance_timer("recall_inject"):
+                position = self._icfg.position
+                token_budget = self._icfg.token_budget
 
             if position == "fake_tool_call":
                 if not events:
