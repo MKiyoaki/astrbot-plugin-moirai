@@ -251,6 +251,7 @@ export function NetworkGraph({
   // ── Render ──────────────────────────────────────────────────────────────────
 
   const showLabel = transform.scale >= 0.5
+  const showEdgeLabel = params.showEdgeLabels && transform.scale > 0.7
 
   return (
     <div ref={containerRef} className="size-full relative overflow-hidden select-none">
@@ -353,12 +354,6 @@ export function NetworkGraph({
             const y2 = pb.y - unitY * rB
 
             const arrowId = color === EDGE_POS_COLOR ? 'arr-pos' : color === EDGE_NEG_COLOR ? 'arr-neg' : 'arr'
-            const showEdgeLabel = transform.scale > 0.7
-            const midX = (pa.x + pb.x) / 2
-            const midY = (pa.y + pb.y) / 2
-            const relationLabel = pair.isBidirectional
-              ? `⇄ ${pair.fwd.data.label}`
-              : `→ ${pair.fwd.data.label}`
 
             return (
               <g
@@ -392,29 +387,16 @@ export function NetworkGraph({
                     markerEnd={params.showArrows ? `url(#${arrowId})` : undefined}
                   />
                 )}
-                {/* Transparent wide hit area (using full length for better interaction) */}
+                {/* Transparent wide hit area */}
                 <line
                   x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y}
                   stroke="transparent" strokeWidth={14}
                 />
-                {/* Edge label */}
-                {params.showEdgeLabels && showEdgeLabel && (
-                  <text
-                    x={midX} y={midY}
-                    fontSize={params.edgeLabelFontSize / transform.scale}
-                    fill="var(--muted-foreground)"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    style={{ userSelect: 'none', pointerEvents: 'none' }}
-                  >
-                    {relationLabel}
-                  </text>
-                )}
               </g>
             )
           })}
 
-          {/* Nodes */}
+          {/* Layer 2: Nodes */}
           {positions && nodes.map(node => {
             const p = positions[node.data.id]
             if (!p) return null
@@ -492,6 +474,39 @@ export function NetworkGraph({
                   </text>
                 )}
               </g>
+            )
+          })}
+          {/* Layer 3: Edge labels — above edges AND nodes, with background halo */}
+          {positions && showEdgeLabel && edgePairs.map(pair => {
+            const pa = positions[pair.srcId]
+            const pb = positions[pair.tgtId]
+            if (!pa || !pb) return null
+            const opacity = getOpacity(pair.pairKey, 'edge')
+            const midX = (pa.x + pb.x) / 2
+            const midY = (pa.y + pb.y) / 2
+            const relationLabel = pair.isBidirectional
+              ? `⇄ ${pair.fwd.data.label}`
+              : `→ ${pair.fwd.data.label}`
+            return (
+              <text
+                key={`lbl-${pair.pairKey}`}
+                x={midX}
+                y={midY}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                style={{
+                  userSelect: 'none',
+                  pointerEvents: 'none',
+                  fontSize: `${params.edgeLabelFontSize / transform.scale}px`,
+                  fill: 'var(--foreground)',
+                  stroke: 'var(--background)',
+                  strokeWidth: 5 / transform.scale,
+                  paintOrder: 'stroke',
+                  opacity,
+                }}
+              >
+                {relationLabel}
+              </text>
             )
           })}
         </g>
