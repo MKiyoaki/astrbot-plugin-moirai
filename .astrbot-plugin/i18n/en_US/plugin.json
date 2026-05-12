@@ -1,6 +1,6 @@
 {
-  "display_name": "Moirai Memory",
-  "desc": "Three-axis long-term memory plugin: manages episodic memory, social relations, and narrative summaries for chatbots across platforms.",
+  "display_name": "Moirai Memory Plugin",
+  "desc": "Three-axis long-term memory plugin (Episodic × Social × Narrative) for AstrBot, with cross-platform persistent memory management and a rich data visualization WebUI.",
   "config": {
     "webui_port": { "description": "WebUI Port", "hint": "Port for the plugin admin interface" },
     "webui_auth_enabled": { "description": "Enable WebUI Auth", "hint": "Require password to access the WebUI" },

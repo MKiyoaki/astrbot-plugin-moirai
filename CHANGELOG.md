@@ -1,5 +1,44 @@
 # CHANGELOG
 
+## [v0.9.2] — 2026-05-12
+
+### 品牌与外观更新 (Branding & Visual Updates)
+
+- **插件 Logo**：在插件根目录添加 `logo.png`，AstrBot 插件列表现在可显示插件图标。
+- **英文显示名称更新**：en_US `display_name` 由 "Moirai Worldline" 改为 "Moirai Memory Plugin"，更直观地传达插件用途。
+- **主题重命名**：
+  - Aurora 主题（薰衣草紫 + 金色调色板）重命名为 **Moirai**，成为插件默认配色方案（CSS 选择器 `.theme-moirai`）。
+  - 原 Moirai 主题（标准灰度）重命名为 **Nox**，新增 `nox.css`，占据原 Aurora 在主题选择器中的位置。
+- **globals.css 更新**：新增 `@import "../styles/themes/nox.css"`。
+
+## [v0.9.1] — 2026-05-12
+
+### /mrm 指令三语国际化 (/mrm Command i18n)
+
+- **新增 `/mrm language <cn/en/ja>` 指令**：允许管理员在聊天框内一键切换所有 `/mrm` 指令响应的显示语言（简体中文 / English / 日本語）。
+- **语言偏好持久化**：语言设置保存于 `data_dir/.cmd_lang` 文件，重启后自动恢复；首次启动默认继承插件全局 `language` 配置项。
+- **全量三语翻译**：在 `core/utils/i18n.py` 中为所有 `/mrm` 命令响应新增 `cmd.*` 键组，覆盖 status、persona、soul、recall、flush、webui、run、reset 系列及 help 全文，三种语言均已完整翻译。
+- **`_t()` 包装器**：`CommandManager` 使用统一的 `_t(key, **kwargs)` 方法替代所有硬编码字符串，便于后续语言扩展。
+- **大五人格维度名称本地化**：persona 档案中的 O/C/E/A/N 维度标签随语言切换（开放性/Openness/開放性 等）。
+
+## [v0.9.0] — 2026-05-12
+
+### /mrm 指令集重构与扩展 (Command Set Refactor & Expansion)
+
+- **新增信息查询指令**：
+  - `/mrm persona <PlatID>`：查看指定用户的人格档案（description + BigFive 百分比 + evidence）；通过当前平台 + 平台 ID 定位用户。
+  - `/mrm soul`：查看当前会话的四维情绪状态（recall_depth / impression_depth / expression_desire / creativity），各维度显示 +N/20 偏高/偏低/中立标注。
+- **新增重置指令系列（均需二次确认）**：
+  - `/mrm reset here`：删除当前群所有事件记录及 summaries 目录下的摘要文件。
+  - `/mrm reset event <group_id>`：删除指定群组的事件记录与摘要文件。
+  - `/mrm reset event all`：删除所有事件记录（保留人格数据）。
+  - `/mrm reset persona <PlatID>`：删除指定用户的人格档案。
+  - `/mrm reset persona all`：删除全部人格档案。
+  - `/mrm reset all`：清空全部插件数据（事件、人格、所有投影文件）。
+- **二次确认机制**：所有 reset 命令首次触发时返回警告，30 秒内再次发送相同命令才执行；超时自动失效。
+- **Repository 新增批量删除接口**：`EventRepository` 新增 `delete_by_group(group_id)` 和 `delete_all()` 抽象方法，并在 SQLite 和 in-memory 两个实现中补全（同步清理 vec 表）。
+- **指令帮助更新**：`/mrm help` 按信息查询 / 操作 / 重置 / 其他四组重新分类展示，重置组加 ⚠️ 标注。
+
 ## [v0.8.3] — 2026-05-12
 
 ### 性能瓶颈分析增强 (Performance Bottleneck Analysis)

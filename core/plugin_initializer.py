@@ -325,11 +325,17 @@ class PluginInitializer:
             await self.embedding_manager.start()
 
         from .managers.command_manager import CommandManager
+        from .utils.i18n import LANG_ZH, LANG_EN, LANG_JA
+        _lang_map = {"zh-CN": LANG_ZH, "en-US": LANG_EN, "ja-JP": LANG_JA}
         self.command_manager = CommandManager(
             scheduler=self.scheduler,
             recall=self.recall,
             context_manager=self.context_manager,
             webui=self.webui,
+            persona_repo=persona_repo,
+            event_repo=event_repo,
+            data_dir=data_dir,
+            initial_lang=_lang_map.get(cfg.language, LANG_ZH),
         )
 
         astrbot_logger.info("[%s] initialized — DB at %s",

@@ -1,94 +1,102 @@
 /* ==========================================================================
-   Aurora Theme - Creative & Vibrant
-   Warm pearl base + dusty violet primary + muted rose accent. Expressive, soft.
-   Ref palette: Warm Pearl #F9F8F6 / Deep Ink #36333D / Dusty Purple #7A6C8A / Muted Rose #D49A94
+   Moirai Theme — Worldline Edition
+   Ref palette: #F3F1F7 / #8B6EB5 / #A48CCB / #DCCEF0 / #1E1733 / #BDA83A
+   Light: lavender pearl bg · medium-purple primary · gold accent
+   Dark:  deep navy bg (#1E1733) · brighter violet primary · gold accent
    ========================================================================== */
 
-.theme-aurora {
+.theme-moirai {
   --radius: 0.5rem;
 
-  /* Light Mode */
-  --background: oklch(0.98 0.004 80);
-  --foreground: oklch(0.28 0.03 300);
+  /* ── Light Mode ─────────────────────────────────────── */
 
-  --card: oklch(0.98 0.004 80);
-  --card-foreground: oklch(0.28 0.03 300);
+  /* #F3F1F7 — near-white lavender */
+  --background: oklch(0.96 0.01 300);
+  /* derived from #1E1733 — readable dark purple */
+  --foreground: oklch(0.22 0.05 285);
 
-  --popover: oklch(0.98 0.004 80);
-  --popover-foreground: oklch(0.28 0.03 300);
+  --card: oklch(0.96 0.01 300);
+  --card-foreground: oklch(0.22 0.05 285);
 
-  /* Primary: Dusty Purple (chroma bumped slightly from ref) */
-  --primary: oklch(0.52 0.12 305);
-  --primary-foreground: oklch(0.98 0.004 80);
+  --popover: oklch(0.96 0.01 300);
+  --popover-foreground: oklch(0.22 0.05 285);
 
-  /* Secondary: Soft Lavender tint */
-  --secondary: oklch(0.91 0.04 305);
-  --secondary-foreground: oklch(0.28 0.03 300);
+  /* #8B6EB5 — medium purple */
+  --primary: oklch(0.53 0.13 295);
+  --primary-foreground: oklch(0.98 0.005 300);
 
-  --muted: oklch(0.95 0.01 85);
-  --muted-foreground: oklch(0.52 0.04 300);
+  /* #DCCEF0 — soft lavender tint */
+  --secondary: oklch(0.87 0.06 300);
+  --secondary-foreground: oklch(0.28 0.05 290);
 
-  /* Accent: Muted Rose tint */
-  --accent: oklch(0.94 0.06 20);
-  --accent-foreground: oklch(0.60 0.11 20);
+  --muted: oklch(0.92 0.025 300);
+  --muted-foreground: oklch(0.54 0.06 290);
 
-  --destructive: oklch(0.55 0.2 25);
-  --destructive-foreground: oklch(0.98 0.004 80);
+  /* #BDA83A — gold accent */
+  --accent: oklch(0.72 0.12 85);
+  --accent-foreground: oklch(0.18 0.05 80);
 
-  --border: oklch(0.88 0.03 305);
-  --input: oklch(0.88 0.03 305);
-  --ring: oklch(0.52 0.12 305);
+  --destructive: oklch(0.55 0.20 25);
+  --destructive-foreground: oklch(0.98 0.005 300);
 
-  --sidebar: oklch(0.96 0.02 305);
-  --sidebar-foreground: oklch(0.28 0.03 300);
-  --sidebar-primary: oklch(0.52 0.12 305);
-  --sidebar-primary-foreground: oklch(0.98 0.004 80);
-  --sidebar-accent: oklch(0.90 0.05 305);
-  --sidebar-accent-foreground: oklch(0.52 0.12 305);
-  --sidebar-border: oklch(0.88 0.03 305);
-  --sidebar-ring: oklch(0.52 0.12 305);
+  --border: oklch(0.88 0.04 295);
+  --input: oklch(0.88 0.04 295);
+  --ring: oklch(0.53 0.13 295);
+
+  /* Sidebar: one shade darker than background, using #DCCEF0 area */
+  --sidebar: oklch(0.92 0.03 300);
+  --sidebar-foreground: oklch(0.22 0.05 285);
+  --sidebar-primary: oklch(0.53 0.13 295);
+  --sidebar-primary-foreground: oklch(0.98 0.005 300);
+  --sidebar-accent: oklch(0.88 0.05 295);
+  --sidebar-accent-foreground: oklch(0.53 0.13 295);
+  --sidebar-border: oklch(0.85 0.04 295);
+  --sidebar-ring: oklch(0.53 0.13 295);
 }
 
-.dark.theme-aurora,
-.dark .theme-aurora {
-  /* Dark Mode - Deep Purple Slate */
-  --background: oklch(0.18 0.025 300);
-  --foreground: oklch(0.88 0.01 300);
+.dark.theme-moirai,
+.dark .theme-moirai {
+  /* ── Dark Mode ────────────────────────────────────────── */
 
-  --card: oklch(0.22 0.03 300);
-  --card-foreground: oklch(0.88 0.01 300);
+  /* #1E1733 — deep navy purple */
+  --background: oklch(0.15 0.05 285);
+  /* near-white lavender */
+  --foreground: oklch(0.88 0.02 300);
 
-  --popover: oklch(0.20 0.025 300);
-  --popover-foreground: oklch(0.88 0.01 300);
+  --card: oklch(0.19 0.05 285);
+  --card-foreground: oklch(0.88 0.02 300);
 
-  /* Primary: Brighter dusty violet for dark backgrounds */
-  --primary: oklch(0.60 0.12 305);
-  --primary-foreground: oklch(0.18 0.025 300);
+  --popover: oklch(0.17 0.05 285);
+  --popover-foreground: oklch(0.88 0.02 300);
 
-  /* Secondary: Muted Purple panel */
-  --secondary: oklch(0.28 0.05 305);
-  --secondary-foreground: oklch(0.88 0.01 300);
+  /* #A48CCB — brighter violet for dark backgrounds */
+  --primary: oklch(0.64 0.10 295);
+  --primary-foreground: oklch(0.15 0.05 285);
 
-  --muted: oklch(0.24 0.03 300);
-  --muted-foreground: oklch(0.62 0.04 300);
+  /* dark violet panel */
+  --secondary: oklch(0.25 0.05 285);
+  --secondary-foreground: oklch(0.88 0.02 300);
 
-  /* Accent: Dark muted rose glow */
-  --accent: oklch(0.28 0.06 20);
-  --accent-foreground: oklch(0.78 0.10 20);
+  --muted: oklch(0.22 0.04 285);
+  --muted-foreground: oklch(0.60 0.05 290);
 
-  --destructive: oklch(0.60 0.12 305);
-  --destructive-foreground: oklch(0.95 0.01 300);
+  /* #BDA83A — gold, slightly toned for dark */
+  --accent: oklch(0.68 0.11 85);
+  --accent-foreground: oklch(0.15 0.05 80);
+
+  --destructive: oklch(0.60 0.15 25);
+  --destructive-foreground: oklch(0.15 0.05 285);
 
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.60 0.12 305);
+  --ring: oklch(0.64 0.10 295);
 
-  --sidebar: oklch(0.20 0.025 300);
-  --sidebar-foreground: oklch(0.88 0.01 300);
-  --sidebar-primary: oklch(0.60 0.12 305);
-  --sidebar-primary-foreground: oklch(0.18 0.025 300);
-  --sidebar-accent: oklch(0.26 0.04 305);
-  --sidebar-accent-foreground: oklch(0.88 0.01 300);
+  --sidebar: oklch(0.17 0.05 285);
+  --sidebar-foreground: oklch(0.88 0.02 300);
+  --sidebar-primary: oklch(0.64 0.10 295);
+  --sidebar-primary-foreground: oklch(0.15 0.05 285);
+  --sidebar-accent: oklch(0.25 0.05 285);
+  --sidebar-accent-foreground: oklch(0.88 0.02 300);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.60 0.12 305);
+  --sidebar-ring: oklch(0.64 0.10 295);
 }

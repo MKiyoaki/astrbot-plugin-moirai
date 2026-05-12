@@ -21,7 +21,7 @@ import * as api from '@/lib/api'
 const SHADCN_THEMES = [
   { id: 'moirai', label: 'Moirai' },
   { id: 'venus', label: 'Venus' },
-  { id: 'aurora', label: 'Aurora' },
+  { id: 'nox', label: 'Nox' },
   { id: 'juno', label: 'Cirrus' },
   { id: 'augustus', label: 'Augustus' },
   { id: 'selune', label: 'Aether' },

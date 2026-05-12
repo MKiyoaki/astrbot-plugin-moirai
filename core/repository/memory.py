@@ -203,6 +203,17 @@ class InMemoryEventRepository(EventRepository):
             del self._store[eid]
         return len(to_delete)
 
+    async def delete_by_group(self, group_id: str | None) -> int:
+        to_delete = [eid for eid, ev in self._store.items() if ev.group_id == group_id]
+        for eid in to_delete:
+            del self._store[eid]
+        return len(to_delete)
+
+    async def delete_all(self) -> int:
+        count = len(self._store)
+        self._store.clear()
+        return count
+
     async def get_rowid(self, event_id: str) -> int | None:
         # In-memory has no rowid concept; return position index as a surrogate
         for i, key in enumerate(self._store):
