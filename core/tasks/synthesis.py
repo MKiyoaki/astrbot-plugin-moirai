@@ -40,17 +40,12 @@ async def run_persona_synthesis(
     synthesis_config: SynthesisConfig | None = None,
     llm_manager: LLMTaskManager | None = None,
 ) -> int:
-    """Re-synthesise persona_attrs for all personas from recent events.
-
-    content_tags: derived algorithmically from event tag frequency — no LLM needed
-    since chat_content_tags are already canonical-normalised at write time.
-    description + big_five: still LLM-generated (require language understanding).
-
-    Returns number of personas whose attrs were updated.
-    """
-    from collections import Counter
-    from ..config import SynthesisConfig as _SC
-    cfg = synthesis_config or _SC()
+    """Re-synthesise persona_attrs for all personas from recent events."""
+    from ..utils.perf import performance_timer
+    async with performance_timer("task_synthesis"):
+        from collections import Counter
+        from ..config import SynthesisConfig as _SC
+        cfg = synthesis_config or _SC()
 
     provider = provider_getter()
     if provider is None:

@@ -12,11 +12,10 @@ async def run_reindex_all(
     event_repo: 'EventRepository',
     retriever: 'HybridRetriever',
 ) -> int:
-    """Re-compute and store embeddings for all events in the database.
-    
-    Returns the count of events processed.
-    """
-    events = await event_repo.list_all(limit=10000)
+    """Re-compute and store embeddings for all events in the database."""
+    from ..utils.perf import performance_timer
+    async with performance_timer("task_reindex"):
+        events = await event_repo.list_all(limit=10000)
     count = 0
     for event in events:
         try:

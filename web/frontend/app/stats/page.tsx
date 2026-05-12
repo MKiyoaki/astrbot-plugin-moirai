@@ -7,7 +7,6 @@ import {
   FileText, Database, Layers
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/layout/page-header'
 import { RefreshButton } from '@/components/shared/refresh-button'
 import {
@@ -21,8 +20,12 @@ import {
   CartesianGrid,
   XAxis,
   YAxis,
+  PieChart, 
+  Pie, 
+  Cell, 
+  ResponsiveContainer, 
+  Tooltip as RechartsTooltip,
 } from 'recharts'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { useApp } from '@/lib/store'
@@ -81,7 +84,6 @@ export default function StatsPage() {
     const sumTags = events.reduce((acc, ev) => acc + (ev.tags?.length || 0), 0)
     const sumSalience = events.reduce((acc, ev) => acc + ev.salience, 0)
 
-    // Calculate edge pairs per event
     let totalCitations = 0
     if (graph) {
       graph.edges.forEach(edge => {
@@ -96,6 +98,48 @@ export default function StatsPage() {
       edges: (totalCitations / total).toFixed(2),
     }
   }, [events, graph])
+
+  // ── Performance Data Preparation ──────────────────────────────────────────
+
+  const COLORS = [
+    'hsl(var(--primary))',
+    '#3b82f6', // blue
+    '#10b981', // green
+    '#f59e0b', // amber
+    '#ef4444', // red
+    '#8b5cf6', // violet
+    '#ec4899', // pink
+    '#06b6d4', // cyan
+    '#84cc16', // lime
+    '#6366f1', // indigo
+  ]
+
+  const perfData = useMemo(() => {
+    if (!stats.perf) return []
+    
+    const phases = [
+      { id: 'response', label: lang === 'zh' ? '总响应 (Response)' : 'Response' },
+      { id: 'recall', label: i18n.stats.avgRecall },
+      { id: 'retrieval', label: i18n.stats.avgRetrieval },
+      { id: 'partition', label: i18n.stats.avgPartition },
+      { id: 'extraction', label: i18n.stats.avgExtraction },
+      { id: 'distill', label: i18n.stats.avgDistill },
+      { id: 'task_synthesis', label: lang === 'zh' ? '人格合成 (Synthesis)' : 'Synthesis' },
+      { id: 'task_summary', label: lang === 'zh' ? '叙事摘要 (Summary)' : 'Summary' },
+      { id: 'task_cleanup', label: lang === 'zh' ? '记忆清理 (Cleanup)' : 'Cleanup' },
+      { id: 'task_reindex', label: lang === 'zh' ? '重索引 (Reindex)' : 'Reindex' },
+    ]
+
+    return phases
+      .map(p => ({
+        name: p.label,
+        value: stats.perf?.[p.id]?.avg_ms ? stats.perf[p.id].avg_ms / 1000 : 0,
+        fullInfo: stats.perf?.[p.id]
+      }))
+      .filter(p => p.value > 0)
+  }, [stats.perf, lang, i18n])
+
+  const totalTime = perfData.reduce((acc, p) => acc + p.value, 0)
 
   const chartConfig = {
     count: {
@@ -128,6 +172,121 @@ export default function StatsPage() {
           <StatCard icon={Clock} title={i18n.stats.avgResponse} value={`${(stats.perf?.response?.avg_ms ? (stats.perf.response.avg_ms / 1000).toFixed(3) : (stats.perf?.avg_response_time ?? '0.000'))}s`} sub={lang === 'zh' ? '处理延迟' : 'Response latency'} />
           <StatCard icon={Lock} title={i18n.stats.locked} value={stats.locked_count} sub={lang === 'zh' ? '受保护记忆' : 'Protected memories'} primary />
         </div>
+
+        {/* Performance Comparison (Donut Chart) */}
+        <Card className="mb-6 overflow-hidden">
+          <CardHeader className="pb-2 border-b bg-muted/20">
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Zap className="h-5 w-5 text-primary" />
+                  {i18n.stats.perf}
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  {lang === 'zh' ? '系统各阶段执行耗时占比（秒）' : 'Execution time distribution across system phases (seconds)'}
+                </CardDescription>
+              </div>
+              <Badge variant="secondary" className="font-mono text-[10px]">
+                {lang === 'zh' ? '累计平均' : 'Total Avg'}: {totalTime.toFixed(3)}s
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="grid grid-cols-1 lg:grid-cols-5 min-h-[400px]">
+              {/* Donut Chart */}
+              <div className="lg:col-span-3 p-6 flex items-center justify-center relative min-h-[300px]">
+                {perfData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={perfData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={80}
+                        outerRadius={120}
+                        paddingAngle={5}
+                        dataKey="value"
+                        animationBegin={0}
+                        animationDuration={1000}
+                      >
+                        {perfData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip 
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            const data = payload[0].payload;
+                            return (
+                              <div className="bg-background/95 border p-2 rounded-lg shadow-xl text-xs backdrop-blur-sm">
+                                <p className="font-bold">{data.name}</p>
+                                <p className="text-primary font-mono">{data.value.toFixed(3)}s</p>
+                                <p className="text-muted-foreground text-[10px] uppercase mt-1">
+                                  {lang === 'zh' ? '占比' : 'Ratio'}: {((data.value / totalTime) * 100).toFixed(1)}%
+                                </p>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-muted-foreground text-sm flex flex-col items-center gap-2">
+                    <Database className="h-8 w-8 opacity-20" />
+                    {lang === 'zh' ? '暂无性能数据' : 'No performance data'}
+                  </div>
+                )}
+                {perfData.length > 0 && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-3xl font-bold tabular-nums">{(perfData.reduce((max, p) => p.value > max.value ? p : max, perfData[0])).value.toFixed(2)}s</span>
+                    <span className="text-[10px] text-muted-foreground uppercase">{lang === 'zh' ? '峰值耗时' : 'Max Latency'}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Legend & Details */}
+              <div className="lg:col-span-2 border-l bg-muted/5 flex flex-col overflow-hidden">
+                <div className="p-4 border-b bg-muted/20 text-[10px] font-bold text-muted-foreground uppercase flex items-center justify-between">
+                  <span>{lang === 'zh' ? '环节明细' : 'Phase Details'}</span>
+                  <span>{lang === 'zh' ? '平均耗时' : 'Duration'}</span>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  {perfData.map((p, index) => (
+                    <div key={p.name} className="flex items-center justify-between group">
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+                        <span className="text-xs font-medium truncate">{p.name}</span>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className="w-16 h-1 bg-muted rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-primary/60" 
+                            style={{ width: `${(p.value / totalTime) * 100}%` }} 
+                          />
+                        </div>
+                        <span className="text-xs font-mono font-bold w-12 text-right">{p.value.toFixed(3)}s</span>
+                      </div>
+                    </div>
+                  ))}
+                  {perfData.length === 0 && (
+                    <div className="h-full flex items-center justify-center text-xs text-muted-foreground opacity-50 italic py-10">
+                       {lang === 'zh' ? '运行插件以记录性能' : 'Run plugin to record stats'}
+                    </div>
+                  )}
+                </div>
+                <div className="p-4 border-t bg-muted/20">
+                   <p className="text-[9px] text-muted-foreground leading-relaxed">
+                     {lang === 'zh' 
+                       ? '提示：此表反映各模块的平均执行开销。核心路径任务（响应、召回）通常在对话时触发；后台任务（合成、总结）则在闲置或周期性触发。' 
+                       : 'Note: Average overhead per module. Core path tasks trigger during chat; background tasks trigger periodically.'}
+                   </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7 mb-6">
           {/* Main Chart */}
@@ -189,85 +348,6 @@ export default function StatsPage() {
             </CardContent>
           </Card>
         </div>
-
-        {/* Enhanced Performance Section */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-1">
-           <Card>
-             <CardHeader className="pb-3">
-               <div className="flex items-center justify-between">
-                 <div className="space-y-1">
-                   <CardTitle className="flex items-center gap-2 text-base">
-                     <Zap className="h-5 w-5 text-primary" />
-                     {i18n.stats.perf}
-                   </CardTitle>
-                   <CardDescription className="text-xs">
-                     {lang === 'zh' ? '系统各阶段执行效率深度洞察' : 'Deep insights into system execution efficiency'}
-                   </CardDescription>
-                 </div>
-               </div>
-             </CardHeader>
-             <CardContent>
-               <Tabs defaultValue="pipeline" className="w-full">
-                 <TabsList className="mb-4">
-                   <TabsTrigger value="pipeline" className="text-xs">{i18n.stats.corePipeline}</TabsTrigger>
-                   <TabsTrigger value="background" className="text-xs">{i18n.stats.backgroundTasks}</TabsTrigger>
-                 </TabsList>
-                 
-                 <TabsContent value="pipeline" className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
-                    <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
-                      <PerfDetailCard 
-                        title={i18n.stats.avgResponse} 
-                        info={stats.perf?.response} 
-                        icon={Clock} 
-                        description={lang === 'zh' ? '总响应时长' : 'Total Response'}
-                      />
-                      <PerfDetailCard 
-                        title={i18n.stats.avgRecall} 
-                        info={stats.perf?.recall} 
-                        icon={Search} 
-                        description={lang === 'zh' ? '记忆检索召回' : 'Memory Recall'}
-                        subPhases={[
-                          { label: i18n.stats.recallSearch, info: stats.perf?.recall_search },
-                          { label: i18n.stats.recallRerank, info: stats.perf?.recall_rerank },
-                          { label: i18n.stats.recallExpand, info: stats.perf?.recall_expand },
-                          { label: i18n.stats.recallInject, info: stats.perf?.recall_inject },
-                        ]}
-                      />
-                      <PerfDetailCard 
-                        title={i18n.stats.avgRetrieval} 
-                        info={stats.perf?.retrieval} 
-                        icon={Layers} 
-                        description={lang === 'zh' ? 'Context 注入准备' : 'Context Preparation'}
-                      />
-                    </div>
-                 </TabsContent>
-
-                 <TabsContent value="background" className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
-                    <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
-                      <PerfDetailCard 
-                        title={i18n.stats.avgPartition} 
-                        info={stats.perf?.partition} 
-                        icon={Hash} 
-                        description={lang === 'zh' ? '对话边界检测' : 'Boundary Detection'}
-                      />
-                      <PerfDetailCard 
-                        title={i18n.stats.avgExtraction} 
-                        info={stats.perf?.extraction} 
-                        icon={Activity} 
-                        description={lang === 'zh' ? '情节结构提取' : 'Episode Extraction'}
-                      />
-                      <PerfDetailCard 
-                        title={i18n.stats.avgDistill} 
-                        info={stats.perf?.distill} 
-                        icon={TrendingUp} 
-                        description={lang === 'zh' ? '长文本精简' : 'Text Distillation'}
-                      />
-                    </div>
-                 </TabsContent>
-               </Tabs>
-             </CardContent>
-           </Card>
-        </div>
       </div>
     </div>
   )
@@ -301,59 +381,3 @@ function MetricRow({ icon: Icon, label, value }: { icon: any, label: string, val
     </div>
   )
 }
-
-function PerfDetailCard({ 
-  title, info, icon: Icon, description, subPhases 
-}: { 
-  title: string, info?: api.PerfPhaseInfo, icon: any, description: string, subPhases?: { label: string, info?: api.PerfPhaseInfo }[]
-}) {
-  return (
-    <div className="flex flex-col p-4 rounded-xl border bg-card/50">
-      <div className="flex items-center justify-between mb-3">
-        <div className="bg-primary/10 p-2 rounded-lg">
-          <Icon className="h-4 w-4 text-primary" />
-        </div>
-        <Badge variant="outline" className="text-[10px] font-mono px-1.5 py-0 h-5">
-          {info?.avg_ms ? `${info.avg_ms}ms` : '0ms'}
-        </Badge>
-      </div>
-      
-      <div className="space-y-0.5 mb-3">
-        <h4 className="text-xs font-bold">{title}</h4>
-        <p className="text-[10px] text-muted-foreground">{description}</p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 mb-3">
-        <div className="bg-muted/30 p-2 rounded-md">
-          <p className="text-[9px] text-muted-foreground uppercase mb-0.5">Last</p>
-          <p className="text-xs font-mono font-bold">{info?.last_ms ?? 0}ms</p>
-        </div>
-        <div className="bg-muted/30 p-2 rounded-md">
-          <p className="text-[9px] text-muted-foreground uppercase mb-0.5">Hits</p>
-          <p className="text-xs font-mono font-bold">{info?.last_hits ?? 0}</p>
-        </div>
-      </div>
-
-      {subPhases && subPhases.length > 0 && (
-        <div className="mt-auto pt-3 border-t border-muted/50 space-y-2">
-           <p className="text-[9px] font-bold text-muted-foreground uppercase mb-1">Breakdown</p>
-           {subPhases.map((p, i) => p.info && (
-             <div key={i} className="flex items-center justify-between">
-               <span className="text-[10px] text-muted-foreground">{p.label}</span>
-               <div className="flex items-center gap-2">
-                 <div className="w-12 h-1 bg-muted rounded-full overflow-hidden">
-                   <div 
-                    className="h-full bg-primary/60" 
-                    style={{ width: `${Math.min(100, (p.info.avg_ms / (info?.avg_ms || 1)) * 100)}%` }} 
-                   />
-                 </div>
-                 <span className="text-[10px] font-mono w-10 text-right">{p.info.avg_ms}ms</span>
-               </div>
-             </div>
-           ))}
-        </div>
-      )}
-    </div>
-  )
-}
-

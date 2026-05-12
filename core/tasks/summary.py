@@ -377,13 +377,11 @@ async def run_group_summary(
     impression_repo: ImpressionRepository | None = None,
     llm_manager: LLMTaskManager | None = None,
 ) -> int:
-    """Generate and write a daily summary for every active group.
-
-    Discovers groups automatically via event_repo.list_group_ids().
-    Returns number of summary files written.
-    """
-    from ..config import SummaryConfig as _SC
-    cfg = summary_config or _SC()
+    """Generate and write a daily summary for every active group."""
+    from ..utils.perf import performance_timer
+    async with performance_timer("task_summary"):
+        from ..config import SummaryConfig as _SC
+        cfg = summary_config or _SC()
 
     provider = provider_getter()
     if provider is None:

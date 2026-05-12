@@ -25,8 +25,10 @@ async def run_memory_cleanup(
     cleanup_config: CleanupConfig,
 ) -> int:
     """Two-phase cleanup: archive low-salience events, then delete old archived ones."""
-    if not cleanup_config.enabled:
-        return 0
+    from ..utils.perf import performance_timer
+    async with performance_timer("task_cleanup"):
+        if not cleanup_config.enabled:
+            return 0
 
     total = 0
     try:
