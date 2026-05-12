@@ -29,50 +29,52 @@ class EventHandler:
         self, event: AstrMessageEvent, req: ProviderRequest
     ) -> None:
         """Inject relevant memory context into the request before LLM generation."""
-        recall = self._init.recall
-        if recall is None:
-            return
+        from .utils.perf import performance_timer
+        async with performance_timer("response"):
+            recall = self._init.recall
+            if recall is None:
+                return
 
-        # Use the raw message text as the query to avoid injecting stale memory
-        # as part of the query (req.prompt may already contain injected content).
-        query = event.message_str
-        if not query:
-            query = req.prompt or ""
-        if not query:
-            return
+            # Use the raw message text as the query to avoid injecting stale memory
+            # as part of the query (req.prompt may already contain injected content).
+            query = event.message_str
+            if not query:
+                query = req.prompt or ""
+            if not query:
+                return
 
-        try:
-            session_id = event.unified_msg_origin
-            group_id = event.get_group_id() or None
+            try:
+                session_id = event.unified_msg_origin
+                group_id = event.get_group_id() or None
 
-            # Resolve sender uid for OCEAN persona injection (best-effort).
-            sender_uid: str | None = None
-            resolver = self._init.resolver
-            if resolver is not None:
-                try:
-                    sender_uid = await resolver.get_or_create_uid(
-                        platform=event.get_platform_name(),
-                        physical_id=event.get_sender_id(),
-                        display_name=event.get_sender_name(),
-                    )
-                except Exception:
-                    pass
+                # Resolve sender uid for OCEAN persona injection (best-effort).
+                sender_uid: str | None = None
+                resolver = self._init.resolver
+                if resolver is not None:
+                    try:
+                        sender_uid = await resolver.get_or_create_uid(
+                            platform=event.get_platform_name(),
+                            physical_id=event.get_sender_id(),
+                            display_name=event.get_sender_name(),
+                        )
+                    except Exception:
+                        pass
 
-            injected_count = await recall.recall_and_inject(
-                query=query,
-                req=req,
-                session_id=session_id,
-                group_id=group_id,
-                sender_uid=sender_uid,
-            )
-            
-            # Sync VCM state with hit rate feedback
-            cm = self._init.context_manager
-            if cm is not None:
-                cm.update_state(session_id, recall_hit=(injected_count > 0))
+                injected_count = await recall.recall_and_inject(
+                    query=query,
+                    req=req,
+                    session_id=session_id,
+                    group_id=group_id,
+                    sender_uid=sender_uid,
+                )
                 
-        except Exception as exc:
-            astrbot_logger.warning("[%s] recall hook failed: %s", _PLUGIN_NAME, exc)
+                # Sync VCM state with hit rate feedback
+                cm = self._init.context_manager
+                if cm is not None:
+                    cm.update_state(session_id, recall_hit=(injected_count > 0))
+                    
+            except Exception as exc:
+                astrbot_logger.warning("[%s] recall hook failed: %s", _PLUGIN_NAME, exc)
 
     async def handle_message(self, event: AstrMessageEvent) -> None:
         """Route incoming messages through the event boundary detector."""

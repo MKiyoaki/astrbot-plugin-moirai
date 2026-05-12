@@ -130,7 +130,8 @@ class SynthesisConfig:
     impression_system_prompt: str = _DEFAULT_IMPRESSION_SYSTEM_PROMPT
     language: str = LANG_ZH
     llm_provider: str | None = None
-    ema_alpha: float = 0.35  # weight for new synthesis vs existing scores (0=freeze, 1=replace)
+    # weight for new synthesis vs existing scores (0=freeze, 1=replace)
+    ema_alpha: float = 0.35
 
 
 _DEFAULT_SUMMARY_SYSTEM_PROMPT = (
@@ -141,10 +142,22 @@ _DEFAULT_SUMMARY_SYSTEM_PROMPT = (
 
 _DEFAULT_SUMMARY_MOOD_PROMPT = (
     "你是一个社交关系分析助手。根据以下对话事件，分析群体情感动态。"
-    "只输出单行JSON，字段：orientation（亲和/活跃/掌控/高傲/冷淡/孤避/顺应/谦让之一）、"
+    "只输出单行JSON，字段：orientation（以下8种之一：亲和/活跃/掌控/高傲/冷淡/孤避/顺应/谦让之一）、"
     "benevolence（亲和度，-1.0到1.0的浮点数）、power（支配度，-1.0到1.0的浮点数）、"
     "positions（对象，key为用户UID，value为该用户的orientation，8种之一）。"
     "不要输出任何其他内容。"
+)
+
+_DEFAULT_SUMMARY_UNIFIED_PROMPT = (
+    "你是一个对话记录摘要与社交关系分析助手。根据提供的事件列表，生成群组活动摘要并分析群体情感动态。\n\n"
+    "请输出一个 JSON 对象，包含以下字段：\n"
+    "1. summary: 对时段内所有事件进行总结的正文内容，不超过 300 字。不要包含标题或 Markdown 装饰。\n"
+    "2. mood: 一个对象，包含以下社交关系分析字段：\n"
+    "   - orientation: 群体整体氛围（亲和/活跃/掌控/高傲/冷淡/孤避/顺应/谦让之一）\n"
+    "   - benevolence: 整体亲和度 (-1.0 到 1.0)\n"
+    "   - power: 整体支配度 (-1.0 到 1.0)\n"
+    "   - positions: 对象，key 为用户 UID，value 为该用户的 orientation (8种之一)\n\n"
+    "只输出 JSON，不要有其他解释文字。"
 )
 
 
@@ -156,6 +169,7 @@ class SummaryConfig:
     system_prompt: str = _DEFAULT_SUMMARY_SYSTEM_PROMPT
     mood_source: str = "llm"
     mood_prompt: str = _DEFAULT_SUMMARY_MOOD_PROMPT
+    unified_prompt: str = _DEFAULT_SUMMARY_UNIFIED_PROMPT
     language: str = LANG_ZH
     llm_provider: str | None = None
 
@@ -174,7 +188,7 @@ class RetrievalConfig:
     vector_fallback_enabled: bool = True
     active_only: bool = True          # Exclude archived events from search
     weighted_random: bool = False     # Use softmax sampling instead of Top-K
-    sampling_temperature: float = 1.0 # Temperature for softmax sampling
+    sampling_temperature: float = 1.0  # Temperature for softmax sampling
 
 
 # Sentinel strings used to wrap injected memory blocks for auto-clear.
@@ -224,11 +238,13 @@ class ExtractorConfig:
     semantic_clustering_min_samples: int = 2
     persona_influenced_summary: bool = False
     tag_normalization_threshold: float = 0.85
-    tag_seeds: list[str] = field(default_factory=lambda: [
-                                 "社交", "日常", "技术", "知识", "工作", "娱乐", "艺术", "情感", "资讯"])
+    tag_seeds: list[str] = field(
+        default_factory=lambda: [
+            "社交", "日常", "技术", "知识", "工作", "娱乐", "艺术", "情感", "资讯"
+        ]
+    )
     language: str = LANG_ZH
     llm_provider: str | None = None
-
 
 
 @dataclass
@@ -311,9 +327,12 @@ class PluginConfig:
     def language(self) -> str:
         val = self._str("language", LANG_ZH)
         # Normalise to supported constants
-        if val in {"zh", "zh-CN", "chinese"}: return LANG_ZH
-        if val in {"en", "en-US", "english"}: return LANG_EN
-        if val in {"ja", "ja-JP", "japanese"}: return LANG_JA
+        if val in {"zh", "zh-CN", "chinese"}:
+            return LANG_ZH
+        if val in {"en", "en-US", "english"}:
+            return LANG_EN
+        if val in {"ja", "ja-JP", "japanese"}:
+            return LANG_JA
         return val if val in {LANG_ZH, LANG_EN, LANG_JA} else LANG_ZH
 
     @property
@@ -331,9 +350,11 @@ class PluginConfig:
             max_messages=self._int("boundary_max_messages", 50),
             max_duration_minutes=self._float(
                 "boundary_max_duration_minutes", 60.0),
-            drift_detection_enabled=self._bool("boundary_topic_drift_enabled", True),
+            drift_detection_enabled=self._bool(
+                "boundary_topic_drift_enabled", True),
             drift_threshold=self._float("boundary_topic_drift_threshold", 0.6),
-            drift_min_messages=self._int("boundary_topic_drift_min_messages", 20),
+            drift_min_messages=self._int(
+                "boundary_topic_drift_min_messages", 20),
             drift_check_interval=self._int("boundary_topic_drift_interval", 5),
         )
 
@@ -360,6 +381,7 @@ class PluginConfig:
     def get_summary_config(self) -> SummaryConfig:
         prompt = self._str("summary_system_prompt", "").strip()
         mood_prompt = self._str("summary_mood_system_prompt", "").strip()
+        unified_prompt = self._str("summary_unified_system_prompt", "").strip()
         limit = self._int("summary_word_limit", 300)
         limit = max(200, min(500, limit))
         return SummaryConfig(
@@ -369,6 +391,7 @@ class PluginConfig:
             system_prompt=prompt or _DEFAULT_SUMMARY_SYSTEM_PROMPT,
             mood_source=self._str("summary_mood_source", "llm"),
             mood_prompt=mood_prompt or _DEFAULT_SUMMARY_MOOD_PROMPT,
+            unified_prompt=unified_prompt or _DEFAULT_SUMMARY_UNIFIED_PROMPT,
             language=self.language,
             llm_provider=self.llm_provider,
         )
@@ -388,7 +411,8 @@ class PluginConfig:
                 "retrieval_vector_fallback_enabled", True),
             active_only=self._bool("retrieval_active_only", True),
             weighted_random=self._bool("retrieval_weighted_random", False),
-            sampling_temperature=self._float("retrieval_sampling_temperature", 1.0),
+            sampling_temperature=self._float(
+                "retrieval_sampling_temperature", 1.0),
         )
 
     def get_injection_config(self) -> InjectionConfig:
@@ -414,8 +438,10 @@ class PluginConfig:
             enabled=self._bool("soul_enabled", False),
             decay_rate=self._float("soul_decay_rate", 0.1),
             recall_depth_init=self._float("soul_recall_depth_init", 0.0),
-            impression_depth_init=self._float("soul_impression_depth_init", 0.0),
-            expression_desire_init=self._float("soul_expression_desire_init", 0.0),
+            impression_depth_init=self._float(
+                "soul_impression_depth_init", 0.0),
+            expression_desire_init=self._float(
+                "soul_expression_desire_init", 0.0),
             creativity_init=self._float("soul_creativity_init", 0.0),
         )
 
@@ -432,13 +458,21 @@ class PluginConfig:
             distillation_system_prompt=custom_distill_prompt or DEFAULT_DISTILLATION_SYSTEM_PROMPT,
             strategy=self._str("extraction_strategy", "llm"),
             semantic_clustering_eps=self._float(
-                "semantic_clustering_eps", 0.45),
+                "semantic_clustering_eps",
+                0.45
+            ),
             semantic_clustering_min_samples=self._int(
-                "semantic_clustering_min_samples", 2),
+                "semantic_clustering_min_samples",
+                2
+            ),
             persona_influenced_summary=self._bool(
-                "persona_influenced_summary", False),
+                "persona_influenced_summary",
+                False
+            ),
             tag_normalization_threshold=self._float(
-                "tag_normalization_threshold", 0.85),
+                "tag_normalization_threshold",
+                0.85
+            ),
             tag_seeds=tag_seeds,
             llm_provider=self.llm_provider,
         )
@@ -471,7 +505,7 @@ class PluginConfig:
             batch_interval_ms=self._int("embedding_batch_interval_ms", 0),
             request_interval_ms=self._int("embedding_request_interval_ms", 0),
             failure_tolerance_ratio=self._float(
-                "embedding_failure_tolerance_ratio", 0.0),
+                "embedding_failure_tolerance_ratio", 0.02),
             retry_max=self._int("embedding_retry_max", 3),
             retry_delay_ms=self._int("embedding_retry_delay_ms", 1000),
         )
@@ -498,11 +532,15 @@ class PluginConfig:
 
     @property
     def webui_session_hours(self) -> int:
-        return self._int("webui_session_hours", 24)
+        return self._int("webui_session_hours", 1)
 
     @property
     def webui_sudo_minutes(self) -> int:
         return self._int("webui_sudo_minutes", 30)
+
+    @property
+    def llm_concurrency(self) -> int:
+        return self._int("llm_concurrency", 2)
 
     # ------------------------------------------------------------------
     # Embedding / retrieval
@@ -555,6 +593,22 @@ class PluginConfig:
     # ------------------------------------------------------------------
     # Periodic tasks
     # ------------------------------------------------------------------
+
+    @property
+    def decay_enabled(self) -> bool:
+        return self._bool("decay_enabled", True)
+
+    @property
+    def summary_enabled(self) -> bool:
+        return self._bool("summary_enabled", True)
+
+    @property
+    def persona_synthesis_enabled(self) -> bool:
+        return self._bool("persona_synthesis_enabled", True)
+
+    @property
+    def markdown_projection_enabled(self) -> bool:
+        return self._bool("markdown_projection_enabled", True)
 
     @property
     def decay_interval_seconds(self) -> int:

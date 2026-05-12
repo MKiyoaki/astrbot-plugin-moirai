@@ -54,6 +54,9 @@ export interface PluginStats {
   events: number
   locked_count: number
   impressions: number
+  summaries: number
+  summary_days?: number
+  avg_summary_chars?: number
   groups: number
   version: string
   soul_enabled?: boolean

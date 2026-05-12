@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from ..config import SummaryConfig
     from ..domain.models import Event
     from ..repository.base import EventRepository, PersonaRepository, ImpressionRepository
+    from ..managers.llm_manager import LLMTaskManager
 
 from ..utils.i18n import get_string, LANG_ZH
 
@@ -105,20 +106,26 @@ async def _build_mood_section_db(
     from ..social import ipc_model
     orientation = ipc_model.classify_octant(avg_b, avg_p)
     # Localize orientation label
-    orientation_label = get_string(f"ipc.{orientation.lower() if hasattr(orientation, 'lower') else orientation}", lang)
+    key = f"ipc.{orientation}"
+    orientation_label = get_string(key, lang)
+    if orientation_label == key:
+        orientation_label = orientation
     
     # Group names by their orientation
     orientation_map: dict[str, list[str]] = {}
     for uid, imp in valid_impressions:
         name = uid_to_name.get(uid, uid)
-        orientation_map.setdefault(imp.ipc_orientation, []).append(name)
+        label = imp.ipc_orientation
+        label_key = f"ipc.{label}"
+        localized_label = get_string(label_key, lang)
+        if localized_label == label_key:
+            localized_label = label
+        orientation_map.setdefault(localized_label, []).append(name)
     
     position_clauses = []
     known_tpl = get_string("summary.position_known", lang)
     for label, names in sorted(orientation_map.items()):
-        # Localize label if possible
-        localized_label = get_string(f"ipc.{label.lower()}", lang)
-        position_clauses.append(known_tpl.format(names=", ".join(names), label=localized_label))
+        position_clauses.append(known_tpl.format(names=", ".join(names), label=label))
     
     # Participants with unknown position
     covered_uids = {i[0] for i in valid_impressions}
@@ -137,11 +144,66 @@ async def _build_mood_section_db(
     )
 
 
+def _format_mood_json(
+    data: dict, 
+    uid_to_name: dict[str, str], 
+    participants: set[str], 
+    lang: str = LANG_ZH
+) -> str:
+    """Format mood JSON data into a human-readable string."""
+    orientation = data.get("orientation", "亲和")
+    key = f"ipc.{orientation}"
+    orientation_label = get_string(key, lang)
+    if orientation_label == key:
+        orientation_label = orientation
+    
+    benevolence = float(data.get("benevolence", 0.0))
+    power = float(data.get("power", 0.0))
+    positions: dict = data.get("positions", {})
+
+    # Group members by their orientation
+    orientation_groups: dict[str, list[str]] = {}
+    for uid, pos in positions.items():
+        name = uid_to_name.get(uid, uid)
+        if isinstance(pos, dict):
+            pos = pos.get("orientation", pos.get("position", "未知"))
+        
+        pos_str = str(pos)
+        pos_key = f"ipc.{pos_str}"
+        localized_pos = get_string(pos_key, lang)
+        if localized_pos == pos_key:
+            localized_pos = pos_str
+        orientation_groups.setdefault(localized_pos, []).append(name)
+
+    # Build the position clause list; any participants missing get "未知"
+    all_named = {uid_to_name.get(u, u) for u in participants}
+    covered = {n for names in orientation_groups.values() for n in names}
+    unknown = all_named - covered
+    if unknown:
+        unknown_label = get_string("ipc.unknown", lang)
+        orientation_groups.setdefault(unknown_label, []).extend(sorted(unknown))
+
+    known_tpl = get_string("summary.position_known", lang)
+    position_clauses = " | ".join(
+        known_tpl.format(names=", ".join(names), label=pos)
+        for pos, names in orientation_groups.items()
+    )
+    b_str = f"{benevolence:+.2f}"
+    p_str = f"{power:+.2f}"
+    
+    overall_tpl = get_string("summary.mood_overall", lang)
+    return (
+        overall_tpl.format(orientation=orientation_label, b=b_str, p=p_str) +
+        position_clauses
+    )
+
+
 async def _build_mood_section_llm(
     events: list[Event],
     uid_to_name: dict[str, str],
     provider,
     cfg: SummaryConfig,
+    llm_manager: LLMTaskManager | None = None,
 ) -> str:
     """Call LLM to infer group mood (Option B). Returns formatted [情感动态] string."""
     lang = cfg.language or LANG_ZH
@@ -163,55 +225,25 @@ async def _build_mood_section_llm(
     prompt = f"对话事件列表：\n{event_lines}\n\n参与者UID列表：{', '.join(participants)}\n请输出群体情感动态JSON。"
 
     try:
-        resp = await asyncio.wait_for(
-            provider.text_chat(prompt=prompt, system_prompt=cfg.mood_prompt),
-            timeout=cfg.llm_timeout,
-        )
+        if llm_manager:
+            resp = await llm_manager.run(
+                asyncio.wait_for,
+                provider.text_chat(prompt=prompt, system_prompt=cfg.mood_prompt),
+                timeout=cfg.llm_timeout,
+                task_name="summary_mood"
+            )
+        else:
+            resp = await asyncio.wait_for(
+                provider.text_chat(prompt=prompt, system_prompt=cfg.mood_prompt),
+                timeout=cfg.llm_timeout,
+            )
         raw = resp.completion_text.strip()
         # Strip markdown code block if present
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1] if "\n" in raw else raw
             raw = raw.rsplit("```", 1)[0].strip()
         data = json.loads(raw)
-        orientation = data.get("orientation", "亲和")
-        # Localize orientation if it matches an IPC label key
-        orientation_label = get_string(f"ipc.{orientation.lower()}", lang)
-        
-        benevolence = float(data.get("benevolence", 0.0))
-        power = float(data.get("power", 0.0))
-        positions: dict = data.get("positions", {})
-
-        # Group members by their orientation
-        orientation_groups: dict[str, list[str]] = {}
-        for uid, pos in positions.items():
-            name = uid_to_name.get(uid, uid)
-            if isinstance(pos, dict):
-                pos = pos.get("orientation", pos.get("position", "未知位置"))
-            
-            localized_pos = get_string(f"ipc.{str(pos).lower()}", lang)
-            orientation_groups.setdefault(localized_pos, []).append(name)
-
-        # Build the position clause list; any participants missing get "未知位置"
-        all_named = {uid_to_name.get(u, u) for u in participants}
-        covered = {n for names in orientation_groups.values() for n in names}
-        unknown = all_named - covered
-        if unknown:
-            unknown_label = get_string("ipc.unknown", lang)
-            orientation_groups.setdefault(unknown_label, []).extend(sorted(unknown))
-
-        known_tpl = get_string("summary.position_known", lang)
-        position_clauses = " | ".join(
-            known_tpl.format(names=", ".join(names), label=pos)
-            for pos, names in orientation_groups.items()
-        )
-        b_str = f"{benevolence:+.2f}"
-        p_str = f"{power:+.2f}"
-        
-        overall_tpl = get_string("summary.mood_overall", lang)
-        return (
-            overall_tpl.format(orientation=orientation_label, b=b_str, p=p_str) +
-            position_clauses
-        )
+        return _format_mood_json(data, uid_to_name, participants, lang)
     except (asyncio.TimeoutError, json.JSONDecodeError, Exception) as exc:
         logger.warning(f"[{_MODULE_NAME}] mood LLM failed: %s", exc)
         return get_string("summary.mood_failed", lang)
@@ -221,12 +253,14 @@ async def _generate_summary_for_group(
     group_id: str | None,
     events: list[Event],
     today: str,
-    provider,
+    provider: Any,
     cfg: SummaryConfig,
     uid_to_name: dict[str, str],
     impression_repo: ImpressionRepository | None = None,
     persona_repo: PersonaRepository | None = None,
+    llm_manager: LLMTaskManager | None = None,
 ) -> str:
+
     """Generate the full three-section markdown content for one group."""
     lang = cfg.language or LANG_ZH
     group_label = group_id or get_string("summary.private_chat", lang)
@@ -235,11 +269,11 @@ async def _generate_summary_for_group(
     start_str = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%H:%M")
     end_str = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%H:%M")
 
-    # Parallelize Section 1 (Topic) and Section 3 (Mood LLM) if needed
-    topic_task = None
-    mood_task = None
+    participants: set[str] = set()
+    for ev in events:
+        for uid in (ev.participants or []):
+            participants.add(uid)
 
-    # Section 1: [主要话题] — LLM
     event_lines = "\n".join(
         "- [{}] {}{}".format(
             datetime.fromtimestamp(e.start_time, tz=timezone.utc).strftime("%m-%d %H:%M"),
@@ -248,43 +282,78 @@ async def _generate_summary_for_group(
         )
         for e in events
     )
-    topic_prompt = (
-        f"群组：{group_label}，统计日期：{today}。\n"
-        f"事件列表：\n{event_lines}\n"
-        f"{get_string('summary.word_limit_hint', lang)}"
-    )
 
-    async def _get_topic():
+    topic_text = ""
+    mood_text = ""
+
+    # Check if we can use unified extraction (when mood source is LLM)
+    if cfg.mood_source == "llm":
+        prompt = (
+            f"群组：{group_label}，统计日期：{today}。\n"
+            f"事件列表：\n{event_lines}\n\n"
+            f"参与者UID列表：{', '.join(participants)}\n"
+            f"{get_string('summary.word_limit_hint', lang)}"
+        )
         try:
-            resp = await asyncio.wait_for(
-                provider.text_chat(prompt=topic_prompt, system_prompt=cfg.system_prompt),
-                timeout=cfg.llm_timeout,
-            )
-            return resp.completion_text.strip()
-        except asyncio.TimeoutError:
-            logger.warning(f"[{_MODULE_NAME}] topic LLM timeout for group %r", group_label)
-            return get_string("summary.timeout", lang)
+            if llm_manager:
+                resp = await llm_manager.run(
+                    asyncio.wait_for,
+                    provider.text_chat(prompt=prompt, system_prompt=cfg.unified_prompt),
+                    timeout=cfg.llm_timeout,
+                    task_name=f"summary_unified_{group_label}"
+                )
+            else:
+                resp = await asyncio.wait_for(
+                    provider.text_chat(prompt=prompt, system_prompt=cfg.unified_prompt),
+                    timeout=cfg.llm_timeout,
+                )
+            raw = resp.completion_text.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+                raw = raw.rsplit("```", 1)[0].strip()
+            
+            data = json.loads(raw)
+            topic_text = data.get("summary", "")
+            mood_data = data.get("mood")
+            if mood_data:
+                mood_text = _format_mood_json(mood_data, uid_to_name, participants, lang)
+            else:
+                mood_text = get_string("summary.mood_failed", lang)
         except Exception as exc:
-            logger.warning(f"[{_MODULE_NAME}] topic LLM failed for group %r: %s", group_label, exc)
-            return get_string("summary.failed", lang)
+            logger.warning(f"[{_MODULE_NAME}] unified LLM failed for group %r: %s", group_label, exc)
+            # Fallback to separate calls if unified fails
+            topic_text = get_string("summary.failed", lang)
+            mood_text = get_string("summary.mood_failed", lang)
 
-    topic_task = asyncio.create_task(_get_topic())
-
-    # Section 3: [情感动态] — LLM (Option B) or impression DB (Option A)
-    mood_text = None
-    if cfg.mood_source == "impression_db" and impression_repo:
-        mood_text = await _build_mood_section_db(events, uid_to_name, impression_repo, persona_repo, lang=lang)
-    
-    if not mood_text:
-        # Fallback to Option B (LLM) - parallelize it
-        mood_task = asyncio.create_task(_build_mood_section_llm(events, uid_to_name, provider, cfg))
-
-    # Wait for both
-    if mood_task:
-        topic_text, mood_text = await asyncio.gather(topic_task, mood_task)
     else:
-        topic_text = await topic_task
+        # Separate calls (e.g., mood from DB)
+        topic_prompt = (
+            f"群组：{group_label}，统计日期：{today}。\n"
+            f"事件列表：\n{event_lines}\n"
+            f"{get_string('summary.word_limit_hint', lang)}"
+        )
+        try:
+            if llm_manager:
+                resp = await llm_manager.run(
+                    asyncio.wait_for,
+                    provider.text_chat(prompt=topic_prompt, system_prompt=cfg.system_prompt),
+                    timeout=cfg.llm_timeout,
+                    task_name=f"summary_topic_{group_label}"
+                )
+            else:
+                resp = await asyncio.wait_for(
+                    provider.text_chat(prompt=topic_prompt, system_prompt=cfg.system_prompt),
+                    timeout=cfg.llm_timeout,
+                )
+            topic_text = resp.completion_text.strip()
+        except Exception:
+            topic_text = get_string("summary.failed", lang)
 
+        if cfg.mood_source == "impression_db" and impression_repo:
+            mood_text = await _build_mood_section_db(events, uid_to_name, impression_repo, persona_repo, lang=lang)
+
+        if not mood_text:
+            mood_text = await _build_mood_section_llm(events, uid_to_name, provider, cfg, llm_manager)
     # Section 2: [事件列表] — Deterministic
     event_list_text = _build_event_list_section(events, uid_to_name, lang=lang)
 
@@ -306,6 +375,7 @@ async def run_group_summary(
     summary_config: SummaryConfig | None = None,
     persona_repo: PersonaRepository | None = None,
     impression_repo: ImpressionRepository | None = None,
+    llm_manager: LLMTaskManager | None = None,
 ) -> int:
     """Generate and write a daily summary for every active group.
 
@@ -331,34 +401,28 @@ async def run_group_summary(
 
     group_ids = await event_repo.list_group_ids()
     today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
-    
-    # Use a semaphore to limit concurrent LLM calls (summaries are heavy)
-    sem = asyncio.Semaphore(2)
 
     async def _process_one(group_id) -> bool:
         events = await event_repo.list_by_group(group_id, limit=cfg.max_events)
         if not events:
             return False
         
-        # Optional: Skip if summary for today already exists and is newer than last event
-        # (For simplicity in dev runner, we just always generate)
-        
-        async with sem:
-            try:
-                content = await _generate_summary_for_group(
-                    group_id, events, today, provider, cfg, uid_to_name, impression_repo, persona_repo
-                )
-                if group_id is None:
-                    summary_dir = data_dir / "global" / "summaries"
-                else:
-                    summary_dir = data_dir / "groups" / group_id / "summaries"
-                summary_dir.mkdir(parents=True, exist_ok=True)
-                (summary_dir / f"{today}.md").write_text(content, encoding="utf-8")
-                logger.debug(f"[{_MODULE_NAME}] wrote summary for group %r", group_id or "私聊")
-                return True
-            except Exception as exc:
-                logger.warning(f"[{_MODULE_NAME}] failed for group %r: %s", group_id, exc)
-                return False
+        try:
+            content = await _generate_summary_for_group(
+                group_id, events, today, provider, cfg, uid_to_name, 
+                impression_repo, persona_repo, llm_manager
+            )
+            if group_id is None:
+                summary_dir = data_dir / "global" / "summaries"
+            else:
+                summary_dir = data_dir / "groups" / group_id / "summaries"
+            summary_dir.mkdir(parents=True, exist_ok=True)
+            (summary_dir / f"{today}.md").write_text(content, encoding="utf-8")
+            logger.debug(f"[{_MODULE_NAME}] wrote summary for group %r", group_id or "私聊")
+            return True
+        except Exception as exc:
+            logger.warning(f"[{_MODULE_NAME}] failed for group %r: %s", group_id, exc)
+            return False
 
     results = await asyncio.gather(*[_process_one(gid) for gid in group_ids])
     written = sum(1 for r in results if r)

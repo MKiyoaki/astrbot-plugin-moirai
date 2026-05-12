@@ -30,6 +30,7 @@ from .extractor.extractor import EventExtractor
 from .managers import MemoryManager, RecallManager
 from .managers.context_manager import ContextManager
 from .managers.embedding_manager import EmbeddingManager
+from .managers.llm_manager import LLMTaskManager
 from .projector.projector import MarkdownProjector
 from .repository.sqlite import (
     SQLiteEventRepository,
@@ -136,6 +137,8 @@ class PluginInitializer:
 
         self.embedding_manager = EmbeddingManager(encoder, embed_cfg)
 
+        self.llm_manager = LLMTaskManager(concurrency=cfg.llm_concurrency)
+
         self.context_manager = ContextManager(
             cfg.get_context_config(),
             evict_callback=None,  # set after extractor is built below
@@ -196,6 +199,7 @@ class PluginInitializer:
             orientation_analyzer=orientation_analyzer,
             ipc_enabled=ipc_cfg.enabled,
             persona_repo=persona_repo,
+            llm_manager=self.llm_manager,
         )
 
         async def on_event_close(window: MessageWindow) -> None:
@@ -226,14 +230,15 @@ class PluginInitializer:
         # Decay runs first so archived events are excluded from the projection render.
         cleanup_cfg = cfg.get_cleanup_config()
         async def _daily_maintenance() -> None:
-            if self.memory:
+            if cfg.decay_enabled and self.memory:
                 await self.memory.apply_decay()
             if cleanup_cfg.enabled:
                 await run_memory_cleanup(event_repo, cleanup_cfg)
-            if self.projector:
-                await self.projector.render_all_personas()
-            if self.syncer:
-                await self.syncer.register_all()
+            if cfg.markdown_projection_enabled:
+                if self.projector:
+                    await self.projector.render_all_personas()
+                if self.syncer:
+                    await self.syncer.register_all()
 
         self.scheduler.register(
             "daily_maintenance",
@@ -245,31 +250,36 @@ class PluginInitializer:
             interval=60,
             fn=lambda: self.context_manager.cleanup_expired() if self.context_manager else None,
         )
-        self.scheduler.register(
-            "persona_synthesis",
-            interval=cfg.persona_synthesis_interval_seconds,
-            fn=lambda: run_persona_synthesis(
-                persona_repo, event_repo, provider_getter,
-                synthesis_config=synthesis_cfg,
-            ),
-        )
-        self.scheduler.register(
-            "impression_recalculation",
-            interval=cfg.impression_aggregation_interval_seconds,
-            fn=lambda: run_impression_recalculation(
-                persona_repo, event_repo, impression_repo,
-            ),
-        )
-        self.scheduler.register(
-            "group_summary",
-            interval=cfg.summary_interval_seconds,
-            fn=lambda: run_group_summary(
-                event_repo, data_dir, provider_getter,
-                summary_config=summary_cfg,
-                persona_repo=persona_repo,
-                impression_repo=impression_repo,
-            ),
-        )
+        if cfg.persona_synthesis_enabled:
+            self.scheduler.register(
+                "persona_synthesis",
+                interval=cfg.persona_synthesis_interval_seconds,
+                fn=lambda: run_persona_synthesis(
+                    persona_repo, event_repo, provider_getter,
+                    synthesis_config=synthesis_cfg,
+                    llm_manager=self.llm_manager,
+                ),
+            )
+        if cfg.relation_enabled:
+            self.scheduler.register(
+                "impression_recalculation",
+                interval=cfg.impression_aggregation_interval_seconds,
+                fn=lambda: run_impression_recalculation(
+                    persona_repo, event_repo, impression_repo,
+                ),
+            )
+        if cfg.summary_enabled:
+            self.scheduler.register(
+                "group_summary",
+                interval=cfg.summary_interval_seconds,
+                fn=lambda: run_group_summary(
+                    event_repo, data_dir, provider_getter,
+                    summary_config=summary_cfg,
+                    persona_repo=persona_repo,
+                    impression_repo=impression_repo,
+                    llm_manager=self.llm_manager,
+                ),
+            )
         await self.scheduler.start()
 
         from .tasks.reindex import run_reindex_all
@@ -299,15 +309,18 @@ class PluginInitializer:
         else:
             astrbot_logger.info("[%s] WebUI disabled by config", _PLUGIN_NAME)
 
-        self.watcher = FileWatcher()
-        self.syncer = ReverseSyncer(
-            data_dir=data_dir,
-            persona_repo=persona_repo,
-            impression_repo=impression_repo,
-            watcher=self.watcher,
-        )
-        await self.syncer.register_all()
-        await self.watcher.start()
+        if cfg.markdown_projection_enabled:
+            self.watcher = FileWatcher()
+            self.syncer = ReverseSyncer(
+                data_dir=data_dir,
+                persona_repo=persona_repo,
+                impression_repo=impression_repo,
+                watcher=self.watcher,
+            )
+            await self.syncer.register_all()
+            await self.watcher.start()
+        else:
+            astrbot_logger.info("[%s] Markdown projection disabled by config", _PLUGIN_NAME)
         if self.embedding_manager:
             await self.embedding_manager.start()
 

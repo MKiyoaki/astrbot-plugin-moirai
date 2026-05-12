@@ -1,5 +1,6 @@
 
 import pytest
+import json
 from pathlib import Path
 from core.domain.models import Event, Impression, MessageRef
 from core.repository.memory import InMemoryEventRepository, InMemoryImpressionRepository
@@ -16,6 +17,14 @@ class MockProvider:
         self.calls = []
     async def text_chat(self, prompt, system_prompt):
         self.calls.append(prompt)
+        # Check if it's the unified prompt
+        if "summary" in system_prompt and "mood" in system_prompt:
+            unified_data = {
+                "summary": "这是统一总结的主要话题内容",
+                "mood": json.loads(self.mood_json)
+            }
+            return MockResponse(json.dumps(unified_data))
+        
         if "情感动态" in system_prompt or "情感动态" in prompt:
             return MockResponse(self.mood_json)
         return MockResponse("主要话题总结内容")
@@ -41,6 +50,7 @@ async def test_mood_source_option_b_llm(tmp_path):
     content = summary_file.read_text(encoding="utf-8")
     
     assert "[情感动态]" in content
+    assert "这是统一总结的主要话题内容" in content
     assert "群体情感动态整体偏向[活跃]" in content
     assert "u1处于群体中的掌控位置" in content
 

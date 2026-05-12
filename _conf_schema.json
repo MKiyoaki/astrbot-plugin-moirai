@@ -5,6 +5,12 @@
         "_special": "select_provider",
         "hint": "选择用于事件提取、人格合成、叙事摘要等后台任务的 LLM 提供者。留空则使用 AstrBot 默认提供者。"
     },
+    "llm_concurrency": {
+        "description": "后台 LLM 最大并发数",
+        "type": "int",
+        "hint": "整个插件同时进行的后台 LLM 请求（如事件提取、人设合成、摘要生成）的最大数量。推荐 1-3，防止触发 API 频控。",
+        "default": 2
+    },
     "language": {
         "description": "插件语言 (Plugin Language)",
         "type": "select",
@@ -230,6 +236,18 @@
         "hint": "每隔多少小时对所有事件执行一次 salience 时间衰减，默认每天一次",
         "default": 24
     },
+    "decay_enabled": {
+        "description": "启用重要度衰减",
+        "type": "bool",
+        "hint": "开启后将定期衰减事件的重要度。禁用后记忆将不再随时间淡化。",
+        "default": true
+    },
+    "summary_enabled": {
+        "description": "启用每日叙事摘要",
+        "type": "bool",
+        "hint": "开启后将定期为活跃群组生成每日摘要 Markdown 文件（叙事轴记忆）",
+        "default": true
+    },
     "summary_interval_hours": {
         "description": "摘要生成频率",
         "type": "select",
@@ -237,16 +255,28 @@
         "default": "24",
         "hint": "每隔多少小时为每个活跃群组生成一次叙事摘要 Markdown"
     },
+    "persona_synthesis_enabled": {
+        "description": "启用人格档案合成",
+        "type": "bool",
+        "hint": "开启后将定期根据对话记录合成用户的人设档案（PROFILE.md）",
+        "default": true
+    },
     "persona_synthesis_interval_hours": {
         "description": "人设合成间隔（小时）",
         "type": "int",
         "hint": "每隔多少小时通过 LLM 合成一次用户人设档案（PROFILE.md），默认每周一次",
         "default": 168
     },
+    "markdown_projection_enabled": {
+        "description": "启用 Markdown 投影生成",
+        "type": "bool",
+        "hint": "开启后将数据库中的记忆投影为可读的 Markdown 文件。禁用后仍可使用 WebUI，但 data/ 目录下将不再生成 .md 文件。",
+        "default": true
+    },
     "impression_aggregation_interval_hours": {
-        "description": "印象聚合间隔（小时）",
+        "description": "印象字段重算间隔（小时）",
         "type": "int",
-        "hint": "每隔多少小时通过 LLM 聚合一次人物印象（Impression），默认每周一次",
+        "hint": "每隔多少小时根据最新数据重算社交取向（IPC）衍生字段并对齐依据事件。纯算法执行，不消耗 LLM token。",
         "default": 168
     },
     "file_watcher_poll_seconds": {

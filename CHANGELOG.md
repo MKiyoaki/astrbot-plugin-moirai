@@ -1,3 +1,63 @@
+# CHANGELOG
+
+## [v0.8.2] — 2026-05-12
+
+### 统计可视化深度重构 (Deep Stats Visualization Redesign)
+
+- **十项性能全指标覆盖**：重构了数据统计页面，将核心流水线（响应、召回、上下文注入）与异步后台任务（边界检测、情节提取、总结提炼）进行逻辑分组展示。
+- **召回链路瀑布流分析**：在“核心流水线”卡片中集成了召回阶段的 Breakdown 可视化，通过进度条直观展示向量搜索、重排序、邻居扩展和注入准备的耗时比例。
+- **叙事轴深度指标**：新增了“平均摘要长度”统计，通过后端实时计算 Markdown 文件的字符规模，量化叙事记忆的丰富程度。
+- **UI 组件升级**：引入 `Tabs` 切换核心/后台任务视图，使用 `Badge` 高亮平均耗时，并通过 `Separator` 优化布局密度，提升数据洞察的直观性。
+- **类型系统增强**：在 `PluginStats` 定义中补全了叙事轴相关字段，确保前后端数据交换的严格一致性。
+
+## [v0.8.1] — 2026-05-12
+
+### 统计与性能监控增强 (Enhanced Statistics & Performance Monitoring)
+
+- **响应时长追踪 (Response Time Tracking)**：在 `EventHandler` 中增加了对 LLM 请求处理全周期的计时（`response` 阶段），填补了前端概览页长期显示为 0 的空白。
+- **性能细节洞察 (Detailed Perf Breakdown)**：后端 API 现在提供 `avg_ms` 和 `last_hits` 等高精度数据。前端 Stats 页面新增了“召回细分阶段”显示，支持查看向量搜索、重排序、邻居扩展和注入准备的各自耗时。
+- **叙事记忆统计 (Narrative Axis Stats)**：在统计面板顶层新增了“叙事摘要”总数统计，通过文件系统自动扫描已生成的每日总结文件，平衡了记忆三轴（情节、社交、叙事）的数据展示。
+- **数据一致性重构 (Stats Logic Refactoring)**：将 WebUI 的统计逻辑从 `web/server.py` 迁移并整合至 `core/api.py`，统一了统计口径并支持跨组件复用。
+- **TypeScript 类型补全 (Frontend Type Safety)**：更新了前端 API 类型定义及全局 Store，确保新增统计项在构建时的类型安全。
+
+## [v0.8.0] — 2026-05-12
+
+### 全局 LLM 任务队列与并发管理 (Global LLM Task Queue & Concurrency Management)
+
+- **全局 LLM 任务调度 (Global LLM Task Manager)**：引入了 `LLMTaskManager` 作为全插件后台 LLM 任务的统一入口。通过集中式信号量（Semaphore）控制瞬时并发压力，防止在多群组并发事件关闭或大规模背景任务运行时击穿 LLM Provider。
+- **并发配置项 (Configurable LLM Concurrency)**：新增 `llm_concurrency` 配置项（默认为 2），用户可根据 Provider 的频控限制灵活调整插件的后台负载。
+- **多组件集成 (System-wide Integration)**：重构了 `EventExtractor`、`run_persona_synthesis`（人设合成）、`run_group_summary`（群组总结）以及 `BigFiveScorer`（社交分析），所有后台文本生成任务现在均通过全局队列调度。
+- **可观测性增强 (Observability)**：`LLMTaskManager` 提供实时统计接口，支持追踪活动任务数、总调用次数及失败率，为后续 WebUI 监控看板奠定了基础。
+
+
+## [v0.7.38] — 2026-05-12
+
+### 关系图 UI 组件化与样式重构 (Graph UI Componentization & Styling Refactor)
+
+- **UI 组件抽离 (Custom UI Components)**：将关系图中的节点和边提取为独立的 `GraphNode` 和 `GraphEdge` 组件，存放于 `components/ui/custom/` 下。符合 shadcn/ui 的设计哲学，提升了代码的可维护性和复用性。
+- **CSS 驱动的视觉效果 (CSS-Driven Visuals)**：
+    - 移除了硬编码的颜色值，全面改用 CSS 变量（如 `var(--primary)`）和 Tailwind 类进行样式控制。
+    - **独立悬停反馈 (Distinct Hover Feedback)**：为节点和边实现了独立的悬停效果。节点在悬停时会平滑放大，边在悬停时会应用主色调（Primary Color）的高亮和发光效果，提供了更直观的交互体验。
+    - **主题一致性 (Theme Consistency)**：高亮颜色现在会自动适配系统的 shadcn 主题色，确保关系图与 WebUI 整体视觉风格严丝合缝。
+- **性能优化 (Performance)**：通过组件化减少了 `NetworkGraph` 的渲染复杂度，并优化了 SVG 元素的过渡动画性能。
+
+## [v0.7.37] — 2026-05-12
+
+### 关系图交互体验升级 (Relationship Graph Interaction Upgrade)
+
+- **边对悬停与选中视觉增强 (Edge Hover & Selection Visuals)**：
+    - 为关系图中的边（印象）增加了专用的悬停（Hover）状态。悬停或选中边时，边会变为明亮的琥珀色（Amber），并增加线宽，同时显示半透明的“发光”外廓，显著提升了交互反馈的清晰度。
+    - **联动高亮 (Linked Highlighting)**：悬停某条边时，其连接的两个节点也会同步进入高亮状态，帮助用户快速识别关系双方。
+    - **焦点逻辑优化 (Focus Logic)**：优化了 `NetworkGraph` 的焦点判定逻辑，使得通过边进行的交互能产生与节点交互一致的视觉深度效果。
+
+## [v0.7.36] — 2026-05-12
+
+### 统一总结优化与 i18n 增强 (Unified Summary & i18n Enhancement)
+
+- **统一总结优化 (Unified Summary Optimization)**：在 `mood_source` 设置为 `llm` 时，将“话题总结”与“情感动态分析”合并为单次 LLM 调用。减少了 50% 的 LLM 请求次数，显著提升了群组总结任务的执行效率。
+- **i18n 鲁棒性增强 (i18n Robustness)**：优化了 IPC 社交取向标签的国际化逻辑，增加了对自定义 LLM 输出的兼容性，并修复了 `ipc.unknown` 等键位的缺失问题。
+- **测试框架完善 (Test Suite Fixes)**：修复了 `tests/test_summary_mood.py` 中的 Mock 逻辑与导入错误，确保其与新的统一提取策略完全兼容。
+
 ### 性能深度优化 (Deep Performance Optimization)
 
 - **单任务内部并行化 (Intra-task Parallelization)**：在生成群组摘要时，现在并行执行“话题总结”与“情感动态分析”两个 LLM 请求。对于 local LLM (如 Gemma 26B)，单个群组的生成耗时理论上可缩短 50%。

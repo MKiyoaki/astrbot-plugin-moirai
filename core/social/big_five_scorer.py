@@ -13,7 +13,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Callable, Protocol, runtime_checkable
+from typing import Callable, Protocol, runtime_checkable, TYPE_CHECKING
+if TYPE_CHECKING:
+    from ..managers.llm_manager import LLMTaskManager
 
 from ..domain.models import BigFiveVector
 
@@ -55,7 +57,7 @@ class BigFiveScorer(Protocol):
     Implementations: LLMBigFiveScorer (default), BERTBigFiveScorer (future).
     """
 
-    async def score(self, context: str, provider_getter: Callable) -> BigFiveVector:
+    async def score(self, context: str, provider_getter: Callable, llm_manager: LLMTaskManager | None = None) -> BigFiveVector:
         """Score a block of conversation text, returning Big Five trait values."""
         ...
 
@@ -75,15 +77,23 @@ class LLMBigFiveScorer:
         self._system_prompt = system_prompt
         self._llm_timeout = llm_timeout
 
-    async def score(self, context: str, provider_getter: Callable) -> BigFiveVector:
+    async def score(self, context: str, provider_getter: Callable, llm_manager: LLMTaskManager | None = None) -> BigFiveVector:
         provider = provider_getter()
         if provider is None:
             return _ZERO_VECTOR
         try:
-            resp = await asyncio.wait_for(
-                provider.text_chat(prompt=context, system_prompt=self._system_prompt),
-                timeout=self._llm_timeout,
-            )
+            if llm_manager:
+                resp = await llm_manager.run(
+                    asyncio.wait_for,
+                    provider.text_chat(prompt=context, system_prompt=self._system_prompt),
+                    timeout=self._llm_timeout,
+                    task_name="big_five_score"
+                )
+            else:
+                resp = await asyncio.wait_for(
+                    provider.text_chat(prompt=context, system_prompt=self._system_prompt),
+                    timeout=self._llm_timeout,
+                )
             parsed = _safe_parse(resp.completion_text)
             if parsed is None:
                 logger.warning("[BigFiveScorer] unparseable LLM response")
@@ -148,7 +158,7 @@ class BigFiveBuffer:
     def count(self, uid: str) -> int:
         return self._counters.get(uid, 0)
 
-    def maybe_score(self, uid: str, provider_getter: Callable) -> asyncio.Task | None:
+    def maybe_score(self, uid: str, provider_getter: Callable, llm_manager: LLMTaskManager | None = None) -> asyncio.Task | None:
         """Fire a background scoring task if the uid has reached the threshold.
         Returns the existing task if one is already running for this uid.
         """
@@ -162,15 +172,15 @@ class BigFiveBuffer:
         self._counters[uid] = 0
         self._texts[uid] = []
         
-        task = asyncio.create_task(self._run_score(uid, context, provider_getter))
+        task = asyncio.create_task(self._run_score(uid, context, provider_getter, llm_manager))
         self._pending_tasks[uid] = task
         return task
 
     async def _run_score(
-        self, uid: str, context: str, provider_getter: Callable
+        self, uid: str, context: str, provider_getter: Callable, llm_manager: LLMTaskManager | None = None
     ) -> None:
         try:
-            vector = await self._scorer.score(context, provider_getter)
+            vector = await self._scorer.score(context, provider_getter, llm_manager)
             self._cache[uid] = vector
             logger.debug("[BigFiveBuffer] scored uid=%s → %s", uid[:8], vector)
         finally:

@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from ..config import ExtractorConfig
     from ..social.big_five_scorer import BigFiveBuffer
     from ..social.orientation_analyzer import SocialOrientationAnalyzer
+    from ..managers.llm_manager import LLMTaskManager
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class EventExtractor:
     orientation_analyzer: optional SocialOrientationAnalyzer for IPC impression updates.
     ipc_enabled: master switch for IPC analysis (default True when both optional
                  components are provided).
+    llm_manager: optional LLMTaskManager for concurrency control.
     """
 
     def __init__(
@@ -61,6 +63,7 @@ class EventExtractor:
         orientation_analyzer: SocialOrientationAnalyzer | None = None,
         ipc_enabled: bool = True,
         persona_repo: PersonaRepository | None = None,
+        llm_manager: LLMTaskManager | None = None,
     ) -> None:
         from ..config import ExtractorConfig as _EC
         cfg = extractor_config or _EC()
@@ -68,6 +71,7 @@ class EventExtractor:
         self._persona_repo = persona_repo
         self._provider_getter = provider_getter
         self._encoder: Encoder = encoder or NullEncoder()
+        self._llm_manager = llm_manager
         self._max_context_messages = cfg.max_context_messages
         self._system_prompt = cfg.system_prompt
         self._distillation_system_prompt = cfg.distillation_system_prompt
@@ -322,10 +326,18 @@ class EventExtractor:
             existing_tags=existing_tags
         )
         try:
-            resp = await asyncio.wait_for(
-                provider.text_chat(prompt=prompt, system_prompt=self._system_prompt),
-                timeout=self._llm_timeout,
-            )
+            if self._llm_manager:
+                resp = await self._llm_manager.run(
+                    asyncio.wait_for,
+                    provider.text_chat(prompt=prompt, system_prompt=self._system_prompt),
+                    timeout=self._llm_timeout,
+                    task_name="extractor_batch"
+                )
+            else:
+                resp = await asyncio.wait_for(
+                    provider.text_chat(prompt=prompt, system_prompt=self._system_prompt),
+                    timeout=self._llm_timeout,
+                )
             result = parse_llm_output(resp.completion_text, len(window.messages) - 1)
             if result is not None:
                 return result
@@ -355,10 +367,18 @@ class EventExtractor:
             existing_tags=existing_tags
         )
         try:
-            resp = await asyncio.wait_for(
-                provider.text_chat(prompt=prompt, system_prompt=self._distillation_system_prompt),
-                timeout=self._llm_timeout,
-            )
+            if self._llm_manager:
+                resp = await self._llm_manager.run(
+                    asyncio.wait_for,
+                    provider.text_chat(prompt=prompt, system_prompt=self._distillation_system_prompt),
+                    timeout=self._llm_timeout,
+                    task_name="extractor_distill"
+                )
+            else:
+                resp = await asyncio.wait_for(
+                    provider.text_chat(prompt=prompt, system_prompt=self._distillation_system_prompt),
+                    timeout=self._llm_timeout,
+                )
             result = parse_single_item(resp.completion_text)
             if result is not None:
                 return result
@@ -432,7 +452,7 @@ class EventExtractor:
             # 4. Trigger scoring and WAIT for them (only fires if NOT primed or x_messages reached)
             scoring_tasks = []
             for uid in window.participants:
-                t = self._big_five_buffer.maybe_score(uid, self._provider_getter)
+                t = self._big_five_buffer.maybe_score(uid, self._provider_getter, self._llm_manager)
                 if t:
                     scoring_tasks.append(t)
             

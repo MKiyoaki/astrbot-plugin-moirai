@@ -257,7 +257,7 @@ async def main() -> None:
         SQLiteImpressionRepository, db_open,
     )
     from core.managers.recall_manager import RecallManager
-    from core.managers.context_manager import ContextManager
+    from core.managers.context_manager import ContextManager, ContextConfig, VCMState
     from core.adapters.astrbot import MessageRouter
     from core.adapters.identity import IdentityResolver
     from core.boundary.detector import EventBoundaryDetector
@@ -267,7 +267,15 @@ async def main() -> None:
     from core.embedding.encoder import NullEncoder
     from core.config import PluginConfig
     from core.utils.version import get_plugin_version
+    from core.utils.perf import tracker
     from web.server import WebuiServer
+
+    # Helper for RAG comparison
+    class ProviderRequest:
+        def __init__(self, prompt: str, system_prompt: str = ""):
+            self.prompt = prompt
+            self.system_prompt = system_prompt
+            self.contexts: list = []
 
     # Step 3: Parse Mock_Data.md
     print(f"\n[Parser] Reading {MOCK_DATA_PATH.name} ...")
@@ -476,7 +484,78 @@ async def main() -> None:
         print(f"  Impressions : {imp_count}")
         print("=" * 70)
 
-        # ── Phase 5: Start WebUI ────────────────────────────────────────────
+        # ── Phase 5: RAG Validation & Prompt Injection ──────────────────────
+        print("\n[Phase 5] Testing RAG Retrieval and Prompt Injection ...")
+        query = "卿泽对原神的看法是什么？大家都说了些什么？"
+        sid_rag = "test:114514"
+        test_group_id = "114514"
+        llm_client = SimpleLLMClient(LLM_API_URL, LLM_API_KEY, LLM_MODEL)
+
+        req = ProviderRequest(
+            prompt="You are now in a chatroom. The user asks: " + query,
+            system_prompt="You are a helpful assistant.",
+        )
+
+        print(f"  [LLM] Generating response WITHOUT memory for query: '{query}'")
+        try:
+            resp_no_mem = await llm_client.text_chat(req.prompt, req.system_prompt)
+            no_mem_text = resp_no_mem.completion_text
+        except Exception as e:
+            print(f"  [Warning] LLM call failed ({e}). Using simulated response.")
+            no_mem_text = "I don't know who Rain is."
+
+        # Force RECALL state for testing
+        context_manager._states[sid_rag] = VCMState.RECALL
+        
+        await recall.recall_and_inject(
+            query=query,
+            req=req,
+            session_id=sid_rag,
+            group_id=test_group_id
+        )
+
+        print(f"  [LLM] Generating response WITH memory ...")
+        try:
+            resp_with_mem = await llm_client.text_chat(req.prompt, req.system_prompt)
+            with_mem_text = resp_with_mem.completion_text
+        except Exception as e:
+            print(f"  [Warning] LLM call failed ({e}). Using simulated response.")
+            with_mem_text = "Based on the chat history, Rain mentions playing Genshin Impact..."
+
+        print("\n  " + "=" * 20 + " RAG COMPARISON " + "=" * 20)
+        print(f"  QUERY: {query}")
+        print("  " + "-" * 40)
+        print(f"  BEFORE MEMORY:\n  {no_mem_text[:200]}...")
+        print("  " + "-" * 40)
+        print(f"  AFTER MEMORY (RAG):\n  {with_mem_text[:200]}...")
+        print("  " + "=" * 52)
+
+        # ── Phase 6: VCM State Stress Test ──────────────────────────────────
+        print("\n[Phase 6] VCM State Stress Test (Focused -> Eviction -> Drift) ...")
+        small_cfg = ContextConfig(vcm_enabled=True, window_size=5)
+        stress_cm = ContextManager(small_cfg)
+        stress_sid = "test:stress"
+        
+        print(f"  Initial State: {stress_cm.update_state(stress_sid).value}")
+        # Fill to trigger EVICTION (80% of 5 = 4 messages)
+        win = stress_cm.get_window(stress_sid, create=True)
+        for i in range(4):
+            win.add_message("u", f"stress {i}", time.time())
+            state = stress_cm.update_state(stress_sid)
+            print(f"  Msg {i+1}: State -> {state.value}")
+            
+        state = stress_cm.update_state(stress_sid, drift_detected=True)
+        print(f"  Topic Drift Detected: State -> {state.value}")
+
+        # ── Phase 7: Performance Metrics ────────────────────────────────────
+        perf = await tracker.get_averages()
+        print("\n" + "=" * 20 + " PERFORMANCE METRICS " + "=" * 20)
+        print(f"  Avg Extraction Time: {perf.get('extraction', 0.0):.3f}s")
+        print(f"  Avg Retrieval Time:  {perf.get('retrieval', 0.0):.3f}s")
+        print(f"  Avg Recall Time:     {perf.get('recall', 0.0):.3f}s")
+        print("=" * 52)
+
+        # ── Phase 8: Start WebUI ────────────────────────────────────────────
         from core.tasks.synthesis import run_persona_synthesis as _run_persona_synthesis, run_impression_recalculation
         from core.tasks.summary import run_group_summary as _run_group_summary
 

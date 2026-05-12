@@ -16,6 +16,7 @@ from typing import Callable, TYPE_CHECKING
 if TYPE_CHECKING:
     from ..repository.base import EventRepository, ImpressionRepository, PersonaRepository
     from ..config import SynthesisConfig
+    from ..managers.llm_manager import LLMTaskManager
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ async def run_persona_synthesis(
     event_repo: EventRepository,
     provider_getter: Callable,
     synthesis_config: SynthesisConfig | None = None,
+    llm_manager: LLMTaskManager | None = None,
 ) -> int:
     """Re-synthesise persona_attrs for all personas from recent events.
 
@@ -58,9 +60,6 @@ async def run_persona_synthesis(
     personas = await persona_repo.list_all()
     updated_count = 0
     
-    # Use a semaphore to limit concurrent LLM calls
-    sem = asyncio.Semaphore(3)
-
     async def _process_one(persona) -> bool:
         # Optimization: Skip personas with no new activity since last synthesis
         last_synth = persona.persona_attrs.get("last_synthesized_at", 0)
@@ -85,35 +84,42 @@ async def run_persona_synthesis(
             "请更新属性。"
         )
         
-        async with sem:
-            try:
+        try:
+            if llm_manager:
+                resp = await llm_manager.run(
+                    asyncio.wait_for,
+                    provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
+                    timeout=cfg.llm_timeout,
+                    task_name=f"persona_synthesis_{persona.uid[:8]}"
+                )
+            else:
                 resp = await asyncio.wait_for(
                     provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
                     timeout=cfg.llm_timeout,
                 )
-                parsed = _safe_parse(resp.completion_text)
-                if parsed is None:
-                    logger.warning("[Synthesis] unparseable response for %s", persona.uid)
-                    return False
+            parsed = _safe_parse(resp.completion_text)
+            if parsed is None:
+                logger.warning("[Synthesis] unparseable response for %s", persona.uid)
+                return False
 
-                new_attrs = dict(persona.persona_attrs)
-                if "description" in parsed:
-                    new_attrs["description"] = str(parsed["description"])[:80]
-                if "big_five" in parsed and isinstance(parsed["big_five"], dict):
-                    old_bf = persona.persona_attrs.get("big_five", {})
-                    alpha = cfg.ema_alpha
-                    merged_bf: dict[str, float] = {}
-                    for k in ["O", "C", "E", "A", "N"]:
-                        nv = parsed["big_five"].get(k)
-                        if nv is not None and isinstance(nv, (int, float)):
-                            new_clamped = max(-1.0, min(1.0, float(nv)))
-                            ov = old_bf.get(k)
-                            if ov is not None:
-                                merged_bf[k] = round(alpha * new_clamped + (1 - alpha) * float(ov), 4)
-                            else:
-                                merged_bf[k] = new_clamped
-                    if merged_bf:
-                        new_attrs["big_five"] = merged_bf
+            new_attrs = dict(persona.persona_attrs)
+            if "description" in parsed:
+                new_attrs["description"] = str(parsed["description"])[:80]
+            if "big_five" in parsed and isinstance(parsed["big_five"], dict):
+                old_bf = persona.persona_attrs.get("big_five", {})
+                alpha = cfg.ema_alpha
+                merged_bf: dict[str, float] = {}
+                for k in ["O", "C", "E", "A", "N"]:
+                    nv = parsed["big_five"].get(k)
+                    if nv is not None and isinstance(nv, (int, float)):
+                        new_clamped = max(-1.0, min(1.0, float(nv)))
+                        ov = old_bf.get(k)
+                        if ov is not None:
+                            merged_bf[k] = round(alpha * new_clamped + (1 - alpha) * float(ov), 4)
+                        else:
+                            merged_bf[k] = new_clamped
+                if merged_bf:
+                    new_attrs["big_five"] = merged_bf
                 ev = parsed.get("big_five_evidence")
                 if isinstance(ev, dict):
                     final_bf: dict[str, float] = new_attrs.get("big_five", {})
@@ -144,11 +150,11 @@ async def run_persona_synthesis(
                 )
                 return True
 
-            except asyncio.TimeoutError:
-                logger.warning("[Synthesis] timeout for persona %s", persona.uid)
-            except Exception as exc:
-                logger.warning("[Synthesis] failed for persona %s: %s", persona.uid, exc)
-            return False
+        except asyncio.TimeoutError:
+            logger.warning("[Synthesis] timeout for persona %s", persona.uid)
+        except Exception as exc:
+            logger.warning("[Synthesis] failed for persona %s: %s", persona.uid, exc)
+        return False
 
     results = await asyncio.gather(*[_process_one(p) for p in personas])
     updated_count = sum(1 for r in results if r)

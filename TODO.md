@@ -1,8 +1,6 @@
 # TODO
 
-## 待讨论
-
-### 情绪四维状态（Soul Layer）设计
+### 情绪四维状态（Soul Layer）设计 [Done]
 参考 angel_memory 的 tanh 弹性算法，用四个 -20~+20 能量维度（RecallDepth / ImpressionDepth / ExpressionDesire / Creativity）映射为行为参数。结合 SOUL.md 形成双层体系：
 - **长期人格层**：Big Five（由 `persona_synthesis` 周期生成，写入 SOUL.md）
 - **短期状态层**：四维能量（每轮对话后 tanh 衰减更新，写入 session 状态）
@@ -10,22 +8,20 @@
 
 ---
 
-## 待实现
-
 ### 加权随机检索
 在 `HybridRetriever` 的 RRF 融合结果上加一层 softmax 采样，替代确定性 top-K 截断。用分数作为权重做带放回采样，让 bot 的记忆表现更接近人类的"有时想起、有时忘记"，避免永远只检索到同几条高分事件。改动范围：`core/retrieval/hybrid.py` 一个函数，可配置开关。
 
-### LLM 主动记忆工具调用
+### LLM 主动记忆工具调用 [Done]
 在 AstrBot `@filter.on_llm_request()` 钩子层面注册两个 tool：
 - `core_memory_remember(content, strength)`：模型主动触发存储，写入 Event
 - `core_memory_recall(query)`：模型主动触发检索，返回相关记忆片段
 
 让模型自主决定何时存储和检索，而不是系统被动注入。不改 `core/` 存储层，只在 adapter 层增加 tool 定义。
 
-### Sleep Consolidation 强化
+### Sleep Consolidation 强化 [Done]
 在 `daily_maintenance` 的 cleanup 阶段，将"显著性低于阈值"的事件改为降级到 `archived` 状态，而非直接物理删除。只有 `archived` 超过保留期（如 30 天）的事件才真正删除。现有 `archive_event()` 接口已存在，只需修改 `run_memory_cleanup` 的删除逻辑。
 
-### 指令集配置
+### 指令集配置 [Done]
 使用 `@filter.command()` 体系为插件注册管理指令，按 command group 层级组织：
 
 ```
@@ -67,5 +63,27 @@
 **阶段 3 — API 适配层**
 - `web/frontend/lib/api.ts` 加 bridge 检测：`window.AstrBotPluginPage` 存在时走 `apiGet/apiPost`，否则走原 `fetch`，保留本地调试双路径兼容
 
+
+### 前端对于archieved事件的相关管理显示和支持功能
+
+### 重构web/frontend/app/events页面中的组件，将event，时间轴等独立组件拆分出来放置在`web/frontend/components/events`中
+
 ---
+
+## 后端架构优化与演进 (Refinement & Evolution)
+
+### [设计] 叙事轴摘要向量化与分层 RAG
+目前“每日摘要”仅作为 Markdown 文件存储。应将其向量化并存入 `events` 表（标记为 `type: narrative`），使 `RecallManager` 能够直接检索高概括性的摘要。实现分层 RAG 策略：宏观问题匹配摘要层，微观细节匹配情节层，提升 Token 效率。
+
+### [性能] 周期性维护任务合并 (Consolidation Task)
+将 `persona_synthesis`（人格合成）与 `impression_recalculation`（印象重算）合并。目前两者均涉及全量 Persona 扫描及关联 Event 查询，合并后可实现一次扫描、多重更新，预计降低 40% 以上的 IO 负载。
+
+### [鲁棒] 全局 LLM 任务队列管理 [Done]
+目前已实现 `LLMTaskManager` 全局单例，通过 `llm_concurrency` 配置项统一限制 `Extractor`、`Summary`、`Synthesis` 等组件对 LLM Provider 的瞬时并发压力，防止 API 击穿。
+
+### [质量] 语义提取策略预筛选
+在 `SemanticPartitioner` 分段后、LLM 蒸馏前，增加“噪声过滤”步骤。剔除聚类结果中的表情包、复读、打卡等无意义消息，降低 LLM 幻觉风险并节省 Token。
+
+### [架构] 统一 SSOT 与同步边界清理
+明确数据库为唯一事实源（Single Source of Truth）。Markdown 投影应定位为“只读产物”或“离线备份”。除了 `IMPRESSIONS.md` 外，不鼓励其他文件的反向同步，转而强化 WebUI 的富文本/结构化编辑能力。
 

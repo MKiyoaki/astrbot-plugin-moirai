@@ -524,37 +524,16 @@ class WebuiServer:
         return path.read_text(encoding="utf-8") if path.exists() else None
 
     async def stats_data(self) -> dict[str, Any]:
-        from core.utils.perf import tracker
-        perf_stats = await tracker.get_averages()
-        personas = await self._persona_repo.list_all()
-        group_ids = await self._event_repo.list_group_ids()
-        event_count = 0
-        locked_count = 0
-        for gid in group_ids:
-            evs = await self._event_repo.list_by_group(gid, limit=10_000)
-            event_count += len(evs)
-            locked_count += sum(1 for e in evs if e.is_locked)
-        impression_count = 0
-        for p in personas:
-            imps = await self._impression_repo.list_by_observer(p.uid)
-            impression_count += len(imps)
-        return {
-            "personas": len(personas),
-            "events": event_count,
-            "locked_count": locked_count,
-            "impressions": impression_count,
-            "groups": len(group_ids),
-            "version": self._plugin_version,
-            "soul_enabled": bool(self._initial_config.get("soul_enabled", True)),
-            "perf": {
-                "avg_extraction_time": round(perf_stats.get("extraction", 0.0), 3),
-                "avg_partition_time": round(perf_stats.get("partition", 0.0), 3),
-                "avg_distill_time": round(perf_stats.get("distill", 0.0), 3),
-                "avg_retrieval_time": round(perf_stats.get("retrieval", 0.0), 3),
-                "avg_recall_time": round(perf_stats.get("recall", 0.0), 3),
-                "avg_response_time": round(perf_stats.get("extraction", 0.0) + perf_stats.get("partition", 0.0) + perf_stats.get("distill", 0.0), 3),
-            }
-        }
+        from core.api import get_stats
+        data = await get_stats(
+            persona_repo=self._persona_repo,
+            event_repo=self._event_repo,
+            impression_repo=self._impression_repo,
+            data_dir=self._data_dir,
+            plugin_version=self._plugin_version,
+        )
+        data["soul_enabled"] = bool(self._initial_config.get("soul_enabled", True))
+        return data
 
     # Route handlers: Static pages
 

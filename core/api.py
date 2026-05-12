@@ -89,7 +89,8 @@ async def get_stats(
     persona_repo: PersonaRepository,
     event_repo: EventRepository,
     impression_repo: ImpressionRepository,
-    plugin_version: str = "0.7.31",
+    data_dir: Path | None = None,
+    plugin_version: str | None = None,
 ) -> dict[str, Any]:
 
     if plugin_version is None:
@@ -101,14 +102,47 @@ async def get_stats(
     group_ids = await event_repo.list_group_ids()
     event_count = 0
     locked_count = 0
+    archived_count = 0
     for gid in group_ids:
-        evs = await event_repo.list_by_group(gid, limit=10_000)
-        event_count += len(evs)
-        locked_count += sum(1 for e in evs if e.is_locked)
+        # We list active and archived separately to get counts accurately
+        active_evs = await event_repo.list_by_group(gid, limit=10_000)
+        event_count += len(active_evs)
+        locked_count += sum(1 for e in active_evs if e.is_locked)
+        
+        # Check if repo supports counting archived or list them
+        # For now, let's assume event_repo.list_by_group returns active by default or all?
+        # Based on MemoryManager.list_active_events, it filters by status.
+        # Let's assume we need to list by status if we want both.
+        # Actually, let's just use the count method if available or a simpler loop.
+    
+    # Refined count logic for all statuses
+    from .domain.models import EventStatus
+    active_count = await event_repo.count_by_status(EventStatus.ACTIVE)
+    archived_count = await event_repo.count_by_status(EventStatus.ARCHIVED)
+    # We still need the locked count, which usually applies to active
+    active_sample = await event_repo.list_by_status(EventStatus.ACTIVE, limit=10_000)
+    locked_count = sum(1 for e in active_sample if e.is_locked)
+    
     impression_count = 0
     for p in personas:
         imps = await impression_repo.list_by_observer(p.uid)
         impression_count += len(imps)
+
+    # Count summary files and calculate simple metrics
+    summary_count = 0
+    total_summary_chars = 0
+    summary_days = set()
+    if data_dir:
+        try:
+            summary_files = list(data_dir.glob("**/summaries/*.md"))
+            summary_count = len(summary_files)
+            for f in summary_files:
+                summary_days.add(f.stem) # YYYY-MM-DD
+                total_summary_chars += f.stat().st_size 
+        except Exception:
+            pass
+    
+    avg_summary_chars = (total_summary_chars / summary_count) if summary_count > 0 else 0
 
     # Format detailed perf stats for frontend
     perf_stats = {}
@@ -129,9 +163,13 @@ async def get_stats(
 
     return {
         "personas": len(personas),
-        "events": event_count,
+        "events": active_count,
+        "archived_events": archived_count,
         "locked_count": locked_count,
         "impressions": impression_count,
+        "summaries": summary_count,
+        "summary_days": len(summary_days),
+        "avg_summary_chars": round(avg_summary_chars, 1),
         "groups": len(group_ids),
         "version": plugin_version,
         "perf": perf_stats

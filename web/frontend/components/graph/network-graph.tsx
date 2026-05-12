@@ -1,9 +1,9 @@
-'use client'
-
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import type { PersonaNode, ImpressionEdge } from '@/lib/api'
 import type { EdgePair, PhysicsParams, VisualParams, PositionMap } from '@/lib/graph-types'
 import { computeNodeRadius, mockCluster } from '@/lib/graph-utils'
+import { GraphNode } from '@/components/graph/graph-node'
+import { GraphEdge } from '@/components/graph/graph-edge'
 
 // ── Cluster color palette (Leiden-style) ─────────────────────────────────────
 const CLUSTER_COLORS = ['#d4e4f7', '#d5f0dc', '#fde8e6', '#fef9e7', '#f0eaff', '#e8f8f5']
@@ -52,6 +52,7 @@ export function NetworkGraph({
   const [containerSize, setContainerSize] = useState({ width: 640, height: 420 })
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 })
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
+  const [hoveredPairKey, setHoveredPairKey] = useState<string | null>(null)
   const dragRef = useRef<{ startX: number; startY: number; tx: number; ty: number } | null>(null)
   const isDraggingRef = useRef(false)
 
@@ -218,31 +219,40 @@ export function NetworkGraph({
 
   // --- Animation Helpers ---
   const activeFocusId = hoveredNodeId || selectedNodeId
+  const activePairKey = hoveredPairKey || selectedPairKey
   
   // Calculate which edges and nodes are "connected" to the focus
   const { connectedNodeIds, connectedEdgeKeys } = useMemo(() => {
-    if (!activeFocusId) return { connectedNodeIds: new Set<string>(), connectedEdgeKeys: new Set<string>() }
-    
-    const nodes = new Set<string>([activeFocusId])
+    const nodes = new Set<string>()
     const edges = new Set<string>()
-    
-    edgePairs.forEach(pair => {
-      if (pair.srcId === activeFocusId || pair.tgtId === activeFocusId) {
-        nodes.add(pair.srcId)
-        nodes.add(pair.tgtId)
-        edges.add(pair.pairKey)
-      }
-    })
+
+    if (activePairKey) {
+        const pair = edgePairs.find(p => p.pairKey === activePairKey)
+        if (pair) {
+            nodes.add(pair.srcId)
+            nodes.add(pair.tgtId)
+            edges.add(activePairKey)
+        }
+    } else if (activeFocusId) {
+        nodes.add(activeFocusId)
+        edgePairs.forEach(pair => {
+            if (pair.srcId === activeFocusId || pair.tgtId === activeFocusId) {
+                nodes.add(pair.srcId)
+                nodes.add(pair.tgtId)
+                edges.add(pair.pairKey)
+            }
+        })
+    }
     
     return { connectedNodeIds: nodes, connectedEdgeKeys: edges }
-  }, [activeFocusId, edgePairs])
+  }, [activeFocusId, activePairKey, edgePairs])
 
-  const getOpacity = (id: string, type: 'node' | 'edge') => {
-    if (!activeFocusId) return 1
+  const getIsDimmed = (id: string, type: 'node' | 'edge') => {
+    if (!activeFocusId && !activePairKey) return false
     if (type === 'node') {
-      return connectedNodeIds.has(id) ? 1 : 0.15
+      return !connectedNodeIds.has(id)
     }
-    return connectedEdgeKeys.has(id) ? 1 : 0.08
+    return !connectedEdgeKeys.has(id)
   }
 
   // LOD Smooth Fading: 0.4 -> 0, 0.8 -> 1
@@ -305,6 +315,18 @@ export function NetworkGraph({
               fill={EDGE_NEG_COLOR}
             />
           </marker>
+          <marker
+            id="arr-highlight"
+            markerWidth={params.arrowSize} markerHeight={params.arrowSize * 0.75}
+            refX={params.arrowSize} refY={params.arrowSize * 0.375}
+            orient="auto"
+            markerUnits="userSpaceOnUse"
+          >
+            <path
+              d={`M0,0 L${params.arrowSize},${params.arrowSize * 0.375} L0,${params.arrowSize * 0.75} Z`}
+              fill="var(--primary)"
+            />
+          </marker>
         </defs>
 
         {/* Background click catcher */}
@@ -327,12 +349,13 @@ export function NetworkGraph({
             const rA = nodeA ? nodeRadius(nodeA) : 10
             const rB = nodeB ? nodeRadius(nodeB) : 10
 
+            const isHovered = hoveredPairKey === pair.pairKey
+            const isSelected = selectedPairKey === pair.pairKey
+            const isFocused = connectedEdgeKeys.has(pair.pairKey)
+            
             const color = edgeColor(pair)
             const w = edgeWidth(pair)
-            const isSelected = selectedPairKey === pair.pairKey
-            const isFocus = connectedEdgeKeys.has(pair.pairKey)
-            const opacity = getOpacity(pair.pairKey, 'edge')
-            const strokeW = (isFocus || isSelected) ? w + 1.5 : w
+            const isDimmed = getIsDimmed(pair.pairKey, 'edge')
 
             const dx = pb.x - pa.x
             const dy = pb.y - pa.y
@@ -353,46 +376,27 @@ export function NetworkGraph({
             const x2 = pb.x - unitX * rB
             const y2 = pb.y - unitY * rB
 
-            const arrowId = color === EDGE_POS_COLOR ? 'arr-pos' : color === EDGE_NEG_COLOR ? 'arr-neg' : 'arr'
+            const arrowId = (isHovered || isSelected) ? 'arr-highlight' : (color === EDGE_POS_COLOR ? 'arr-pos' : color === EDGE_NEG_COLOR ? 'arr-neg' : 'arr')
 
             return (
-              <g
+              <GraphEdge
                 key={pair.pairKey}
+                x1={x1} y1={y1} x2={x2} y2={y2}
+                color={color}
+                width={w}
+                isBidirectional={pair.isBidirectional}
+                isHovered={isHovered}
+                isSelected={isSelected}
+                isFocused={isFocused}
+                isDimmed={isDimmed}
+                arrowId={params.showArrows ? arrowId : undefined}
+                perpX={perpX}
+                perpY={perpY}
+                offset={offset}
                 onClick={e => { e.stopPropagation(); if (!isDraggingRef.current) onSelectPair(pair.pairKey) }}
-                style={{ cursor: 'pointer', transition: 'opacity 0.4s ease', opacity }}
-              >
-                {pair.isBidirectional ? (
-                  <>
-                    <line
-                      x1={x1 + perpX * offset} y1={y1 + perpY * offset}
-                      x2={x2 + perpX * offset} y2={y2 + perpY * offset}
-                      stroke={color} strokeWidth={w}
-                      className={isFocus ? "animate-graph-flow" : ""}
-                      strokeDasharray={isFocus ? "5,5" : "none"}
-                    />
-                    <line
-                      x1={x2 - perpX * offset} y1={y2 - perpY * offset}
-                      x2={x1 - perpX * offset} y2={y1 - perpY * offset}
-                      stroke={color} strokeWidth={w}
-                      className={isFocus ? "animate-graph-flow" : ""}
-                      strokeDasharray={isFocus ? "5,5" : "none"}
-                    />
-                  </>
-                ) : (
-                  <line
-                    x1={x1} y1={y1} x2={x2} y2={y2}
-                    stroke={color} strokeWidth={strokeW}
-                    className={isFocus ? "animate-graph-flow" : ""}
-                    strokeDasharray={isFocus ? "5,5" : "none"}
-                    markerEnd={params.showArrows ? `url(#${arrowId})` : undefined}
-                  />
-                )}
-                {/* Transparent wide hit area */}
-                <line
-                  x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y}
-                  stroke="transparent" strokeWidth={14}
-                />
-              </g>
+                onMouseEnter={() => setHoveredPairKey(pair.pairKey)}
+                onMouseLeave={() => setHoveredPairKey(null)}
+              />
             )
           })}
 
@@ -402,78 +406,35 @@ export function NetworkGraph({
             if (!p) return null
             const isHovered = hoveredNodeId === node.data.id
             const isSelected = selectedNodeId === node.data.id
-            const isFocus = connectedNodeIds.has(node.data.id)
+            const isFocused = connectedNodeIds.has(node.data.id)
+            const isDimmed = getIsDimmed(node.data.id, 'node')
             
-            const baseR = nodeRadius(node)
-            const r = (isHovered || isSelected) ? baseR * 1.25 : baseR
+            const r = nodeRadius(node)
             const fill = nodeFill(node)
-            const strokeColor = node.data.is_bot ? BOT_STROKE : 'var(--foreground)'
+            const strokeColor = node.data.is_bot ? BOT_STROKE : 'var(--primary)'
             const fontSize = Math.max(7, Math.min(11, r * 0.52))
-            const opacity = getOpacity(node.data.id, 'node')
 
             return (
-              <g
+              <GraphNode
                 key={node.data.id}
-                transform={`translate(${p.x},${p.y})`}
+                x={p.x}
+                y={p.y}
+                r={r}
+                label={node.data.label}
+                fill={fill}
+                strokeColor={strokeColor}
+                isSelected={isSelected}
+                isHovered={isHovered}
+                isFocused={isFocused}
+                isDimmed={isDimmed}
+                isBot={node.data.is_bot}
+                fontSize={fontSize}
+                labelOpacity={labelOpacity}
+                showLabel={showLabel}
                 onClick={e => { e.stopPropagation(); if (!isDraggingRef.current) onSelectNode(node.data.id) }}
                 onMouseEnter={() => setHoveredNodeId(node.data.id)}
                 onMouseLeave={() => setHoveredNodeId(null)}
-                style={{ cursor: 'pointer', transition: 'opacity 0.4s ease', opacity }}
-              >
-                {/* Pulse Ring for focus nodes */}
-                {(isHovered || isSelected) && (
-                  <circle
-                    r={r}
-                    fill="none"
-                    stroke={strokeColor}
-                    strokeWidth={2}
-                    className="animate-graph-pulse"
-                  />
-                )}
-                
-                <circle
-                  r={r}
-                  fill={fill}
-                  stroke={isSelected ? strokeColor : (node.data.is_bot ? BOT_STROKE : 'var(--border)')}
-                  strokeWidth={isSelected ? 2.5 : (node.data.is_bot ? 1.5 : 1)}
-                  style={{ transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
-                />
-                {showLabel && (
-                  <text
-                    y={r + 12}
-                    fontSize={fontSize}
-                    fill="var(--foreground)"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    style={{ 
-                      userSelect: 'none', 
-                      pointerEvents: 'none',
-                      transition: 'opacity 0.3s ease',
-                      opacity: isFocus ? 1 : labelOpacity
-                    }}
-                  >
-                    {node.data.label}
-                  </text>
-                )}
-                {node.data.is_bot && transform.scale > 0.6 && (
-                  <text
-                    y={r + 22}
-                    fontSize={8}
-                    fill={BOT_STROKE}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    fontWeight="bold"
-                    style={{ 
-                      userSelect: 'none', 
-                      pointerEvents: 'none',
-                      transition: 'opacity 0.3s ease',
-                      opacity: isFocus ? 1 : labelOpacity
-                    }}
-                  >
-                    BOT
-                  </text>
-                )}
-              </g>
+              />
             )
           })}
           {/* Layer 3: Edge labels — above edges AND nodes, with background halo */}
@@ -481,7 +442,7 @@ export function NetworkGraph({
             const pa = positions[pair.srcId]
             const pb = positions[pair.tgtId]
             if (!pa || !pb) return null
-            const opacity = getOpacity(pair.pairKey, 'edge')
+            const isDimmed = getIsDimmed(pair.pairKey, 'edge')
             const midX = (pa.x + pb.x) / 2
             const midY = (pa.y + pb.y) / 2
             const relationLabel = pair.isBidirectional
@@ -502,7 +463,7 @@ export function NetworkGraph({
                   stroke: 'var(--background)',
                   strokeWidth: 5 / transform.scale,
                   paintOrder: 'stroke',
-                  opacity,
+                  opacity: isDimmed ? 0.08 : 1,
                 }}
               >
                 {relationLabel}

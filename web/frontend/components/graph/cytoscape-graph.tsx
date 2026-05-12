@@ -118,7 +118,18 @@ export function CytoscapeGraph({
         },
         { selector: '.dim',     style: { opacity: 0.12 } },
         { selector: '.focused', style: { opacity: 1, 'border-width': 3, 'border-color': '#f59e0b' } },
-        { selector: 'edge.focused', style: { width: 4, opacity: 1 } },
+        { 
+          selector: 'edge.focused', 
+          style: { 
+            width: 6, 
+            opacity: 1,
+            'line-color': '#f59e0b',
+            'target-arrow-color': '#f59e0b',
+            'z-index': 999 
+          } 
+        },
+        { selector: '.hovered', style: { opacity: 1, 'border-width': 2, 'border-color': '#fbbf24' } },
+        { selector: 'edge.hovered', style: { width: 5, opacity: 1, 'z-index': 998 } },
       ],
       layout: { name: 'preset' }, // We'll run layouts manually
     })
@@ -156,23 +167,43 @@ export function CytoscapeGraph({
 
     // Events
     cy.on('tap', 'node', evt => {
+      cy.elements().removeClass('focused')
       cy.elements().addClass('dim')
       evt.target.closedNeighborhood().removeClass('dim').addClass('focused')
       onNodeClick?.(evt.target.data())
     })
 
     cy.on('tap', 'edge', evt => {
+      cy.elements().removeClass('focused')
       cy.elements().addClass('dim')
       evt.target.removeClass('dim').addClass('focused')
-      evt.target.connectedNodes().removeClass('dim')
+      evt.target.connectedNodes().removeClass('dim').addClass('focused')
       onEdgeClick?.(evt.target.data())
     })
 
     cy.on('tap', evt => {
       if (evt.target === cy) {
-        cy.elements().removeClass('dim focused')
+        cy.elements().removeClass('dim focused hovered')
         onBackgroundClick?.()
       }
+    })
+
+    cy.on('mouseover', 'edge', evt => {
+      evt.target.addClass('hovered')
+      evt.target.connectedNodes().addClass('hovered')
+    })
+
+    cy.on('mouseout', 'edge', evt => {
+      evt.target.removeClass('hovered')
+      evt.target.connectedNodes().removeClass('hovered')
+    })
+
+    cy.on('mouseover', 'node', evt => {
+      evt.target.addClass('hovered')
+    })
+
+    cy.on('mouseout', 'node', evt => {
+      evt.target.removeClass('hovered')
     })
 
     cy.on('zoom', () => {
