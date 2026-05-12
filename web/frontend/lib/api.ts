@@ -1,7 +1,24 @@
 export type ApiError = { status: number; body: string }
 
+declare global {
+  interface Window {
+    AstrBotPluginPage?: {
+      apiGet: <T>(path: string) => Promise<T>
+      apiPost: <T>(path: string, body?: unknown) => Promise<T>
+    }
+  }
+}
+
+// When running inside AstrBot iframe, /api/X → /api/plug/moirai/X
+function _resolveUrl(url: string): string {
+  if (typeof window !== 'undefined' && 'AstrBotPluginPage' in window) {
+    return url.replace(/^\/api\//, '/api/plug/moirai/')
+  }
+  return url
+}
+
 async function request<T>(url: string, opts: RequestInit = {}): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetch(_resolveUrl(url), {
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...opts.headers },
     ...opts,

@@ -9,9 +9,23 @@
 
 ## [v0.9.6] — 2026-05-13
 
-### 
+### WebUI 阶段 2–4：前端构建适配、API 适配层、启动自动构建
 
-- 
+**阶段 2 — 前端构建适配** (`web/frontend/next.config.mjs`)
+- 将 `distDir` 从 `'output'`（`web/frontend/output/`）改为 `'../../pages/moirai'`，构建产物直接输出至仓库根目录 `pages/moirai/`，符合 AstrBot Plugin Pages 标准。
+- `output: 'export'`、`trailingSlash: true` 及 dev 模式 rewrites 保持不变。Next.js App Router 静态导出为每个路由生成独立 `index.html`，AstrBot 无需做 SPA fallback。
+
+**阶段 3 — API 适配层** (`web/frontend/lib/api.ts`)
+- 新增 `Window.AstrBotPluginPage` 全局类型声明。
+- 新增 `_resolveUrl(url)` 函数：检测 `'AstrBotPluginPage' in window`，若在 AstrBot iframe 中则将 `/api/X` 重写为 `/api/plug/moirai/X`；否则原路返回（本地调试双路径兼容）。
+- `request()` 函数改为向 `_resolveUrl(url)` 发起请求，其余逻辑（credentials、headers、error handling）不变。
+
+**阶段 4 — 启动自动构建** (`core/plugin_initializer.py`)
+- 新增 `_ensure_pages_built()` 方法：检测 `pages/moirai/index.html` 是否存在，不存在时自动执行 `npm install && npm run build`（移植自 `web/server.py` 的同名逻辑）。
+- 在 `initialize()` 中于 `plugin_routes.register(context)` 之前调用，确保面板文件就绪后再注册路由。
+
+**文档更新**
+- 更新 `web/README.md`、`CLAUDE.md` 中的构建产物路径引用（`web/frontend/output/` → `pages/moirai/`）。
 
 
 ## [v0.9.6] — 2026-05-13

@@ -303,6 +303,7 @@ class PluginInitializer:
             recall_manager=self.recall,
         )
         if cfg.webui_enabled:
+            self._ensure_pages_built()
             self.plugin_routes.register(self._context)
             astrbot_logger.info("[%s] WebUI routes registered via AstrBot Plugin Pages", _PLUGIN_NAME)
         else:
@@ -360,6 +361,38 @@ class PluginInitializer:
 
         astrbot_logger.info("[%s] initialized — DB at %s",
                             _PLUGIN_NAME, db_path)
+
+    def _ensure_pages_built(self) -> None:
+        """Auto-build the frontend if pages/moirai/index.html is missing.
+
+        Pre-built files are committed to the repo for normal installs.  This
+        fallback kicks in only for source checkouts where the developer hasn't
+        run `npm run build` yet, or after a fresh clone.
+        """
+        import subprocess
+
+        pages_index = Path(__file__).parent.parent / "pages" / "moirai" / "index.html"
+        if pages_index.exists():
+            return
+        frontend_src = Path(__file__).parent.parent / "web" / "frontend"
+        if not (frontend_src / "package.json").exists():
+            astrbot_logger.warning(
+                "[%s] pages/moirai/index.html missing and no frontend source found — WebUI panel will be blank.",
+                _PLUGIN_NAME,
+            )
+            return
+        astrbot_logger.info(
+            "[%s] pages/moirai/index.html not found — auto-building frontend (this may take a minute) …",
+            _PLUGIN_NAME,
+        )
+        try:
+            subprocess.run("npm install", cwd=frontend_src, shell=True, check=True)
+            subprocess.run("npm run build", cwd=frontend_src, shell=True, check=True)
+            astrbot_logger.info("[%s] Frontend build complete — pages/moirai/ is ready.", _PLUGIN_NAME)
+        except Exception as exc:
+            astrbot_logger.warning(
+                "[%s] Frontend auto-build failed (%s). WebUI panel may be blank.", _PLUGIN_NAME, exc
+            )
 
     async def teardown(self) -> None:
         if self.watcher is not None:

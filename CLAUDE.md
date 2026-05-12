@@ -162,7 +162,7 @@ Front-end fetches `/api/panels` and dynamically mounts third-party panels alongs
 - **Dark/light theme toggle** via `next-themes` (`useTheme()` + `setTheme()`). Cytoscape re-initializes on theme class change.
 - **Sidebar grouping**: nav items grouped under `可视化` / `工具` / `管理` using shadcn `<SidebarGroup>` + `<SidebarGroupLabel>`.
 - **Toast**: center-bottom fixed via custom `Toaster` component reading from AppContext toasts array.
-- **Frontend build environment**: Node.js lives in the `node` conda env (`/Users/kiyoaki/miniconda3/envs/node/bin/node`). Prepend it to PATH before running npm: `export PATH="/Users/kiyoaki/miniconda3/envs/node/bin:$PATH"`. Build command: `cd web/frontend && npm run build` (output to `web/frontend/output/`).
+- **Frontend build environment**: Node.js lives in the `node` conda env (`/Users/kiyoaki/miniconda3/envs/node/bin/node`). Prepend it to PATH before running npm: `export PATH="/Users/kiyoaki/miniconda3/envs/node/bin:$PATH"`. Build command: `cd web/frontend && npm run build` (output to `pages/moirai/` at repo root — AstrBot Plugin Pages standard). Always commit the `pages/moirai/` directory after rebuilding.
 - **Tag Selector**: Popover-based combobox; Enter/comma to add new tags, backspace to remove.
 - **Sudo guard settings**: Configurable via Settings page; `sudoGuardEnabled` + `sudoGuardMinutes` stored in localStorage. 0 minutes = always-sudo mode (shows Unlock badge instead of toggle).
 - **Event timeline**: shadcn `Card` grouped-by-thread vertical layout (replaces legacy SVG canvas). Uses colored `border-left` for thread accent; adapts to light/dark theme via Tailwind utility classes only — no inline background color.
