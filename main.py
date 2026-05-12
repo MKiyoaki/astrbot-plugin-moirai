@@ -47,8 +47,13 @@ class MoiraiPlugin(Star, CommandsMixin):
     @property
     def webui_registry(self):
         """Expose panel registry for other plugins to mount extra panels."""
-        if self._initializer and self._initializer.webui:
-            return self._initializer.webui.registry
+        if self._initializer:
+            # Prefer PluginRoutes registry (AstrBot Plugin Pages path)
+            if hasattr(self._initializer, "plugin_routes") and self._initializer.plugin_routes:
+                return self._initializer.plugin_routes.registry
+            # Fallback to standalone debug server registry
+            if self._initializer.webui:
+                return self._initializer.webui.registry
         return None
 
     async def initialize(self) -> None:

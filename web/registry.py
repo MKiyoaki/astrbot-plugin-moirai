@@ -23,14 +23,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any
 
-from aiohttp import web
-
-from .auth import PermLevel
-
 logger = logging.getLogger(__name__)
+
+# Permission level type — kept for backwards compatibility with WebuiServer (local debug).
+# Under AstrBot Plugin Pages, auth is handled by AstrBot and this field is informational only.
+PermLevel = str  # "public" | "auth" | "sudo"
 
 
 @dataclass(slots=True)
@@ -49,8 +49,10 @@ class PanelManifest:
         return f"{self.plugin_id}/{self.panel_id}"
 
 
-# 路由处理器签名：接收 aiohttp 请求，返回响应；可选传入 AuthState 由 server 包装
-RouteHandler = Callable[[web.Request], Awaitable[web.StreamResponse]]
+# Route handler: accepts an aiohttp web.Request and returns a response.
+# When used with WebuiServer (local debug), the server wraps it in auth middleware.
+# When used with PluginRoutes (AstrBot), it is registered directly via context.register_web_api().
+RouteHandler = Callable[..., Awaitable[Any]]
 
 
 @dataclass(slots=True)

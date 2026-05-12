@@ -289,14 +289,12 @@ class PluginInitializer:
             fn=lambda: run_reindex_all(event_repo, retriever),
         )
 
-        from web.server import WebuiServer
-        self.webui = WebuiServer(
+        from web.plugin_routes import PluginRoutes
+        self.plugin_routes = PluginRoutes(
             persona_repo=persona_repo,
             event_repo=event_repo,
             impression_repo=impression_repo,
             data_dir=data_dir,
-            port=cfg.webui_port,
-            auth_enabled=cfg.webui_auth_enabled,
             task_runner=self.scheduler.run_now,
             plugin_version=get_plugin_version(),
             initial_config=cfg.as_dict(),
@@ -305,9 +303,31 @@ class PluginInitializer:
             recall_manager=self.recall,
         )
         if cfg.webui_enabled:
-            await self.webui.start()
+            self.plugin_routes.register(self._context)
+            astrbot_logger.info("[%s] WebUI routes registered via AstrBot Plugin Pages", _PLUGIN_NAME)
         else:
             astrbot_logger.info("[%s] WebUI disabled by config", _PLUGIN_NAME)
+
+        # Keep standalone server available for local debugging only.
+        # Set webui_standalone_debug=true in config to start the legacy aiohttp server.
+        self.webui = None
+        if cfg.webui_enabled and getattr(cfg, "webui_standalone_debug", False):
+            from web.server import WebuiServer
+            self.webui = WebuiServer(
+                persona_repo=persona_repo,
+                event_repo=event_repo,
+                impression_repo=impression_repo,
+                data_dir=data_dir,
+                port=cfg.webui_port,
+                auth_enabled=cfg.webui_auth_enabled,
+                task_runner=self.scheduler.run_now,
+                plugin_version=get_plugin_version(),
+                initial_config=cfg.as_dict(),
+                provider_getter=provider_getter,
+                all_providers_getter=self._context.get_all_providers,
+                recall_manager=self.recall,
+            )
+            await self.webui.start()
 
         if cfg.markdown_projection_enabled:
             self.watcher = FileWatcher()

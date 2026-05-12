@@ -15,32 +15,6 @@ async function request<T>(url: string, opts: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>
 }
 
-// ── Auth ──────────────────────────────────────────────────────────────────
-export interface AuthStatus {
-  auth_enabled: boolean
-  authenticated: boolean
-  sudo: boolean
-  password_set: boolean
-  sudo_remaining_seconds?: number
-}
-export const auth = {
-  status: () => request<AuthStatus>('/api/auth/status'),
-  login: (password: string) =>
-    request('/api/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
-  setup: (password: string) =>
-    request('/api/auth/setup', { method: 'POST', body: JSON.stringify({ password }) }),
-  logout: () => request('/api/auth/logout', { method: 'POST' }),
-  sudo: (password: string) =>
-    request<{ sudo_remaining_seconds: number }>('/api/auth/sudo', {
-      method: 'POST', body: JSON.stringify({ password }),
-    }),
-  exitSudo: () => request('/api/auth/sudo/exit', { method: 'POST' }),
-  changePassword: (old_password: string, new_password: string) =>
-    request('/api/auth/password', {
-      method: 'POST', body: JSON.stringify({ old_password, new_password }),
-    }),
-}
-
 // ── Stats ─────────────────────────────────────────────────────────────────
 export interface PerfPhaseInfo {
   avg_ms: number
@@ -232,7 +206,6 @@ export const pluginConfig = {
 
 // ── Global API Export ──────────────────────────────────────────────────────
 export const api = {
-  auth,
   stats,
   events,
   graph,

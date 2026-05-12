@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## [v0.9.6] — 2026-05-13
+
+### 
+
+- 
+
+
+## [v0.9.6] — 2026-05-13
+
+### WebUI 阶段一：接入 AstrBot Plugin Pages 后端迁移
+
+**后端路由迁移**
+- 新增 `web/plugin_routes.py`：提取 `WebuiServer` 中所有 API handler 到独立的 `PluginRoutes` 类，通过 `context.register_web_api()` 批量注册到 AstrBot，路由挂载于 `/api/plug/moirai/`。
+- 修改 `core/plugin_initializer.py`：默认使用 `PluginRoutes.register(context)` 代替启动独立 `aiohttp` server；保留 `WebuiServer` 作为本地调试入口（需设置 `webui_standalone_debug: true`）。
+- 修改 `web/registry.py`：解耦 `RouteHandler` 类型对 `aiohttp` 的硬依赖，`PanelRegistry` 的注册接口保持不变，兼容未来系列插件挂载子面板的需求。
+- 修改 `main.py`：`webui_registry` property 优先返回 `plugin_routes.registry`，回退到 `webui.registry`（调试模式）。
+
+**前端 Auth 层移除**（鉴权交由 AstrBot 统一管理）
+- 移除 `app-shell.tsx` 中的登录屏幕门控逻辑，应用直接渲染。
+- 简化 `lib/store.tsx`：移除 auth 状态（`authEnabled`、`authenticated`、`passwordSet`、`sudoGuard*`）及相关 API 轮询；`sudo` 始终为 `true`。
+- 重写 `app/settings/page.tsx`：移除「认证」和「Sudo」配置卡片，保留语言、主题、第三方面板三个区块。
+- 重写 `components/layout/app-sidebar.tsx`：移除 sudo 切换按钮、密码对话框、退出登录按钮。
+- 修改 `lib/api.ts`：移除 `auth` namespace（`login`、`logout`、`sudo`、`changePassword` 等接口）。
+
 ## [v0.9.5] — 2026-05-13
 
 ### 视觉样式优化 (Visual Style Optimization)
