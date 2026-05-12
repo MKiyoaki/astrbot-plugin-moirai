@@ -11,7 +11,7 @@ class CommandsMixin:
     """Mixin for AstrBot command registration and routing."""
 
     @filter.command_group("mrm")
-    def mrm(self):
+    def mrm():
         """Moirai Memory Manager command group."""
         pass
 

@@ -22,7 +22,6 @@ from core.event_handler import EventHandler
 from core.plugin_initializer import PluginInitializer
 from core.utils.version import get_plugin_version
 from core.utils.formatter import format_events_for_prompt
-from core.mixins.commands_mixin import CommandsMixin
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
@@ -38,7 +37,7 @@ _PLUGIN_VERSION = get_plugin_version()
     _PLUGIN_VERSION,
     "https://github.com/MKiyoaki/astrbot-plugin-moirai",
 )
-class MoiraiPlugin(Star, CommandsMixin):
+class MoiraiPlugin(Star):
     def __init__(self, context: Context) -> None:
         super().__init__(context)
         self._initializer: PluginInitializer | None = None
@@ -48,10 +47,8 @@ class MoiraiPlugin(Star, CommandsMixin):
     def webui_registry(self):
         """Expose panel registry for other plugins to mount extra panels."""
         if self._initializer:
-            # Prefer PluginRoutes registry (AstrBot Plugin Pages path)
             if hasattr(self._initializer, "plugin_routes") and self._initializer.plugin_routes:
                 return self._initializer.plugin_routes.registry
-            # Fallback to standalone debug server registry
             if self._initializer.webui:
                 return self._initializer.webui.registry
         return None
@@ -63,6 +60,8 @@ class MoiraiPlugin(Star, CommandsMixin):
         self._initializer = PluginInitializer(self.context, cfg, data_dir)
         await self._initializer.initialize()
         self._handler = EventHandler(self._initializer)
+
+    # ── Message hooks ─────────────────────────────────────────────────────────
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest) -> None:
@@ -120,6 +119,141 @@ class MoiraiPlugin(Star, CommandsMixin):
             return
         formatted = format_events_for_prompt(results, token_budget=600)
         yield event.plain_result(formatted)
+
+    # ── Command group: /mrm ───────────────────────────────────────────────────
+
+    @filter.command_group("mrm")
+    def mrm():
+        pass
+
+    @mrm.command("status")
+    async def mrm_status(self, event: AstrMessageEvent):
+        '''查询插件运行状态。用法：/mrm status'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        yield event.plain_result(await self._initializer.command_manager.status())
+
+    @mrm.command("persona")
+    async def mrm_persona(self, event: AstrMessageEvent, platform_id: str):
+        '''查看用户人格档案 + 大五人格。用法：/mrm persona <PlatID>'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        yield event.plain_result(
+            await self._initializer.command_manager.persona(
+                event.get_platform_name(), platform_id
+            )
+        )
+
+    @mrm.command("soul")
+    async def mrm_soul(self, event: AstrMessageEvent):
+        '''查看当前会话情绪状态。用法：/mrm soul'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        soul_states = (
+            self._initializer.recall._soul_states
+            if self._initializer.recall is not None
+            else {}
+        )
+        yield event.plain_result(
+            await self._initializer.command_manager.soul(
+                event.unified_msg_origin, soul_states
+            )
+        )
+
+    @mrm.command("recall")
+    async def mrm_recall(self, event: AstrMessageEvent, query: str):
+        '''手动触发记忆检索并返回结果。用法：/mrm recall <关键词>'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        group_id = event.get_group_id() if hasattr(event, "get_group_id") else None
+        yield event.plain_result(
+            await self._initializer.command_manager.recall(query, group_id=group_id)
+        )
+
+    @mrm.command("webui")
+    async def mrm_webui(self, event: AstrMessageEvent, action: str):
+        '''启用或关闭 WebUI。用法：/mrm webui on | off'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        yield event.plain_result(await self._initializer.command_manager.webui(action))
+
+    @mrm.command("flush")
+    async def mrm_flush(self, event: AstrMessageEvent):
+        '''清空当前会话的上下文窗口（不删数据库）。用法：/mrm flush'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        yield event.plain_result(
+            await self._initializer.command_manager.flush(event.unified_msg_origin)
+        )
+
+    @mrm.command("language")
+    async def mrm_language(self, event: AstrMessageEvent, code: str):
+        '''切换指令显示语言。用法：/mrm language <cn/en/ja>'''
+        if not self._initializer:
+            yield event.plain_result("Plugin not initialized.")
+            return
+        yield event.plain_result(
+            await self._initializer.command_manager.set_language(code)
+        )
+
+    @mrm.command("run")
+    async def mrm_run(self, event: AstrMessageEvent, task: str):
+        '''手动触发周期任务。用法：/mrm run <task>（decay/synthesis/summary/cleanup）'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        yield event.plain_result(
+            await self._initializer.command_manager.run_task(task)
+        )
+
+    @mrm.command("reset")
+    async def mrm_reset(self, event: AstrMessageEvent, scope: str, target: str = ""):
+        '''重置数据（均需二次确认）。用法：/mrm reset here | event <id|all> | persona <id|all> | all'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        cmd = self._initializer.command_manager
+        session_id = event.unified_msg_origin
+        group_id = event.get_group_id() if hasattr(event, "get_group_id") else None
+        scope = scope.strip().lower()
+        target = target.strip()
+
+        if scope == "here":
+            result = await cmd.reset_here(session_id, group_id)
+        elif scope == "event":
+            if target == "all":
+                result = await cmd.reset_event_all(session_id)
+            elif target:
+                result = await cmd.reset_event_by_group(session_id, target)
+            else:
+                result = "用法：/mrm reset event <group_id> | all"
+        elif scope == "persona":
+            if target == "all":
+                result = await cmd.reset_persona_all(session_id)
+            elif target:
+                result = await cmd.reset_persona_one(session_id, event.get_platform_name(), target)
+            else:
+                result = "用法：/mrm reset persona <PlatID> | all"
+        elif scope == "all":
+            result = await cmd.reset_all(session_id)
+        else:
+            result = "用法：/mrm reset here | event <group_id|all> | persona <PlatID|all> | all"
+
+        yield event.plain_result(result)
+
+    @mrm.command("help")
+    async def mrm_help(self, event: AstrMessageEvent):
+        '''显示插件指令介绍。用法：/mrm help'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        yield event.plain_result(await self._initializer.command_manager.help())
 
     async def terminate(self) -> None:
         if self._initializer:
