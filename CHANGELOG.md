@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [v0.9.3] — 2026-05-13
+
+### Library 页面组件重构与视觉优化
+
+- **新增 `components/library/persona-row.tsx`**：将人格行+详情面板提取为独立组件，采用与 `event-row.tsx` 一致的设计语言（MetaItem 网格、大五人格进度条可视化、左边框颜色标记）。
+- **新增 `components/library/group-row.tsx`**：将群组行+详情面板提取为独立组件，`GroupInfo` 类型从页面移入组件层，支持平台徽章、参与者列表展示。
+- **重构 `app/library/page.tsx`**：移除所有内联子组件（`PaginationFooter`、`PersonaDetailRow`、`EventDetailRow`、`GroupDetailRow`），改为引用 `components/library/` 下的独立组件；统一表头样式变量 `tableHeadCls`；i18n 覆盖删除确认文案。
+
 ## [v0.9.2] — 2026-05-12
 
 ### 品牌与外观更新 (Branding & Visual Updates)
@@ -11,6 +19,7 @@
   - 原 Moirai 主题（标准灰度）重命名为 **Nox**，新增 `nox.css`，占据原 Aurora 在主题选择器中的位置。
 - **globals.css 更新**：新增 `@import "../styles/themes/nox.css"`。
 - **前端landing page和stat page设计更新**: 组件重构，设计语言更新。
+- **统计页面 UI 细节修复 (Stats Page UI Fixes)**：修复了在无性能数据时平均响应时间显示为 `—s` 的异常（现显示为 `—`），并为“近 30 日活跃趋势”卡片增加了 `h-full` 属性以确保对齐。
 
 ## [v0.9.1] — 2026-05-12
 

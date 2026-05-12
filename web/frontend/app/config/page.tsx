@@ -568,9 +568,9 @@ export default function ConfigPage() {
               return (
                 <div key={section.id} id={section.id} className="scroll-mt-20 transition-all">
                   <Card className="overflow-hidden border-muted/60 shadow-sm hover:shadow-md transition-shadow">
-                    <CardHeader className="bg-muted/30 pb-4">
+                    <CardHeader className="border-b border-border/50 pb-4">
                       <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg font-bold tracking-tight">{section.label}</CardTitle>
+                        <CardTitle className="text-lg font-serif font-bold tracking-tight">{section.label}</CardTitle>
                         <Badge variant="outline" className="font-mono text-[10px] opacity-70">
                           {section.id.toUpperCase()}
                         </Badge>

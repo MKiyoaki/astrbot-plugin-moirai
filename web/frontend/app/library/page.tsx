@@ -1,12 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo, Suspense, Fragment } from 'react'
+import { useEffect, useState, useCallback, useMemo, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import {
-  Users, Building2, Activity, Clock, Search, MessageSquare,
-  ChevronDown, ChevronRight, Pencil, Trash2,
-  Network, GitBranch, Lock, Unlock, Undo2
-} from 'lucide-react'
+import { Search, Pencil, Trash2, Activity, Clock, Users, Building2 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -17,374 +13,23 @@ import {
 } from '@/components/ui/table'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
-} from '@/components/ui/select'
-import {
-  Pagination, PaginationContent, PaginationItem,
-  PaginationNext, PaginationPrevious
-} from '@/components/ui/pagination'
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { buttonVariants } from '@/components/ui/button'
 import { PageHeader } from '@/components/layout/page-header'
 import { FilterBar } from '@/components/shared/filter-bar'
 import { RefreshButton } from '@/components/shared/refresh-button'
-import { DateRange } from 'react-day-picker'
 import { EditPersonaDialog } from '@/components/graph/persona-dialogs'
 import { EditEventDialog, RecycleBinDialog, type EventFormData } from '@/components/events/event-dialogs'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { buttonVariants } from '@/components/ui/button'
+import { EventRow } from '@/components/library/event-row'
+import { PersonaRow } from '@/components/library/persona-row'
+import { GroupRow, type GroupInfo } from '@/components/library/group-row'
+import { PaginationFooter } from '@/components/library/pagination-footer'
+import { DateRange } from 'react-day-picker'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
-import { cn, parseSummaryTopics } from '@/lib/utils'
-
-// ── Shared Sub-components ─────────────────────────────────────────────────
-
-function PaginationFooter({ 
-  totalItems, totalPages, pageSize, currentPage, onPageChange, onPageSizeChange 
-}: { 
-  totalItems: number, totalPages: number, pageSize: number, currentPage: number,
-  onPageChange: (p: number) => void, onPageSizeChange: (sz: number) => void
-}) {
-  const { i18n } = useApp()
-  const pt = i18n.common.pagination
-
-  return (
-    <div className="flex items-center justify-between border-t px-2 py-3 mt-4 shrink-0">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span>{pt.pageSize}</span>
-        <Select value={pageSize.toString()} onValueChange={(v) => onPageSizeChange(Number(v))}>
-          <SelectTrigger className="h-8 w-[70px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="25">25</SelectItem>
-            <SelectItem value="50">50</SelectItem>
-            <SelectItem value="100">100</SelectItem>
-          </SelectContent>
-        </Select>
-        <span>{pt.unit}</span>
-      </div>
-      <div className="flex items-center gap-4">
-        <span className="text-sm text-muted-foreground">
-          {pt.totalItems.replace('{count}', String(totalItems))} ({pt.pageInfo.replace('{current}', String(currentPage)).replace('{total}', String(totalPages))})
-        </span>
-        <Pagination className="justify-end w-auto mx-0">
-          <PaginationContent>
-            <PaginationItem>
-              <PaginationPrevious
-                href="#"
-                size="sm"
-                label={pt.previous}
-                onClick={(e) => { e.preventDefault(); if (currentPage > 1) onPageChange(currentPage - 1) }}
-                className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-              />
-            </PaginationItem>
-            <PaginationItem>
-              <PaginationNext
-                href="#"
-                size="sm"
-                label={pt.next}
-                onClick={(e) => { e.preventDefault(); if (currentPage < totalPages) onPageChange(currentPage + 1) }}
-                className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-              />
-            </PaginationItem>
-          </PaginationContent>
-        </Pagination>
-      </div>
-    </div>
-  )
-}
-
-function PersonaDetailRow({ 
-  node, editMode, onGoToGraph, onEdit, onDelete, sudoMode 
-}: { 
-  node: api.PersonaNode, editMode: boolean, onGoToGraph: (uid: string) => void,
-  onEdit: (n: api.PersonaNode) => void, onDelete: (id: string, label: string) => void,
-  sudoMode: boolean
-}) {
-  const { i18n, lang } = useApp()
-  const d = node.data
-  const attrs = d.attrs || {}
-  
-  const L = {
-    viewInGraph: lang === 'zh' ? '关系图' : 'Graph',
-  }
-
-  return (
-    <TableRow className="bg-muted/40 hover:bg-muted/40">
-      <TableCell colSpan={editMode ? 8 : 7} className="py-3">
-        <div className="flex flex-col gap-3 px-2">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
-            <div>
-              <span className="text-muted-foreground text-xs">UID</span>
-              <p className="font-mono text-xs">{d.id}</p>
-            </div>
-            {d.bound_identities?.length > 0 && (
-              <div className="col-span-2">
-                <span className="text-muted-foreground text-xs">{i18n.graph.bindings}</span>
-                <div className="mt-0.5 flex flex-wrap gap-1">
-                  {d.bound_identities.map(b => (
-                    <Badge key={`${b.platform}:${b.physical_id}`} variant="outline" className="text-xs">
-                      {b.platform}:{b.physical_id}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-          {(attrs.description || attrs.big_five) && (
-            <div className="rounded-lg border bg-muted/40 px-4 py-4 flex flex-col gap-3">
-              <p className="text-sm font-semibold">{i18n.graph.personalityBlock}</p>
-              {attrs.description && <p className="text-sm text-foreground/85 leading-relaxed">{attrs.description}</p>}
-              {attrs.big_five && (() => {
-                const evRaw = attrs.big_five_evidence
-                return (
-                  <div className="flex flex-col gap-2">
-                    {(['O','C','E','A','N'] as const).map(dim => {
-                      const val = attrs.big_five?.[dim]
-                      if (val === undefined) return null
-                      const score = Math.round((val + 1) / 2 * 100)
-                      const color = score >= 65 ? 'text-green-500' : score <= 35 ? 'text-red-500' : 'text-muted-foreground'
-                      const evText = evRaw && typeof evRaw === 'object' ? evRaw[dim] : undefined
-                      return (
-                        <div key={dim} className="flex flex-col gap-1">
-                          <div className="flex items-center justify-between text-sm gap-2">
-                            <span className="text-muted-foreground shrink-0">{i18n.graph.bigFive[dim as keyof typeof i18n.graph.bigFive]}</span>
-                            <span className={`font-mono font-medium ${color}`}>{score}%</span>
-                          </div>
-                          {evText && <p className="text-xs italic text-muted-foreground leading-snug">{evText}</p>}
-                        </div>
-                      )
-                    })}
-                    {evRaw && typeof evRaw === 'string' && (
-                      <p className="text-xs italic text-muted-foreground leading-snug">{evRaw}</p>
-                    )}
-                  </div>
-                )
-              })()}
-            </div>
-          )}
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => onGoToGraph(d.id)}>
-              <Network className="mr-2 h-4 w-4" />{L.viewInGraph}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={!sudoMode} onClick={() => onEdit(node)}>
-              <Pencil className="mr-2 h-4 w-4" />{i18n.common.edit}
-            </Button>
-            <Button size="sm" variant="destructive" disabled={!sudoMode} onClick={() => onDelete(d.id, d.label)}>
-              <Trash2 className="mr-2 h-4 w-4" />{i18n.common.delete}
-            </Button>
-          </div>
-        </div>
-      </TableCell>
-    </TableRow>
-  )
-}
-
-function EventDetailRow({ 
-  ev, editMode, onGoToEvents, onEdit, onDelete, onLockToggle, sudoMode 
-}: { 
-  ev: api.ApiEvent, editMode: boolean, onGoToEvents: (id: string) => void,
-  onEdit: (e: api.ApiEvent) => void, onDelete: (e: api.ApiEvent) => void,
-  onLockToggle: (e: api.ApiEvent) => void,
-  sudoMode: boolean
-}) {
-  const { i18n, lang } = useApp()
-  const L = {
-    viewInEvents: lang === 'zh' ? '事件流' : 'Events',
-  }
-
-  return (
-    <TableRow className="bg-muted/40 hover:bg-muted/40">
-      <TableCell colSpan={editMode ? 8 : 7} className="py-3">
-        <div className="flex flex-col gap-3 px-2">
-          {/* Accent Bar */}
-          <div className="flex flex-col gap-3 border-l-2 border-primary/30 pl-3">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
-              <div>
-                <span className="text-muted-foreground text-xs">ID</span>
-                <p className="font-mono text-xs">{ev.id}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground text-xs">{i18n.events.confidence}</span>
-                <p className="text-sm">{(ev.confidence * 100).toFixed(0)}%</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground text-xs">{i18n.common.status}</span>
-                <p className="text-sm flex items-center gap-1">
-                  {ev.is_locked && <Lock className="size-3 text-primary" />}
-                  {ev.is_locked ? i18n.events.lockedMemory : i18n.common.all}
-                </p>
-              </div>
-              {(ev.participants?.length ?? 0) > 0 && (
-                <div className="col-span-2">
-                  <span className="text-muted-foreground text-xs">{i18n.events.participants}</span>
-                  <p className="text-sm">{ev.participants!.join(', ')}</p>
-                </div>
-              )}
-            </div>
-            
-            {ev.summary && (() => {
-              const topics = parseSummaryTopics(ev.summary)
-              return (
-                <div className="bg-muted/30 rounded p-2 text-xs text-muted-foreground leading-relaxed border-l-2 border-primary/20">
-                  {topics ? (
-                    <div className="flex flex-col gap-2">
-                      {topics.map((tp, i) => (
-                        <div key={i} className="flex flex-col gap-1">
-                          {i > 0 && <div className="border-t border-primary/10 my-1" />}
-                          {([
-                            [i18n.events.summaryWhat, tp.what],
-                            [i18n.events.summaryWho,  tp.who],
-                            [i18n.events.summaryHow,  tp.how],
-                            [i18n.events.summaryEval, tp.eval ?? i18n.events.summaryEvalNone],
-                          ] as [string, string][]).map(([label, val]) => (
-                            <div key={label} className="flex gap-2 leading-snug">
-                              <span className="text-[10px] uppercase font-bold text-primary/60 tracking-tight w-14 shrink-0 pt-0.5">{label}</span>
-                              <span className="text-foreground/90 font-medium">{val}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div>{ev.summary}</div>
-                  )}
-                </div>
-              )
-            })()}
-
-            {(ev.inherit_from?.length ?? 0) > 0 && (
-                <div className="col-span-2">
-                  <span className="text-muted-foreground text-xs">{i18n.events.inheritFrom}</span>
-                  <div className="mt-0.5 flex flex-wrap gap-1">
-                    {ev.inherit_from!.map(id => (
-                      <Badge key={id} variant="outline" className="cursor-pointer text-xs" onClick={() => onGoToEvents(id)}>
-                        {id.slice(0, 12)}…
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => onGoToEvents(ev.id)}>
-                <GitBranch className="mr-2 h-4 w-4" />{L.viewInEvents}
-              </Button>
-              <Button size="sm" variant="outline" disabled={!sudoMode} onClick={() => onLockToggle(ev)}>
-                {ev.is_locked ? <Unlock className="mr-2 h-4 w-4" /> : <Lock className="mr-2 h-4 w-4" />}
-                {ev.is_locked ? i18n.events.unlock : i18n.events.lock}
-              </Button>
-              <Button size="sm" variant="ghost" disabled={!sudoMode} onClick={() => onEdit(ev)}>
-                <Pencil className="mr-2 h-4 w-4" />{i18n.common.edit}
-              </Button>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button 
-                        size="sm" 
-                        variant="destructive" 
-                        disabled={!sudoMode || ev.is_locked} 
-                        onClick={() => onDelete(ev)}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />{i18n.common.delete}
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  {ev.is_locked && (
-                    <TooltipContent>
-                      <p>{i18n.events.lockedDeleteHint}</p>
-                    </TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-          </div>
-        </TableCell>
-    </TableRow>
-  )
-}
-
-interface GroupInfo {
-  id: string;
-  displayName: string;
-  type: 'group' | 'private';
-  event_count: number;
-  last_active?: string;
-  participants: string[];
-}
-
-function GroupDetailRow({ 
-  group, personas, onGoToEvents 
-}: { 
-  group: GroupInfo, personas: api.PersonaNode[], onGoToEvents: (gid: string) => void
-}) {
-  const { i18n } = useApp()
-  
-  // Try to find platform info from participants
-  const groupParticipants = personas.filter(p => group.participants.includes(p.data.id))
-  const platforms = new Set<string>()
-  groupParticipants.forEach(p => p.data.bound_identities?.forEach(b => platforms.add(b.platform)))
-  
-  return (
-    <TableRow className="bg-muted/40 hover:bg-muted/40">
-      <TableCell colSpan={4} className="py-3">
-        <div className="flex flex-col gap-3 px-2">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
-            <div>
-              <span className="text-muted-foreground text-xs">{i18n.library.groups.groupId}</span>
-              <p className="font-mono text-xs break-all">{group.id}</p>
-            </div>
-            {platforms.size > 0 && (
-              <div>
-                <span className="text-muted-foreground text-xs">{i18n.library.groups.platform}</span>
-                <div className="mt-0.5 flex flex-wrap gap-1">
-                  {Array.from(platforms).map(p => (
-                    <Badge key={p} variant="outline" className="text-xs uppercase">{p}</Badge>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div>
-              <span className="text-muted-foreground text-xs">{i18n.library.groups.type}</span>
-              <p className="text-sm">{group.type === 'group' ? i18n.events.group : i18n.events.privateChat}</p>
-            </div>
-          </div>
-          
-          <div>
-            <span className="text-muted-foreground text-xs">{i18n.events.participants}</span>
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {groupParticipants.map(p => (
-                <Badge key={p.data.id} variant="secondary" className="text-xs">
-                  {p.data.label}
-                  {p.data.is_bot && <span className="ml-1 opacity-60">(Bot)</span>}
-                </Badge>
-              ))}
-              {groupParticipants.length === 0 && <span className="text-xs text-muted-foreground italic">{i18n.library.groups.noParticipants}</span>}
-            </div>
-          </div>
-
-          <div className="flex gap-2 mt-1">
-            <Button size="sm" variant="outline" onClick={() => onGoToEvents(group.type === 'group' ? group.id : '')}>
-              <Activity className="mr-2 h-4 w-4" />{i18n.library.groups.viewEvents}
-            </Button>
-          </div>
-        </div>
-      </TableCell>
-    </TableRow>
-  )
-}
-
-// ── Main Content Component ────────────────────────────────────────────────
+import { cn } from '@/lib/utils'
 
 function LibraryContent() {
   const searchParams = useSearchParams()
@@ -392,14 +37,18 @@ function LibraryContent() {
   const { i18n, lang, refreshStats, setRawEvents, setRawGraph, toast, sudo } = useApp()
 
   const L = useMemo(() => ({
-    editMode:       lang === 'zh' ? '编辑模式' : 'Edit Mode',
-    exitEditMode:   lang === 'zh' ? '退出编辑' : 'Exit Edit',
-    deleteSelected: lang === 'zh' ? '删除所选' : 'Delete Selected',
-    viewInGraph:    lang === 'zh' ? '关系图' : 'Graph',
-    viewInEvents:   lang === 'zh' ? '事件流' : 'Events',
-    noSelected:     lang === 'zh' ? '未选择任何项目' : 'No items selected',
-    confirmDelete:  (n: number) => lang === 'zh' ? `确认删除选中的 ${n} 项？` : `Confirm deleting ${n} items?`,
-    deletedOk:      (n: number) => lang === 'zh' ? `已删除 ${n} 项` : `Deleted ${n} items`,
+    editMode:       lang === 'zh' ? '编辑模式' : lang === 'ja' ? '編集モード' : 'Edit Mode',
+    exitEditMode:   lang === 'zh' ? '退出编辑' : lang === 'ja' ? '編集終了' : 'Exit Edit',
+    deleteSelected: lang === 'zh' ? '删除所选' : lang === 'ja' ? '選択削除' : 'Delete Selected',
+    noSelected:     lang === 'zh' ? '未选择任何项目' : lang === 'ja' ? '選択なし' : 'No items selected',
+    confirmDelete:  (n: number) => lang === 'zh' ? `确认删除选中的 ${n} 项？` : lang === 'ja' ? `選択した ${n} 件を削除しますか？` : `Confirm deleting ${n} items?`,
+    deletedOk:      (n: number) => lang === 'zh' ? `已删除 ${n} 项` : lang === 'ja' ? `${n} 件を削除しました` : `Deleted ${n} items`,
+    confirmDeleteTitle: lang === 'zh' ? '确认删除' : lang === 'ja' ? '削除の確認' : 'Confirm Delete',
+    cancel: lang === 'zh' ? '取消' : lang === 'ja' ? 'キャンセル' : 'Cancel',
+    delete: lang === 'zh' ? '删除' : lang === 'ja' ? '削除' : 'Delete',
+    loading: lang === 'zh' ? '加载中…' : lang === 'ja' ? '読み込み中…' : 'Loading…',
+    actionsHead: lang === 'zh' ? '操作' : lang === 'ja' ? '操作' : 'Actions',
+    nameHead: lang === 'zh' ? '名称' : lang === 'ja' ? '名前' : 'Name',
   }), [lang])
 
   const [tab, setTab] = useState(searchParams.get('tab') || 'events')
@@ -418,7 +67,9 @@ function LibraryContent() {
   const [currentPage, setCurrentPage] = useState<number>(1)
   const [editPersona, setEditPersona] = useState<api.PersonaNode | null>(null)
   const [editEvent, setEditEvent] = useState<api.ApiEvent | null>(null)
-  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; title: string; onConfirm: () => void }>({ open: false, title: '', onConfirm: () => {} })
+  const [deleteDialog, setDeleteDialog] = useState<{
+    open: boolean; title: string; onConfirm: () => void
+  }>({ open: false, title: '', onConfirm: () => {} })
 
   const [binOpen, setBinOpen] = useState(false)
   const [binItems, setBinItems] = useState<any[]>([])
@@ -430,7 +81,7 @@ function LibraryContent() {
     try {
       const res = await api.events.recycleBin()
       setBinItems(res.items)
-    } catch (e: any) {
+    } catch {
       toast(i18n.events.binLoadError, 'destructive')
     } finally {
       setBinLoading(false)
@@ -446,8 +97,7 @@ function LibraryContent() {
       loadData()
       refreshStats()
     } catch (e: any) {
-      const msg = e?.body || e?.message || i18n.common.updateFailed
-      toast(msg, 'destructive')
+      toast(e?.body || e?.message || i18n.common.updateFailed, 'destructive')
     }
   }
 
@@ -458,7 +108,7 @@ function LibraryContent() {
       await api.events.clearBin()
       toast(i18n.events.binClearSuccess)
       setBinItems([])
-    } catch (e: any) {
+    } catch {
       toast(i18n.common.deleteFailed, 'destructive')
     }
   }
@@ -480,10 +130,9 @@ function LibraryContent() {
         const evs = eventsData.value.items
         const personas = graphData.value.nodes
         setEventList(evs)
-        
+
         const groups = new Map<string, GroupInfo>()
-        const botNodes = personas.filter(n => n.data.is_bot)
-        const botUids = new Set(botNodes.map(n => n.data.id))
+        const botUids = new Set(personas.filter(n => n.data.is_bot).map(n => n.data.id))
 
         evs.forEach(ev => {
           let groupId = ev.group
@@ -491,7 +140,6 @@ function LibraryContent() {
           let displayName = ev.group || ''
 
           if (!groupId) {
-            // Private chat identification: find the non-bot participant
             const other = ev.participants.find(p => !botUids.has(p))
             if (other) {
               groupId = `private:${other}`
@@ -507,22 +155,11 @@ function LibraryContent() {
 
           const existing = groups.get(groupId)
           if (!existing) {
-            groups.set(groupId, { 
-              id: groupId, 
-              displayName,
-              type,
-              event_count: 1, 
-              last_active: ev.start,
-              participants: [...ev.participants]
-            })
+            groups.set(groupId, { id: groupId, displayName, type, event_count: 1, last_active: ev.start, participants: [...ev.participants] })
           } else {
             existing.event_count++
-            if (!existing.last_active || ev.start > existing.last_active) {
-              existing.last_active = ev.start
-            }
-            ev.participants.forEach(p => {
-              if (!existing.participants.includes(p)) existing.participants.push(p)
-            })
+            if (!existing.last_active || ev.start > existing.last_active) existing.last_active = ev.start
+            ev.participants.forEach(p => { if (!existing.participants.includes(p)) existing.participants.push(p) })
           }
         })
         setGroupList(Array.from(groups.values()).sort((a, b) => (b.last_active || '') > (a.last_active || '') ? 1 : -1))
@@ -530,11 +167,9 @@ function LibraryContent() {
     } finally {
       setTimeout(() => setIsRefreshing(false), 600)
     }
-  }, [refreshStats, setRawEvents, setRawGraph, toast])
+  }, [refreshStats, setRawEvents, setRawGraph, toast, i18n])
 
-  useEffect(() => {
-    setTimeout(() => loadData(), 0)
-  }, [loadData])
+  useEffect(() => { setTimeout(() => loadData(), 0) }, [loadData])
 
   useEffect(() => {
     const t = searchParams.get('tab')
@@ -542,11 +177,7 @@ function LibraryContent() {
   }, [searchParams])
 
   useEffect(() => {
-    setTimeout(() => {
-      setCurrentPage(1)
-      setSelectedIds(new Set())
-      setExpandedId(null)
-    }, 0)
+    setTimeout(() => { setCurrentPage(1); setSelectedIds(new Set()); setExpandedId(null) }, 0)
   }, [tab, search, activeTags, dateRange, pageSize])
 
   useEffect(() => {
@@ -554,6 +185,7 @@ function LibraryContent() {
   }, [editMode])
 
   const q = search.toLowerCase()
+
   const filteredPersonas = personaList.filter(n => {
     if (q && !(n.data.label || '').toLowerCase().includes(q) && !(n.data.attrs?.description || '').toLowerCase().includes(q)) return false
     if (activeTags.size > 0 && !(n.data.attrs?.content_tags ?? []).some(t => activeTags.has(t))) return false
@@ -578,11 +210,13 @@ function LibraryContent() {
     return true
   })
 
-  const tagMatchedGroupIds = activeTags.size > 0 ? new Set(filteredEvents.map(ev => {
-    if (ev.group) return ev.group
-    const other = ev.participants.find(p => !personaList.find(n => n.data.id === p)?.data.is_bot)
-    return other ? `private:${other}` : 'private:unknown'
-  })) : null
+  const tagMatchedGroupIds = activeTags.size > 0
+    ? new Set(filteredEvents.map(ev => {
+        if (ev.group) return ev.group
+        const other = ev.participants.find(p => !personaList.find(n => n.data.id === p)?.data.is_bot)
+        return other ? `private:${other}` : 'private:unknown'
+      }))
+    : null
 
   const filteredGroups = groupList.filter(g => {
     if (q && !g.id.toLowerCase().includes(q) && !g.displayName.toLowerCase().includes(q)) return false
@@ -600,7 +234,23 @@ function LibraryContent() {
   const totalEventPages = Math.max(1, Math.ceil(sortedEvents.length / pageSize))
 
   const toggleExpand = (id: string) => { if (!editMode) setExpandedId(prev => prev === id ? null : id) }
-  const toggleSelect = (id: string) => { const next = new Set(selectedIds); if (next.has(id)) next.delete(id); else next.add(id); setSelectedIds(next) }
+  const toggleSelect = (id: string) => {
+    const next = new Set(selectedIds)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    setSelectedIds(next)
+  }
+
+  const currentIds = tab === 'personas'
+    ? paginatedPersonas.map(n => n.data.id)
+    : (tab === 'events' || tab === 'time') ? paginatedEvents.map(ev => ev.id) : []
+  const allSelected = currentIds.length > 0 && currentIds.every(id => selectedIds.has(id))
+  const someSelected = currentIds.some(id => selectedIds.has(id))
+  const toggleAll = () => {
+    const next = new Set(selectedIds)
+    if (allSelected) currentIds.forEach(id => next.delete(id))
+    else currentIds.forEach(id => next.add(id))
+    setSelectedIds(next)
+  }
 
   const handleDeleteSelected = async () => {
     if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
@@ -616,7 +266,7 @@ function LibraryContent() {
         toast(L.deletedOk(ok))
         loadData()
         refreshStats()
-      }
+      },
     })
   }
 
@@ -662,44 +312,30 @@ function LibraryContent() {
     }
   }
 
-  const goToGraph = (uid: string) => { sessionStorage.setItem('em_focus_persona', uid); router.push('/graph') }
-  const goToEvents = (eventId: string) => { sessionStorage.setItem('em_focus_event', eventId); router.push('/events') }
-
-  const currentIds = tab === 'personas' ? paginatedPersonas.map(n => n.data.id) : (tab === 'events' || tab === 'time') ? paginatedEvents.map(ev => ev.id) : []
-  const allSelected = currentIds.length > 0 && currentIds.every(id => selectedIds.has(id))
-  const someSelected = currentIds.some(id => selectedIds.has(id))
-
-  const toggleAll = () => {
-    const next = new Set(selectedIds)
-    if (allSelected) currentIds.forEach(id => next.delete(id))
-    else currentIds.forEach(id => next.add(id))
-    setSelectedIds(next)
-  }
-
-  const handleDeletePersona = async (id: string, label: string) => {
+  const handleDeletePersona = (id: string, label: string) => {
     if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
     setDeleteDialog({
       open: true,
-      title: `确认删除人格「${label}」？`,
+      title: i18n.graph.deleteConfirm.replace('{name}', label),
       onConfirm: async () => {
         try {
           await api.graph.deletePersona(id)
-          toast('人格已删除')
+          toast(i18n.common.success)
           setExpandedId(null)
           loadData()
           refreshStats()
         } catch (e: unknown) {
-          toast('删除失败：' + (e as api.ApiError).body, 'destructive')
+          toast(i18n.common.deleteFailed + '：' + (e as api.ApiError).body, 'destructive')
         }
-      }
+      },
     })
   }
 
-  const handleDeleteEvent = async (ev: api.ApiEvent) => {
+  const handleDeleteEvent = (ev: api.ApiEvent) => {
     if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
     setDeleteDialog({
       open: true,
-      title: `确认删除事件「${ev.content || ev.topic}」？`,
+      title: i18n.events.deleteConfirm.replace('{name}', ev.topic || ev.content || ev.id),
       onConfirm: async () => {
         try {
           await api.events.delete(ev.id)
@@ -708,10 +344,18 @@ function LibraryContent() {
           loadData()
           refreshStats()
         } catch (e: unknown) {
-          toast('删除失败：' + (e as api.ApiError).body, 'destructive')
+          toast(i18n.common.deleteFailed + '：' + (e as api.ApiError).body, 'destructive')
         }
-      }
+      },
     })
+  }
+
+  const goToGraph = (uid: string) => { sessionStorage.setItem('em_focus_persona', uid); router.push('/graph') }
+  const goToEvents = (eventId: string) => { sessionStorage.setItem('em_focus_event', eventId); router.push('/events') }
+  const handleTagClick = (t: string) => {
+    const next = new Set(activeTags)
+    if (next.has(t)) next.delete(t); else next.add(t)
+    setActiveTags(next)
   }
 
   const actions = (
@@ -739,10 +383,10 @@ function LibraryContent() {
       )}
 
       {(tab === 'personas' || tab === 'events' || tab === 'time') && (
-        <Button 
-          variant={editMode ? 'default' : 'outline'} 
-          size="sm" 
-          className="h-8 gap-1.5 px-2" 
+        <Button
+          variant={editMode ? 'default' : 'outline'}
+          size="sm"
+          className="h-8 gap-1.5 px-2"
           onClick={() => setEditMode(v => !v)}
         >
           <Pencil className="size-3.5" />
@@ -753,12 +397,10 @@ function LibraryContent() {
   )
 
   const globalActions = (
-    <RefreshButton 
-      onClick={loadData} 
-      loading={isRefreshing} 
-    />
+    <RefreshButton onClick={loadData} loading={isRefreshing} />
   )
 
+  const tableHeadCls = 'font-mono text-[10px] uppercase tracking-wider text-muted-foreground'
 
   return (
     <div className="flex h-full flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
@@ -778,118 +420,114 @@ function LibraryContent() {
       />
 
       <div className="flex flex-1 flex-col overflow-hidden p-6 pt-2">
-        <Tabs value={tab} onValueChange={(t) => { setEditMode(false); setTab(t) }} className="flex flex-1 flex-col overflow-hidden">
-          <div className="mb-4 flex items-center justify-between shrink-0">
-            <TabsList className="shrink-0">
-              <TabsTrigger value="events" className="gap-2"><Activity />{i18n.library.tabs.events}</TabsTrigger>
-              <TabsTrigger value="time" className="gap-2"><Clock />{i18n.library.tabs.time}</TabsTrigger>
-              <TabsTrigger value="personas" className="gap-2"><Users />{i18n.library.tabs.personas}</TabsTrigger>
-              <TabsTrigger value="groups" className="gap-2"><Building2 />{i18n.library.tabs.groups}</TabsTrigger>
+        <Tabs value={tab} onValueChange={t => { setEditMode(false); setTab(t) }} className="flex flex-1 flex-col overflow-hidden">
+          <div className="mb-4 shrink-0">
+            <TabsList>
+              <TabsTrigger value="events" className="gap-2"><Activity className="size-3.5" />{i18n.library.tabs.events}</TabsTrigger>
+              <TabsTrigger value="time" className="gap-2"><Clock className="size-3.5" />{i18n.library.tabs.time}</TabsTrigger>
+              <TabsTrigger value="personas" className="gap-2"><Users className="size-3.5" />{i18n.library.tabs.personas}</TabsTrigger>
+              <TabsTrigger value="groups" className="gap-2"><Building2 className="size-3.5" />{i18n.library.tabs.groups}</TabsTrigger>
             </TabsList>
           </div>
 
+          {/* ── Events Tab ── */}
           <TabsContent value="events" className="flex-1 overflow-hidden flex flex-col">
             <ScrollArea className="flex-1">
-              <div className="overflow-hidden border-y">
+              <div className="overflow-hidden border-y border-border/50">
                 <Table>
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className="hover:bg-transparent border-b border-border/50">
                       {editMode && (
                         <TableHead className="w-8 pr-0" onClick={toggleAll}>
-                          <Checkbox checked={allSelected ? true : (someSelected ? 'indeterminate' : false)} onCheckedChange={toggleAll} aria-label="选择全部" />
+                          <Checkbox
+                            checked={allSelected ? true : (someSelected ? 'indeterminate' : false)}
+                            onCheckedChange={toggleAll}
+                          />
                         </TableHead>
                       )}
-                      <TableHead className="w-4"></TableHead>
-                      <TableHead>{i18n.events.topic}</TableHead>
-                      <TableHead>{i18n.events.group}</TableHead>
-                      <TableHead>{i18n.events.time}</TableHead>
-                      <TableHead>{i18n.events.salience}</TableHead>
-                      <TableHead>{i18n.events.tags}</TableHead>
-                      {!editMode && <TableHead className="w-12 text-right">操作</TableHead>}
+                      <TableHead className="w-4" />
+                      <TableHead className={tableHeadCls}>{i18n.events.topic}</TableHead>
+                      <TableHead className={tableHeadCls}>{i18n.events.group}</TableHead>
+                      <TableHead className={tableHeadCls}>{i18n.events.time}</TableHead>
+                      <TableHead className={tableHeadCls}>{i18n.events.salience}</TableHead>
+                      <TableHead className={tableHeadCls}>{i18n.events.tags}</TableHead>
+                      {!editMode && <TableHead className={cn(tableHeadCls, 'text-right')}>{L.actionsHead}</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedEvents.length === 0 ? (<TableRow><TableCell colSpan={editMode ? 8 : 7} className="text-muted-foreground text-center py-8">{i18n.common.noData}</TableCell></TableRow>)
-                    : paginatedEvents.map(ev => (
-                      <Fragment key={ev.id}>
-                        <TableRow className={cn("cursor-pointer transition-colors", ev.is_locked && "bg-primary/[0.03] hover:bg-primary/[0.05]")} onClick={() => editMode ? toggleSelect(ev.id) : toggleExpand(ev.id)}>
-                          {editMode && (
-                            <TableCell className="w-8 pr-0" onClick={e => { e.stopPropagation(); toggleSelect(ev.id) }}>
-                              <Checkbox checked={selectedIds.has(ev.id)} onCheckedChange={() => toggleSelect(ev.id)} aria-label="选择此项" />
-                            </TableCell>
-                          )}
-                          <TableCell className="w-4 pr-0 text-muted-foreground">{!editMode && (expandedId === ev.id ? <ChevronDown /> : <ChevronRight />)}</TableCell>
-                          <TableCell className="max-w-60 truncate font-medium flex items-center gap-2">
-                            {ev.is_locked && <Lock className="size-3 text-primary shrink-0" />}
-                            {ev.content || ev.topic || ev.id}
-                          </TableCell>
-                          <TableCell className="text-sm">{ev.group || i18n.events.privateChat}</TableCell>
-                          <TableCell className="text-sm">{new Date(ev.start).toLocaleDateString('zh-CN')}</TableCell>
-                          <TableCell className="text-sm">{(ev.salience * 100).toFixed(0)}%</TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap gap-1">{(ev.tags || []).slice(0, 3).map(t => (
-                              <Badge key={t} variant={activeTags.has(t) ? 'default' : 'secondary'} className="cursor-pointer text-xs" onClick={(e) => { e.stopPropagation(); const next = new Set(activeTags); if (next.has(t)) next.delete(t); else next.add(t); setActiveTags(next) }}>{t}</Badge>
-                            ))}</div>
-                          </TableCell>
-                          {!editMode && (
-                            <TableCell className="text-right">
-                              <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-foreground" onClick={(e) => { e.stopPropagation(); handleDeleteEvent(ev) }}>
-                                <Trash2 className="size-4" />
-                              </Button>
-                            </TableCell>
-                          )}
-                        </TableRow>
-                        {expandedId === ev.id && (
-                          <EventDetailRow ev={ev} editMode={editMode} onGoToEvents={goToEvents} onEdit={setEditEvent} onDelete={handleDeleteEvent} onLockToggle={handleLockToggle} sudoMode={sudo} />
-                        )}
-                      </Fragment>
+                    {paginatedEvents.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={editMode ? 7 : 8} className="text-muted-foreground text-center py-12 text-sm">
+                          {i18n.common.noData}
+                        </TableCell>
+                      </TableRow>
+                    ) : paginatedEvents.map(ev => (
+                      <EventRow
+                        key={ev.id}
+                        ev={ev}
+                        expanded={expandedId === ev.id}
+                        editMode={editMode}
+                        selected={selectedIds.has(ev.id)}
+                        sudoMode={sudo}
+                        activeTags={activeTags}
+                        lang={lang}
+                        onToggleExpand={toggleExpand}
+                        onToggleSelect={toggleSelect}
+                        onEdit={setEditEvent}
+                        onDelete={handleDeleteEvent}
+                        onLockToggle={handleLockToggle}
+                        onGoToEvents={goToEvents}
+                        onTagClick={handleTagClick}
+                      />
                     ))}
                   </TableBody>
                 </Table>
               </div>
             </ScrollArea>
-            <PaginationFooter totalItems={sortedEvents.length} totalPages={totalEventPages} pageSize={pageSize} currentPage={currentPage} onPageChange={setCurrentPage} onPageSizeChange={setPageSize} />
+            <PaginationFooter
+              totalItems={sortedEvents.length}
+              totalPages={totalEventPages}
+              pageSize={pageSize}
+              currentPage={currentPage}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+            />
           </TabsContent>
 
+          {/* ── Time Tab ── */}
           <TabsContent value="time" className="flex-1 overflow-hidden">
             <ScrollArea className="h-full">
-              <div className="flex flex-col gap-6">
+              <div className="flex flex-col gap-6 pb-6">
                 <p className="text-muted-foreground text-sm">{i18n.library.time.description}</p>
                 {(() => {
                   const byMonth = new Map<string, api.ApiEvent[]>()
-                  filteredEvents.forEach(ev => { const month = ev.start.slice(0, 7); if (!byMonth.has(month)) byMonth.set(month, []); byMonth.get(month)!.push(ev) })
+                  filteredEvents.forEach(ev => {
+                    const month = ev.start.slice(0, 7)
+                    if (!byMonth.has(month)) byMonth.set(month, [])
+                    byMonth.get(month)!.push(ev)
+                  })
                   return Array.from(byMonth.entries()).sort(([a], [b]) => b.localeCompare(a)).map(([month, evs]) => (
                     <div key={month} className="flex flex-col gap-2">
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-sm font-semibold">{month}</span>
-                        <Badge variant="secondary" className="text-xs">{evs.length} {i18n.library.tabs.events}</Badge>
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                          {evs.length} {i18n.library.tabs.events}
+                        </Badge>
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-1.5">
                         {evs.slice(0, 50).map(ev => (
-                          <div key={ev.id} className="group relative flex items-center">
-                            <Badge 
-                              variant={selectedIds.has(ev.id) ? 'default' : 'outline'} 
-                              className={cn(
-                                "cursor-pointer text-xs transition-colors py-1", 
-                                editMode ? "pr-8" : ""
-                              )} 
-                              onClick={() => editMode ? toggleSelect(ev.id) : goToEvents(ev.id)}
-                            >
-                              {ev.start.slice(5, 10)} {ev.content?.slice(0, 12) || ev.id.slice(0, 8)}
-                            </Badge>
-                            {editMode && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="absolute right-0 h-full w-7 rounded-l-none hover:bg-destructive hover:text-destructive-foreground"
-                                onClick={(e) => { e.stopPropagation(); handleDeleteEvent(ev) }}
-                              >
-                                <Trash2 className="size-3" />
-                              </Button>
-                            )}
-                          </div>
+                          <Badge
+                            key={ev.id}
+                            variant={selectedIds.has(ev.id) ? 'default' : 'outline'}
+                            className="cursor-pointer text-[10px] py-1 transition-colors hover:bg-accent"
+                            onClick={() => editMode ? toggleSelect(ev.id) : goToEvents(ev.id)}
+                          >
+                            {ev.start.slice(5, 10)} {(ev.topic || ev.content)?.slice(0, 12) || ev.id.slice(0, 8)}
+                          </Badge>
                         ))}
-                        {evs.length > 50 && <Badge variant="outline" className="text-xs">+{evs.length - 50}</Badge>}
+                        {evs.length > 50 && (
+                          <Badge variant="outline" className="text-[10px]">+{evs.length - 50}</Badge>
+                        )}
                       </div>
                     </div>
                   ))
@@ -898,138 +536,143 @@ function LibraryContent() {
             </ScrollArea>
           </TabsContent>
 
+          {/* ── Personas Tab ── */}
           <TabsContent value="personas" className="flex-1 overflow-hidden flex flex-col">
             <ScrollArea className="flex-1">
-              <div className="overflow-hidden border-y">
+              <div className="overflow-hidden border-y border-border/50">
                 <Table>
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className="hover:bg-transparent border-b border-border/50">
                       {editMode && (
                         <TableHead className="w-8 pr-0" onClick={toggleAll}>
-                          <Checkbox checked={allSelected ? true : (someSelected ? 'indeterminate' : false)} onCheckedChange={toggleAll} aria-label="选择全部" />
+                          <Checkbox
+                            checked={allSelected ? true : (someSelected ? 'indeterminate' : false)}
+                            onCheckedChange={toggleAll}
+                          />
                         </TableHead>
                       )}
-                      <TableHead className="w-4"></TableHead>
-                      <TableHead>名称</TableHead>
-                      <TableHead>{i18n.graph.description}</TableHead>
-                      <TableHead>{i18n.graph.inferredPersonality}</TableHead>
-                      <TableHead>{i18n.graph.confidence}</TableHead>
-                      <TableHead>{i18n.events.tags}</TableHead>
-                      {!editMode && <TableHead className="w-12 text-right">操作</TableHead>}
+                      <TableHead className="w-4" />
+                      <TableHead className={tableHeadCls}>{L.nameHead}</TableHead>
+                      <TableHead className={tableHeadCls}>{i18n.graph.description}</TableHead>
+                      <TableHead className={tableHeadCls}>{i18n.graph.inferredPersonality}</TableHead>
+                      <TableHead className={tableHeadCls}>{i18n.graph.confidence}</TableHead>
+                      <TableHead className={tableHeadCls}>{i18n.events.tags}</TableHead>
+                      {!editMode && <TableHead className={cn(tableHeadCls, 'text-right')}>{L.actionsHead}</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedPersonas.length === 0 ? (
-                      <TableRow><TableCell colSpan={editMode ? 8 : 7} className="text-muted-foreground text-center py-8">{i18n.library.personas.noPersonas}</TableCell></TableRow>
+                      <TableRow>
+                        <TableCell colSpan={editMode ? 7 : 8} className="text-muted-foreground text-center py-12 text-sm">
+                          {i18n.library.personas.noPersonas}
+                        </TableCell>
+                      </TableRow>
                     ) : paginatedPersonas.map(n => (
-                      <Fragment key={n.data.id}>
-                        <TableRow className="cursor-pointer" onClick={() => editMode ? toggleSelect(n.data.id) : toggleExpand(n.data.id)}>
-                          {editMode && (
-                            <TableCell className="w-8 pr-0" onClick={e => { e.stopPropagation(); toggleSelect(n.data.id) }}>
-                              <Checkbox checked={selectedIds.has(n.data.id)} onCheckedChange={() => toggleSelect(n.data.id)} aria-label="选择此项" />
-                            </TableCell>
-                          )}
-                          <TableCell className="w-4 pr-0 text-muted-foreground">
-                            {!editMode && (expandedId === n.data.id ? <ChevronDown /> : <ChevronRight />)}
-                          </TableCell>
-                          <TableCell className="font-medium">{n.data.label}{n.data.is_bot && <Badge variant="secondary" className="ml-1.5 text-xs">Bot</Badge>}</TableCell>
-                          <TableCell className="max-w-48 truncate text-sm">{n.data.attrs?.description || '—'}</TableCell>
-                          <TableCell className="text-sm font-mono">
-                            {n.data.attrs?.big_five
-                              ? (['O','C','E','A','N'] as const)
-                                  .filter(d => n.data.attrs?.big_five?.[d] !== undefined)
-                                  .map(d => {
-                                    const v = n.data.attrs!.big_five![d]!
-                                    const s = Math.round((v + 1) / 2 * 100)
-                                    return `${d}${s}%`
-                                  }).join(' ')
-                              : '—'}
-                          </TableCell>
-                          <TableCell className="text-sm">{(n.data.confidence * 100).toFixed(0)}%</TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap gap-1">{(n.data.attrs?.content_tags || []).slice(0, 3).map(t => (
-                              <Badge key={t} variant={activeTags.has(t) ? 'default' : 'secondary'} className="cursor-pointer text-xs" onClick={(e) => { e.stopPropagation(); const next = new Set(activeTags); if (next.has(t)) next.delete(t); else next.add(t); setActiveTags(next) }}>{t}</Badge>
-                            ))}</div>
-                          </TableCell>
-                          {!editMode && (
-                            <TableCell className="text-right">
-                              <Button variant="ghost" size="icon" className="size-8" onClick={(e) => { e.stopPropagation(); handleDeletePersona(n.data.id, n.data.label) }}>
-                                <Trash2 />
-                              </Button>
-                            </TableCell>
-                          )}
-                        </TableRow>
-                        {expandedId === n.data.id && (
-                          <PersonaDetailRow node={n} editMode={editMode} onGoToGraph={goToGraph} onEdit={setEditPersona} onDelete={handleDeletePersona} sudoMode={sudo} />
-                        )}
-                      </Fragment>
+                      <PersonaRow
+                        key={n.data.id}
+                        node={n}
+                        expanded={expandedId === n.data.id}
+                        editMode={editMode}
+                        selected={selectedIds.has(n.data.id)}
+                        sudoMode={sudo}
+                        activeTags={activeTags}
+                        onToggleExpand={toggleExpand}
+                        onToggleSelect={toggleSelect}
+                        onEdit={setEditPersona}
+                        onDelete={handleDeletePersona}
+                        onGoToGraph={goToGraph}
+                        onTagClick={handleTagClick}
+                      />
                     ))}
                   </TableBody>
                 </Table>
               </div>
             </ScrollArea>
-            <PaginationFooter totalItems={filteredPersonas.length} totalPages={totalPersonaPages} pageSize={pageSize} currentPage={currentPage} onPageChange={setCurrentPage} onPageSizeChange={setPageSize} />
+            <PaginationFooter
+              totalItems={filteredPersonas.length}
+              totalPages={totalPersonaPages}
+              pageSize={pageSize}
+              currentPage={currentPage}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+            />
           </TabsContent>
 
+          {/* ── Groups Tab ── */}
           <TabsContent value="groups" className="flex-1 overflow-hidden flex flex-col">
             <ScrollArea className="flex-1">
-              <div className="overflow-hidden border-y">
+              <div className="overflow-hidden border-y border-border/50">
                 <Table>
                   <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-4"></TableHead>
-                      <TableHead>{i18n.library.groups.groupId}</TableHead>
-                      <TableHead>{i18n.library.groups.events}</TableHead>
-                      <TableHead>{i18n.library.groups.lastActive}</TableHead>
+                    <TableRow className="hover:bg-transparent border-b border-border/50">
+                      <TableHead className="w-4" />
+                      <TableHead className={tableHeadCls}>{i18n.library.groups.groupId}</TableHead>
+                      <TableHead className={tableHeadCls}>{i18n.library.groups.events}</TableHead>
+                      <TableHead className={tableHeadCls}>{i18n.library.groups.lastActive}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedGroups.length === 0 ? (
-                      <TableRow><TableCell colSpan={4} className="text-muted-foreground text-center py-8">{i18n.library.groups.noGroups}</TableCell></TableRow>
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-muted-foreground text-center py-12 text-sm">
+                          {i18n.library.groups.noGroups}
+                        </TableCell>
+                      </TableRow>
                     ) : paginatedGroups.map(g => (
-                      <Fragment key={g.id}>
-                        <TableRow className="cursor-pointer transition-colors" onClick={() => toggleExpand(g.id)}>
-                          <TableCell className="w-4 pr-0 text-muted-foreground">
-                            {expandedId === g.id ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-                          </TableCell>
-                          <TableCell className="font-medium flex items-center gap-2">
-                            {g.type === 'group' ? <Building2 className="size-4 text-muted-foreground" /> : <MessageSquare className="size-4 text-muted-foreground" />}
-                            <span className="font-mono text-sm">{g.displayName || g.id}</span>
-                          </TableCell>
-                          <TableCell className="text-sm">{g.event_count}</TableCell>
-                          <TableCell className="text-sm">{g.last_active ? new Date(g.last_active).toLocaleDateString('zh-CN') : '—'}</TableCell>
-                        </TableRow>
-                        {expandedId === g.id && (
-                          <GroupDetailRow group={g} personas={personaList} onGoToEvents={(gid) => { setTab('events'); setSearch(gid) }} />
-                        )}
-                      </Fragment>
+                      <GroupRow
+                        key={g.id}
+                        group={g}
+                        personas={personaList}
+                        expanded={expandedId === g.id}
+                        lang={lang}
+                        onToggleExpand={toggleExpand}
+                        onGoToEvents={id => { setTab('events'); setSearch(id) }}
+                      />
                     ))}
                   </TableBody>
                 </Table>
               </div>
             </ScrollArea>
-            <PaginationFooter totalItems={filteredGroups.length} totalPages={totalGroupPages} pageSize={pageSize} currentPage={currentPage} onPageChange={setCurrentPage} onPageSizeChange={setPageSize} />
+            <PaginationFooter
+              totalItems={filteredGroups.length}
+              totalPages={totalGroupPages}
+              pageSize={pageSize}
+              currentPage={currentPage}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+            />
           </TabsContent>
         </Tabs>
       </div>
 
-      <EditPersonaDialog open={!!editPersona} node={editPersona} onClose={() => setEditPersona(null)} onSubmit={handleEditPersonaSubmit} />
-      <EditEventDialog open={!!editEvent} event={editEvent} onClose={() => setEditEvent(null)} onSubmit={handleEditEventSubmit} tagSuggestions={tagList.map(t => t.name)} events={eventList} />
-      <RecycleBinDialog open={binOpen} items={binItems} loading={binLoading} onClose={() => setBinOpen(false)} onRestore={handleRestore} onClear={handleClearBin} sudoMode={sudo} />
+      <EditPersonaDialog
+        open={!!editPersona} node={editPersona}
+        onClose={() => setEditPersona(null)} onSubmit={handleEditPersonaSubmit}
+      />
+      <EditEventDialog
+        open={!!editEvent} event={editEvent}
+        onClose={() => setEditEvent(null)} onSubmit={handleEditEventSubmit}
+        tagSuggestions={tagList.map(t => t.name)} events={eventList}
+      />
+      <RecycleBinDialog
+        open={binOpen} items={binItems} loading={binLoading}
+        onClose={() => setBinOpen(false)} onRestore={handleRestore}
+        onClear={handleClearBin} sudoMode={sudo}
+      />
 
-      <AlertDialog open={deleteDialog.open} onOpenChange={(o) => setDeleteDialog(prev => ({ ...prev, open: o }))}>
+      <AlertDialog open={deleteDialog.open} onOpenChange={o => setDeleteDialog(prev => ({ ...prev, open: o }))}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>确认删除</AlertDialogTitle>
+            <AlertDialogTitle>{L.confirmDeleteTitle}</AlertDialogTitle>
             <AlertDialogDescription>{deleteDialog.title}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogCancel>{L.cancel}</AlertDialogCancel>
+            <AlertDialogAction
               onClick={deleteDialog.onConfirm}
-              className={buttonVariants({ variant: "destructive" })}
+              className={buttonVariants({ variant: 'destructive' })}
             >
-              删除
+              {L.delete}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1040,7 +683,7 @@ function LibraryContent() {
 
 export default function LibraryPage() {
   return (
-    <Suspense fallback={<div className="text-muted-foreground flex h-screen items-center justify-center text-sm">加载中…</div>}>
+    <Suspense fallback={<div className="text-muted-foreground flex h-screen items-center justify-center text-sm">Loading…</div>}>
       <LibraryContent />
     </Suspense>
   )

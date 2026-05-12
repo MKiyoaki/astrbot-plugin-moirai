@@ -1,12 +1,11 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useTheme } from 'next-themes'
-import { Moon, Sun, Check, Play, Sparkles, Languages } from 'lucide-react'
+import { Moon, Sun, Check, Languages } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -20,8 +19,8 @@ import * as api from '@/lib/api'
 // Standard shadcn/ui theme definitions
 const SHADCN_THEMES = [
   { id: 'moirai', label: 'Moirai' },
-  { id: 'venus', label: 'Venus' },
   { id: 'nox', label: 'Nox' },
+  { id: 'venus', label: 'Venus' },
   { id: 'juno', label: 'Cirrus' },
   { id: 'augustus', label: 'Augustus' },
   { id: 'selune', label: 'Aether' },
@@ -38,15 +37,6 @@ export default function SettingsPage() {
     typeof localStorage !== 'undefined' ? (localStorage.getItem('em_color_scheme') || 'charon') : 'charon',
   )
 
-  const TASKS = useMemo(() => [
-    { id: 'salience_decay',       icon: '📉', label: i18n.settings.taskSalienceDecay    },
-    { id: 'projection',           icon: '📄', label: i18n.settings.taskProjection        },
-    { id: 'persona_synthesis',    icon: '🧠', label: i18n.settings.taskPersonaSynthesis  },
-    { id: 'impression_aggregation',icon: '👥', label: i18n.settings.taskImpressionAgg   },
-    { id: 'group_summary',        icon: '📋', label: i18n.settings.taskGroupSummary      },
-    { id: 'reindex_all',         icon: '🔍', label: i18n.settings.taskReindexAll       },
-  ], [i18n])
-
   useEffect(() => {
     const root = document.documentElement
     root.classList.remove(...SHADCN_THEMES.map(t => `theme-${t.id}`))
@@ -57,7 +47,6 @@ export default function SettingsPage() {
 
   const [oldPw, setOldPw] = useState('')
   const [newPw, setNewPw] = useState('')
-  const [taskStatus, setTaskStatus] = useState<Record<string, string>>({})
   const [extPanels, setExtPanels] = useState<{ plugin_id: string; title: string }[]>([])
 
   useEffect(() => {
@@ -88,34 +77,6 @@ export default function SettingsPage() {
     }
   }
 
-  const runTask = async (name: string) => {
-    if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    setTaskStatus(prev => ({ ...prev, [name]: 'running' }))
-    app.toast(`${i18n.common.loading} ${name}…`)
-    try {
-      const r = await api.admin.runTask(name)
-      setTaskStatus(prev => ({ ...prev, [name]: r.ok ? 'ok' : 'fail' }))
-      app.toast(r.ok ? `${name} ${i18n.common.success}` : `${name} ${i18n.common.error}`)
-      await app.refreshStats()
-    } catch (e: unknown) {
-      setTaskStatus(prev => ({ ...prev, [name]: 'fail' }))
-      app.toast(`${name} ${i18n.common.error}: ${(e as api.ApiError).body || ''}`, 'destructive', 4000)
-    }
-  }
-
-  const injectDemo = async () => {
-    if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    app.toast(i18n.common.loading + '…')
-    try {
-      const r = await api.admin.injectDemo()
-      const s = r.seeded
-      app.toast(`${i18n.common.success}: ${s.personas} , ${s.events}, ${s.impressions}`)
-      await app.refreshStats()
-    } catch (e: unknown) {
-      app.toast(i18n.common.error + ': ' + (e as api.ApiError).body, 'destructive', 4000)
-    }
-  }
-
   const statusLabel = app.sudo
     ? i18n.auth.status.loggedInSudo
     : app.authenticated
@@ -134,7 +95,7 @@ export default function SettingsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>{i18n.settings.language}</CardTitle>
+              <CardTitle className="font-serif">{i18n.settings.language}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex items-center justify-between">
@@ -155,7 +116,7 @@ export default function SettingsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>{i18n.settings.theme}</CardTitle>
+              <CardTitle className="font-serif">{i18n.settings.theme}</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <div className="flex items-center justify-between">
@@ -186,7 +147,7 @@ export default function SettingsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>{i18n.settings.auth}</CardTitle>
+              <CardTitle className="font-serif">{i18n.settings.auth}</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <div className="flex items-center justify-between">
@@ -223,7 +184,7 @@ export default function SettingsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>{i18n.settings.sudoSettings}</CardTitle>
+              <CardTitle className="font-serif">{i18n.settings.sudoSettings}</CardTitle>
               <CardDescription>{i18n.settings.sudoGuardDisabledHint}</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
@@ -258,46 +219,7 @@ export default function SettingsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>{i18n.settings.tasks}</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2">
-              {TASKS.map(task => (
-                <div key={task.id} className="flex items-center justify-between py-1">
-                  <span className="text-sm">{task.icon} {task.label}</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!app.sudo || taskStatus[task.id] === 'running'}
-                    onClick={() => runTask(task.id)}
-                  >
-                    {taskStatus[task.id] === 'running' ? (
-                      i18n.common.loading
-                    ) : taskStatus[task.id] === 'ok' ? (
-                      <><Check className="mr-1 size-3.5 text-green-500" />{i18n.settings.run}</>
-                    ) : (
-                      <><Play className="mr-1 size-3.5" />{i18n.settings.run}</>
-                    )}
-                  </Button>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>{i18n.settings.demo}</CardTitle>
-              <CardDescription>{i18n.settings.demoHint}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" size="sm" onClick={injectDemo} disabled={!app.sudo}>
-                <Sparkles className="mr-1.5 size-3.5" />{i18n.settings.inject}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>{i18n.settings.thirdParty}</CardTitle>
+              <CardTitle className="font-serif">{i18n.settings.thirdParty}</CardTitle>
             </CardHeader>
             <CardContent>
               {extPanels.length === 0 ? (

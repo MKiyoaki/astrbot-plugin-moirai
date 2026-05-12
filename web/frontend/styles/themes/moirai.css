@@ -1,66 +1,101 @@
 /* ==========================================================================
-   Base Theme (Standard shadcn)
+   Moirai Theme — Pale Lavender & Antique Gold
+   Light: cool lavender-white bg · dusty violet primary · gold accent surface
+   Dark:  near-black charcoal bg (minimal chroma) · soft lavender primary ·
+          lavender accent surface + champagne gold accent-foreground
    ========================================================================== */
 
-:root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  
-  /* Sidebar */
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+.theme-moirai {
+  --radius: 0.5rem;
+
+  /* ── Light Mode ─────────────────────────────────────── */
+
+  /* Background: barely-there lavender white */
+  --background: oklch(0.978 0.008 295);
+  --foreground: oklch(0.20 0.042 285);
+
+  --card: oklch(0.992 0.006 295);
+  --card-foreground: oklch(0.20 0.042 285);
+
+  --popover: oklch(0.992 0.006 295);
+  --popover-foreground: oklch(0.20 0.042 285);
+
+  /* Primary: dusty medium violet */
+  --primary: oklch(0.53 0.130 295);
+  --primary-foreground: oklch(0.978 0.008 295);
+
+  /* Secondary: soft lavender tint panel */
+  --secondary: oklch(0.920 0.030 295);
+  --secondary-foreground: oklch(0.26 0.042 285);
+
+  --muted: oklch(0.950 0.012 295);
+  --muted-foreground: oklch(0.50 0.028 290);
+
+  /* Accent surface: warm antique gold — featured card gets a golden blush in light mode */
+  --accent: oklch(0.900 0.055 84);
+  --accent-foreground: oklch(0.46 0.140 76);
+
+  --destructive: oklch(0.54 0.20 27);
+  --destructive-foreground: oklch(0.978 0.008 295);
+
+  --border: oklch(0.878 0.022 295);
+  --input: oklch(0.900 0.018 295);
+  --ring: oklch(0.53 0.130 295);
+
+  --sidebar: oklch(0.958 0.014 295);
+  --sidebar-foreground: oklch(0.22 0.038 285);
+  --sidebar-primary: oklch(0.53 0.130 295);
+  --sidebar-primary-foreground: oklch(0.978 0.008 295);
+  --sidebar-accent: oklch(0.910 0.028 295);
+  --sidebar-accent-foreground: oklch(0.46 0.140 76);
+  --sidebar-border: oklch(0.860 0.020 295);
+  --sidebar-ring: oklch(0.53 0.130 295);
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+.dark.theme-moirai,
+.dark .theme-moirai {
+  /* ── Dark Mode ────────────────────────────────────────── */
 
-  /* Sidebar */
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* Background: very deep near-black, violet cast dialled way back.
+     The purple lives in interactive elements, not the room walls. */
+  --background: oklch(0.11 0.010 288);
+  --foreground: oklch(0.93 0.010 295);
+
+  --card: oklch(0.16 0.013 290);
+  --card-foreground: oklch(0.93 0.010 295);
+
+  --popover: oklch(0.16 0.013 290);
+  --popover-foreground: oklch(0.93 0.010 295);
+
+  /* Primary: lavender glow, soft — not neon */
+  --primary: oklch(0.66 0.112 295);
+  --primary-foreground: oklch(0.11 0.010 288);
+
+  /* Secondary: muted dark surface */
+  --secondary: oklch(0.22 0.016 290);
+  --secondary-foreground: oklch(0.93 0.010 295);
+
+  --muted: oklch(0.19 0.012 290);
+  --muted-foreground: oklch(0.60 0.016 290);
+
+  /* Accent surface: dark lavender — bg-accent/25 → subtle purple-tinted card,
+     not brown. Gold is expressed only through accent-foreground. */
+  --accent: oklch(0.22 0.028 292);
+  --accent-foreground: oklch(0.76 0.088 82);
+
+  --destructive: oklch(0.52 0.20 27);
+  --destructive-foreground: oklch(0.95 0.010 295);
+
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 13%);
+  --ring: oklch(0.66 0.112 295);
+
+  --sidebar: oklch(0.13 0.010 288);
+  --sidebar-foreground: oklch(0.93 0.010 295);
+  --sidebar-primary: oklch(0.66 0.112 295);
+  --sidebar-primary-foreground: oklch(0.11 0.010 288);
+  --sidebar-accent: oklch(0.20 0.022 292);
+  --sidebar-accent-foreground: oklch(0.76 0.088 82);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.66 0.112 295);
 }
