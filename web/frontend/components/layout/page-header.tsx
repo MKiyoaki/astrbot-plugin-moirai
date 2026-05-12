@@ -24,9 +24,9 @@ export function PageHeader({ title, description, actions, globalActions, classNa
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <SidebarTrigger className="-ml-1 shrink-0" />
             <div className="flex flex-col gap-0.5 min-w-0">
-              <h1 className="text-xl font-semibold tracking-tight leading-none truncate">{title}</h1>
+              <h1 className="text-xl font-serif font-bold tracking-tight leading-none truncate">{title}</h1>
               {description && (
-                <p className="text-muted-foreground text-[10px] md:text-xs truncate hidden sm:block">{description}</p>
+                <p className="text-muted-foreground text-[10px] md:text-xs truncate hidden sm:block tracking-wide font-mono">{description}</p>
               )}
             </div>
           </div>

@@ -13,7 +13,6 @@
 
 # next.js
 /.next/
-/output/
 
 # production
 /build

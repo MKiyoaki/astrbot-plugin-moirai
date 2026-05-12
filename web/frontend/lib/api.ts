@@ -52,6 +52,7 @@ export interface PerfPhaseInfo {
 export interface PluginStats {
   personas: number
   events: number
+  archived_events?: number
   locked_count: number
   impressions: number
   summaries: number
