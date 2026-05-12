@@ -2,7 +2,7 @@
 
 # Moirai
 
-**Three-Axis Long-Term Memory Plugin for AstrBot**
+**Three-Axis Long-Term Memory & Data Visualisation Plugin for AstrBot**
 
 *Episodic · Social · Narrative*
 
@@ -10,7 +10,7 @@
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-Made with ♥ by MKiyoaki & DrGariton
+Made with ♥ by MKiyoaki & Gariton
 
 </div>
 
