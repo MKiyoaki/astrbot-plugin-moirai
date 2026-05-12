@@ -1,6 +1,6 @@
 {
-  "display_name": "Moirai 三轴记忆",
-  "desc": "三轴长期记忆插件：在多维世界线下管理机器人的情节记忆、社交关系与摘要叙述。",
+  "display_name": "Moirai 世界线",
+  "desc": "三轴长期记忆插件（情节轴 × 社交关系轴 × 叙事轴），为 AstrBot 提供跨平台持久化记忆管理，并配备丰富的数据可视化 WebUI。",
   "config": {
     "webui_port": { "description": "WebUI 端口", "hint": "插件管理界面绑定的端口号" },
     "webui_auth_enabled": { "description": "启用 WebUI 认证", "hint": "开启后需要密码才能访问 WebUI" },

@@ -98,6 +98,93 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "formatter.hours_ago": "{count}小时前",
         "formatter.days_ago": "{count}天前",
         "formatter.recall_header": "## 相关历史记忆\n",
+
+        # Command manager responses
+        "cmd.not_init": "插件未初始化。",
+        "cmd.status.header": "【Moirai 插件状态】",
+        "cmd.status.tasks": "已注册任务：{tasks}",
+        "cmd.status.tasks_none": "无",
+        "cmd.status.sessions": "活跃会话数：{count}",
+        "cmd.status.webui_running": "运行中",
+        "cmd.status.webui_stopped": "未运行",
+        "cmd.status.webui": "WebUI：{status}",
+        "cmd.persona.header": "【人格档案】{name}（{id}）",
+        "cmd.persona.description": "描述：{desc}",
+        "cmd.persona.bigfive_header": "大五人格：",
+        "cmd.persona.bigfive_dim": "  {label} {pct}%",
+        "cmd.persona.bigfive_dim_ev": "  {label} {pct}%：{ev}",
+        "cmd.persona.tags": "标签：{tags}",
+        "cmd.persona.confidence": "置信度：{pct}%",
+        "cmd.persona.not_found": "未找到平台 {platform} 上 ID 为 {id} 的人格档案。",
+        "cmd.persona.no_repo": "人格仓库未加载。",
+        "cmd.soul.header": "【当前会话情绪状态】",
+        "cmd.soul.neutral": "当前会话情绪状态：中立（无偏移）",
+        "cmd.soul.recall_depth": "记忆检索驱动：{val}",
+        "cmd.soul.impression_depth": "社交关注度：{val}",
+        "cmd.soul.expression_desire": "表达欲：{val}",
+        "cmd.soul.creativity": "创意度：{val}",
+        "cmd.soul.level_high": "偏高",
+        "cmd.soul.level_low": "偏低",
+        "cmd.soul.level_neutral": "中立",
+        "cmd.recall.not_found": "未找到与「{query}」相关的记忆。",
+        "cmd.task.triggered": "任务 '{task}' 已触发执行。",
+        "cmd.task.not_found": "未找到任务 '{task}'。可用任务：{available}",
+        "cmd.flush.no_ctx": "上下文管理器未启用。",
+        "cmd.flush.no_window": "当前会话无活跃上下文窗口。",
+        "cmd.flush.done": "已清空当前会话窗口（{count} 条消息）。",
+        "cmd.webui.not_loaded": "WebUI 模块未加载。",
+        "cmd.webui.started": "WebUI 已启动：http://{host}:{port}",
+        "cmd.webui.start_failed": "WebUI 启动失败：{error}",
+        "cmd.webui.stopped": "WebUI 已关闭。",
+        "cmd.webui.stop_failed": "WebUI 关闭失败：{error}",
+        "cmd.webui.usage": "用法：/mrm webui on | off",
+        "cmd.reset.confirm_warn": "⚠️ 此操作将{desc}。\n确认请在 {ttl} 秒内再次发送相同命令。",
+        "cmd.reset.no_event_repo": "事件仓库未加载。",
+        "cmd.reset.no_persona_repo": "人格仓库未加载。",
+        "cmd.reset.no_repo": "仓库未完全加载，无法执行全量重置。",
+        "cmd.reset.here_done": "已删除本群 {count} 条事件记录",
+        "cmd.reset.summary_suffix": "{count} 个摘要文件",
+        "cmd.reset.event_group_done": "已删除群组 {gid} 的 {count} 条事件记录",
+        "cmd.reset.event_all_done": "已删除全部 {count} 条事件记录。",
+        "cmd.reset.persona_not_found": "未找到平台 {platform} 上 ID 为 {id} 的人格档案。",
+        "cmd.reset.persona_one_done": "已删除 {name}（{id}）的人格档案。",
+        "cmd.reset.persona_all_done": "已删除全部 {count} 个人格档案。",
+        "cmd.reset.all_done": "已清空全部插件数据：{ev_count} 条事件、{p_count} 个人格档案及所有投影文件。",
+        "cmd.reset.usage": "用法：/mrm reset here | event <group_id|all> | persona <PlatID|all> | all",
+        "cmd.reset.event_usage": "用法：/mrm reset event <group_id> | all",
+        "cmd.reset.persona_usage": "用法：/mrm reset persona <PlatID> | all",
+        "cmd.reset.desc_here": "删除{scope}所有事件记录与摘要文件，且不可恢复",
+        "cmd.reset.desc_event_group": "删除群组 {gid} 所有事件记录与摘要文件，且不可恢复",
+        "cmd.reset.desc_event_all": "删除所有事件记录，且不可恢复",
+        "cmd.reset.desc_persona_one": "删除用户 {id} 的人格数据，且不可恢复",
+        "cmd.reset.desc_persona_all": "删除全部人格数据，且不可恢复",
+        "cmd.reset.desc_all": "清空全部插件数据（事件、人格、摘要文件），此操作完全不可逆",
+        "cmd.reset.scope_group": "群组 {gid}",
+        "cmd.reset.scope_private": "私聊",
+        "cmd.lang.set": "语言已切换为：{lang}",
+        "cmd.lang.invalid": "不支持的语言代码。可选：cn（中文）/ en（English）/ ja（日本語）",
+        "cmd.help.full": (
+            "【Moirai 指令帮助】\n"
+            "--- 信息查询 ---\n"
+            "/mrm status               - 查询插件运行状态\n"
+            "/mrm persona <PlatID>     - 查看用户人格档案 + 大五人格\n"
+            "/mrm soul                 - 查看当前会话情绪状态\n"
+            "/mrm recall <关键词>      - 手动触发记忆检索\n"
+            "--- 操作 ---\n"
+            "/mrm webui on|off         - 启动或关闭 WebUI\n"
+            "/mrm flush                - 清空当前会话上下文窗口（不删数据库）\n"
+            "/mrm run <task>           - 手动触发后台任务 (decay/synthesis/summary/cleanup)\n"
+            "/mrm language <cn/en/ja>  - 切换指令显示语言\n"
+            "--- 重置（均需二次确认）⚠️ ---\n"
+            "/mrm reset here           - 删除当前群所有事件与摘要\n"
+            "/mrm reset event <gid>    - 删除指定群组的事件与摘要\n"
+            "/mrm reset event all      - 删除所有事件记录\n"
+            "/mrm reset persona <id>   - 删除指定用户的人格档案\n"
+            "/mrm reset persona all    - 删除全部人格数据\n"
+            "/mrm reset all            - 清空全部插件数据\n"
+            "--- 其他 ---\n"
+            "/mrm help                 - 显示此帮助信息"
+        ),
     },
     LANG_EN: {
         # Extractor
@@ -187,6 +274,93 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "formatter.hours_ago": "{count} hours ago",
         "formatter.days_ago": "{count} days ago",
         "formatter.recall_header": "## Related Historical Memories\n",
+
+        # Command manager responses
+        "cmd.not_init": "Plugin not initialized.",
+        "cmd.status.header": "【Moirai Plugin Status】",
+        "cmd.status.tasks": "Registered tasks: {tasks}",
+        "cmd.status.tasks_none": "none",
+        "cmd.status.sessions": "Active sessions: {count}",
+        "cmd.status.webui_running": "Running",
+        "cmd.status.webui_stopped": "Stopped",
+        "cmd.status.webui": "WebUI: {status}",
+        "cmd.persona.header": "【Persona Profile】{name} ({id})",
+        "cmd.persona.description": "Description: {desc}",
+        "cmd.persona.bigfive_header": "Big Five:",
+        "cmd.persona.bigfive_dim": "  {label} {pct}%",
+        "cmd.persona.bigfive_dim_ev": "  {label} {pct}%: {ev}",
+        "cmd.persona.tags": "Tags: {tags}",
+        "cmd.persona.confidence": "Confidence: {pct}%",
+        "cmd.persona.not_found": "No persona found for ID {id} on platform {platform}.",
+        "cmd.persona.no_repo": "Persona repository not loaded.",
+        "cmd.soul.header": "【Current Session Mood State】",
+        "cmd.soul.neutral": "Current session mood: Neutral (no deviation)",
+        "cmd.soul.recall_depth": "Recall Drive: {val}",
+        "cmd.soul.impression_depth": "Social Attention: {val}",
+        "cmd.soul.expression_desire": "Expression Desire: {val}",
+        "cmd.soul.creativity": "Creativity: {val}",
+        "cmd.soul.level_high": "High",
+        "cmd.soul.level_low": "Low",
+        "cmd.soul.level_neutral": "Neutral",
+        "cmd.recall.not_found": "No memories found related to \"{query}\".",
+        "cmd.task.triggered": "Task '{task}' has been triggered.",
+        "cmd.task.not_found": "Task '{task}' not found. Available: {available}",
+        "cmd.flush.no_ctx": "Context manager is not enabled.",
+        "cmd.flush.no_window": "No active context window for this session.",
+        "cmd.flush.done": "Session window cleared ({count} messages).",
+        "cmd.webui.not_loaded": "WebUI module not loaded.",
+        "cmd.webui.started": "WebUI started: http://{host}:{port}",
+        "cmd.webui.start_failed": "WebUI failed to start: {error}",
+        "cmd.webui.stopped": "WebUI stopped.",
+        "cmd.webui.stop_failed": "WebUI failed to stop: {error}",
+        "cmd.webui.usage": "Usage: /mrm webui on | off",
+        "cmd.reset.confirm_warn": "⚠️ This will {desc}.\nTo confirm, send the same command again within {ttl} seconds.",
+        "cmd.reset.no_event_repo": "Event repository not loaded.",
+        "cmd.reset.no_persona_repo": "Persona repository not loaded.",
+        "cmd.reset.no_repo": "Repositories not fully loaded. Cannot perform full reset.",
+        "cmd.reset.here_done": "Deleted {count} events from this group",
+        "cmd.reset.summary_suffix": "{count} summary file(s)",
+        "cmd.reset.event_group_done": "Deleted {count} events from group {gid}",
+        "cmd.reset.event_all_done": "Deleted all {count} event records.",
+        "cmd.reset.persona_not_found": "No persona found for ID {id} on platform {platform}.",
+        "cmd.reset.persona_one_done": "Deleted persona for {name} ({id}).",
+        "cmd.reset.persona_all_done": "Deleted all {count} persona records.",
+        "cmd.reset.all_done": "All plugin data cleared: {ev_count} events, {p_count} personas, and all projection files.",
+        "cmd.reset.usage": "Usage: /mrm reset here | event <group_id|all> | persona <PlatID|all> | all",
+        "cmd.reset.event_usage": "Usage: /mrm reset event <group_id> | all",
+        "cmd.reset.persona_usage": "Usage: /mrm reset persona <PlatID> | all",
+        "cmd.reset.desc_here": "delete all events and summaries for {scope} — irreversible",
+        "cmd.reset.desc_event_group": "delete all events and summaries for group {gid} — irreversible",
+        "cmd.reset.desc_event_all": "delete ALL event records — irreversible",
+        "cmd.reset.desc_persona_one": "delete persona data for user {id} — irreversible",
+        "cmd.reset.desc_persona_all": "delete ALL persona data — irreversible",
+        "cmd.reset.desc_all": "wipe ALL plugin data (events, personas, projection files) — completely irreversible",
+        "cmd.reset.scope_group": "group {gid}",
+        "cmd.reset.scope_private": "private chat",
+        "cmd.lang.set": "Language switched to: {lang}",
+        "cmd.lang.invalid": "Unsupported language code. Options: cn (Chinese) / en (English) / ja (Japanese)",
+        "cmd.help.full": (
+            "【Moirai Command Help】\n"
+            "--- Info ---\n"
+            "/mrm status               - Plugin running status\n"
+            "/mrm persona <PlatID>     - User persona profile + Big Five\n"
+            "/mrm soul                 - Current session mood state\n"
+            "/mrm recall <keywords>    - Manual memory retrieval\n"
+            "--- Actions ---\n"
+            "/mrm webui on|off         - Start or stop WebUI\n"
+            "/mrm flush                - Clear session context window (DB intact)\n"
+            "/mrm run <task>           - Trigger background task (decay/synthesis/summary/cleanup)\n"
+            "/mrm language <cn/en/ja>  - Switch command display language\n"
+            "--- Reset (2-step confirm required) ⚠️ ---\n"
+            "/mrm reset here           - Delete current group events & summaries\n"
+            "/mrm reset event <gid>    - Delete specified group events & summaries\n"
+            "/mrm reset event all      - Delete all event records\n"
+            "/mrm reset persona <id>   - Delete specified user's persona\n"
+            "/mrm reset persona all    - Delete all persona data\n"
+            "/mrm reset all            - Wipe all plugin data\n"
+            "--- Other ---\n"
+            "/mrm help                 - Show this help"
+        ),
     },
     LANG_JA: {
         # Extractor
@@ -276,6 +450,93 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "formatter.hours_ago": "{count}時間前",
         "formatter.days_ago": "{count}日前",
         "formatter.recall_header": "## 関連する歴史的記憶\n",
+
+        # Command manager responses
+        "cmd.not_init": "プラグインが初期化されていません。",
+        "cmd.status.header": "【Moirai ステータス】",
+        "cmd.status.tasks": "登録済みタスク：{tasks}",
+        "cmd.status.tasks_none": "なし",
+        "cmd.status.sessions": "アクティブセッション数：{count}",
+        "cmd.status.webui_running": "実行中",
+        "cmd.status.webui_stopped": "停止中",
+        "cmd.status.webui": "WebUI：{status}",
+        "cmd.persona.header": "【ペルソナプロフィール】{name}（{id}）",
+        "cmd.persona.description": "説明：{desc}",
+        "cmd.persona.bigfive_header": "ビッグファイブ：",
+        "cmd.persona.bigfive_dim": "  {label} {pct}%",
+        "cmd.persona.bigfive_dim_ev": "  {label} {pct}%：{ev}",
+        "cmd.persona.tags": "タグ：{tags}",
+        "cmd.persona.confidence": "信頼度：{pct}%",
+        "cmd.persona.not_found": "プラットフォーム {platform} に ID {id} のペルソナが見つかりません。",
+        "cmd.persona.no_repo": "ペルソナリポジトリが読み込まれていません。",
+        "cmd.soul.header": "【現在のセッション感情状態】",
+        "cmd.soul.neutral": "現在のセッション感情状態：中立（偏りなし）",
+        "cmd.soul.recall_depth": "記憶検索ドライブ：{val}",
+        "cmd.soul.impression_depth": "社会的注目度：{val}",
+        "cmd.soul.expression_desire": "表現欲：{val}",
+        "cmd.soul.creativity": "創造性：{val}",
+        "cmd.soul.level_high": "高め",
+        "cmd.soul.level_low": "低め",
+        "cmd.soul.level_neutral": "中立",
+        "cmd.recall.not_found": "「{query}」に関連する記憶が見つかりません。",
+        "cmd.task.triggered": "タスク '{task}' の実行をトリガーしました。",
+        "cmd.task.not_found": "タスク '{task}' が見つかりません。利用可能：{available}",
+        "cmd.flush.no_ctx": "コンテキストマネージャが有効になっていません。",
+        "cmd.flush.no_window": "このセッションにアクティブなコンテキストウィンドウがありません。",
+        "cmd.flush.done": "セッションウィンドウをクリアしました（{count} 件のメッセージ）。",
+        "cmd.webui.not_loaded": "WebUI モジュールが読み込まれていません。",
+        "cmd.webui.started": "WebUI 起動済み：http://{host}:{port}",
+        "cmd.webui.start_failed": "WebUI の起動に失敗しました：{error}",
+        "cmd.webui.stopped": "WebUI を停止しました。",
+        "cmd.webui.stop_failed": "WebUI の停止に失敗しました：{error}",
+        "cmd.webui.usage": "使い方：/mrm webui on | off",
+        "cmd.reset.confirm_warn": "⚠️ この操作は{desc}。\n{ttl} 秒以内に同じコマンドを再度送信して確認してください。",
+        "cmd.reset.no_event_repo": "イベントリポジトリが読み込まれていません。",
+        "cmd.reset.no_persona_repo": "ペルソナリポジトリが読み込まれていません。",
+        "cmd.reset.no_repo": "リポジトリが完全に読み込まれていないため、全量リセットは実行できません。",
+        "cmd.reset.here_done": "このグループの {count} 件のイベント記録を削除しました",
+        "cmd.reset.summary_suffix": "要約ファイル {count} 件",
+        "cmd.reset.event_group_done": "グループ {gid} の {count} 件のイベント記録を削除しました",
+        "cmd.reset.event_all_done": "全 {count} 件のイベント記録を削除しました。",
+        "cmd.reset.persona_not_found": "プラットフォーム {platform} に ID {id} のペルソナが見つかりません。",
+        "cmd.reset.persona_one_done": "{name}（{id}）のペルソナを削除しました。",
+        "cmd.reset.persona_all_done": "全 {count} 件のペルソナを削除しました。",
+        "cmd.reset.all_done": "全プラグインデータをクリアしました：イベント {ev_count} 件、ペルソナ {p_count} 件、および全投影ファイル。",
+        "cmd.reset.usage": "使い方：/mrm reset here | event <group_id|all> | persona <PlatID|all> | all",
+        "cmd.reset.event_usage": "使い方：/mrm reset event <group_id> | all",
+        "cmd.reset.persona_usage": "使い方：/mrm reset persona <PlatID> | all",
+        "cmd.reset.desc_here": "{scope}の全イベント記録と要約ファイルを削除します（復元不可）",
+        "cmd.reset.desc_event_group": "グループ {gid} の全イベント記録と要約ファイルを削除します（復元不可）",
+        "cmd.reset.desc_event_all": "全イベント記録を削除します（復元不可）",
+        "cmd.reset.desc_persona_one": "ユーザー {id} のペルソナデータを削除します（復元不可）",
+        "cmd.reset.desc_persona_all": "全ペルソナデータを削除します（復元不可）",
+        "cmd.reset.desc_all": "全プラグインデータ（イベント、ペルソナ、投影ファイル）を完全に削除します（完全に復元不可）",
+        "cmd.reset.scope_group": "グループ {gid}",
+        "cmd.reset.scope_private": "プライベートチャット",
+        "cmd.lang.set": "言語を切り替えました：{lang}",
+        "cmd.lang.invalid": "サポートされていない言語コードです。オプション：cn（中文）/ en（English）/ ja（日本語）",
+        "cmd.help.full": (
+            "【Moirai コマンドヘルプ】\n"
+            "--- 情報照会 ---\n"
+            "/mrm status               - プラグインの実行状態を確認\n"
+            "/mrm persona <PlatID>     - ユーザーのペルソナプロフィール + ビッグファイブ\n"
+            "/mrm soul                 - 現在のセッション感情状態を確認\n"
+            "/mrm recall <キーワード>  - 手動で記憶を検索\n"
+            "--- 操作 ---\n"
+            "/mrm webui on|off         - WebUI の起動または停止\n"
+            "/mrm flush                - セッションコンテキストウィンドウをクリア（DB は保持）\n"
+            "/mrm run <task>           - バックグラウンドタスクをトリガー (decay/synthesis/summary/cleanup)\n"
+            "/mrm language <cn/en/ja>  - コマンド表示言語を切り替え\n"
+            "--- リセット（二段階確認が必要）⚠️ ---\n"
+            "/mrm reset here           - 現在のグループのイベントと要約を削除\n"
+            "/mrm reset event <gid>    - 指定グループのイベントと要約を削除\n"
+            "/mrm reset event all      - 全イベント記録を削除\n"
+            "/mrm reset persona <id>   - 指定ユーザーのペルソナを削除\n"
+            "/mrm reset persona all    - 全ペルソナデータを削除\n"
+            "/mrm reset all            - 全プラグインデータをクリア\n"
+            "--- その他 ---\n"
+            "/mrm help                 - このヘルプを表示"
+        ),
     }
 
 }

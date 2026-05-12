@@ -152,6 +152,16 @@ class EventRepository(ABC):
         ...
 
     @abstractmethod
+    async def delete_by_group(self, group_id: str | None) -> int:
+        """Delete ALL events (and their vectors) with the given group_id. Returns count deleted."""
+        ...
+
+    @abstractmethod
+    async def delete_all(self) -> int:
+        """Delete ALL events and their vectors. Returns count deleted."""
+        ...
+
+    @abstractmethod
     async def get_rowid(self, event_id: str) -> int | None:
         """Return the SQLite integer rowid for an event (used for FTS5/vec joins)."""
         ...
