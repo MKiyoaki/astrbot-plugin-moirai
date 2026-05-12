@@ -257,7 +257,9 @@ async def main() -> None:
         SQLiteImpressionRepository, db_open,
     )
     from core.managers.recall_manager import RecallManager
-    from core.managers.context_manager import ContextManager, ContextConfig, VCMState
+    from core.managers.context_manager import ContextManager
+    from core.utils.context_state_utils import VCMState
+    from core.config import PluginConfig, ContextConfig
     from core.adapters.astrbot import MessageRouter
     from core.adapters.identity import IdentityResolver
     from core.boundary.detector import EventBoundaryDetector
