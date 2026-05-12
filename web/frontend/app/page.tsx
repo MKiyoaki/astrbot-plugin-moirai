@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { 
   Activity, Share2, BookOpen, Search, Database, 
   ArrowRight, Clock, ShieldCheck, Zap, MessageSquare,
-  ChevronRight, ExternalLink, Users
+  ChevronRight, ExternalLink, Users,
+  Heart
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
 import { useApp } from '@/lib/store'
@@ -220,7 +221,7 @@ export default function HomePage() {
               </div>
               <CardHeader className="pb-2 relative z-10">
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Zap size={18} className="text-amber-500" />
+                  <Zap size={18} className="text-primary" />
                   {i18n.landing.cognitiveEngine}
                 </CardTitle>
               </CardHeader>
@@ -313,7 +314,7 @@ function SoulMonitor() {
       <CardHeader className="pb-3 relative z-10">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base font-medium flex items-center gap-2">
-            <Zap className="size-4 text-amber-500 fill-amber-500/20" />
+            <Heart className="text-primary" />
             {i18n.landing.soulMonitor}
           </CardTitle>
           <div className="flex items-center gap-1.5">
