@@ -476,7 +476,20 @@ class WebuiServer:
                     imp.observer_uid, imp.subject_uid, imp.scope
                 )
                 edges.append(edge)
-        return {"nodes": nodes, "edges": edges}
+
+        # Build group membership: group_id → [uid, ...]
+        group_members: dict[str, list[str]] = {}
+        group_ids = await self._event_repo.list_group_ids()
+        for gid in group_ids:
+            events = await self._event_repo.list_by_group(gid, limit=1000)
+            uids: set[str] = set()
+            for event in events:
+                for uid in (event.participants or []):
+                    uids.add(uid)
+            if uids:
+                group_members[gid] = sorted(uids)
+
+        return {"nodes": nodes, "edges": edges, "group_members": group_members}
 
     async def summaries_data(self) -> list[dict[str, str | None]]:
         result: list[dict[str, str | None]] = []

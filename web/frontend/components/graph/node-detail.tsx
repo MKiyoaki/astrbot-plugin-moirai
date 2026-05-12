@@ -77,16 +77,16 @@ export function NodeDetail({ node, allNodes, edgePairs, onBack, onEdit, onDelete
 
           {/* 性格 */}
           {(node.data.attrs?.description || node.data.attrs?.big_five) && (
-            <div className="rounded-lg border bg-muted/40 px-3 py-2.5 flex flex-col gap-2">
-              <p className="text-xs font-medium">{t.personalityBlock}</p>
+            <div className="rounded-lg border bg-muted/40 px-3 py-3 flex flex-col gap-2.5">
+              <p className="text-sm font-semibold">{t.personalityBlock}</p>
               {node.data.attrs?.description && (
-                <p className="text-xs text-foreground/80">{node.data.attrs.description}</p>
+                <p className="text-sm text-foreground/85 leading-relaxed">{node.data.attrs.description}</p>
               )}
               {node.data.attrs?.big_five && (() => {
                 const bf = node.data.attrs!.big_five!
                 const evRaw = node.data.attrs?.big_five_evidence
                 return (
-                  <div className="flex flex-col gap-1.5">
+                  <div className="flex flex-col gap-2">
                     {(['O','C','E','A','N'] as const).map(dim => {
                       const val = bf[dim]
                       if (val === undefined) return null
@@ -95,16 +95,16 @@ export function NodeDetail({ node, allNodes, edgePairs, onBack, onEdit, onDelete
                       const evText = evRaw && typeof evRaw === 'object' ? evRaw[dim] : undefined
                       return (
                         <div key={dim} className="flex flex-col gap-0.5">
-                          <div className="flex items-center justify-between text-xs gap-2">
+                          <div className="flex items-center justify-between text-sm gap-2">
                             <span className="text-muted-foreground shrink-0">{t.bigFive[dim as keyof typeof t.bigFive]}</span>
                             <span className={`font-mono font-medium ${color}`}>{score}%</span>
                           </div>
-                          {evText && <p className="text-[10px] italic text-muted-foreground leading-snug">{evText}</p>}
+                          {evText && <p className="text-xs italic text-muted-foreground leading-snug">{evText}</p>}
                         </div>
                       )
                     })}
                     {evRaw && typeof evRaw === 'string' && (
-                      <p className="text-[10px] italic text-muted-foreground leading-snug">{evRaw}</p>
+                      <p className="text-xs italic text-muted-foreground leading-snug">{evRaw}</p>
                     )}
                   </div>
                 )

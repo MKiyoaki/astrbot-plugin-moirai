@@ -60,41 +60,76 @@ export function computeAffinity(pair: Pick<EdgePair, 'fwd' | 'bwd' | 'isBidirect
 }
 
 // ── buildGroupCards ───────────────────────────────────────────────────────────
-// Partitions nodes by group_id inferred from node bound_identities.
-// Falls back to a single "__global__" group if no grouping is possible.
+// Partitions nodes by group_id when group_members is provided.
+// Falls back to a single "__global__" group if grouping is not available.
+
+function _buildGlobalCard(nodes: PersonaNode[], edges: ImpressionEdge[], biWeight: number): GroupCard {
+  const pairs = buildEdgePairs(edges, biWeight)
+  const lastActive = [...nodes]
+    .sort((a, b) => b.data.last_active_at.localeCompare(a.data.last_active_at))[0]
+    ?.data.last_active_at ?? new Date().toISOString()
+  return {
+    group_id: '__global__',
+    name: '全局关系图',
+    member_count: nodes.filter(n => !n.data.is_bot).length,
+    node_count: nodes.length,
+    edge_pair_count: pairs.length,
+    last_active: lastActive,
+    top_tags: aggregateTopTags(nodes, 4),
+    description: `共 ${nodes.length} 个节点，${pairs.length} 对关系`,
+    nodes,
+    edgePairs: pairs,
+  }
+}
 
 export function buildGroupCards(
   nodes: PersonaNode[],
   edges: ImpressionEdge[],
   biWeight = 1.5,
+  groupMembers?: Record<string, string[]>,
 ): GroupCard[] {
   if (nodes.length === 0) return []
 
-  // Try to infer group from node data. PersonaNode doesn't carry group_id
-  // natively, so we create a single global group (matching the demo data).
-  const globalNodes = nodes
-  const globalEdges = edges
-  const globalPairs = buildEdgePairs(globalEdges, biWeight)
-
-  // Compute last_active from nodes
-  const lastActive = [...nodes]
-    .sort((a, b) => b.data.last_active_at.localeCompare(a.data.last_active_at))[0]
-    ?.data.last_active_at ?? new Date().toISOString()
-
-  const card: GroupCard = {
-    group_id: '__global__',
-    name: '全局关系图',
-    member_count: globalNodes.filter(n => !n.data.is_bot).length,
-    node_count: globalNodes.length,
-    edge_pair_count: globalPairs.length,
-    last_active: lastActive,
-    top_tags: aggregateTopTags(globalNodes, 4),
-    description: `共 ${globalNodes.length} 个节点，${globalPairs.length} 对关系`,
-    nodes: globalNodes,
-    edgePairs: globalPairs,
+  // Fall back to global view when no group data or only one group
+  if (!groupMembers || Object.keys(groupMembers).length <= 1) {
+    return [_buildGlobalCard(nodes, edges, biWeight)]
   }
 
-  return [card]
+  const nodeMap = new Map(nodes.map(n => [n.data.id, n]))
+  const cards: GroupCard[] = []
+
+  for (const [gid, uids] of Object.entries(groupMembers)) {
+    const groupNodes = uids.map(uid => nodeMap.get(uid)).filter(Boolean) as PersonaNode[]
+    if (groupNodes.length === 0) continue
+
+    // Include edges where at least one endpoint is in this group
+    const groupUidSet = new Set(uids)
+    const groupEdges = edges.filter(e =>
+      groupUidSet.has(e.data.source) && groupUidSet.has(e.data.target)
+    )
+    const groupPairs = buildEdgePairs(groupEdges, biWeight)
+
+    const lastActive = [...groupNodes]
+      .sort((a, b) => b.data.last_active_at.localeCompare(a.data.last_active_at))[0]
+      ?.data.last_active_at ?? new Date().toISOString()
+
+    cards.push({
+      group_id: gid,
+      name: gid,
+      member_count: groupNodes.filter(n => !n.data.is_bot).length,
+      node_count: groupNodes.length,
+      edge_pair_count: groupPairs.length,
+      last_active: lastActive,
+      top_tags: aggregateTopTags(groupNodes, 4),
+      description: `共 ${groupNodes.length} 个成员，${groupPairs.length} 对关系`,
+      nodes: groupNodes,
+      edgePairs: groupPairs,
+    })
+  }
+
+  // Sort by last activity descending; fall back to global if no cards built
+  if (cards.length === 0) return [_buildGlobalCard(nodes, edges, biWeight)]
+  return cards.sort((a, b) => b.last_active.localeCompare(a.last_active))
 }
 
 // ── circularLayout ────────────────────────────────────────────────────────────

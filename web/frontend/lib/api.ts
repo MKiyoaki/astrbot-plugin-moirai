@@ -142,7 +142,7 @@ export interface ImpressionEdge {
     msg_count?: number
   }
 }
-export interface GraphData { enabled?: boolean; nodes: PersonaNode[]; edges: ImpressionEdge[] }
+export interface GraphData { enabled?: boolean; nodes: PersonaNode[]; edges: ImpressionEdge[]; group_members?: Record<string, string[]> }
 export const graph = {
   get: () => request<GraphData>('/api/graph'),
   createPersona: (data: Record<string, unknown>) =>

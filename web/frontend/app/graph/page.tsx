@@ -87,7 +87,7 @@ export default function GraphPage() {
       setRelationEnabled(true)
       app.setRawGraph(data)
       setDefaultConfidence(cfg.values.persona_default_confidence as number ?? 0.5)
-      const cards = buildGroupCards(data.nodes, data.edges, physics.biWeight)
+      const cards = buildGroupCards(data.nodes, data.edges, physics.biWeight, data.group_members)
       setGroupCards(cards)
     } catch {
       app.toast(i18n.graph.loadError, 'destructive')
@@ -455,8 +455,8 @@ export default function GraphPage() {
           </div>
         </div>
 
-        {/* Right panel (fixed 272px) */}
-        <div className="w-[272px] shrink-0 border-l overflow-hidden">
+        {/* Right panel (fixed 340px) */}
+        <div className="w-[340px] shrink-0 border-l overflow-hidden">
           {rightPanelContent}
         </div>
       </div>
