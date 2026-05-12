@@ -10,6 +10,8 @@ bcrypt>=4.0
 httpx>=0.27.0
 sqlite-vec>=0.1.9
 
+sentence_transformers>=5.4.1
+
 # ── Optional runtime (install for full feature set) ───────────────────────────
 # Vector semantic search — ~100 MB download on first use (Phase 5+)
 # sentence-transformers>=2.6
