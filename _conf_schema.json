@@ -1,467 +1,537 @@
 {
-    "llm_provider": {
-        "description": "总结与提取 LLM 提供者",
-        "type": "string",
-        "_special": "select_provider",
-        "hint": "选择用于事件提取、人格合成、叙事摘要等后台任务的 LLM 提供者。留空则使用 AstrBot 默认提供者。"
-    },
-    "llm_concurrency": {
-        "description": "后台 LLM 最大并发数",
-        "type": "int",
-        "hint": "整个插件同时进行的后台 LLM 请求（如事件提取、人设合成、摘要生成）的最大数量。推荐 1-3，防止触发 API 频控。",
-        "default": 2
-    },
-    "language": {
-        "description": "插件语言 (Plugin Language)",
-        "type": "string",
-        "options": [
-            { "value": "zh-CN", "label": "简体中文" },
-            { "value": "en-US", "label": "English" },
-            { "value": "ja-JP", "label": "日本語" }
-        ],
-        "default": "zh-CN",
-        "hint": "设置插件后端生成内容的语言（如摘要标题、Markdown 文件头等）。WebUI 语言可在界面右下角独立设置。"
-    },
-    "webui_enabled": {
-        "description": "启用 Moirai 记忆管理面板",
-        "type": "bool",
-        "hint": "开启后可在浏览器访问 Moirai 三轴记忆面板（事件流 / 关系图 / 摘要）",
-        "default": true
-    },
-    "webui_port": {
-        "description": "WebUI 端口号",
-        "type": "int",
-        "hint": "WebUI HTTP 服务绑定的本机端口，默认 2655，修改后需重启",
-        "default": 2655
-    },
-    "webui_auth_enabled": {
-        "description": "启用 WebUI 密码认证",
-        "type": "bool",
-        "hint": "开启后首次访问需设置管理密码；关闭则任何人可访问 WebUI（仅本机部署且无外网映射时建议关闭）",
-        "default": true
-    },
-    "webui_session_hours": {
-        "description": "WebUI 登录会话时长（小时）",
-        "type": "int",
-        "hint": "登录后多少小时无操作自动失效",
-        "default": 24
-    },
-    "webui_sudo_minutes": {
-        "description": "WebUI Sudo 模式时长（分钟）",
-        "type": "int",
-        "hint": "进入 Sudo 后多少分钟自动退出，超时后写操作需重新输密码",
-        "default": 30
-    },
-    "embedding_enabled": {
-        "description": "启用向量语义检索",
-        "type": "bool",
-        "hint": "需要本地 Sentence Transformer 模型（约 100 MB），禁用后退回纯 BM25 关键词检索",
-        "default": true
-    },
-    "embedding_model": {
-        "description": "向量嵌入模型名称",
-        "type": "string",
-        "hint": "HuggingFace 模型 ID (Local) 或 API 模型名 (API)",
-        "default": "BAAI/bge-small-zh-v1.5"
-    },
-    "embedding_provider": {
-        "description": "向量嵌入提供者",
-        "type": "string",
-        "options": [
-            "local",
-            "api"
-        ],
-        "hint": "选择使用本地模型还是远程 API",
-        "default": "local"
-    },
-    "embedding_api_url": {
-        "description": "Embedding API 地址",
-        "type": "string",
-        "hint": "仅在提供者为 API 时有效，例如 https://api.openai.com/v1/embeddings",
-        "default": ""
-    },
-    "embedding_api_key": {
-        "description": "Embedding API 密钥",
-        "type": "string",
-        "hint": "仅在提供者为 API 时有效",
-        "default": ""
-    },
-    "embedding_batch_size": {
-        "description": "Embedding 批次大小",
-        "type": "int",
-        "hint": "单个批次同时处理的消息数量",
-        "default": 1
-    },
-    "embedding_concurrency": {
-        "description": "Embedding 最大并发数",
-        "type": "int",
-        "hint": "同时进行的 Embedding 请求（批次）数量",
-        "default": 1
-    },
-    "embedding_batch_interval_ms": {
-        "description": "批次读取间隔（毫秒）",
-        "type": "int",
-        "hint": "处理完一个批次后等待多久读取下一个批次",
-        "default": 0
-    },
-    "embedding_request_interval_ms": {
-        "description": "请求间隔（毫秒）",
-        "type": "int",
-        "hint": "两次网络请求之间的最小等待时间",
-        "default": 0
-    },
-    "embedding_failure_tolerance_ratio": {
-        "description": "允许失败比例",
-        "type": "float",
-        "hint": "一个批次中允许失败的消息比例上限 (0.0-1.0)",
-        "default": 0.0
-    },
-    "embedding_retry_max": {
-        "description": "最大重试次数",
-        "type": "int",
-        "hint": "Embedding 请求失败时的最大尝试次数",
-        "default": 3
-    },
-    "embedding_retry_delay_ms": {
-        "description": "重试等待时间（毫秒）",
-        "type": "int",
-        "hint": "重试前的等待时间",
-        "default": 1000
-    },
-    "retrieval_top_k": {
-        "description": "检索注入的最大事件数",
-        "type": "int",
-        "hint": "注入 Prompt 前最终保留的事件数量，值越大 context 越丰富但消耗 token 越多",
-        "default": 10
-    },
-    "retrieval_token_budget": {
-        "description": "记忆注入的 Token 上限",
-        "type": "int",
-        "hint": "超出上限时按「重要度 × 新鲜度 × 相关度」贪心截断",
-        "default": 800
-    },
-    "retrieval_weighted_random": {
-        "description": "启用加权随机检索",
-        "type": "bool",
-        "hint": "开启后将使用 Softmax 采样替代确定性 Top-K 截断，使记忆表现更自然（偶尔想起低分事件）",
-        "default": false
-    },
-    "retrieval_sampling_temperature": {
-        "description": "检索采样温度 (Temperature)",
-        "type": "float",
-        "hint": "仅在加权随机模式下生效。1.0 为标准采样，数值越低越接近确定性排名，数值越高随机性越强。",
-        "default": 1.0
-    },
-    "boundary_time_gap_minutes": {
-        "description": "事件边界：空闲时间阈值（分钟）",
-        "type": "int",
-        "hint": "消息间隔超过此值时自动关闭当前事件窗口，开始新事件",
-        "default": 30
-    },
-    "boundary_max_messages": {
-        "description": "事件边界：最大消息数（硬上限）",
-        "type": "int",
-        "hint": "单个事件窗口内消息数量达到上限时强制关闭，防止事件过大",
-        "default": 50
-    },
-    "boundary_max_duration_minutes": {
-        "description": "事件边界：最大持续时长（分钟）",
-        "type": "int",
-        "hint": "单个事件窗口超过此时长时强制关闭",
-        "default": 60
-    },
-    "boundary_topic_drift_enabled": {
-        "description": "启用话题漂移检测",
-        "type": "bool",
-        "hint": "开启后将通过向量余弦距离检测话题切换，动态关闭事件。计算开销较高，若感觉对话变卡建议关闭。",
-        "default": true
-    },
-    "boundary_topic_drift_threshold": {
-        "description": "事件边界：话题漂移阈值",
-        "type": "float",
-        "hint": "0–1 之间的余弦距离值，超过此值时触发话题切换检测（需启用向量检索）",
-        "default": 0.6
-    },
-    "boundary_topic_drift_min_messages": {
-        "description": "事件边界：漂移检测最小消息数",
-        "type": "int",
-        "hint": "单个事件窗口内消息数量达到此值后才开始进行话题漂移检测",
-        "default": 20
-    },
-    "boundary_topic_drift_interval": {
-        "description": "事件边界：话题漂移检测步进",
-        "type": "int",
-        "hint": "每隔多少条消息进行一次话题漂移检测。设为 1 则每条消息都检测，设为 5 则每 5 条检测一次。推荐 3-10。",
-        "default": 5
-    },
-    "persona_influenced_summary": {
-        "description": "根据当前性格记忆事件",
-        "type": "bool",
-        "hint": "开启后在提取事件摘要时注入 Bot 人格描述，使摘要带有 Bot 当前性格的视角",
-        "default": false
-    },
-    "relation_enabled": {
-        "description": "启用社会关系推断",
-        "type": "bool",
-        "hint": "禁用后仅保留情节记忆（Event Flow），不执行 Impression 推断和关系图构建",
-        "default": true
-    },
-    "persona_default_confidence": {
-        "description": "人格默认置信度",
-        "type": "float",
-        "hint": "新建人格时赋予的初始置信值（由模型推断后自动更新）",
-        "default": 0.5
-    },
-    "migration_auto_backup": {
-        "description": "迁移前自动备份数据库文件",
-        "type": "bool",
-        "hint": "插件启动时若检测到待执行迁移脚本，在运行前自动将数据库备份为 core.db.bak；关闭则跳过备份",
-        "default": true
-    },
-    "memory_isolation_enabled": {
-        "description": "启用记忆隔离（按群组 ID 隔离检索）",
-        "type": "bool",
-        "hint": "开启后私聊与各群组的记忆检索互不干扰；关闭则跨 group_id 全局检索",
-        "default": true
-    },
-    "persona_isolation_enabled": {
-        "description": "启用人格视角隔离（Bot 在不同群有独立印象）",
-        "type": "bool",
-        "hint": "开启后 Impression 聚合仅取同一群组内的事件作为 evidence；关闭则混合所有群组事件",
-        "default": false
-    },
-    "decay_interval_hours": {
-        "description": "重要度衰减任务间隔（小时）",
-        "type": "int",
-        "hint": "每隔多少小时对所有事件执行一次 salience 时间衰减，默认每天一次",
-        "default": 24
-    },
-    "decay_enabled": {
-        "description": "启用重要度衰减",
-        "type": "bool",
-        "hint": "开启后将定期衰减事件的重要度。禁用后记忆将不再随时间淡化。",
-        "default": true
-    },
-    "summary_enabled": {
-        "description": "启用每日叙事摘要",
-        "type": "bool",
-        "hint": "开启后将定期为活跃群组生成每日摘要 Markdown 文件（叙事轴记忆）",
-        "default": true
-    },
-    "summary_interval_hours": {
-        "description": "摘要生成频率",
-        "type": "string",
-        "options": ["1", "2", "3", "4", "8", "12", "24", "48"],
-        "default": "24",
-        "hint": "每隔多少小时为每个活跃群组生成一次叙事摘要 Markdown"
-    },
-    "persona_synthesis_enabled": {
-        "description": "启用人格档案合成",
-        "type": "bool",
-        "hint": "开启后将定期根据对话记录合成用户的人设档案（PROFILE.md）",
-        "default": true
-    },
-    "persona_synthesis_interval_hours": {
-        "description": "人设合成间隔（小时）",
-        "type": "int",
-        "hint": "每隔多少小时通过 LLM 合成一次用户人设档案（PROFILE.md），默认每周一次",
-        "default": 168
-    },
-    "markdown_projection_enabled": {
-        "description": "启用 Markdown 投影生成",
-        "type": "bool",
-        "hint": "开启后将数据库中的记忆投影为可读的 Markdown 文件。禁用后仍可使用 WebUI，但 data/ 目录下将不再生成 .md 文件。",
-        "default": true
-    },
-    "impression_aggregation_interval_hours": {
-        "description": "印象字段重算间隔（小时）",
-        "type": "int",
-        "hint": "每隔多少小时根据最新数据重算社交取向（IPC）衍生字段并对齐依据事件。纯算法执行，不消耗 LLM token。",
-        "default": 168
-    },
-    "file_watcher_poll_seconds": {
-        "description": "Markdown 文件监听轮询间隔（秒）",
-        "type": "int",
-        "hint": "检测用户编辑 IMPRESSIONS.md 的轮询频率，值越小响应越快但 I/O 开销越高",
-        "default": 30
-    },
-    "impression_event_trigger_enabled": {
-        "description": "启用事件数量触发印象更新",
-        "type": "bool",
-        "hint": "每次事件关闭后，若参与者间共享事件数达到阈值则自动触发规则式印象更新（不消耗 LLM token）",
-        "default": true
-    },
-    "impression_event_trigger_threshold": {
-        "description": "印象触发所需最少共享事件数",
-        "type": "int",
-        "hint": "两人在同一 scope 内的共享事件数达到此值时才触发印象更新",
-        "default": 5
-    },
-    "impression_trigger_debounce_hours": {
-        "description": "印象触发防抖时间（小时）",
-        "type": "float",
-        "hint": "上次更新距今不足此时长则跳过本次触发，避免高频刷新",
-        "default": 1.0
-    },
-    "impression_update_alpha": {
-        "description": "印象更新平滑系数 (Alpha)",
-        "type": "float",
-        "hint": "数值越大则越快接受新印象，数值越小越倾向于维持旧印象。0.4 表示新信息占比 40%，旧记忆占比 60%。",
-        "default": 0.4
-    },
-    "soul_enabled": {
-        "description": "启用情绪四维状态 (Soul Layer)",
-        "type": "bool",
-        "hint": "开启后，RecallDepth / ImpressionDepth / ExpressionDesire / Creativity 四维情绪状态将随对话动态更新，并注入 system prompt 以影响回复风格。",
-        "default": false
-    },
-    "soul_decay_rate": {
-        "description": "情绪衰减率（每轮）",
-        "type": "float",
-        "hint": "每轮对话后各情绪维度向零衰减的比例，0.1 表示每轮衰减 10%。",
-        "default": 0.1,
-        "min": 0.0,
-        "max": 1.0,
-        "step": 0.01
-    },
-    "soul_recall_depth_init": {
-        "description": "记忆检索驱动初始值",
-        "type": "float",
-        "hint": "RecallDepth 维度的初始值，范围 -20 到 +20，0 为中性。",
-        "default": 0.0,
-        "min": -20.0,
-        "max": 20.0,
-        "step": 0.5
-    },
-    "soul_impression_depth_init": {
-        "description": "社交关注度初始值",
-        "type": "float",
-        "hint": "ImpressionDepth 维度的初始值，范围 -20 到 +20，0 为中性。",
-        "default": 0.0,
-        "min": -20.0,
-        "max": 20.0,
-        "step": 0.5
-    },
-    "soul_expression_desire_init": {
-        "description": "表达欲初始值",
-        "type": "float",
-        "hint": "ExpressionDesire 维度的初始值，范围 -20 到 +20，0 为中性。",
-        "default": 0.0,
-        "min": -20.0,
-        "max": 20.0,
-        "step": 0.5
-    },
-    "soul_creativity_init": {
-        "description": "创意度初始值",
-        "type": "float",
-        "hint": "Creativity 维度的初始值，范围 -20 到 +20，0 为中性。",
-        "default": 0.0,
-        "min": -20.0,
-        "max": 20.0,
-        "step": 0.5
-    },
-    "vcm_enabled": {
-        "description": "启用 VCM 状态机",
-        "type": "bool",
-        "hint": "开启后将启用虚拟上下文管理状态机（Focused/Recall/Eviction/Drift）",
-        "default": true
-    },
-    "context_max_sessions": {
-        "description": "最大缓存会话数",
-        "type": "int",
-        "hint": "在内存中同时保留的最大活跃会话（MessageWindow）数量",
-        "default": 100
-    },
-    "context_session_idle_seconds": {
-        "description": "会话空闲过期时间（秒）",
-        "type": "int",
-        "hint": "会话超过此时长无新消息后，将自动从内存中移除以节省资源",
-        "default": 3600
-    },
-    "context_window_size": {
-        "description": "上下文窗口大小",
-        "type": "int",
-        "hint": "传给 LLM 进行事件总结的最大历史消息条数",
-        "default": 50
-    },
-    "memory_cleanup_enabled": {
-        "description": "启用记忆自动清理",
-        "type": "bool",
-        "hint": "开启后将定期清理重要度低于阈值的记忆",
-        "default": true
-    },
-    "memory_cleanup_threshold": {
-        "description": "记忆清理阈值",
-        "type": "float",
-        "hint": "重要度（salience）低于此值的非锁定记忆将被自动清理",
-        "default": 0.3
-    },
-    "memory_cleanup_interval_days": {
-        "description": "记忆清理周期（天）",
-        "type": "int",
-        "hint": "每隔多少天执行一次自动清理任务",
-        "default": 7
-    },
-    "memory_cleanup_retention_days": {
-        "description": "归档保留期（天）",
-        "type": "int",
-        "hint": "已归档事件在真正删除前保留的天数，超过后才会被永久清除",
-        "default": 30
-    },
-    "summary_word_limit": {
-        "description": "摘要字数限制",
-        "type": "int",
-        "default": 300,
-        "hint": "生成的每日摘要正文字数上限（200-500字之间）"
-    },
-    "summary_mood_source": {
-        "description": "情感动态数据源",
-        "type": "string",
-        "options": [
-            { "value": "llm", "label": "LLM 推断 (感性/全面)" },
-            { "value": "impression_db", "label": "印象数据库 (理性/严谨)" }
-        ],
-        "default": "llm",
-        "hint": "决定每日摘要中 [情感动态] 区块的生成方式。数据库模式基于真实社交模型数据聚合。"
-    },
-    "webui_password": {
-        "description": "WebUI 访问密码",
-        "type": "string",
-        "hint": "手动配置 WebUI 访问密码。留空则启动时自动生成随机访问 Token 并在控制台打印。",
-        "default": ""
-    },
-    "extraction_strategy": {
-        "description": "事件划分策略",
-        "type": "string",
-        "options": [
-            { "value": "llm", "label": "纯 LLM 划分 (默认)" },
-            { "value": "semantic", "label": "Encoder 语义聚类 (高性能)" }
-        ],
-        "default": "llm",
-        "hint": "LLM 划分语义更精准但较慢；Semantic 聚类速度快且能处理话题交织。"
-    },
-    "semantic_clustering_eps": {
-        "description": "语义聚类敏感度 (Eps)",
-        "type": "float",
-        "default": 0.45,
-        "hint": "仅在 Semantic 策略下生效。数值越小，划分的话题越细。建议 0.4-0.6 之间。"
-    },
-    "semantic_clustering_min_samples": {
-        "description": "语义聚类最小消息数",
-        "type": "int",
-        "default": 2,
-        "hint": "仅在 Semantic 策略下生效。话题包含的最少消息数量，设为 2 可避免生成大量单条消息事件。"
-    },
-    "tag_normalization_threshold": {
-        "description": "标签归一化阈值",
-        "type": "float",
-        "default": 0.85,
-        "hint": "0-1 之间的向量相似度。提取标签时，若与现有标签相似度超过此值，则自动归并到现有标签下。"
-    },
-    "tag_seeds": {
-        "description": "标签种子词表（定义记忆抽象层级）",
-        "type": "string",
-        "default": "社交,日常,技术,知识,工作,娱乐,艺术,情感,资讯",
-        "hint": "用英文逗号分隔。这些词定义了系统记忆的宏观分类。LLM 会模仿这些词的抽象高度进行打标。"
+    "general": {
+        "description": "基础设置",
+        "hint": "插件语言与 LLM 提供者配置",
+        "type": "object",
+        "items": {
+            "language": {
+                "description": "插件语言 (Plugin Language)",
+                "type": "string",
+                "options": [
+                    { "value": "zh-CN", "label": "简体中文" },
+                    { "value": "en-US", "label": "English" },
+                    { "value": "ja-JP", "label": "日本語" }
+                ],
+                "default": "zh-CN",
+                "hint": "设置插件后端生成内容的语言（如摘要标题、Markdown 文件头等）。WebUI 语言可在界面右下角独立设置。"
+            },
+            "llm_provider": {
+                "description": "总结与提取 LLM 提供者",
+                "type": "string",
+                "_special": "select_provider",
+                "hint": "选择用于事件提取、人格合成、叙事摘要等后台任务的 LLM 提供者。留空则使用 AstrBot 默认提供者。"
+            },
+            "llm_concurrency": {
+                "description": "后台 LLM 最大并发数",
+                "type": "int",
+                "hint": "整个插件同时进行的后台 LLM 请求（如事件提取、人设合成、摘要生成）的最大数量。推荐 1-3，防止触发 API 频控。",
+                "default": 2
+            }
+        }
+    },
+    "webui": {
+        "description": "WebUI 面板",
+        "hint": "启用后可在浏览器访问 Moirai 三轴记忆面板",
+        "type": "object",
+        "items": {
+            "webui_enabled": {
+                "description": "启用 Moirai 记忆管理面板",
+                "type": "bool",
+                "hint": "开启后可在浏览器访问 Moirai 三轴记忆面板（事件流 / 关系图 / 摘要）",
+                "default": true
+            },
+            "webui_port": {
+                "description": "WebUI 端口号",
+                "type": "int",
+                "hint": "WebUI HTTP 服务绑定的本机端口，默认 2655，修改后需重启",
+                "default": 2655
+            },
+            "webui_auth_enabled": {
+                "description": "启用 WebUI 密码认证",
+                "type": "bool",
+                "hint": "开启后首次访问需设置管理密码；关闭则任何人可访问 WebUI（仅本机部署且无外网映射时建议关闭）",
+                "default": true
+            },
+            "webui_session_hours": {
+                "description": "WebUI 登录会话时长（小时）",
+                "type": "int",
+                "hint": "登录后多少小时无操作自动失效",
+                "default": 24
+            },
+            "webui_sudo_minutes": {
+                "description": "WebUI Sudo 模式时长（分钟）",
+                "type": "int",
+                "hint": "进入 Sudo 后多少分钟自动退出，超时后写操作需重新输密码",
+                "default": 30
+            },
+            "webui_password": {
+                "description": "WebUI 访问密码",
+                "type": "string",
+                "hint": "手动配置 WebUI 访问密码。留空则启动时自动生成随机访问 Token 并在控制台打印。",
+                "default": ""
+            }
+        }
+    },
+    "embedding": {
+        "description": "向量嵌入",
+        "hint": "语义检索所需的 Embedding 模型配置",
+        "type": "object",
+        "items": {
+            "embedding_enabled": {
+                "description": "启用向量语义检索",
+                "type": "bool",
+                "hint": "需要本地 Sentence Transformer 模型（约 100 MB），禁用后退回纯 BM25 关键词检索",
+                "default": true
+            },
+            "embedding_provider": {
+                "description": "向量嵌入提供者",
+                "type": "string",
+                "options": [
+                    "local",
+                    "api"
+                ],
+                "hint": "选择使用本地模型还是远程 API",
+                "default": "local"
+            },
+            "embedding_model": {
+                "description": "向量嵌入模型名称",
+                "type": "string",
+                "hint": "HuggingFace 模型 ID (Local) 或 API 模型名 (API)",
+                "default": "BAAI/bge-small-zh-v1.5"
+            },
+            "embedding_api_url": {
+                "description": "Embedding API 地址",
+                "type": "string",
+                "hint": "仅在提供者为 API 时有效，例如 https://api.openai.com/v1/embeddings",
+                "default": ""
+            },
+            "embedding_api_key": {
+                "description": "Embedding API 密钥",
+                "type": "string",
+                "hint": "仅在提供者为 API 时有效",
+                "default": ""
+            },
+            "embedding_batch_size": {
+                "description": "Embedding 批次大小",
+                "type": "int",
+                "hint": "单个批次同时处理的消息数量",
+                "default": 1
+            },
+            "embedding_concurrency": {
+                "description": "Embedding 最大并发数",
+                "type": "int",
+                "hint": "同时进行的 Embedding 请求（批次）数量",
+                "default": 1
+            },
+            "embedding_batch_interval_ms": {
+                "description": "批次读取间隔（毫秒）",
+                "type": "int",
+                "hint": "处理完一个批次后等待多久读取下一个批次",
+                "default": 0
+            },
+            "embedding_request_interval_ms": {
+                "description": "请求间隔（毫秒）",
+                "type": "int",
+                "hint": "两次网络请求之间的最小等待时间",
+                "default": 0
+            },
+            "embedding_failure_tolerance_ratio": {
+                "description": "允许失败比例",
+                "type": "float",
+                "hint": "一个批次中允许失败的消息比例上限 (0.0-1.0)",
+                "default": 0.0
+            },
+            "embedding_retry_max": {
+                "description": "最大重试次数",
+                "type": "int",
+                "hint": "Embedding 请求失败时的最大尝试次数",
+                "default": 3
+            },
+            "embedding_retry_delay_ms": {
+                "description": "重试等待时间（毫秒）",
+                "type": "int",
+                "hint": "重试前的等待时间",
+                "default": 1000
+            }
+        }
+    },
+    "retrieval": {
+        "description": "记忆检索",
+        "hint": "控制记忆如何从数据库检索并注入 Prompt",
+        "type": "object",
+        "items": {
+            "retrieval_top_k": {
+                "description": "检索注入的最大事件数",
+                "type": "int",
+                "hint": "注入 Prompt 前最终保留的事件数量，值越大 context 越丰富但消耗 token 越多",
+                "default": 10
+            },
+            "retrieval_token_budget": {
+                "description": "记忆注入的 Token 上限",
+                "type": "int",
+                "hint": "超出上限时按「重要度 × 新鲜度 × 相关度」贪心截断",
+                "default": 800
+            },
+            "memory_isolation_enabled": {
+                "description": "启用记忆隔离（按群组 ID 隔离检索）",
+                "type": "bool",
+                "hint": "开启后私聊与各群组的记忆检索互不干扰；关闭则跨 group_id 全局检索",
+                "default": true
+            },
+            "retrieval_weighted_random": {
+                "description": "启用加权随机检索",
+                "type": "bool",
+                "hint": "开启后将使用 Softmax 采样替代确定性 Top-K 截断，使记忆表现更自然（偶尔想起低分事件）",
+                "default": false
+            },
+            "retrieval_sampling_temperature": {
+                "description": "检索采样温度 (Temperature)",
+                "type": "float",
+                "hint": "仅在加权随机模式下生效。1.0 为标准采样，数值越低越接近确定性排名，数值越高随机性越强。",
+                "default": 1.0
+            }
+        }
+    },
+    "vcm": {
+        "description": "上下文管理 (VCM)",
+        "hint": "虚拟上下文管理器：控制活跃会话缓存与上下文窗口大小",
+        "type": "object",
+        "items": {
+            "vcm_enabled": {
+                "description": "启用 VCM 状态机",
+                "type": "bool",
+                "hint": "开启后将启用虚拟上下文管理状态机（Focused/Recall/Eviction/Drift）",
+                "default": true
+            },
+            "context_max_sessions": {
+                "description": "最大缓存会话数",
+                "type": "int",
+                "hint": "在内存中同时保留的最大活跃会话（MessageWindow）数量",
+                "default": 100
+            },
+            "context_session_idle_seconds": {
+                "description": "会话空闲过期时间（秒）",
+                "type": "int",
+                "hint": "会话超过此时长无新消息后，将自动从内存中移除以节省资源",
+                "default": 3600
+            },
+            "context_window_size": {
+                "description": "上下文窗口大小",
+                "type": "int",
+                "hint": "传给 LLM 进行事件总结的最大历史消息条数",
+                "default": 50
+            }
+        }
+    },
+    "soul": {
+        "description": "情绪四维 (Soul Layer)",
+        "hint": "动态情绪状态，随对话变化并注入 system prompt 以影响回复风格",
+        "type": "object",
+        "items": {
+            "soul_enabled": {
+                "description": "启用情绪四维状态 (Soul Layer)",
+                "type": "bool",
+                "hint": "开启后，RecallDepth / ImpressionDepth / ExpressionDesire / Creativity 四维情绪状态将随对话动态更新，并注入 system prompt 以影响回复风格。",
+                "default": false
+            },
+            "soul_decay_rate": {
+                "description": "情绪衰减率（每轮）",
+                "type": "float",
+                "hint": "每轮对话后各情绪维度向零衰减的比例，0.1 表示每轮衰减 10%。",
+                "default": 0.1,
+                "min": 0.0,
+                "max": 1.0,
+                "step": 0.01
+            },
+            "soul_recall_depth_init": {
+                "description": "记忆检索驱动初始值",
+                "type": "float",
+                "hint": "RecallDepth 维度的初始值，范围 -20 到 +20，0 为中性。",
+                "default": 0.0,
+                "min": -20.0,
+                "max": 20.0,
+                "step": 0.5
+            },
+            "soul_impression_depth_init": {
+                "description": "社交关注度初始值",
+                "type": "float",
+                "hint": "ImpressionDepth 维度的初始值，范围 -20 到 +20，0 为中性。",
+                "default": 0.0,
+                "min": -20.0,
+                "max": 20.0,
+                "step": 0.5
+            },
+            "soul_expression_desire_init": {
+                "description": "表达欲初始值",
+                "type": "float",
+                "hint": "ExpressionDesire 维度的初始值，范围 -20 到 +20，0 为中性。",
+                "default": 0.0,
+                "min": -20.0,
+                "max": 20.0,
+                "step": 0.5
+            },
+            "soul_creativity_init": {
+                "description": "创意度初始值",
+                "type": "float",
+                "hint": "Creativity 维度的初始值，范围 -20 到 +20，0 为中性。",
+                "default": 0.0,
+                "min": -20.0,
+                "max": 20.0,
+                "step": 0.5
+            }
+        }
+    },
+    "cleanup": {
+        "description": "记忆清理",
+        "hint": "定期清理重要度衰减到阈值以下的旧记忆，控制数据库规模",
+        "type": "object",
+        "items": {
+            "memory_cleanup_enabled": {
+                "description": "启用记忆自动清理",
+                "type": "bool",
+                "hint": "开启后将定期清理重要度低于阈值的记忆",
+                "default": true
+            },
+            "memory_cleanup_threshold": {
+                "description": "记忆清理阈值",
+                "type": "float",
+                "hint": "重要度（salience）低于此值的非锁定记忆将被自动清理",
+                "default": 0.3
+            },
+            "memory_cleanup_interval_days": {
+                "description": "记忆清理周期（天）",
+                "type": "int",
+                "hint": "每隔多少天执行一次自动清理任务",
+                "default": 7
+            },
+            "memory_cleanup_retention_days": {
+                "description": "归档保留期（天）",
+                "type": "int",
+                "hint": "已归档事件在真正删除前保留的天数，超过后才会被永久清除",
+                "default": 30
+            }
+        }
+    },
+    "summaries": {
+        "description": "叙事摘要",
+        "hint": "定期为活跃群组生成每日叙事摘要（叙事轴记忆）",
+        "type": "object",
+        "items": {
+            "summary_enabled": {
+                "description": "启用每日叙事摘要",
+                "type": "bool",
+                "hint": "开启后将定期为活跃群组生成每日摘要 Markdown 文件（叙事轴记忆）",
+                "default": true
+            },
+            "summary_interval_hours": {
+                "description": "摘要生成频率",
+                "type": "string",
+                "options": ["1", "2", "3", "4", "8", "12", "24", "48"],
+                "default": "24",
+                "hint": "每隔多少小时为每个活跃群组生成一次叙事摘要 Markdown"
+            },
+            "summary_word_limit": {
+                "description": "摘要字数限制",
+                "type": "int",
+                "default": 300,
+                "hint": "生成的每日摘要正文字数上限（200-500字之间）"
+            },
+            "summary_mood_source": {
+                "description": "情感动态数据源",
+                "type": "string",
+                "options": [
+                    { "value": "llm", "label": "LLM 推断 (感性/全面)" },
+                    { "value": "impression_db", "label": "印象数据库 (理性/严谨)" }
+                ],
+                "default": "llm",
+                "hint": "决定每日摘要中 [情感动态] 区块的生成方式。数据库模式基于真实社交模型数据聚合。"
+            }
+        }
+    },
+    "boundary": {
+        "description": "事件边界 & 提取",
+        "hint": "控制对话如何被切分为事件，以及事件提取策略与标签系统",
+        "type": "object",
+        "items": {
+            "persona_influenced_summary": {
+                "description": "根据当前性格记忆事件",
+                "type": "bool",
+                "hint": "开启后在提取事件摘要时注入 Bot 人格描述，使摘要带有 Bot 当前性格的视角",
+                "default": false
+            },
+            "extraction_strategy": {
+                "description": "事件划分策略",
+                "type": "string",
+                "options": [
+                    { "value": "llm", "label": "纯 LLM 划分 (默认)" },
+                    { "value": "semantic", "label": "Encoder 语义聚类 (高性能)" }
+                ],
+                "default": "llm",
+                "hint": "LLM 划分语义更精准但较慢；Semantic 聚类速度快且能处理话题交织。"
+            },
+            "semantic_clustering_eps": {
+                "description": "语义聚类敏感度 (Eps)",
+                "type": "float",
+                "default": 0.45,
+                "hint": "仅在 Semantic 策略下生效。数值越小，划分的话题越细。建议 0.4-0.6 之间。"
+            },
+            "semantic_clustering_min_samples": {
+                "description": "语义聚类最小消息数",
+                "type": "int",
+                "default": 2,
+                "hint": "仅在 Semantic 策略下生效。话题包含的最少消息数量，设为 2 可避免生成大量单条消息事件。"
+            },
+            "tag_normalization_threshold": {
+                "description": "标签归一化阈值",
+                "type": "float",
+                "default": 0.85,
+                "hint": "0-1 之间的向量相似度。提取标签时，若与现有标签相似度超过此值，则自动归并到现有标签下。"
+            },
+            "tag_seeds": {
+                "description": "标签种子词表（定义记忆抽象层级）",
+                "type": "string",
+                "default": "社交,日常,技术,知识,工作,娱乐,艺术,情感,资讯",
+                "hint": "用英文逗号分隔。这些词定义了系统记忆的宏观分类。LLM 会模仿这些词的抽象高度进行打标。"
+            },
+            "boundary_time_gap_minutes": {
+                "description": "事件边界：空闲时间阈值（分钟）",
+                "type": "int",
+                "hint": "消息间隔超过此值时自动关闭当前事件窗口，开始新事件",
+                "default": 30
+            },
+            "boundary_max_messages": {
+                "description": "事件边界：最大消息数（硬上限）",
+                "type": "int",
+                "hint": "单个事件窗口内消息数量达到上限时强制关闭，防止事件过大",
+                "default": 50
+            },
+            "boundary_max_duration_minutes": {
+                "description": "事件边界：最大持续时长（分钟）",
+                "type": "int",
+                "hint": "单个事件窗口超过此时长时强制关闭",
+                "default": 60
+            },
+            "boundary_topic_drift_enabled": {
+                "description": "启用话题漂移检测",
+                "type": "bool",
+                "hint": "开启后将通过向量余弦距离检测话题切换，动态关闭事件。计算开销较高，若感觉对话变卡建议关闭。",
+                "default": true
+            },
+            "boundary_topic_drift_threshold": {
+                "description": "事件边界：话题漂移阈值",
+                "type": "float",
+                "hint": "0–1 之间的余弦距离值，超过此值时触发话题切换检测（需启用向量检索）",
+                "default": 0.6
+            },
+            "boundary_topic_drift_min_messages": {
+                "description": "事件边界：漂移检测最小消息数",
+                "type": "int",
+                "hint": "单个事件窗口内消息数量达到此值后才开始进行话题漂移检测",
+                "default": 20
+            },
+            "boundary_topic_drift_interval": {
+                "description": "事件边界：话题漂移检测步进",
+                "type": "int",
+                "hint": "每隔多少条消息进行一次话题漂移检测。设为 1 则每条消息都检测，设为 5 则每 5 条检测一次。推荐 3-10。",
+                "default": 5
+            }
+        }
+    },
+    "relation": {
+        "description": "社会关系 & 周期任务",
+        "hint": "社交关系推断、人格档案合成及各类后台周期任务的开关与频率",
+        "type": "object",
+        "items": {
+            "relation_enabled": {
+                "description": "启用社会关系推断",
+                "type": "bool",
+                "hint": "禁用后仅保留情节记忆（Event Flow），不执行 Impression 推断和关系图构建",
+                "default": true
+            },
+            "persona_default_confidence": {
+                "description": "人格默认置信度",
+                "type": "float",
+                "hint": "新建人格时赋予的初始置信值（由模型推断后自动更新）",
+                "default": 0.5
+            },
+            "persona_isolation_enabled": {
+                "description": "启用人格视角隔离（Bot 在不同群有独立印象）",
+                "type": "bool",
+                "hint": "开启后 Impression 聚合仅取同一群组内的事件作为 evidence；关闭则混合所有群组事件",
+                "default": false
+            },
+            "impression_event_trigger_enabled": {
+                "description": "启用事件数量触发印象更新",
+                "type": "bool",
+                "hint": "每次事件关闭后，若参与者间共享事件数达到阈值则自动触发规则式印象更新（不消耗 LLM token）",
+                "default": true
+            },
+            "impression_event_trigger_threshold": {
+                "description": "印象触发所需最少共享事件数",
+                "type": "int",
+                "hint": "两人在同一 scope 内的共享事件数达到此值时才触发印象更新",
+                "default": 5
+            },
+            "impression_trigger_debounce_hours": {
+                "description": "印象触发防抖时间（小时）",
+                "type": "float",
+                "hint": "上次更新距今不足此时长则跳过本次触发，避免高频刷新",
+                "default": 1.0
+            },
+            "impression_update_alpha": {
+                "description": "印象更新平滑系数 (Alpha)",
+                "type": "float",
+                "hint": "数值越大则越快接受新印象，数值越小越倾向于维持旧印象。0.4 表示新信息占比 40%，旧记忆占比 60%。",
+                "default": 0.4
+            },
+            "decay_enabled": {
+                "description": "启用重要度衰减",
+                "type": "bool",
+                "hint": "开启后将定期衰减事件的重要度。禁用后记忆将不再随时间淡化。",
+                "default": true
+            },
+            "decay_interval_hours": {
+                "description": "重要度衰减任务间隔（小时）",
+                "type": "int",
+                "hint": "每隔多少小时对所有事件执行一次 salience 时间衰减，默认每天一次",
+                "default": 24
+            },
+            "persona_synthesis_enabled": {
+                "description": "启用人格档案合成",
+                "type": "bool",
+                "hint": "开启后将定期根据对话记录合成用户的人设档案（PROFILE.md）",
+                "default": true
+            },
+            "persona_synthesis_interval_hours": {
+                "description": "人设合成间隔（小时）",
+                "type": "int",
+                "hint": "每隔多少小时通过 LLM 合成一次用户人设档案（PROFILE.md），默认每周一次",
+                "default": 168
+            },
+            "markdown_projection_enabled": {
+                "description": "启用 Markdown 投影生成",
+                "type": "bool",
+                "hint": "开启后将数据库中的记忆投影为可读的 Markdown 文件。禁用后仍可使用 WebUI，但 data/ 目录下将不再生成 .md 文件。",
+                "default": true
+            },
+            "impression_aggregation_interval_hours": {
+                "description": "印象字段重算间隔（小时）",
+                "type": "int",
+                "hint": "每隔多少小时根据最新数据重算社交取向（IPC）衍生字段并对齐依据事件。纯算法执行，不消耗 LLM token。",
+                "default": 168
+            },
+            "file_watcher_poll_seconds": {
+                "description": "Markdown 文件监听轮询间隔（秒）",
+                "type": "int",
+                "hint": "检测用户编辑 IMPRESSIONS.md 的轮询频率，值越小响应越快但 I/O 开销越高",
+                "default": 30
+            },
+            "migration_auto_backup": {
+                "description": "迁移前自动备份数据库文件",
+                "type": "bool",
+                "hint": "插件启动时若检测到待执行迁移脚本，在运行前自动将数据库备份为 core.db.bak；关闭则跳过备份",
+                "default": true
+            }
+        }
     }
 }

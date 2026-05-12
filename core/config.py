@@ -290,7 +290,15 @@ class PluginConfig:
     """
 
     def __init__(self, raw: dict) -> None:
-        self._raw = raw
+        # AstrBot delivers nested dicts when _conf_schema.json uses "type": "object".
+        # Flatten one level so all existing flat-key accessors continue to work.
+        flat: dict = {}
+        for k, v in raw.items():
+            if isinstance(v, dict):
+                flat.update(v)
+            else:
+                flat[k] = v
+        self._raw = flat
 
     # ------------------------------------------------------------------
     # helpers

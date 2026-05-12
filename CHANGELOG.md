@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [v0.9.7] — 2026-05-12
+
+### 配置层级化 (Config Schema Hierarchy)
+
+- 重构 `_conf_schema.json`：将原有 64 个平铺字段按功能组织为 10 个嵌套 `object` 分组（`general` / `webui` / `embedding` / `retrieval` / `vcm` / `soul` / `cleanup` / `summaries` / `boundary` / `relation`），与 AstrBot 原生配置 UI 的分组渲染机制对齐，消除无层级的平铺列表。
+- 修改 `core/config.py` `PluginConfig.__init__`：在构造时对 AstrBot 传入的原始 dict 执行单层展平，将嵌套 group dict 合并到统一命名空间，所有现有平铺键名访问器（`_get` / `_int` / `_bool` 等）无需改动，同时保持对旧版平铺配置的向后兼容。
+
 ## [v0.9.6] — 2026-05-13
 
 ### 
