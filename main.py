@@ -14,7 +14,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from astrbot.api.event import filter
-from astrbot.api.star import StarTools, register
+from astrbot.api.star import Context, Star, StarTools, register
 
 from core.config import PluginConfig
 from core.domain.models import Event
@@ -27,7 +27,6 @@ from core.mixins.commands_mixin import CommandsMixin
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
     from astrbot.api.provider import ProviderRequest
-    from astrbot.api.star import Context, Star
 
 _PLUGIN_VERSION = get_plugin_version()
 
