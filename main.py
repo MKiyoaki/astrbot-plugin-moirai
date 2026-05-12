@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Add the plugin's root directory to sys.path to ensure 'core' can be imported
+# when the plugin is loaded by AstrBot in various environments.
+_ROOT_DIR = Path(__file__).parent
+if str(_ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(_ROOT_DIR))
+
 import time
 import uuid
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from astrbot.api.event import filter
