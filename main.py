@@ -1,4 +1,13 @@
 from __future__ import annotations
+import sys
+from pathlib import Path
+
+# Must be first: add plugin root to sys.path before any local imports so
+# AstrBot can resolve 'core' regardless of its working directory.
+_ROOT_DIR = Path(__file__).parent
+if str(_ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(_ROOT_DIR))
+
 from core.utils.formatter import format_events_for_prompt
 from core.utils.version import get_plugin_version
 from core.plugin_initializer import PluginInitializer
@@ -10,15 +19,6 @@ from astrbot.api.event import filter
 from typing import TYPE_CHECKING
 import uuid
 import time
-
-import sys
-from pathlib import Path
-
-# Add the plugin's root directory to sys.path to ensure 'core' can be imported
-# when the plugin is loaded by AstrBot in various environments.
-_ROOT_DIR = Path(__file__).parent
-if str(_ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(_ROOT_DIR))
 
 
 if TYPE_CHECKING:

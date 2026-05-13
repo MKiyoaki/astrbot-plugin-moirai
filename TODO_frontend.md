@@ -121,7 +121,7 @@ ls pages/moirai/_next/static/chunks/ | wc -l   # 应与 out/ 中数量一致
 | 4 | `web/server.py` (路由) | 高 | 完成 |
 | 5 | `web/frontend/lib/api.ts` | 中 | 完成 |
 | 6 | `run_webui_dev.py` (打印信息) | 低 | 完成 |
-| 7 | AstrBot Plugin Pages — 独立服务器模式确认 | 参考 | 本文档 |
+| 7 | AstrBot Plugin Pages — 独立服务器模式确认 | 参考 | 完成 |
 
 **最终部署架构**：独立 aiohttp 服务器（默认 2655 端口）托管 React SPA + API，
 用户直接访问该端口，与 AstrBot dashboard 完全解耦。
