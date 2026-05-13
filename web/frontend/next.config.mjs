@@ -4,7 +4,7 @@ const isDev = process.env.NODE_ENV === 'development'
 const nextConfig = {
   // In production builds (next build), export static files to output/.
   // In dev mode (next dev), skip static-export so rewrites & HMR work normally.
-  ...(isDev ? {} : { output: 'export', distDir: '../../pages/moirai' }),
+  ...(isDev ? {} : { output: 'export', distDir: 'out' }),
 
   images: {
     unoptimized: true,

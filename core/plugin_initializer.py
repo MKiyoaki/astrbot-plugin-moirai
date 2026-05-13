@@ -390,9 +390,24 @@ class PluginInitializer:
             _PLUGIN_NAME,
         )
         try:
+            import shutil
             subprocess.run("npm install", cwd=frontend_src, shell=True, check=True)
             subprocess.run("npm run build", cwd=frontend_src, shell=True, check=True)
-            astrbot_logger.info("[%s] Frontend build complete — pages/moirai/ is ready.", _PLUGIN_NAME)
+            
+            # Move out/ to pages/moirai/
+            build_out = frontend_src / "out"
+            if build_out.exists():
+                if pages_index.parent.exists():
+                    shutil.rmtree(pages_index.parent)
+                pages_index.parent.mkdir(parents=True, exist_ok=True)
+                for item in build_out.iterdir():
+                    if item.is_dir():
+                        shutil.copytree(item, pages_index.parent / item.name, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(item, pages_index.parent / item.name)
+                astrbot_logger.info("[%s] Frontend build complete — pages/moirai/ is ready.", _PLUGIN_NAME)
+            else:
+                astrbot_logger.warning("[%s] Frontend build finished but 'out' directory not found.", _PLUGIN_NAME)
         except Exception as exc:
             astrbot_logger.warning(
                 "[%s] Frontend auto-build failed (%s). WebUI panel may be blank.", _PLUGIN_NAME, exc

@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [v0.9.9] — 2026-05-13
+
+### 紧急修复：移除无效的页面注册调用
+
+- 修复了加载插件时出现的 `'MoiraiPlugin' object has no attribute 'register_page'` 错误。
+- 遵循 AstrBot 的约定优于配置原则，移除 `main.py` 中冗余的显式页面注册。现在 AstrBot 会通过插件目录下的 `pages/` 结构自动识别并注册 WebUI 页面。
+
 ## [v0.9.8] — 2026-05-13
 
 ### WebUI 深度集成与双端口架构
@@ -18,10 +25,3 @@
 **其他修复与优化**
 - 修正 `web/server.py` 中的静态资源路径，确保独立服务器与官方页面共用同一套构建产物。
 - 完善 `PluginInitializer` 的生命周期管理，确保插件卸载时正确关闭 WebUI 服务。
-
-## [v0.9.7] — 2026-05-12
-
-### 配置层级化 (Config Schema Hierarchy)
-
-- 重构 `_conf_schema.json`：将原有 64 个平铺字段按功能组织为 10 个嵌套 `object` 分组（`general` / `webui` / `embedding` / `retrieval` / `vcm` / `soul` / `cleanup` / `summaries` / `boundary` / `relation`），与 AstrBot 原生配置 UI 的分组渲染机制对齐，消除无层级的平铺列表。
-- 修改 `core/config.py` `PluginConfig.__init__`：在构造时对 AstrBot 传入的原始 dict 执行单层展平，将嵌套 group dict 合并到统一命名空间，所有现有平铺键名访问器（`_get` / `_int` / `_bool` 等）无需改动，同时保持对旧版平铺配置的向后兼容。
