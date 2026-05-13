@@ -1,89 +1,16 @@
 export type ApiError = { status: number; body: string }
 
-type BridgeContext = { pluginName?: string; displayName?: string }
-type BridgeParams = Record<string, string>
-type Bridge = {
-  ready?: () => Promise<BridgeContext>
-  getContext?: () => BridgeContext | undefined
-  apiGet?: <T>(path: string, params?: BridgeParams) => Promise<T>
-  apiPost?: <T>(path: string, body?: unknown) => Promise<T>
-}
-
-declare global {
-  interface Window {
-    AstrBotPluginPage?: Bridge
+function _getApiUrl(url: string) {
+  if (typeof window === 'undefined') return url;
+  // If we are in AstrBot Plugin Pages, the pathname contains this specific prefix
+  if (window.location.pathname.includes('/api/pages/astrbot_plugin_moirai/moirai')) {
+    return `/api/plug/moirai${url}`;
   }
-}
-
-// When running inside AstrBot iframe, /api/X → /api/plug/moirai/X
-function _bridge() {
-  return typeof window !== 'undefined' ? window.AstrBotPluginPage : undefined
-}
-
-let bridgeReady: Promise<void> | null = null
-
-async function _readyBridge(bridge: Bridge) {
-  if (!bridge.ready) return
-  bridgeReady ??= bridge.ready().then(() => undefined).catch(() => undefined)
-  await bridgeReady
-}
-
-function _parsePluginEndpoint(url: string) {
-  const normalized = url.replace(/^\/api\//, '')
-  const [endpoint, query = ''] = normalized.split('?')
-  const params = Object.fromEntries(new URLSearchParams(query).entries())
-  return { endpoint: endpoint.replace(/^\/+|\/+$/g, ''), params }
-}
-
-function _methodAlias(endpoint: string, method: string) {
-  if (method === 'PUT') return `${endpoint}/update`
-  if (method === 'DELETE') return `${endpoint}/delete`
-  return endpoint
-}
-
-function _jsonBody(body: BodyInit | null | undefined) {
-  if (typeof body !== 'string') return body
-  try {
-    return JSON.parse(body)
-  } catch {
-    return body
-  }
-}
-
-function _isPluginPageFallback() {
-  if (typeof window === 'undefined') return false
-  if (window.AstrBotPluginPage) return true
-  try {
-    if (window.self !== window.top) return true
-  } catch {
-    return true
-  }
-  // pathname check intentionally removed — self-hosted server now also serves
-  // from /plug/moirai/ and must NOT rewrite API URLs to /api/plug/moirai/*.
-  return false
-}
-
-function _pluginFetchUrl(url: string) {
-  if (!_isPluginPageFallback()) return url
-  const { endpoint, params } = _parsePluginEndpoint(url)
-  const qs = new URLSearchParams(params).toString()
-  return `/api/plug/moirai/${endpoint}${qs ? `?${qs}` : ''}`
+  return url;
 }
 
 async function request<T>(url: string, opts: RequestInit = {}): Promise<T> {
-  const method = (opts.method ?? 'GET').toUpperCase()
-  const bridge = _bridge()
-
-  if (bridge && bridge.apiGet && bridge.apiPost) {
-    await _readyBridge(bridge)
-    const { endpoint, params } = _parsePluginEndpoint(url)
-    if (method === 'GET') {
-      return bridge.apiGet<T>(endpoint, params)
-    }
-    return bridge.apiPost<T>(_methodAlias(endpoint, method), _jsonBody(opts.body))
-  }
-
-  const res = await fetch(_pluginFetchUrl(url), {
+  const res = await fetch(_getApiUrl(url), {
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...opts.headers },
     ...opts,

@@ -144,25 +144,11 @@ class WebuiServer:
         self._initial_config = initial_config or {}
         self._relation_enabled = bool(self._initial_config.get("relation_enabled", True))
         self._recycle_bin: list[dict] = []
-        self._base_path = "/api/pages/astrbot_plugin_moirai/moirai"
         self._app = self._build_app()
         self._runner: web.AppRunner | None = None
 
-    def _ensure_frontend_build(self) -> None:
-        frontend_src = Path(__file__).parent / "frontend"
-        if _STATIC_DIR.exists() and any(_STATIC_DIR.iterdir()):
-            return
-        if (frontend_src / "package.json").exists():
-            try:
-                subprocess.run("npm install", cwd=frontend_src, shell=True, check=True)
-                subprocess.run("npm run build", cwd=frontend_src, shell=True, check=True)
-            except Exception as e:
-                logger.error("[WebUI] Build failed: %s", e)
-
     def _build_app(self) -> web.Application:
-        print(f"[DEBUG] Building app with base_path: {self._base_path}")
         app = web.Application()
-        app.router.add_get("/", lambda r: web.HTTPFound(self._base_path + "/"))
         
         # API Routes
         app.router.add_get("/api/auth/status", self._wrap("public", self._handle_auth_status))
@@ -204,33 +190,29 @@ class WebuiServer:
         for route in self.registry.all_routes():
             app.router.add_route(route.method, route.path, self._wrap(route.permission, route.handler))
 
-        # SPA Catch-all (NO add_static to avoid 403 on directories)
-        # Use explicit routes for base path to ensure aiohttp doesn't miss them
-        app.router.add_get(self._base_path, self._handle_spa_fallback)
-        app.router.add_get(self._base_path + "/", self._handle_spa_fallback)
-        app.router.add_get(self._base_path + "/{tail:.*}", self._handle_spa_fallback)
+        # SPA Catch-all
+        app.router.add_get("/", self._handle_spa_fallback)
+        app.router.add_get("/{tail:.*}", self._handle_spa_fallback)
         return app
 
     async def _handle_spa_fallback(self, request: web.Request) -> web.Response:
         tail = request.match_info.get("tail", "").strip("/")
-        
-        # If accessing the base path directly (with or without slash), tail is empty
         filename = tail if tail else "index.html"
         target_file = _STATIC_DIR / filename
 
-        # 1. Direct file
+        # 1. 直接文件（JS/CSS/fonts/favicon 等）
         if target_file.is_file():
             return web.FileResponse(target_file)
-        
-        # 2. Directory -> index.html (Next.js trailingSlash: true)
+
+        # 2. 目录 → index.html（Next.js trailingSlash: true 生成的结构）
         if (target_file / "index.html").is_file():
             return web.FileResponse(target_file / "index.html")
 
-        # 3. Next.js export extension-less: /login -> login.html
+        # 3. 扩展名省略：/events → events.html（兼容 trailingSlash 关闭时）
         if (_STATIC_DIR / f"{filename}.html").is_file():
             return web.FileResponse(_STATIC_DIR / f"{filename}.html")
 
-        # 4. Final SPA Fallback
+        # 4. SPA fallback：所有未匹配路径返回 index.html（前端路由接管）
         index_file = _STATIC_DIR / "index.html"
         if index_file.is_file():
             return web.FileResponse(index_file)
@@ -244,7 +226,6 @@ class WebuiServer:
 
     async def start(self) -> None:
         if self._runner: return
-        self._ensure_frontend_build()
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, "0.0.0.0", self._port)
@@ -535,25 +516,48 @@ class WebuiServer:
         return _json({"tags": [{"name": k, "count": v} for k, v in sorted(counts.items(), key=lambda x: -x[1])]})
 
     async def _handle_get_config(self, _: web.Request) -> web.Response:
-        schema = json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {}
-        values = {k: v.get("default") for k, v in schema.items()}; values.update(self._initial_config)
-        if self._config_path.exists(): values.update(json.loads(self._config_path.read_text(encoding="utf-8")))
-        return _json({"schema": schema, "values": values})
+        raw = json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {}
+        
+        # Merge each group into one flat dict
+        flat_schema: dict = {}
+        for group_data in raw.values():
+            if isinstance(group_data, dict) and group_data.get("type") == "object":
+                flat_schema.update(group_data.get("items", {}))
+
+        # Construct values from flat_schema default
+        values: dict = {k: v.get("default") for k, v in flat_schema.items()}
+        values.update(self._initial_config)
+        if self._config_path.exists():
+            values.update(json.loads(self._config_path.read_text(encoding="utf-8")))
+        
+        return _json({"schema": flat_schema, "values": values})
 
     async def _handle_get_config_schema(self, _: web.Request) -> web.Response:
         return _json(json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {})
 
     async def _handle_update_config(self, request: web.Request) -> web.Response:
-        body = await request.json(); schema = json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {}
+        body = await request.json()
+        raw = json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {}
+        
+        # 构建 flat schema 用于类型校验
+        flat_schema: dict = {}
+        for group_data in raw.values():
+            if isinstance(group_data, dict) and group_data.get("type") == "object":
+                flat_schema.update(group_data.get("items", {}))
+        
         coerced = {}
         for k, v in body.items():
-            if k not in schema: continue
+            if k not in flat_schema:
+                continue
             try:
-                t = schema[k].get("type", "string")
+                t = flat_schema[k].get("type", "string")
                 coerced[k] = bool(v) if t == "bool" else (int(v) if t == "int" else (float(v) if t == "float" else v))
-            except: coerced[k] = v
+            except:
+                coerced[k] = v
+        
         existing = json.loads(self._config_path.read_text(encoding="utf-8")) if self._config_path.exists() else {}
-        existing.update(coerced); self._config_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+        existing.update(coerced)
+        self._config_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
         return _json({"ok": True, "saved": list(coerced.keys())})
 
     async def _handle_get_providers(self, _: web.Request) -> web.Response:

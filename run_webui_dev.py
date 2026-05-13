@@ -31,7 +31,6 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from core.utils.version import get_plugin_version
-from core.utils.frontend_build import build_frontend
 from web.server import WebuiServer, _DEMO_SUMMARY_1, _DEMO_SUMMARY_2
 from core.domain.models import Event, Impression, Persona, MessageRef
 from core.repository.memory import (
@@ -288,10 +287,6 @@ async def main() -> None:
     data_dir = _DATA_DIR
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    if not build_frontend(force=True):
-        print("  ⚠ 前端构建失败，请检查 Node.js 环境后重试。")
-        return
-
     persona_repo    = InMemoryPersonaRepository()
     event_repo      = InMemoryEventRepository()
     impression_repo = InMemoryImpressionRepository()
@@ -309,8 +304,9 @@ async def main() -> None:
     )
     await srv.start()
 
-    print(f"\n  Enhanced Memory — 调试界面已启动")
-    print(f"  http://localhost:{port}/?token=dev")
+    print(f"\n  Enhanced Memory — 后端已启动（仅 API，无静态文件）")
+    print(f"  API:     http://localhost:{port}/api/stats")
+    print(f"  前端开发: cd web/frontend && npm run dev → http://localhost:3000")
     print(f"  数据目录: {data_dir}")
     print(f"  认证: 已关闭（本地调试模式）")
 

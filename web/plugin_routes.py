@@ -187,64 +187,64 @@ class PluginRoutes:
 
         routes: list[tuple[str, Any, list[str], str]] = [
             # Stats / soul
-            (f"/{p}/stats",                    self._handle_stats,                   ["GET"],         "Plugin stats"),
-            (f"/{p}/soul/states",              self._handle_soul_states,             ["GET"],         "Soul/recall states"),
+            (f"/api/stats",                    self._handle_stats,                   ["GET"],         "Plugin stats"),
+            (f"/api/soul/states",              self._handle_soul_states,             ["GET"],         "Soul/recall states"),
             # Events
-            (f"/{p}/events",                   self._handle_events,                  ["GET"],         "List events"),
-            (f"/{p}/events",                   self._handle_create_event,            ["POST"],        "Create event"),
-            (f"/{p}/events/{{event_id}}",      self._handle_update_event,            ["PUT"],         "Update event"),
-            (f"/{p}/events/{{event_id}}/update", self._handle_update_event,          ["POST"],        "Update event"),
-            (f"/{p}/events/{{event_id}}",      self._handle_delete_event,            ["DELETE"],      "Delete event"),
-            (f"/{p}/events/{{event_id}}/delete", self._handle_delete_event,          ["POST"],        "Delete event"),
-            (f"/{p}/events",                   self._handle_clear_events,            ["DELETE"],      "Clear all events"),
-            (f"/{p}/events/delete",            self._handle_clear_events,            ["POST"],        "Clear all events"),
+            (f"/api/events",                   self._handle_events,                  ["GET"],         "List events"),
+            (f"/api/events",                   self._handle_create_event,            ["POST"],        "Create event"),
+            (f"/api/events/{{event_id}}",      self._handle_update_event,            ["PUT"],         "Update event"),
+            (f"/api/events/{{event_id}}/update", self._handle_update_event,          ["POST"],        "Update event"),
+            (f"/api/events/{{event_id}}",      self._handle_delete_event,            ["DELETE"],      "Delete event"),
+            (f"/api/events/{{event_id}}/delete", self._handle_delete_event,          ["POST"],        "Delete event"),
+            (f"/api/events",                   self._handle_clear_events,            ["DELETE"],      "Clear all events"),
+            (f"/api/events/delete",            self._handle_clear_events,            ["POST"],        "Clear all events"),
             # Graph
-            (f"/{p}/graph",                    self._handle_graph_guarded,           ["GET"],         "Relation graph"),
+            (f"/api/graph",                    self._handle_graph_guarded,           ["GET"],         "Relation graph"),
             # Summaries
-            (f"/{p}/summaries",                self._handle_summaries,               ["GET"],         "List summaries"),
-            (f"/{p}/summary",                  self._handle_summary,                 ["GET"],         "Get summary content"),
-            (f"/{p}/summary",                  self._handle_update_summary,          ["PUT"],         "Update summary"),
-            (f"/{p}/summary/update",           self._handle_update_summary,          ["POST"],        "Update summary"),
-            (f"/{p}/summary/regenerate",       self._handle_regenerate_summary,      ["POST"],        "Regenerate summary"),
+            (f"/api/summaries",                self._handle_summaries,               ["GET"],         "List summaries"),
+            (f"/api/summary",                  self._handle_summary,                 ["GET"],         "Get summary content"),
+            (f"/api/summary",                  self._handle_update_summary,          ["PUT"],         "Update summary"),
+            (f"/api/summary/update",           self._handle_update_summary,          ["POST"],        "Update summary"),
+            (f"/api/summary/regenerate",       self._handle_regenerate_summary,      ["POST"],        "Regenerate summary"),
             # Recall
-            (f"/{p}/recall",                   self._handle_recall,                  ["GET"],         "Memory recall"),
+            (f"/api/recall",                   self._handle_recall,                  ["GET"],         "Memory recall"),
             # Tags
-            (f"/{p}/tags",                     self._handle_tags,                    ["GET"],         "List tags"),
+            (f"/api/tags",                     self._handle_tags,                    ["GET"],         "List tags"),
             # Personas
-            (f"/{p}/personas",                 self._handle_create_persona,          ["POST"],        "Create persona"),
-            (f"/{p}/personas/{{uid}}",         self._handle_update_persona,          ["PUT"],         "Update persona"),
-            (f"/{p}/personas/{{uid}}/update",  self._handle_update_persona,          ["POST"],        "Update persona"),
-            (f"/{p}/personas/{{uid}}",         self._handle_delete_persona,          ["DELETE"],      "Delete persona"),
-            (f"/{p}/personas/{{uid}}/delete",  self._handle_delete_persona,          ["POST"],        "Delete persona"),
+            (f"/api/personas",                 self._handle_create_persona,          ["POST"],        "Create persona"),
+            (f"/api/personas/{{uid}}",         self._handle_update_persona,          ["PUT"],         "Update persona"),
+            (f"/api/personas/{{uid}}/update",  self._handle_update_persona,          ["POST"],        "Update persona"),
+            (f"/api/personas/{{uid}}",         self._handle_delete_persona,          ["DELETE"],      "Delete persona"),
+            (f"/api/personas/{{uid}}/delete",  self._handle_delete_persona,          ["POST"],        "Delete persona"),
             # Impressions
             (
-                f"/{p}/impressions/{{observer}}/{{subject}}/{{scope}}",
+                f"/api/impressions/{{observer}}/{{subject}}/{{scope}}",
                 self._handle_update_impression_guarded,
                 ["PUT"],
                 "Update impression",
             ),
             (
-                f"/{p}/impressions/{{observer}}/{{subject}}/{{scope}}/update",
+                f"/api/impressions/{{observer}}/{{subject}}/{{scope}}/update",
                 self._handle_update_impression_guarded,
                 ["POST"],
                 "Update impression",
             ),
             # Recycle bin
-            (f"/{p}/recycle_bin",              self._handle_recycle_bin_list,        ["GET"],         "Recycle bin list"),
-            (f"/{p}/recycle_bin/restore",      self._handle_recycle_bin_restore,     ["POST"],        "Restore from recycle bin"),
-            (f"/{p}/recycle_bin",              self._handle_recycle_bin_clear,       ["DELETE"],      "Clear recycle bin"),
-            (f"/{p}/recycle_bin/delete",       self._handle_recycle_bin_clear,       ["POST"],        "Clear recycle bin"),
+            (f"/api/recycle_bin",              self._handle_recycle_bin_list,        ["GET"],         "Recycle bin list"),
+            (f"/api/recycle_bin/restore",      self._handle_recycle_bin_restore,     ["POST"],        "Restore from recycle bin"),
+            (f"/api/recycle_bin",              self._handle_recycle_bin_clear,       ["DELETE"],      "Clear recycle bin"),
+            (f"/api/recycle_bin/delete",       self._handle_recycle_bin_clear,       ["POST"],        "Clear recycle bin"),
             # Config
-            (f"/{p}/config",                   self._handle_get_config,              ["GET"],         "Get config"),
-            (f"/{p}/config",                   self._handle_update_config,           ["PUT"],         "Update config"),
-            (f"/{p}/config/update",            self._handle_update_config,           ["POST"],        "Update config"),
-            (f"/{p}/config/schema",            self._handle_get_config_schema,       ["GET"],         "Config schema"),
-            (f"/{p}/config/providers",         self._handle_get_providers,           ["GET"],         "Available providers"),
+            (f"/api/config",                   self._handle_get_config,              ["GET"],         "Get config"),
+            (f"/api/config",                   self._handle_update_config,           ["PUT"],         "Update config"),
+            (f"/api/config/update",            self._handle_update_config,           ["POST"],        "Update config"),
+            (f"/api/config/schema",            self._handle_get_config_schema,       ["GET"],         "Config schema"),
+            (f"/api/config/providers",         self._handle_get_providers,           ["GET"],         "Available providers"),
             # Admin
-            (f"/{p}/admin/run_task",           self._handle_run_task,                ["POST"],        "Run scheduled task"),
-            (f"/{p}/admin/demo",               self._handle_demo,                    ["POST"],        "Seed demo data"),
+            (f"/api/admin/run_task",           self._handle_run_task,                ["POST"],        "Run scheduled task"),
+            (f"/api/admin/demo",               self._handle_demo,                    ["POST"],        "Seed demo data"),
             # Panels (PanelRegistry)
-            (f"/{p}/panels",                   self._handle_panels_list,             ["GET"],         "Third-party panel list"),
+            (f"/api/panels",                   self._handle_panels_list,             ["GET"],         "Third-party panel list"),
         ]
 
         for route_path, handler, methods, description in routes:
@@ -730,8 +730,14 @@ class PluginRoutes:
             return {}
 
     def _read_config(self) -> dict:
-        schema = self._load_conf_schema()
-        merged: dict = {k: v.get("default") for k, v in schema.items()}
+        raw = self._load_conf_schema()
+        # 展平：把每个 group 的 items 合并到一个 flat dict
+        flat_schema: dict = {}
+        for group_data in raw.values():
+            if isinstance(group_data, dict) and group_data.get("type") == "object":
+                flat_schema.update(group_data.get("items", {}))
+
+        merged: dict = {k: v.get("default") for k, v in flat_schema.items()}
         merged.update(self._initial_config)
         if self._config_path.exists():
             try:
@@ -742,21 +748,38 @@ class PluginRoutes:
         return merged
 
     async def _handle_get_config(self, request: web.Request) -> web.Response:
-        schema = self._load_conf_schema()
+        raw = self._load_conf_schema()
+        # 展平
+        flat_schema: dict = {}
+        for group_data in raw.values():
+            if isinstance(group_data, dict) and group_data.get("type") == "object":
+                flat_schema.update(group_data.get("items", {}))
+        
         values = self._read_config()
-        return _json({"schema": schema, "values": values})
+        return _json({"schema": flat_schema, "values": values})
 
     async def _handle_get_config_schema(self, request: web.Request) -> web.Response:
-        return _json(self._load_conf_schema())
+        raw = self._load_conf_schema()
+        flat_schema: dict = {}
+        for group_data in raw.values():
+            if isinstance(group_data, dict) and group_data.get("type") == "object":
+                flat_schema.update(group_data.get("items", {}))
+        return _json(flat_schema)
 
     async def _handle_update_config(self, request: web.Request) -> web.Response:
         body = await _request_json(request)
-        schema = self._load_conf_schema()
+        raw = self._load_conf_schema()
+        # 构建 flat schema 用于类型校验
+        flat_schema: dict = {}
+        for group_data in raw.values():
+            if isinstance(group_data, dict) and group_data.get("type") == "object":
+                flat_schema.update(group_data.get("items", {}))
+
         coerced: dict = {}
         for key, val in body.items():
-            if key not in schema:
+            if key not in flat_schema:
                 continue
-            field_type = schema[key].get("type", "string")
+            field_type = flat_schema[key].get("type", "string")
             try:
                 if field_type == "bool":
                     coerced[key] = bool(val)

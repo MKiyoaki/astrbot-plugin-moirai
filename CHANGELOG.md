@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [v0.9.14] — 2026-05-14
+
+### 前端开发与部署架构深度优化
+
+- **开发效率提升**：移除 `run_webui_dev.py` 启动时的强制构建逻辑，后端启动耗时从 30s+ 降低至 < 1s。支持 `npm run dev` 双终端开发工作流，完整支持 HMR 与 DevTools。
+- **配置页面修复**：在后端对 `_conf_schema.json` 进行扁平化（Flatten）处理，解决 WebUI 配置页面因 Schema 格式不匹配导致的 loading 卡死问题。
+- **移除 basePath 依赖**：移除 Next.js `basePath` 配置，回归标准根路径托管。彻底废弃复杂的 HTML 路径重写循环，生产构建产物 `out/` 可直接部署。
+- **静态托管路由优化**：`web/server.py` 改为根路径 catch-all 托管，通过增强的 SPA Fallback 机制完美支持 Next.js 静态导出的 `trailingSlash` 及无后缀 URL。
+- **API 客户端精简**：废弃 `web/frontend/lib/api.ts` 中冗余的 Bridge 兼容与路径改写逻辑，回归标准 Fetch 请求。
+- **AstrBot 模式自适应**：前端 API 客户端新增智能路径探测，在 AstrBot 内嵌模式下自动补全 `/api/plug/moirai` 前缀，实现一套代码兼容独立端口与 AstrBot 插件页。
+- **清理过期脚本**：删除已废弃的 `copy-export.mjs` 等后处理脚本，代码库复杂度显著降低。
+
+## [v0.9.13] — 2026-05-13
+
+### WebUI 静态导出架构路径热修
+
 ## [v0.9.12] — 2026-05-13
 
 ### WebUI 静态导出架构重构（彻底移除 copy-export.mjs）
