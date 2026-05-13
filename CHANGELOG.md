@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [v0.9.9] — 2026-05-13
+
+### 紧急修复：移除无效的页面注册调用
+
+- 修复了加载插件时出现的 `'MoiraiPlugin' object has no attribute 'register_page'` 错误。
+- 遵循 AstrBot 的约定优于配置原则，移除 `main.py` 中冗余的显式页面注册。现在 AstrBot 会通过插件目录下的 `pages/` 结构自动识别并注册 WebUI 页面。
+
 ## [v0.9.8] — 2026-05-13
 
 ### WebUI 双端口架构 + `/mrm webui on` 修复
