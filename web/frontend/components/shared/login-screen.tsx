@@ -1,81 +1,15 @@
 'use client'
 
-import { useState } from 'react'
-import { BookOpen } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
-import { useApp } from '@/lib/store'
-import * as api from '@/lib/api'
+import { useEffect } from 'react'
 
 interface LoginScreenProps {
   onSuccess: () => void
 }
 
 export function LoginScreen({ onSuccess }: LoginScreenProps) {
-  const app = useApp()
-  const { i18n } = app
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  useEffect(() => {
+    onSuccess()
+  }, [onSuccess])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-    try {
-      await api.auth.login(password)
-      await app.refreshAuth()
-      await app.refreshStats()
-      onSuccess()
-    } catch (e: unknown) {
-      const err = e as api.ApiError
-      setError(err.body || i18n.common.error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div className="bg-background flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <div className="mb-2 flex justify-center">
-            <div className="bg-primary text-primary-foreground flex size-12 items-center justify-center rounded-xl">
-              <BookOpen className="size-6" />
-            </div>
-          </div>
-          <CardTitle className="text-xl">
-            {i18n.auth.loginTitle}
-          </CardTitle>
-          <CardDescription>
-            {i18n.auth.subtitle}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="password">
-                {i18n.auth.password}
-              </Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder={i18n.auth.password}
-                autoComplete="current-password"
-                autoFocus
-              />
-            </div>
-            {error && <p className="text-destructive text-sm">{error}</p>}
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? i18n.common.loading : i18n.auth.login}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
-  )
+  return null
 }

@@ -528,7 +528,7 @@ class PluginConfig:
 
     @property
     def webui_port(self) -> int:
-        return self._int("webui_port", 2653)
+        return self._int("webui_port", 2655)
 
     @property
     def webui_auth_enabled(self) -> bool:

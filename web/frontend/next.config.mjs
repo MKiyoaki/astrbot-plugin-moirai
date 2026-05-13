@@ -2,7 +2,8 @@
 const isDev = process.env.NODE_ENV === 'development'
 
 const nextConfig = {
-  // In production builds (next build), export static files to output/.
+  // In production builds, export static files to out/. The build script then
+  // copies out/ to ../../pages/moirai/ for AstrBot Plugin Pages.
   // In dev mode (next dev), skip static-export so rewrites & HMR work normally.
   ...(isDev ? {} : { output: 'export', distDir: 'out' }),
 

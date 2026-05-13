@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [v.0.9.10] - 2026-05-13
+
+### WebUI 端口与 AstrBot Plugin Pages 修复
+
+- 修复 `/mrm webui on` 在官方页面开关关闭或页面构建缺失时返回“WebUI 模块未加载”的问题：独立 aiohttp `WebuiServer` 现在与 AstrBot Plugin Pages 注册解耦，始终会接入 `CommandManager`，命令可真实启动/停止独立端口。
+- 将 `PluginConfig.webui_port` 的代码默认值修正为 `2655`，与 `_conf_schema.json`、README 和 `WebuiServer` 默认端口保持一致。
+- 新增前端构建同步脚本 `web/frontend/scripts/copy-export.mjs`，`npm run build` 会把 Next 静态导出复制到 `pages/moirai/`，确保 AstrBot Dashboard 可直接识别 WebUI 页面。
+- 重新生成并补齐 `pages/moirai/` 静态页面产物，官方 Dashboard 页面入口与独立端口服务现在共用同一份前端资源。
+- 清理遗留的前端登录组件对已移除 `api.auth` 的引用，修复生产构建类型检查失败。
+
 ## [v0.9.9] — 2026-05-13
 
 ### 紧急修复：移除无效的页面注册调用

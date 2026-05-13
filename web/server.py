@@ -179,6 +179,7 @@ class WebuiServer:
         self._impression_repo = impression_repo
         self._recall_manager = recall_manager
         self._data_dir = data_dir
+        self._host = "localhost"
         self._port = port
         self._auth_enabled = auth_enabled
 

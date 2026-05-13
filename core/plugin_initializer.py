@@ -83,6 +83,7 @@ class PluginInitializer:
         self.persona_repo = None
         self.resolver = None
         self.command_manager = None
+        self.plugin_routes = None
 
     async def initialize(self) -> None:
         cfg = self._cfg
@@ -309,10 +310,10 @@ class PluginInitializer:
         else:
             astrbot_logger.info("[%s] WebUI disabled by config", _PLUGIN_NAME)
 
-        # Standalone aiohttp server: always constructed when webui_enabled so that
-        # `/mrm webui on/off` works. Auto-started only when webui_standalone_debug=True.
+        # Standalone aiohttp server: keep this independent from AstrBot Plugin
+        # Pages so `/mrm webui on/off` can still manage the direct port.
         self.webui = None
-        if cfg.webui_enabled:
+        try:
             from web.server import WebuiServer
             self.webui = WebuiServer(
                 persona_repo=persona_repo,
@@ -328,7 +329,10 @@ class PluginInitializer:
                 all_providers_getter=self._context.get_all_providers,
                 recall_manager=self.recall,
             )
-            # Standalone server is now started by default if enabled
+        except Exception as e:
+            astrbot_logger.warning("[%s] Failed to construct standalone WebUI server: %s", _PLUGIN_NAME, e)
+
+        if cfg.webui_enabled and self.webui is not None:
             try:
                 await self.webui.start()
             except Exception as e:
