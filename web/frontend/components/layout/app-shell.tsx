@@ -5,6 +5,7 @@ import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from './app-sidebar'
 import { Toaster } from '@/components/shared/toaster'
 import { useApp } from '@/lib/store'
+import { getStored } from '@/lib/safe-storage'
 
 const SHADCN_THEMES = [
   'zinc',
@@ -15,7 +16,7 @@ function Shell({ children }: { children: ReactNode }) {
   const app = useApp()
 
   useEffect(() => {
-    const scheme = localStorage.getItem('em_color_scheme') || 'zinc'
+    const scheme = getStored('em_color_scheme', 'zinc') || 'zinc'
     const root = document.documentElement
 
     root.classList.remove(...SHADCN_THEMES.map(t => `theme-${t}`))

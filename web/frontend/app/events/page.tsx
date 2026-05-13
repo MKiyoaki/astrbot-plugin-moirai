@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/popover'
 import { RefreshButton } from '@/components/shared/refresh-button'
 import { useApp } from '@/lib/store'
+import { getStored, removeStored } from '@/lib/safe-storage'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -89,18 +90,18 @@ export default function EventsPage() {
 
   useEffect(() => {
     if (app.rawEvents.length > 0 && !hasHandledFocusRef.current) {
-      const focusId = sessionStorage.getItem('em_focus_event')
-      const highlightRaw = sessionStorage.getItem('em_highlight_events')
+      const focusId = getStored('em_focus_event', null, 'session')
+      const highlightRaw = getStored('em_highlight_events', null, 'session')
       
       setTimeout(() => {
         if (focusId) {
-          sessionStorage.removeItem('em_focus_event')
+          removeStored('em_focus_event', 'session')
           setHighlightIds(new Set([focusId]))
           const ev = app.rawEvents.find(e => e.id === focusId)
           if (ev) setDetailEvent(ev)
         }
         if (highlightRaw) {
-          sessionStorage.removeItem('em_highlight_events')
+          removeStored('em_highlight_events', 'session')
           try { setHighlightIds(new Set(JSON.parse(highlightRaw))) } catch {}
         }
       }, 0)

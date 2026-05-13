@@ -68,14 +68,6 @@ def _load_local_web_attr(module_name: str, attr_name: str):
     root = Path(__file__).parent.parent
     local_web_dir = root / "web"
 
-    try:
-        module = importlib.import_module(f"web.{module_name}")
-        module_file = Path(getattr(module, "__file__", "")).resolve()
-        module_file.relative_to(root.resolve())
-        return getattr(module, attr_name)
-    except Exception:
-        pass
-
     package_name = "_moirai_local_web"
     if package_name not in sys.modules:
         package = types.ModuleType(package_name)
@@ -125,6 +117,7 @@ class PluginInitializer:
         self.resolver = None
         self.command_manager = None
         self.plugin_routes = None
+        self.webui_error: str | None = None
 
     async def initialize(self) -> None:
         cfg = self._cfg
@@ -354,6 +347,7 @@ class PluginInitializer:
         # Standalone aiohttp server: keep this independent from AstrBot Plugin
         # Pages so `/mrm webui on/off` can still manage the direct port.
         self.webui = None
+        self.webui_error = None
         try:
             WebuiServer = _load_local_web_attr("server", "WebuiServer")
             self.webui = WebuiServer(
@@ -371,7 +365,8 @@ class PluginInitializer:
                 recall_manager=self.recall,
             )
         except Exception as e:
-            astrbot_logger.warning("[%s] Failed to construct standalone WebUI server: %s", _PLUGIN_NAME, e)
+            self.webui_error = str(e)
+            astrbot_logger.exception("[%s] Failed to construct standalone WebUI server", _PLUGIN_NAME)
 
         if cfg.webui_enabled and self.webui is not None:
             try:
@@ -402,6 +397,7 @@ class PluginInitializer:
             recall=self.recall,
             context_manager=self.context_manager,
             webui=self.webui,
+            webui_error=self.webui_error,
             persona_repo=persona_repo,
             event_repo=event_repo,
             data_dir=data_dir,

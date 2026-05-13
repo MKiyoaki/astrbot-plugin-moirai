@@ -66,6 +66,8 @@ function rewritePluginPagePaths(file) {
 
   // AstrBot Plugin Pages rewrites relative resources and appends asset_token.
   // Root-relative Next export URLs would hit the AstrBot Dashboard root.
+  text = text.replace(/(\\")\/_next\//g, `$1${prefix}_next/`)
+  text = text.replace(/(\\")\/favicon\.ico/g, `$1${prefix}favicon.ico`)
   text = text.replace(/(["'])\/_next\//g, `$1${prefix}_next/`)
   text = text.replace(/(["'])\/favicon\.ico/g, `$1${prefix}favicon.ico`)
 

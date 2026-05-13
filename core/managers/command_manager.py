@@ -44,6 +44,7 @@ class CommandManager:
         recall: RecallManager,
         context_manager: ContextManager | None = None,
         webui: object | None = None,
+        webui_error: str | None = None,
         persona_repo: PersonaRepository | None = None,
         event_repo: EventRepository | None = None,
         data_dir: Path | None = None,
@@ -53,6 +54,7 @@ class CommandManager:
         self._recall = recall
         self._ctx = context_manager
         self._webui = webui
+        self._webui_error = webui_error
         self._persona_repo = persona_repo
         self._event_repo = event_repo
         self._data_dir = data_dir
@@ -193,6 +195,8 @@ class CommandManager:
     async def webui(self, action: str) -> str:
         action = action.strip().lower()
         if self._webui is None:
+            if self._webui_error:
+                return self._t("cmd.webui.start_failed", error=self._webui_error)
             return self._t("cmd.webui.not_loaded")
         if action == "on":
             try:

@@ -1,17 +1,31 @@
 export type ApiError = { status: number; body: string }
 
+type BridgeContext = { pluginName?: string; displayName?: string }
+type BridgeParams = Record<string, string>
+type Bridge = {
+  ready?: () => Promise<BridgeContext>
+  getContext?: () => BridgeContext | undefined
+  apiGet?: <T>(path: string, params?: BridgeParams) => Promise<T>
+  apiPost?: <T>(path: string, body?: unknown) => Promise<T>
+}
+
 declare global {
   interface Window {
-    AstrBotPluginPage?: {
-      apiGet: <T>(path: string, params?: Record<string, string>) => Promise<T>
-      apiPost: <T>(path: string, body?: unknown) => Promise<T>
-    }
+    AstrBotPluginPage?: Bridge
   }
 }
 
 // When running inside AstrBot iframe, /api/X → /api/plug/moirai/X
 function _bridge() {
   return typeof window !== 'undefined' ? window.AstrBotPluginPage : undefined
+}
+
+let bridgeReady: Promise<void> | null = null
+
+async function _readyBridge(bridge: Bridge) {
+  if (!bridge.ready) return
+  bridgeReady ??= bridge.ready().then(() => undefined).catch(() => undefined)
+  await bridgeReady
 }
 
 function _parsePluginEndpoint(url: string) {
@@ -36,11 +50,30 @@ function _jsonBody(body: BodyInit | null | undefined) {
   }
 }
 
+function _isPluginPageFallback() {
+  if (typeof window === 'undefined') return false
+  if (window.AstrBotPluginPage) return true
+  try {
+    if (window.self !== window.top) return true
+  } catch {
+    return true
+  }
+  return window.location.pathname.includes('/moirai')
+}
+
+function _pluginFetchUrl(url: string) {
+  if (!_isPluginPageFallback()) return url
+  const { endpoint, params } = _parsePluginEndpoint(url)
+  const qs = new URLSearchParams(params).toString()
+  return `/api/plug/moirai/${endpoint}${qs ? `?${qs}` : ''}`
+}
+
 async function request<T>(url: string, opts: RequestInit = {}): Promise<T> {
   const method = (opts.method ?? 'GET').toUpperCase()
   const bridge = _bridge()
 
-  if (bridge) {
+  if (bridge && bridge.apiGet && bridge.apiPost) {
+    await _readyBridge(bridge)
     const { endpoint, params } = _parsePluginEndpoint(url)
     if (method === 'GET') {
       return bridge.apiGet<T>(endpoint, params)
@@ -48,7 +81,7 @@ async function request<T>(url: string, opts: RequestInit = {}): Promise<T> {
     return bridge.apiPost<T>(_methodAlias(endpoint, method), _jsonBody(opts.body))
   }
 
-  const res = await fetch(url, {
+  const res = await fetch(_pluginFetchUrl(url), {
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...opts.headers },
     ...opts,

@@ -15,6 +15,7 @@ import { EdgeDetail } from '@/components/graph/edge-detail'
 import { GroupCardList } from '@/components/graph/group-card-list'
 import { RefreshButton } from '@/components/shared/refresh-button'
 import { useApp } from '@/lib/store'
+import { getStored, removeStored, setStored } from '@/lib/safe-storage'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -99,9 +100,9 @@ export default function GraphPage() {
 
   useEffect(() => {
     loadGraph().then(() => {
-      const focusId = sessionStorage.getItem('em_focus_persona')
+      const focusId = getStored('em_focus_persona', null, 'session')
       if (focusId) {
-        sessionStorage.removeItem('em_focus_persona')
+        removeStored('em_focus_persona', 'session')
         // Open the first group that contains the node
         const card = groupCards.find(g => g.nodes.some(n => n.data.id === focusId))
         if (card) {
@@ -272,7 +273,7 @@ export default function GraphPage() {
   }
 
   const handleJumpToEvent = (eventId: string) => {
-    sessionStorage.setItem('em_highlight_events', JSON.stringify([eventId]))
+    setStored('em_highlight_events', JSON.stringify([eventId]), 'session')
     goToPage('/events')
   }
 

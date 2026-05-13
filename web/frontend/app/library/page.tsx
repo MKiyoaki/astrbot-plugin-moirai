@@ -28,6 +28,7 @@ import { GroupRow, type GroupInfo } from '@/components/library/group-row'
 import { PaginationFooter } from '@/components/library/pagination-footer'
 import { DateRange } from 'react-day-picker'
 import { useApp } from '@/lib/store'
+import { setStored } from '@/lib/safe-storage'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { goToPage } from '@/lib/navigation'
@@ -350,8 +351,8 @@ function LibraryContent() {
     })
   }
 
-  const goToGraph = (uid: string) => { sessionStorage.setItem('em_focus_persona', uid); goToPage('/graph') }
-  const goToEvents = (eventId: string) => { sessionStorage.setItem('em_focus_event', eventId); goToPage('/events') }
+  const goToGraph = (uid: string) => { setStored('em_focus_persona', uid, 'session'); goToPage('/graph') }
+  const goToEvents = (eventId: string) => { setStored('em_focus_event', eventId, 'session'); goToPage('/events') }
   const handleTagClick = (t: string) => {
     const next = new Set(activeTags)
     if (next.has(t)) next.delete(t); else next.add(t)

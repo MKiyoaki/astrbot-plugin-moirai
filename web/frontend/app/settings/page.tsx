@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { PageHeader } from '@/components/layout/page-header'
 import { OnThisPage } from '@/components/shared/on-this-page'
 import { useApp } from '@/lib/store'
+import { getStored, setStored } from '@/lib/safe-storage'
 import * as api from '@/lib/api'
 
 const SHADCN_THEMES = [
@@ -65,7 +66,7 @@ export default function SettingsPage() {
   }
 
   const [colorScheme, setColorScheme] = useState(() =>
-    typeof localStorage !== 'undefined' ? (localStorage.getItem('em_color_scheme') || 'charon') : 'charon',
+    getStored('em_color_scheme', 'charon') || 'charon',
   )
 
   useEffect(() => {
@@ -87,7 +88,7 @@ export default function SettingsPage() {
   const applyColor = (id: string | null) => {
     if (!id) return
     setColorScheme(id)
-    localStorage.setItem('em_color_scheme', id)
+    setStored('em_color_scheme', id)
   }
 
   return (

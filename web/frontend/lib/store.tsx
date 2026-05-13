@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react'
 import * as api from './api'
 import * as i18n_lib from './i18n'
+import { getStored, setStored } from './safe-storage'
 
 // ── Types ─────────────────────────────────────────────────────────────────
 export interface ToastMessage { id: string; message: string; variant?: 'default' | 'destructive' }
@@ -52,7 +53,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [lang, _setLang] = useState<'zh' | 'en' | 'ja'>('zh')
 
   useEffect(() => {
-    const v = localStorage.getItem('em_lang')
+    const v = getStored('em_lang')
     if (v === 'en' || v === 'zh' || v === 'ja') {
       _setLang(v)
     }
@@ -60,7 +61,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setLang = useCallback((l: 'zh' | 'en' | 'ja') => {
     _setLang(l)
-    localStorage.setItem('em_lang', l)
+    setStored('em_lang', l)
   }, [])
 
   const i18n = useMemo(() => {
@@ -72,13 +73,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Default persona confidence — persisted in localStorage
   const [defaultPersonaConfidence, _setDefaultPersonaConfidence] = useState(() => {
     if (typeof window === 'undefined') return 0.5
-    const v = localStorage.getItem('em_default_persona_confidence')
+    const v = getStored('em_default_persona_confidence')
     return v ? parseFloat(v) : 0.5
   })
 
   const setDefaultPersonaConfidence = useCallback((v: number) => {
     _setDefaultPersonaConfidence(v)
-    localStorage.setItem('em_default_persona_confidence', String(v))
+    setStored('em_default_persona_confidence', String(v))
   }, [])
 
   const refreshStats = useCallback(async () => {
@@ -108,7 +109,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Apply saved color scheme on mount
   useEffect(() => {
-    const saved = localStorage.getItem('em_color_scheme')
+    const saved = getStored('em_color_scheme')
     if (saved && saved !== 'zinc') {
       document.documentElement.dataset.scheme = saved
     }

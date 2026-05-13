@@ -12,11 +12,12 @@ import json
 import logging
 import time
 import uuid
+import inspect
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from aiohttp import web
+from quart import Response, request as quart_request
 
 from core.domain.models import Event, Impression, Persona, MessageRef
 from .registry import PanelRegistry
@@ -38,12 +39,41 @@ def _ts_to_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
-def _json(data: Any, *, status: int = 200) -> web.Response:
-    return web.Response(
-        text=json.dumps(data, ensure_ascii=False),
+def _json(data: Any, *, status: int = 200) -> Response:
+    return Response(
+        json.dumps(data, ensure_ascii=False),
         content_type="application/json",
         status=status,
     )
+
+
+def _query(request: Any, key: str, default: str = "") -> str:
+    rel_url = getattr(request, "rel_url", None)
+    if rel_url is not None:
+        return rel_url.query.get(key, default)
+    args = getattr(request, "args", None)
+    if args is not None:
+        return args.get(key, default)
+    return default
+
+
+def _match(request: Any, key: str) -> str:
+    match_info = getattr(request, "match_info", None)
+    if match_info is not None:
+        return match_info[key]
+    view_args = getattr(request, "view_args", None) or {}
+    return view_args[key]
+
+
+async def _request_json(request: Any) -> dict:
+    json_attr = getattr(request, "json", None)
+    if callable(json_attr):
+        return await json_attr()
+    if json_attr is not None:
+        if inspect.isawaitable(json_attr):
+            return await json_attr
+        return json_attr
+    return await request.get_json()
 
 
 def _event_to_dict(event: Event) -> dict[str, Any]:
@@ -149,6 +179,12 @@ class PluginRoutes:
     def register(self, context: Any) -> None:
         """Register all routes via context.register_web_api()."""
         p = _PLUGIN_NAME
+
+        def adapt(handler: Any) -> Any:
+            async def wrapped(request: Any = None) -> Response:
+                return await handler(request or quart_request)
+            return wrapped
+
         routes: list[tuple[str, Any, list[str], str]] = [
             # Stats / soul
             (f"/{p}/stats",                    self._handle_stats,                   ["GET"],         "Plugin stats"),
@@ -213,7 +249,7 @@ class PluginRoutes:
 
         for route_path, handler, methods, description in routes:
             try:
-                context.register_web_api(route_path, handler, methods, description)
+                context.register_web_api(route_path, adapt(handler), methods, description)
             except Exception:
                 logger.exception("[PluginRoutes] Failed to register route %s %s", methods, route_path)
 
@@ -332,12 +368,12 @@ class PluginRoutes:
     # ------------------------------------------------------------------
 
     async def _handle_events(self, request: web.Request) -> web.Response:
-        group_id = request.rel_url.query.get("group_id") or None
-        limit = int(request.rel_url.query.get("limit", "100"))
+        group_id = _query(request, "group_id") or None
+        limit = int(_query(request, "limit", "100"))
         return _json(await self.events_data(group_id, limit))
 
     async def _handle_create_event(self, request: web.Request) -> web.Response:
-        body = await request.json()
+        body = await _request_json(request)
         now = time.time()
         try:
             event = Event(
@@ -363,11 +399,11 @@ class PluginRoutes:
         return _json({"ok": True, "event": _event_to_dict(event)}, status=201)
 
     async def _handle_update_event(self, request: web.Request) -> web.Response:
-        event_id = request.match_info["event_id"]
+        event_id = _match(request, "event_id")
         existing = await self._event_repo.get(event_id)
         if existing is None:
             return _json({"error": "not found"}, status=404)
-        body = await request.json()
+        body = await _request_json(request)
         now = time.time()
         try:
             updated = Event(
@@ -393,7 +429,7 @@ class PluginRoutes:
         return _json({"ok": True, "event": _event_to_dict(updated)})
 
     async def _handle_delete_event(self, request: web.Request) -> web.Response:
-        event_id = request.match_info["event_id"]
+        event_id = _match(request, "event_id")
         existing = await self._event_repo.get(event_id)
         if existing is None:
             return _json({"error": "not found"}, status=404)
@@ -440,11 +476,11 @@ class PluginRoutes:
         return await self._handle_update_impression(request)
 
     async def _handle_update_impression(self, request: web.Request) -> web.Response:
-        observer = request.match_info["observer"]
-        subject = request.match_info["subject"]
-        scope = request.match_info["scope"]
+        observer = _match(request, "observer")
+        subject = _match(request, "subject")
+        scope = _match(request, "scope")
         existing = await self._impression_repo.get(observer, subject, scope)
-        body = await request.json()
+        body = await _request_json(request)
         now = time.time()
         try:
             impression = Impression(
@@ -473,8 +509,8 @@ class PluginRoutes:
         return _json(await self.summaries_data())
 
     async def _handle_summary(self, request: web.Request) -> web.Response:
-        group_id = request.rel_url.query.get("group_id") or None
-        date = request.rel_url.query.get("date", "")
+        group_id = _query(request, "group_id") or None
+        date = _query(request, "date", "")
         if not date:
             return _json({"error": "date required"}, status=400)
         content = self.summary_content(group_id, date)
@@ -483,7 +519,7 @@ class PluginRoutes:
         return _json({"content": content})
 
     async def _handle_update_summary(self, request: web.Request) -> web.Response:
-        body = await request.json()
+        body = await _request_json(request)
         group_id = body.get("group_id") or None
         date = body.get("date", "")
         content = body.get("content", "")
@@ -500,7 +536,7 @@ class PluginRoutes:
     async def _handle_regenerate_summary(self, request: web.Request) -> web.Response:
         if self._provider_getter is None:
             return _json({"error": "provider_getter not wired"}, status=503)
-        body = await request.json()
+        body = await _request_json(request)
         group_id = body.get("group_id") or None
         date = body.get("date", "")
         if not date:
@@ -528,9 +564,9 @@ class PluginRoutes:
     # ------------------------------------------------------------------
 
     async def _handle_recall(self, request: web.Request) -> web.Response:
-        q = request.rel_url.query.get("q", "").strip()
-        limit = min(int(request.rel_url.query.get("limit", "5")), 50)
-        session_id = request.rel_url.query.get("session_id", "").strip() or None
+        q = _query(request, "q", "").strip()
+        limit = min(int(_query(request, "limit", "5")), 50)
+        session_id = _query(request, "session_id", "").strip() or None
         if not q:
             return _json({"error": "q required"}, status=400)
         try:
@@ -565,7 +601,7 @@ class PluginRoutes:
     # ------------------------------------------------------------------
 
     async def _handle_create_persona(self, request: web.Request) -> web.Response:
-        body = await request.json()
+        body = await _request_json(request)
         now = time.time()
         raw_bindings = body.get("bound_identities", [])
         bindings: list[tuple[str, str]] = [
@@ -592,11 +628,11 @@ class PluginRoutes:
         return _json({"ok": True, "persona": _persona_to_node(persona)}, status=201)
 
     async def _handle_update_persona(self, request: web.Request) -> web.Response:
-        uid = request.match_info["uid"]
+        uid = _match(request, "uid")
         existing = await self._persona_repo.get(uid)
         if existing is None:
             return _json({"error": "not found"}, status=404)
-        body = await request.json()
+        body = await _request_json(request)
         raw_bindings = body.get("bound_identities")
         if raw_bindings is not None:
             bindings: list[tuple[str, str]] = [
@@ -629,7 +665,7 @@ class PluginRoutes:
         return _json({"ok": True, "persona": _persona_to_node(updated)})
 
     async def _handle_delete_persona(self, request: web.Request) -> web.Response:
-        uid = request.match_info["uid"]
+        uid = _match(request, "uid")
         ok = await self._persona_repo.delete(uid)
         if not ok:
             return _json({"error": "not found"}, status=404)
@@ -643,7 +679,7 @@ class PluginRoutes:
         return _json({"items": list(reversed(self._recycle_bin))})
 
     async def _handle_recycle_bin_restore(self, request: web.Request) -> web.Response:
-        body = await request.json()
+        body = await _request_json(request)
         event_id = body.get("event_id", "")
         if not event_id:
             return _json({"error": "event_id required"}, status=400)
@@ -714,7 +750,7 @@ class PluginRoutes:
         return _json(self._load_conf_schema())
 
     async def _handle_update_config(self, request: web.Request) -> web.Response:
-        body = await request.json()
+        body = await _request_json(request)
         schema = self._load_conf_schema()
         coerced: dict = {}
         for key, val in body.items():
@@ -772,7 +808,7 @@ class PluginRoutes:
     async def _handle_run_task(self, request: web.Request) -> web.Response:
         if self._task_runner is None:
             return _json({"error": "task runner not wired"}, status=503)
-        body = await request.json()
+        body = await _request_json(request)
         name = body.get("name", "")
         if not name:
             return _json({"error": "task name required"}, status=400)

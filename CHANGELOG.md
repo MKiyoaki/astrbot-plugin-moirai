@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [v0.9.11] - 2026-05-13
+
+### AstrBot WebUI runtime hardening
+- 修复 AstrBot Plugin Pages API 返回类型不匹配：插件页后端改用 Quart response，并增加 request 适配器，避免 Dashboard API 转发出现不稳定返回。
+- 前端 API 严格通过 `window.AstrBotPluginPage.ready()` 与 `apiGet(endpoint, params)` / `apiPost(endpoint, body)` 调用；无 bridge 时回退到 `/api/plug/moirai/*`，保留独立端口调试兼容。
+- 加入 iframe 安全存储封装，避免受限 iframe 中 `localStorage` / `sessionStorage` 抛错导致 Next.js client-side exception。
+- 强化本地 `web` 模块加载，直接从插件目录加载 `PluginRoutes` 和 `WebuiServer`，并在独立 WebUI 构造失败时输出完整异常，`/mrm webui on` 返回实际失败原因而不是只显示模块未加载。
+- 重新生成 `pages/moirai/` 静态产物，继续保持 CSS/JS/RSC 资源为 AstrBot Plugin Pages 可识别的相对路径。
+
 ## [v0.9.10] - 2026-05-13
 
 ### WebUI 插件页面与独立端口修复

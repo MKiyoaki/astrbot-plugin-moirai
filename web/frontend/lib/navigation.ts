@@ -13,7 +13,13 @@ const ROUTES = new Set([
 ])
 
 function isPluginPage() {
-  return typeof window !== 'undefined' && Boolean(window.AstrBotPluginPage)
+  if (typeof window === 'undefined') return false
+  if (window.AstrBotPluginPage || window.location.pathname.includes('/moirai')) return true
+  try {
+    return window.self !== window.top
+  } catch {
+    return true
+  }
 }
 
 function currentRouteDepth() {
