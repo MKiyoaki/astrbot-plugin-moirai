@@ -2,10 +2,18 @@
 const isDev = process.env.NODE_ENV === 'development'
 
 const nextConfig = {
-  // In production builds, export static files to out/. The build script then
-  // copies out/ to ../../pages/moirai/ for AstrBot Plugin Pages.
-  // In dev mode (next dev), skip static-export so rewrites & HMR work normally.
-  ...(isDev ? {} : { output: 'export', distDir: 'out' }),
+  // Production: static export directly into pages/moirai/ (AstrBot Plugin Pages).
+  // basePath tells Next.js the app is mounted at /plug/moirai, so all /_next/
+  // asset URLs are emitted as /plug/moirai/_next/... — no post-build path rewriting needed.
+  // Dev: no output/basePath so next dev + HMR + API rewrites work normally.
+  ...(isDev ? {} : {
+    output: 'export',
+    distDir: 'out',
+    basePath: '/plug/moirai',
+    env: {
+      NEXT_PUBLIC_BASE_PATH: '/plug/moirai',
+    },
+  }),
 
   images: {
     unoptimized: true,
@@ -13,13 +21,9 @@ const nextConfig = {
 
   trailingSlash: true,
 
-  // In dev mode, prevent Next.js from adding trailing-slash redirects so that
-  // /api/* rewrites fire directly without an extra 308 round-trip.
   ...(isDev && { skipTrailingSlashRedirect: true }),
 
   async rewrites() {
-    // Rewrites only apply in dev; in production the Python backend serves both
-    // static files and /api/* routes from the same origin.
     if (!isDev) return []
     const backendPort = process.env.BACKEND_PORT || '2654'
     return [

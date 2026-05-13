@@ -12,9 +12,12 @@ const ROUTES = new Set([
   '/settings',
 ])
 
-function isPluginPage() {
+// Set by next.config.mjs at build time; empty string in dev.
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || ''
+
+function isIframeEmbed() {
   if (typeof window === 'undefined') return false
-  if (window.AstrBotPluginPage || window.location.pathname.includes('/moirai')) return true
+  if (window.AstrBotPluginPage) return true
   try {
     return window.self !== window.top
   } catch {
@@ -25,19 +28,26 @@ function isPluginPage() {
 function currentRouteDepth() {
   if (typeof window === 'undefined') return 0
   const pathname = window.location.pathname.replace(/\/index\.html$/, '/')
-  const match = pathname.match(/\/moirai(?:\/(.+?))?\/?$/)
-  const tail = match?.[1] ?? ''
+  // Strip basePath prefix then count remaining segments
+  const stripped = BASE_PATH ? pathname.replace(BASE_PATH, '') : pathname
+  const tail = stripped.replace(/^\/|\/$/g, '')
   return tail ? tail.split('/').filter(Boolean).length : 0
 }
 
 export function pageHref(route: string) {
   const normalized = route === '/' ? '/' : `/${route.replace(/^\/|\/$/g, '')}`
   if (!ROUTES.has(normalized)) return route
-  if (!isPluginPage()) return normalized
 
-  const prefix = currentRouteDepth() > 0 ? '../'.repeat(currentRouteDepth()) : './'
-  if (normalized === '/') return prefix
-  return `${prefix}${normalized.slice(1)}/`
+  // Inside AstrBot iframe: use relative paths (asset_token forwarding requires it)
+  if (isIframeEmbed()) {
+    const prefix = currentRouteDepth() > 0 ? '../'.repeat(currentRouteDepth()) : './'
+    if (normalized === '/') return prefix
+    return `${prefix}${normalized.slice(1)}/`
+  }
+
+  // Self-hosted server or direct browser access: absolute path with basePath prefix
+  if (normalized === '/') return `${BASE_PATH}/`
+  return `${BASE_PATH}${normalized}/`
 }
 
 export function goToPage(route: string) {
@@ -46,6 +56,7 @@ export function goToPage(route: string) {
 }
 
 export function routeIsActive(pathname: string | null, route: string) {
+  // usePathname() returns path WITHOUT basePath prefix, so compare directly
   const normalized = route === '/' ? '/' : `/${route.replace(/^\/|\/$/g, '')}`
   if (normalized === '/') return pathname === '/'
   return Boolean(pathname?.includes(normalized))

@@ -279,7 +279,7 @@ async def main() -> None:
     data_dir = _DATA_DIR
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    if not build_frontend():
+    if not build_frontend(force=True):
         print("  ⚠ 前端构建失败，请检查 Node.js 环境后重试。")
         return
 

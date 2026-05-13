@@ -58,7 +58,9 @@ function _isPluginPageFallback() {
   } catch {
     return true
   }
-  return window.location.pathname.includes('/moirai')
+  // pathname check intentionally removed — self-hosted server now also serves
+  // from /plug/moirai/ and must NOT rewrite API URLs to /api/plug/moirai/*.
+  return false
 }
 
 function _pluginFetchUrl(url: string) {
@@ -284,6 +286,14 @@ export const pluginConfig = {
   providers: () => request<{ providers: { id: string; name: string }[] }>('/api/config/providers'),
 }
 
+export const auth = {
+  status: () => request<{ authenticated: boolean; sudo: boolean; auth_enabled: boolean }>('/api/auth/status'),
+  login: (password: string) => request<{ ok: boolean }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
+  logout: () => request<{ ok: boolean }>('/api/auth/logout', { method: 'POST', body: '{}' }),
+  sudo: (password: string) => request<{ ok: boolean }>('/api/auth/sudo', { method: 'POST', body: JSON.stringify({ password }) }),
+  exitSudo: () => request<{ ok: boolean }>('/api/auth/sudo/exit', { method: 'POST', body: '{}' }),
+}
+
 // ── Global API Export ──────────────────────────────────────────────────────
 export const api = {
   stats,
@@ -295,4 +305,5 @@ export const api = {
   tags,
   config: pluginConfig,
   soul,
+  auth,
 }

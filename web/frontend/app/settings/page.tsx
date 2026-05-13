@@ -66,7 +66,7 @@ export default function SettingsPage() {
   }
 
   const [colorScheme, setColorScheme] = useState(() =>
-    getStored('em_color_scheme', 'charon') || 'charon',
+    getStored('em_color_scheme', 'moirai') || 'moirai',
   )
 
   useEffect(() => {

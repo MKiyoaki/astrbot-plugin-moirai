@@ -355,15 +355,23 @@ class WebuiServer:
                            h=route.handler: h(req)),
             )
 
-        # Static files and SPA route fallback (must be placed last)
-        app.router.add_get("/", self._handle_spa_fallback)
-        app.router.add_get("/{tail:.*}", self._handle_spa_fallback)
+        # Static files and SPA route fallback (must be placed last).
+        # Routes mirror the basePath used by the Next.js production build so that
+        # both the self-hosted server and AstrBot Plugin Pages (/plug/moirai/*)
+        # resolve to the same static files.
+        app.router.add_get("/plug/moirai", self._handle_spa_fallback)
+        app.router.add_get("/plug/moirai/{tail:.*}", self._handle_spa_fallback)
+        # Convenience redirect: bare / → /plug/moirai/
+        app.router.add_get("/", self._handle_root_redirect)
+        app.router.add_get("/{tail:[^/].*}", self._handle_root_redirect)
 
         return app
 
+    async def _handle_root_redirect(self, request: web.Request) -> web.Response:
+        return web.HTTPFound("/plug/moirai/")
+
     async def _handle_spa_fallback(self, request: web.Request) -> web.Response:
         """Handle Next.js static export SPA routing and fallback mechanism."""
-        # Prevent accidental interception of API requests
         if request.path.startswith("/api/"):
             return web.Response(status=404, text="API Endpoint Not Found")
 

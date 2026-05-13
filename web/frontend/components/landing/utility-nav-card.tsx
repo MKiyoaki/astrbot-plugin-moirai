@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { useApp } from '@/lib/store'
 import type { PluginStats, GraphData } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { pageHref } from '@/lib/navigation'
+import Link from 'next/link'
 
 interface UtilityNavCardsProps {
   stats: PluginStats
@@ -49,7 +49,7 @@ export function UtilityNavCards({ stats, graph }: UtilityNavCardsProps) {
   return (
     <div className="grid grid-cols-3 gap-4">
       {cards.map((card, idx) => (
-        <a key={card.href} href={pageHref(card.href)}>
+        <Link key={card.href} href={card.href}>
           <Card
             className={cn(
               'h-full cursor-pointer transition-colors hover:bg-accent/40 border-border/50',
@@ -70,7 +70,7 @@ export function UtilityNavCards({ stats, graph }: UtilityNavCardsProps) {
               <p className="text-[10px] text-accent-foreground/70 font-mono">— {card.meta}</p>
             </CardContent>
           </Card>
-        </a>
+        </Link>
       ))}
     </div>
   )

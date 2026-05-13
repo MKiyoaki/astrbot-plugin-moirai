@@ -9,8 +9,8 @@ import { getStored, setStored } from './safe-storage'
 export interface ToastMessage { id: string; message: string; variant?: 'default' | 'destructive' }
 
 interface AppState {
-  // Auth — AstrBot manages authentication; sudo is always true inside the plugin page.
   sudo: boolean
+  authEnabled: boolean
   // Persona defaults (localStorage-backed)
   defaultPersonaConfidence: number
   // i18n
@@ -27,6 +27,7 @@ interface AppState {
 }
 
 interface AppActions {
+  setSudo: (v: boolean) => void
   setDefaultPersonaConfidence: (v: number) => void
   setLang: (l: 'zh' | 'en' | 'ja') => void
   refreshStats: () => Promise<void>
@@ -41,8 +42,18 @@ const AppContext = createContext<(AppState & AppActions) | null>(null)
 const DEFAULT_STATS: api.Stats = { personas: 0, events: 0, locked_count: 0, impressions: 0, summaries: 0, groups: 0, version: '…' }
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  // Auth is managed by AstrBot — sudo is always true inside the plugin page.
-  const sudo = true
+  const [sudo, setSudo] = useState(false)
+  const [authEnabled, setAuthEnabled] = useState(true)
+
+  useEffect(() => {
+    api.auth.status().then(s => {
+      setAuthEnabled(s.auth_enabled)
+      setSudo(!s.auth_enabled || s.sudo)
+    }).catch(() => {
+      setAuthEnabled(false)
+      setSudo(true)
+    })
+  }, [])
 
   const [stats, setStats] = useState<api.Stats>(DEFAULT_STATS)
   const [rawGraph, setRawGraph] = useState<api.GraphData>({ nodes: [], edges: [] })
@@ -109,14 +120,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Apply saved color scheme on mount
   useEffect(() => {
-    const saved = getStored('em_color_scheme')
-    if (saved && saved !== 'zinc') {
-      document.documentElement.dataset.scheme = saved
+    const saved = getStored('em_color_scheme') ?? 'moirai'
+    const classList = document.documentElement.classList
+    Array.from(classList).filter(c => c.startsWith('theme-')).forEach(c => classList.remove(c))
+    if (saved !== 'zinc') {
+      classList.add(`theme-${saved}`)
     }
   }, [])
 
   const ctx = useMemo<AppState & AppActions>(() => ({
     sudo,
+    authEnabled,
+    setSudo,
     defaultPersonaConfidence,
     lang, i18n,
     stats, rawGraph, rawEvents, toasts,
@@ -128,6 +143,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast,
     dismissToast,
   }), [
+    sudo, authEnabled,
     defaultPersonaConfidence,
     lang, i18n,
     stats, rawGraph, rawEvents, toasts,

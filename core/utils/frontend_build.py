@@ -1,9 +1,8 @@
-"""Utility for building the Next.js frontend and copying output to pages/moirai/.
+"""Utility for building the Next.js frontend.
 
-The build command is `npm run build` (defined in web/frontend/package.json as
-`next build && node scripts/copy-export.mjs`).  copy-export.mjs handles moving
-the `out/` directory to `pages/moirai/` automatically, so this module only needs
-to invoke npm.
+`npm run build` runs `next build` with basePath=/plug/moirai and distDir=out.
+After the build, out/ is copied verbatim to pages/moirai/ — no path rewriting
+needed because Next.js already emits /plug/moirai/_next/... asset URLs.
 """
 from __future__ import annotations
 
@@ -17,14 +16,14 @@ logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _FRONTEND_DIR = _REPO_ROOT / "web" / "frontend"
-_PAGES_INDEX = _REPO_ROOT / "pages" / "moirai" / "index.html"
+_OUT_DIR = _FRONTEND_DIR / "out"
+_PAGES_DIR = _REPO_ROOT / "pages" / "moirai"
+_PAGES_INDEX = _PAGES_DIR / "index.html"
 
-# Conda env where Node.js lives on the developer's machine (CLAUDE.md convention).
 _CONDA_NODE_BIN = Path.home() / "miniconda3" / "envs" / "node" / "bin"
 
 
 def _find_npm() -> str | None:
-    """Return the path to npm, checking PATH then the known conda env."""
     if shutil.which("npm"):
         return "npm"
     candidate = _CONDA_NODE_BIN / "npm"
@@ -34,10 +33,9 @@ def _find_npm() -> str | None:
 
 
 def build_frontend(force: bool = False) -> bool:
-    """Build the Next.js frontend and copy output to pages/moirai/.
+    """Build the Next.js frontend and sync output to pages/moirai/.
 
     Skips the build if pages/moirai/index.html already exists and force=False.
-
     Returns True on success, False on failure.
     """
     if not force and _PAGES_INDEX.exists():
@@ -57,7 +55,6 @@ def build_frontend(force: bool = False) -> bool:
         return False
 
     env = os.environ.copy()
-    # Ensure conda node bin is on PATH so npm can find node
     if str(_CONDA_NODE_BIN) not in env.get("PATH", ""):
         env["PATH"] = str(_CONDA_NODE_BIN) + os.pathsep + env.get("PATH", "")
 
@@ -83,12 +80,15 @@ def build_frontend(force: bool = False) -> bool:
         )
         return False
 
-    if not _PAGES_INDEX.exists():
-        logger.error(
-            "[FrontendBuild] Build finished but pages/moirai/index.html not found. "
-            "Check copy-export.mjs output above."
-        )
+    if not _OUT_DIR.exists():
+        logger.error("[FrontendBuild] Build finished but out/ not found.")
         return False
 
-    logger.info("[FrontendBuild] Frontend built successfully → %s", _PAGES_INDEX.parent)
+    # Copy out/ → pages/moirai/ verbatim; basePath in next.config.mjs ensures
+    # all asset URLs are already /plug/moirai/_next/... — no rewriting needed.
+    if _PAGES_DIR.exists():
+        shutil.rmtree(_PAGES_DIR)
+    shutil.copytree(_OUT_DIR, _PAGES_DIR)
+
+    logger.info("[FrontendBuild] Frontend built successfully → %s", _PAGES_DIR)
     return True

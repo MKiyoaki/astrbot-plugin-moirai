@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { useApp } from '@/lib/store'
 import type { ApiEvent } from '@/lib/api'
 import { parseSummaryTopics } from '@/lib/utils'
-import { pageHref } from '@/lib/navigation'
+import Link from 'next/link'
 
 interface FeaturedMemoryCardProps {
   event: ApiEvent | null
@@ -32,7 +32,7 @@ export function FeaturedMemoryCard({ event }: FeaturedMemoryCardProps) {
   )
 
   return (
-    <a href={pageHref('/events')} className="block h-full">
+    <Link href="/events" className="block h-full">
       <Card className="flex flex-col justify-between min-h-[260px] h-full bg-accent/25 border-accent-foreground/15 hover:bg-accent/35 transition-colors cursor-pointer p-6">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
@@ -69,6 +69,6 @@ export function FeaturedMemoryCard({ event }: FeaturedMemoryCardProps) {
           </span>
         </div>
       </Card>
-    </a>
+    </Link>
   )
 }

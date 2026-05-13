@@ -1,24 +1,79 @@
 'use client'
 
-import React from 'react'
+import React, { useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import {
   Activity, Share2, BookOpen, Search, Database, Settings, SlidersHorizontal,
-  Moon, Sun, BarChart3,
+  Moon, Sun, BarChart3, Lock, Unlock, LogOut,
 } from 'lucide-react'
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
   SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton,
   SidebarMenuItem, SidebarSeparator,
 } from '@/components/ui/sidebar'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter,
+  DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
+import Link from 'next/link'
 import { useApp } from '@/lib/store'
-import { pageHref, routeIsActive } from '@/lib/navigation'
+import * as api from '@/lib/api'
+import { routeIsActive } from '@/lib/navigation'
 
 export function AppSidebar() {
   const pathname = usePathname()
   const app = useApp()
   const { i18n, lang } = app
+
+  const [sudoLoading, setSudoLoading] = useState(false)
+  const [sudoDialogOpen, setSudoDialogOpen] = useState(false)
+  const [sudoPassword, setSudoPassword] = useState('')
+
+  const effectiveSudoAlways = !app.authEnabled
+
+  const handleSudoClick = async () => {
+    if (app.sudo) {
+      if (app.authEnabled) {
+        await api.auth.exitSudo().catch(() => {})
+      }
+      app.setSudo(false)
+      app.toast(i18n.auth.exitSudo)
+      return
+    }
+    if (app.authEnabled) {
+      setSudoPassword('')
+      setSudoDialogOpen(true)
+    } else {
+      app.setSudo(true)
+      app.toast(i18n.auth.enterSudo)
+    }
+  }
+
+  const submitSudo = async () => {
+    if (!sudoPassword) return
+    setSudoLoading(true)
+    try {
+      await api.auth.sudo(sudoPassword)
+      app.setSudo(true)
+      app.toast(i18n.auth.enterSudo)
+      setSudoDialogOpen(false)
+    } catch (e: unknown) {
+      const err = e as api.ApiError
+      app.toast(`${i18n.auth.sudoMode}${i18n.common.error}：${err.body || err.status}`, 'destructive', 4000)
+    } finally {
+      setSudoLoading(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    await api.auth.logout().catch(() => {})
+    window.location.reload()
+  }
 
   const NAV_VISUALIZATION = React.useMemo(() => [
     { href: '/events', icon: Activity,  label: i18n.nav.events },
@@ -42,19 +97,20 @@ export function AppSidebar() {
   const toggleTheme = () => setTheme(isDark ? 'light' : 'dark')
 
   return (
+    <>
     <Sidebar collapsible="icon" className="border-r border-border">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <a href={pageHref('/')}>
+              <Link href="/">
                 <div className="grid flex-1 text-left leading-tight ml-2">
                   <span className="truncate font-serif text-xl font-bold tracking-tighter text-primary">{i18n.app.name}</span>
                   <span className="text-muted-foreground truncate text-[9px] font-mono uppercase tracking-[0.18em] opacity-60">
                     Memory Engine · v{app.stats.version}
                   </span>
                 </div>
-              </a>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -69,12 +125,12 @@ export function AppSidebar() {
                 const active = routeIsActive(pathname, item.href)
                 return (
                   <SidebarMenuItem key={item.href}>
-                    <a href={pageHref(item.href)} className="flex w-full">
+                    <Link href={item.href} className="flex w-full">
                       <SidebarMenuButton isActive={active} tooltip={item.label} className="w-full cursor-pointer">
                         <item.icon />
                         <span>{item.label}</span>
                       </SidebarMenuButton>
-                    </a>
+                    </Link>
                   </SidebarMenuItem>
                 )
               })}
@@ -92,12 +148,12 @@ export function AppSidebar() {
                 const active = routeIsActive(pathname, item.href)
                 return (
                   <SidebarMenuItem key={item.href}>
-                    <a href={pageHref(item.href)} className="flex w-full">
+                    <Link href={item.href} className="flex w-full">
                       <SidebarMenuButton isActive={active} tooltip={item.label} className="w-full cursor-pointer">
                         <item.icon />
                         <span>{item.label}</span>
                       </SidebarMenuButton>
-                    </a>
+                    </Link>
                   </SidebarMenuItem>
                 )
               })}
@@ -115,12 +171,12 @@ export function AppSidebar() {
                 const active = routeIsActive(pathname, item.href)
                 return (
                   <SidebarMenuItem key={item.href}>
-                    <a href={pageHref(item.href)} className="flex w-full">
+                    <Link href={item.href} className="flex w-full">
                       <SidebarMenuButton isActive={active} tooltip={item.label} className="w-full cursor-pointer">
                         <item.icon />
                         <span>{item.label}</span>
                       </SidebarMenuButton>
-                    </a>
+                    </Link>
                   </SidebarMenuItem>
                 )
               })}
@@ -142,12 +198,27 @@ export function AppSidebar() {
 
         <SidebarMenu>
           <SidebarMenuItem>
-            <a href={pageHref('/settings')} className="flex w-full">
+            <SidebarMenuButton
+              onClick={handleSudoClick}
+              disabled={sudoLoading}
+              tooltip={app.sudo ? i18n.auth.exitSudo : i18n.auth.enterSudo}
+              className="cursor-pointer"
+            >
+              {app.sudo ? <Unlock /> : <Lock />}
+              <span>{app.sudo ? i18n.auth.exitSudo : i18n.auth.enterSudo}</span>
+              {effectiveSudoAlways && (
+                <Badge variant="secondary" className="ml-auto text-[10px] opacity-70">Dev</Badge>
+              )}
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+
+          <SidebarMenuItem>
+            <Link href="/settings" className="flex w-full">
               <SidebarMenuButton isActive={routeIsActive(pathname, '/settings')} tooltip={i18n.nav.settings} className="cursor-pointer">
                 <Settings />
                 <span>{i18n.nav.settings}</span>
               </SidebarMenuButton>
-            </a>
+            </Link>
           </SidebarMenuItem>
 
           <SidebarMenuItem>
@@ -156,8 +227,49 @@ export function AppSidebar() {
               <span>{i18n.settings.toggle}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
+
+          {app.authEnabled && (
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={handleLogout} tooltip={i18n.auth.logout} className="cursor-pointer">
+                <LogOut />
+                <span>{i18n.auth.logout}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
         </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
+
+    <Dialog open={sudoDialogOpen} onOpenChange={setSudoDialogOpen}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>{i18n.auth.sudoMode}</DialogTitle>
+          <DialogDescription>{i18n.auth.sudoPrompt}</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label htmlFor="sudo-password">{i18n.auth.password}</Label>
+            <Input
+              id="sudo-password"
+              type="password"
+              autoFocus
+              placeholder="..."
+              value={sudoPassword}
+              onChange={e => setSudoPassword(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') submitSudo() }}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setSudoDialogOpen(false)} disabled={sudoLoading}>
+            {i18n.common.cancel}
+          </Button>
+          <Button onClick={submitSudo} disabled={sudoLoading || !sudoPassword}>
+            {sudoLoading ? i18n.common.loading : i18n.common.confirm}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }

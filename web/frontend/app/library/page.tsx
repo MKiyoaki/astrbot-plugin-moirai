@@ -1,7 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Search, Pencil, Trash2, Activity, Clock, Users, Building2 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
@@ -34,7 +33,6 @@ import { cn } from '@/lib/utils'
 import { goToPage } from '@/lib/navigation'
 
 function LibraryContent() {
-  const searchParams = useSearchParams()
   const { i18n, lang, refreshStats, setRawEvents, setRawGraph, toast, sudo } = useApp()
 
   const L = useMemo(() => ({
@@ -52,7 +50,13 @@ function LibraryContent() {
     nameHead: lang === 'zh' ? '名称' : lang === 'ja' ? '名前' : 'Name',
   }), [lang])
 
-  const [tab, setTab] = useState(searchParams.get('tab') || 'events')
+  const [tab, setTab] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('tab')
+      if (p) return p
+    }
+    return 'events'
+  })
   const [search, setSearch] = useState('')
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set())
   const [dateRange, setDateRange] = useState<DateRange | undefined>()
@@ -171,11 +175,6 @@ function LibraryContent() {
   }, [refreshStats, setRawEvents, setRawGraph, toast, i18n])
 
   useEffect(() => { setTimeout(() => loadData(), 0) }, [loadData])
-
-  useEffect(() => {
-    const t = searchParams.get('tab')
-    if (t) setTimeout(() => setTab(t), 0)
-  }, [searchParams])
 
   useEffect(() => {
     setTimeout(() => { setCurrentPage(1); setSelectedIds(new Set()); setExpandedId(null) }, 0)
@@ -683,9 +682,5 @@ function LibraryContent() {
 }
 
 export default function LibraryPage() {
-  return (
-    <Suspense fallback={<div className="text-muted-foreground flex h-screen items-center justify-center text-sm">Loading…</div>}>
-      <LibraryContent />
-    </Suspense>
-  )
+  return <LibraryContent />
 }

@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [v0.9.12] — 2026-05-13
+
+### WebUI 静态导出架构重构（彻底移除 copy-export.mjs）
+
+- **根本修复 React 无法 hydrate 的问题**：原 `copy-export.mjs` 对 Turbopack bootstrap JS 的 IIFE 路径替换破坏了动态 chunk 加载链，导致 `hydrateRoot` 从未被调用。现通过 Next.js `basePath: '/plug/moirai'` 在构建时原生输出正确的资源路径，彻底弃用所有 JS 文件后处理。
+- **`next.config.mjs`**：生产构建新增 `basePath: '/plug/moirai'`，所有 `/_next/` 资源 URL 由 Next.js 自动输出为 `/plug/moirai/_next/...`，AstrBot Plugin Pages 与自托管服务器均可直接使用，无需后处理。
+- **`package.json`**：`build` 脚本简化为纯 `next build`，移除 `node scripts/copy-export.mjs`。
+- **`frontend_build.py`**：build 完成后用 `shutil.copytree` 将 `out/` 原样复制到 `pages/moirai/`，不做任何路径改写。
+- **`server.py`**：静态文件路由从 `/{tail:.*}` 改为 `/plug/moirai/{tail:.*}`；新增 `/` → `/plug/moirai/` 重定向，保持直接访问自托管端口时的跳转体验。
+- **`api.ts`**：移除 `pathname.includes('/moirai')` 的 Plugin Pages 回退检测，防止自托管服务器误将 `/api/*` 改写为 `/api/plug/moirai/*`。
+- **`run_webui_dev.py`**：改为 `build_frontend(force=True)`，每次启动强制重新构建，避免开发时 serve 旧产物。
+
+
 
 ## [v0.9.11] - 2026-05-13
 
