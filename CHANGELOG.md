@@ -1,7 +1,5 @@
 # CHANGELOG
 
-# CHANGELOG
-
 ## [v0.9.8] — 2026-05-13
 
 ### WebUI 双端口架构 + `/mrm webui on` 修复
