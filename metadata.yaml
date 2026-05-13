@@ -1,6 +1,6 @@
 name: astrbot_plugin_moirai
 display_name: Moirai
 desc: 长期记忆插件（情节轴 × 社交关系轴 × 叙事轴），为 AstrBot 提供跨平台持久化记忆管理，并配备丰富的数据可视化 WebUI。
-version: v0.9.14
+version: v0.9.15
 author: MKiyoaki, DrGariton
 repo: https://github.com/MKiyoaki/astrbot-plugin-moirai

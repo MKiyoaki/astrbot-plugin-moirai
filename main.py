@@ -23,7 +23,8 @@ import time
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
-    from astrbot.api.provider import ProviderRequest
+    from astrbot.api.provider import ProviderRequest, ProviderResponse
+    from astrbot.api.model import CommandResult
 
 _PLUGIN_VERSION = get_plugin_version()
 
@@ -66,6 +67,21 @@ class MoiraiPlugin(Star):
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest) -> None:
         if self._handler:
             await self._handler.handle_llm_request(event, req)
+
+    @filter.on_llm_response()
+    async def on_llm_response(self, event: AstrMessageEvent, resp: ProviderResponse) -> None:
+        if self._handler:
+            await self._handler.handle_llm_response(event, resp)
+
+    @filter.on_decorating_result()
+    async def on_decorating_result(self, event: AstrMessageEvent, result: CommandResult) -> None:
+        if self._handler:
+            await self._handler.handle_decorating_result(event, result)
+
+    @filter.on_using_llm_tool()
+    async def on_using_llm_tool(self, event: AstrMessageEvent, tool_name: str, arguments: dict) -> None:
+        if self._handler:
+            await self._handler.handle_using_llm_tool(event, tool_name, arguments)
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent) -> None:
@@ -174,6 +190,7 @@ class MoiraiPlugin(Star):
         )
 
     @mrm.command("webui")
+    @filter.permission_type(filter.PermissionType.ADMIN)
     async def mrm_webui(self, event: AstrMessageEvent, action: str):
         '''启用或关闭 WebUI。用法：/mrm webui on | off'''
         if not self._initializer:
@@ -202,6 +219,7 @@ class MoiraiPlugin(Star):
         )
 
     @mrm.command("run")
+    @filter.permission_type(filter.PermissionType.ADMIN)
     async def mrm_run(self, event: AstrMessageEvent, task: str):
         '''手动触发周期任务。用法：/mrm run <task>（decay/synthesis/summary/cleanup）'''
         if not self._initializer:
@@ -212,6 +230,7 @@ class MoiraiPlugin(Star):
         )
 
     @mrm.command("reset")
+    @filter.permission_type(filter.PermissionType.ADMIN)
     async def mrm_reset(self, event: AstrMessageEvent, scope: str, target: str = ""):
         '''重置数据（均需二次确认）。用法：/mrm reset here | event <id|all> | persona <id|all> | all'''
         if not self._initializer:

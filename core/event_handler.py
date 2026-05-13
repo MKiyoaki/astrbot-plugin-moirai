@@ -12,7 +12,8 @@ from astrbot.api import logger as astrbot_logger
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
-    from astrbot.api.provider import ProviderRequest
+    from astrbot.api.provider import ProviderRequest, ProviderResponse
+    from astrbot.api.model import CommandResult
     from .plugin_initializer import PluginInitializer
 
 _PLUGIN_NAME = "EnhancedMemory"
@@ -89,3 +90,36 @@ class EventHandler:
             raw_group_id=event.get_group_id() or None,
             now=event.created_at,
         )
+
+    async def handle_llm_response(
+        self, event: AstrMessageEvent, resp: ProviderResponse
+    ) -> None:
+        """Record the bot's own response into the memory stream."""
+        router = self._init.router
+        if router is None or not resp.text:
+            return
+            
+        # Use a special internal UID for the bot to distinguish it from users.
+        # router.process will handle get_or_create_uid.
+        await router.process(
+            platform="internal",
+            physical_id="bot",
+            display_name="Bot",
+            text=resp.text,
+            raw_group_id=event.get_group_id() or None,
+        )
+
+    async def handle_using_llm_tool(
+        self, event: AstrMessageEvent, tool_name: str, arguments: dict
+    ) -> None:
+        """Monitor tool usage as a potential salience signal."""
+        # For now, we just log it. Future: inject 'meta' messages into the window
+        # or increase the salience of the current event window.
+        logger.debug("[%s] Tool used: %s with args %s", _PLUGIN_NAME, tool_name, arguments)
+
+    async def handle_decorating_result(
+        self, event: AstrMessageEvent, result: CommandResult
+    ) -> None:
+        """Opportunity to modify the final response based on social relations (Soul)."""
+        # Placeholder for future emotion/persona-based response decoration.
+        pass

@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, type ReactNode } from 'react'
+import { useCallback, useEffect, type ReactNode } from 'react'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from './app-sidebar'
 import { Toaster } from '@/components/shared/toaster'
+import { LoginScreen } from '@/components/shared/login-screen'
 import { useApp } from '@/lib/store'
 import { getStored } from '@/lib/safe-storage'
 
@@ -24,11 +25,33 @@ function Shell({ children }: { children: ReactNode }) {
     if (scheme !== 'zinc') {
       root.classList.add(`theme-${scheme}`)
     }
-
-    // Auth is managed by AstrBot — just load stats on mount.
-    app.refreshStats()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (app.authenticated) {
+      app.refreshStats()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [app.authenticated])
+
+  const handleLoginSuccess = useCallback(() => {
+    app.setAuthenticated(true)
+    app.setSudo(false)
+    // Re-fetch auth status to sync sudo state
+    import('@/lib/api').then(({ auth }) =>
+      auth.status().then(s => {
+        app.setSudo(!s.auth_enabled || s.sudo)
+      }).catch(() => {})
+    )
+  }, [app])
+
+  // Wait for auth status to resolve before making any decision.
+  if (app.authLoading) return null
+
+  // Show login screen when auth is enabled and not yet authenticated.
+  if (app.authEnabled && !app.authenticated) {
+    return <LoginScreen onSuccess={handleLoginSuccess} />
+  }
 
   return (
     <SidebarProvider defaultOpen={true}>

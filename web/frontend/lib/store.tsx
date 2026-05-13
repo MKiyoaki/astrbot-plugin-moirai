@@ -11,6 +11,8 @@ export interface ToastMessage { id: string; message: string; variant?: 'default'
 interface AppState {
   sudo: boolean
   authEnabled: boolean
+  authenticated: boolean
+  authLoading: boolean
   // Persona defaults (localStorage-backed)
   defaultPersonaConfidence: number
   // i18n
@@ -28,6 +30,7 @@ interface AppState {
 
 interface AppActions {
   setSudo: (v: boolean) => void
+  setAuthenticated: (v: boolean) => void
   setDefaultPersonaConfidence: (v: number) => void
   setLang: (l: 'zh' | 'en' | 'ja') => void
   refreshStats: () => Promise<void>
@@ -44,14 +47,20 @@ const DEFAULT_STATS: api.Stats = { personas: 0, events: 0, locked_count: 0, impr
 export function AppProvider({ children }: { children: ReactNode }) {
   const [sudo, setSudo] = useState(false)
   const [authEnabled, setAuthEnabled] = useState(true)
+  const [authenticated, setAuthenticated] = useState(false)
+  const [authLoading, setAuthLoading] = useState(true)
 
   useEffect(() => {
     api.auth.status().then(s => {
       setAuthEnabled(s.auth_enabled)
+      setAuthenticated(!s.auth_enabled || s.authenticated)
       setSudo(!s.auth_enabled || s.sudo)
     }).catch(() => {
       setAuthEnabled(false)
+      setAuthenticated(true)
       setSudo(true)
+    }).finally(() => {
+      setAuthLoading(false)
     })
   }, [])
 
@@ -131,7 +140,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const ctx = useMemo<AppState & AppActions>(() => ({
     sudo,
     authEnabled,
+    authenticated,
+    authLoading,
     setSudo,
+    setAuthenticated,
     defaultPersonaConfidence,
     lang, i18n,
     stats, rawGraph, rawEvents, toasts,
@@ -143,7 +155,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast,
     dismissToast,
   }), [
-    sudo, authEnabled,
+    sudo, authEnabled, authenticated, authLoading,
     defaultPersonaConfidence,
     lang, i18n,
     stats, rawGraph, rawEvents, toasts,
