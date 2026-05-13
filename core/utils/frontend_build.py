@@ -90,11 +90,14 @@ def build_frontend(force: bool = False) -> bool:
 
     # Rewrite HTML files only: make basePath-prefixed asset paths relative so
     # AstrBot Plugin Pages can inject asset_token into them. JS/CSS untouched.
+    # Use depth-aware prefix: root index.html → "./" , sub-pages → "../"
     _BASE = "/api/pages/astrbot_plugin_moirai/moirai"
     for html in _PAGES_DIR.rglob("*.html"):
+        depth = len(html.relative_to(_PAGES_DIR).parts) - 1
+        prefix = "../" * depth if depth else "./"
         text = html.read_text(encoding="utf-8")
-        text = text.replace(f"{_BASE}/_next/", "./_next/")
-        text = text.replace(f"{_BASE}/favicon.ico", "./favicon.ico")
+        text = text.replace(f"{_BASE}/_next/", f"{prefix}_next/")
+        text = text.replace(f"{_BASE}/favicon.ico", f"{prefix}favicon.ico")
         html.write_text(text, encoding="utf-8")
 
     logger.info("[FrontendBuild] Frontend built successfully → %s", _PAGES_DIR)
