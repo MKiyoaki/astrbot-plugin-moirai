@@ -222,6 +222,47 @@ class CommandManager:
         self._save_lang()
         return self._t("cmd.lang.set", lang=_LANG_DISPLAY[lang])
 
+    async def install_dependency(self, lib: str, event: object) -> str:
+        """Install an optional dependency using pip."""
+        lib = lib.strip().lower()
+        allowed = {"sentence-transformers", "scikit-learn"}
+        if lib not in allowed:
+            return self._t("cmd.dep.invalid")
+
+        import asyncio
+        import sys
+        import subprocess
+
+        # 1. Inform the user that installation is starting
+        if hasattr(event, "plain_result"):
+            # We yield early if we can, but since this is CommandManager, 
+            # we return the final result. For real-time, we'd need a callback.
+            # But the user asked for this in CommandManager.
+            pass
+        
+        yield_msg = self._t("cmd.dep.installing", lib=lib)
+        
+        # We'll use a wrapper to handle the process
+        async def _run_pip():
+            try:
+                # Use current python executable to ensure we're in the right env
+                process = await asyncio.create_subprocess_exec(
+                    sys.executable, "-m", "pip", "install", lib,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                if process.returncode == 0:
+                    return self._t("cmd.dep.installed", lib=lib)
+                else:
+                    error = stderr.decode().strip() or stdout.decode().strip()
+                    return self._t("cmd.dep.failed", lib=lib, error=error[:200])
+            except Exception as e:
+                return self._t("cmd.dep.failed", lib=lib, error=str(e))
+
+        # Since CommandManager methods are usually awaited, we'll return the coroutine result
+        return await _run_pip()
+
     # ------------------------------------------------------------------
     # Reset commands (all require two-step confirmation)
     # ------------------------------------------------------------------

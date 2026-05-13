@@ -2,6 +2,15 @@
 
 ## [v0.9.17] — 2026-05-14
 
+### 启动报告与依赖管理增强
+
+- **多语言启动报告**：`PluginInitializer` 现在会在插件初始化成功后，通过 AstrBot 控制台打印详细的组件状态报告（支持中/英/日三语）。报告涵盖记忆、情绪、WebUI、社交关系等模块的启用状态，以及当前使用的 Embedding 和 LLM 模型信息。
+- **在线依赖安装指令**：新增 `/mrm dep install <lib>` 指令（仅限管理员）。支持在聊天界面直接触发 `sentence-transformers` 或 `scikit-learn` 的在线安装，并提供实时进度提示，极大地降低了用户启用高级功能的门剂。
+- **i18n 全面覆盖**：为初始化报告和依赖管理指令增加了完整的本地化支持。
+
+
+## [v0.9.16] — 2026-05-14
+
 ### 前端构建与 WebUI 访问优化
 
 - **修复语法错误**：修复了 `core/extractor/partitioner.py` 中的缩进错误（`IndentationError`）以及变量未定义错误（`NameError`）。
@@ -10,6 +19,7 @@
 - **端口同步更新**：在插件启动时自动刷新引导页中的跳转链接，保证始终指向最新的 `webui_port` 配置。
 - **构建脚本重构**：更新 `core/utils/frontend_build.py` 以支持新的目录结构，并重构了内部常量命名（`_PAGES_DIR`, `_PAGES_INDEX`）。
 - **静态资源服务更新**：同步更新 `web/server.py` 的 `_STATIC_DIR` 为 `_app/` 子目录，确保独立服务器正常运行。
+- **资源目录规范化**：将 `logo.png` 和 `icon.png` 移入 `static/` 目录，并更新相关 Markdown 文档引用。
 
 ### 依赖优化与按需加载
 
@@ -182,7 +192,7 @@
 
 ### 品牌与外观更新 (Branding & Visual Updates)
 
-- **插件 Logo**：在插件根目录添加 `logo.png`，AstrBot 插件列表现在可显示插件图标。
+- **插件 Logo**：在 `static/` 目录添加 `logo.png`，AstrBot 插件列表现在可显示插件图标。
 - **英文显示名称更新**：en_US `display_name` 由 "Moirai Worldline" 改为 "Moirai Memory Plugin"，更直观地传达插件用途。
 - **主题重命名**：
   - Aurora 主题（薰衣草紫 + 金色调色板）重命名为 **Moirai**，成为插件默认配色方案（CSS 选择器 `.theme-moirai`）。

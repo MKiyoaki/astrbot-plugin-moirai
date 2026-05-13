@@ -426,6 +426,36 @@ class PluginInitializer:
         astrbot_logger.info("[%s] initialized — DB at %s",
                             _PLUGIN_NAME, db_path)
 
+        # Detailed localized startup report
+        from .utils.i18n import get_string
+        lang = cfg.language
+        header = get_string("cmd.init.header", lang)
+        active_label = get_string("cmd.init.active", lang)
+        inactive_label = get_string("cmd.init.inactive", lang)
+        none_label = get_string("cmd.init.none", lang)
+        
+        report = [header]
+        
+        # Modules
+        report.append(get_string("cmd.init.module", lang).format(
+            name="Memory", status=active_label))
+        report.append(get_string("cmd.init.module", lang).format(
+            name="Soul", status=active_label if cfg.get_soul_config().enabled else inactive_label))
+        report.append(get_string("cmd.init.module", lang).format(
+            name="WebUI", status=active_label if cfg.webui_enabled else inactive_label))
+        report.append(get_string("cmd.init.module", lang).format(
+            name="IPC", status=active_label if cfg.get_ipc_config().enabled else inactive_label))
+        
+        # Models
+        embed_cfg = cfg.get_embedding_config()
+        embed_info = f"{embed_cfg.provider} ({embed_cfg.model})" if cfg.embedding_enabled else none_label
+        report.append(get_string("cmd.init.model", lang).format(name="Embedding", model=embed_info))
+        
+        llm_info = cfg.llm_provider or "AstrBot Default"
+        report.append(get_string("cmd.init.model", lang).format(name="LLM", model=llm_info))
+        
+        astrbot_logger.info("\n".join(report))
+
     def _ensure_pages_built(self) -> None:
         """Auto-build the frontend if pages/moirai/index.html is missing."""
         if not build_frontend(force=False):

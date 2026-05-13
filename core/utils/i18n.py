@@ -163,6 +163,17 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "cmd.reset.scope_private": "私聊",
         "cmd.lang.set": "语言已切换为：{lang}",
         "cmd.lang.invalid": "不支持的语言代码。可选：cn（中文）/ en（English）/ ja（日本語）",
+        "cmd.dep.usage": "用法：/mrm dep install <sentence-transformers|scikit-learn>",
+        "cmd.dep.installing": "正在安装 {lib}... 这可能需要几分钟，请稍候。",
+        "cmd.dep.installed": "✅ {lib} 安装成功！请重启插件以启用相关功能。",
+        "cmd.dep.failed": "❌ {lib} 安装失败：{error}",
+        "cmd.dep.invalid": "不支持的依赖包。可选：sentence-transformers, scikit-learn",
+        "cmd.init.header": "【Moirai 初始化成功】",
+        "cmd.init.module": " - {name}: {status}",
+        "cmd.init.model": " - {name}模型: {model}",
+        "cmd.init.active": "已启用",
+        "cmd.init.inactive": "未启用",
+        "cmd.init.none": "无",
         "cmd.help.full": (
             "【Moirai 指令帮助】\n"
             "--- 信息查询 ---\n"
@@ -175,6 +186,7 @@ _STRINGS: Dict[str, Dict[str, str]] = {
             "/mrm flush                - 清空当前会话上下文窗口（不删数据库）\n"
             "/mrm run <task>           - 手动触发后台任务 (decay/synthesis/summary/cleanup)\n"
             "/mrm language <cn/en/ja>  - 切换指令显示语言\n"
+            "/mrm dep install <lib>    - 安装可选依赖 (sentence-transformers/scikit-learn)\n"
             "--- 重置（均需二次确认）⚠️ ---\n"
             "/mrm reset here           - 删除当前群所有事件与摘要\n"
             "/mrm reset event <gid>    - 删除指定群组的事件与摘要\n"
@@ -339,6 +351,17 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "cmd.reset.scope_private": "private chat",
         "cmd.lang.set": "Language switched to: {lang}",
         "cmd.lang.invalid": "Unsupported language code. Options: cn (Chinese) / en (English) / ja (Japanese)",
+        "cmd.dep.usage": "Usage: /mrm dep install <sentence-transformers|scikit-learn>",
+        "cmd.dep.installing": "Installing {lib}... This may take a few minutes, please wait.",
+        "cmd.dep.installed": "✅ {lib} installed successfully! Please restart the plugin to enable related features.",
+        "cmd.dep.failed": "❌ {lib} installation failed: {error}",
+        "cmd.dep.invalid": "Unsupported dependency. Options: sentence-transformers, scikit-learn",
+        "cmd.init.header": "【Moirai Initialized Successfully】",
+        "cmd.init.module": " - {name}: {status}",
+        "cmd.init.model": " - {name} Model: {model}",
+        "cmd.init.active": "Active",
+        "cmd.init.inactive": "Inactive",
+        "cmd.init.none": "None",
         "cmd.help.full": (
             "【Moirai Command Help】\n"
             "--- Info ---\n"
@@ -351,6 +374,7 @@ _STRINGS: Dict[str, Dict[str, str]] = {
             "/mrm flush                - Clear session context window (DB intact)\n"
             "/mrm run <task>           - Trigger background task (decay/synthesis/summary/cleanup)\n"
             "/mrm language <cn/en/ja>  - Switch command display language\n"
+            "/mrm dep install <lib>    - Install optional dependency (sentence-transformers/scikit-learn)\n"
             "--- Reset (2-step confirm required) ⚠️ ---\n"
             "/mrm reset here           - Delete current group events & summaries\n"
             "/mrm reset event <gid>    - Delete specified group events & summaries\n"
@@ -515,6 +539,17 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "cmd.reset.scope_private": "プライベートチャット",
         "cmd.lang.set": "言語を切り替えました：{lang}",
         "cmd.lang.invalid": "サポートされていない言語コードです。オプション：cn（中文）/ en（English）/ ja（日本語）",
+        "cmd.dep.usage": "使い方：/mrm dep install <sentence-transformers|scikit-learn>",
+        "cmd.dep.installing": "{lib} をインストールしています... 数分かかる場合があります。お待ちください。",
+        "cmd.dep.installed": "✅ {lib} のインストールが完了しました！関連機能を有効にするにはプラグインを再起動してください。",
+        "cmd.dep.failed": "❌ {lib} のインストールに失敗しました：{error}",
+        "cmd.dep.invalid": "サポートされていない依存関係です。オプション：sentence-transformers, scikit-learn",
+        "cmd.init.header": "【Moirai 初期化成功】",
+        "cmd.init.module": " - {name}: {status}",
+        "cmd.init.model": " - {name}モデル: {model}",
+        "cmd.init.active": "有効",
+        "cmd.init.inactive": "無効",
+        "cmd.init.none": "なし",
         "cmd.help.full": (
             "【Moirai コマンドヘルプ】\n"
             "--- 情報照会 ---\n"
@@ -527,6 +562,7 @@ _STRINGS: Dict[str, Dict[str, str]] = {
             "/mrm flush                - セッションコンテキストウィンドウをクリア（DB は保持）\n"
             "/mrm run <task>           - バックグラウンドタスクをトリガー (decay/synthesis/summary/cleanup)\n"
             "/mrm language <cn/en/ja>  - コマンド表示言語を切り替え\n"
+            "/mrm dep install <lib>    - オプションの依存関係をインストール (sentence-transformers/scikit-learn)\n"
             "--- リセット（二段階確認が必要）⚠️ ---\n"
             "/mrm reset here           - 現在のグループのイベントと要約を削除\n"
             "/mrm reset event <gid>    - 指定グループのイベントと要約を削除\n"

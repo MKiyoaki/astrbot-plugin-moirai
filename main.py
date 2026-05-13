@@ -273,6 +273,23 @@ class MoiraiPlugin(Star):
             return
         yield event.plain_result(await self._initializer.command_manager.help())
 
+    @mrm.group("dep")
+    def mrm_dep():
+        pass
+
+    @mrm_dep.command("install")
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    async def mrm_dep_install(self, event: AstrMessageEvent, lib: str):
+        '''安装可选依赖。用法：/mrm dep install <lib>'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        cmd = self._initializer.command_manager
+        # Send an immediate feedback as installation might take time
+        yield event.plain_result(cmd._t("cmd.dep.installing", lib=lib))
+        result = await cmd.install_dependency(lib, event)
+        yield event.plain_result(result)
+
     async def terminate(self) -> None:
         if self._initializer:
             await self._initializer.teardown()
