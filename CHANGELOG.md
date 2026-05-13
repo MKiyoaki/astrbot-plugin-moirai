@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## [v0.9.8] — 2026-05-13
+
+### WebUI 双端口架构 + `/mrm webui on` 修复
+
+**修复 "WebUI 模块未加载"**
+- `core/plugin_initializer.py`：去掉 `WebuiServer` 构造的 `webui_standalone_debug` 门控——只要 `webui_enabled=True`（默认），始终构造 `WebuiServer` 实例；`webui_standalone_debug` 仅控制是否在插件启动时自动调用 `start()`。
+- `/mrm webui on/off` 命令现在始终可用，不再返回"模块未加载"。
+
+**修复独立服务器静态文件路径**
+- `web/server.py`：将 `_STATIC_DIR` 从 `web/frontend/output/` 更新为 `pages/moirai/`，与 Phase 2 构建产物迁移保持一致。独立服务器和 AstrBot Plugin Pages 共用同一份构建产物。
+
+**双端口架构说明**
+- AstrBot Plugin Pages（`/api/plug/moirai/*`）：始终注册，由 AstrBot 管理端口和鉴权。
+- 独立 aiohttp 服务器（`cfg.webui_port`，默认 2655）：由用户通过 `/mrm webui on/off` 手动控制，适合局域网直连访问，无额外鉴权。
+
 ## [v0.9.7] — 2026-05-12
 
 ### 配置层级化 (Config Schema Hierarchy)

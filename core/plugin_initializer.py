@@ -309,10 +309,10 @@ class PluginInitializer:
         else:
             astrbot_logger.info("[%s] WebUI disabled by config", _PLUGIN_NAME)
 
-        # Keep standalone server available for local debugging only.
-        # Set webui_standalone_debug=true in config to start the legacy aiohttp server.
+        # Standalone aiohttp server: always constructed when webui_enabled so that
+        # `/mrm webui on/off` works. Auto-started only when webui_standalone_debug=True.
         self.webui = None
-        if cfg.webui_enabled and getattr(cfg, "webui_standalone_debug", False):
+        if cfg.webui_enabled:
             from web.server import WebuiServer
             self.webui = WebuiServer(
                 persona_repo=persona_repo,
@@ -328,7 +328,8 @@ class PluginInitializer:
                 all_providers_getter=self._context.get_all_providers,
                 recall_manager=self.recall,
             )
-            await self.webui.start()
+            if getattr(cfg, "webui_standalone_debug", False):
+                await self.webui.start()
 
         if cfg.markdown_projection_enabled:
             self.watcher = FileWatcher()

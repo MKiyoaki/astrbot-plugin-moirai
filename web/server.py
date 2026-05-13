@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_STATIC_DIR = Path(__file__).parent / "frontend" / "output"
+_STATIC_DIR = Path(__file__).parent.parent / "pages" / "moirai"
 _DEFAULT_PORT = 2655
 _SESSION_COOKIE = "em_session"
 
