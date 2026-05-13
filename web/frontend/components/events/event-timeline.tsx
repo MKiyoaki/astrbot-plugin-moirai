@@ -346,31 +346,35 @@ export function EventTimeline({
       <ScrollArea className="flex-1" onClick={() => onSelectionChange(null)}>
         <div className="relative w-full" style={{ minHeight: svgH }}>
           <svg className="absolute left-0 top-0" style={{ width: '100%', height: svgH, pointerEvents: 'none', overflow: 'visible' }}>
-            {/* Top extension: dashed line up to the controls area */}
-            <line 
-              x1={metrics.AX} y1={0} x2={metrics.AX} y2={metrics.TP - 10} 
-              stroke="currentColor" strokeOpacity={0.2} strokeWidth={1.5} strokeDasharray="4 4"
-            />
-            {/* Main axis line */}
-            <line 
-              x1={metrics.AX} y1={metrics.TP - 10} x2={metrics.AX} y2={svgH - 20} 
-              stroke="currentColor" strokeOpacity={0.3} strokeWidth={1.5} 
-            />
-            {rows.map(row => (
-              <g key={row.idx}>
+            {visible.length > 0 && (
+              <>
+                {/* Top extension: dashed line up to the controls area */}
                 <line 
-                  x1={metrics.AX - 4} y1={ry(row.idx)} x2={metrics.AX + 4} y2={ry(row.idx)} 
-                  stroke="currentColor" strokeOpacity={0.4} strokeWidth={1.5} 
+                  x1={metrics.AX} y1={0} x2={metrics.AX} y2={metrics.TP - 10} 
+                  stroke="currentColor" strokeOpacity={0.2} strokeWidth={1.5} strokeDasharray="4 4"
                 />
-                <text 
-                  x={metrics.AX - 8} y={ry(row.idx) + 3} textAnchor="end" 
-                  fill="currentColor" fillOpacity={0.6} fontSize={12} fontFamily="monospace" fontWeight="bold"
-                >
-                  {fmtDate(row.tsMs)}
-                </text>
-              </g>
-            ))}
-            {renderInheritanceLines()}
+                {/* Main axis line */}
+                <line 
+                  x1={metrics.AX} y1={metrics.TP - 10} x2={metrics.AX} y2={svgH - 20} 
+                  stroke="currentColor" strokeOpacity={0.3} strokeWidth={1.5} 
+                />
+                {rows.map(row => (
+                  <g key={row.idx}>
+                    <line 
+                      x1={metrics.AX - 4} y1={ry(row.idx)} x2={metrics.AX + 4} y2={ry(row.idx)} 
+                      stroke="currentColor" strokeOpacity={0.4} strokeWidth={1.5} 
+                    />
+                    <text 
+                      x={metrics.AX - 8} y={ry(row.idx) + 3} textAnchor="end" 
+                      fill="currentColor" fillOpacity={0.6} fontSize={12} fontFamily="monospace" fontWeight="bold"
+                    >
+                      {fmtDate(row.tsMs)}
+                    </text>
+                  </g>
+                ))}
+                {renderInheritanceLines()}
+              </>
+            )}
 
             {/* Layer 1: 垂直轴线 (始终显示，位于最底层) */}
             {threads.map((thread, ti) => {

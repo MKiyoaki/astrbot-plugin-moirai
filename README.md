@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="static/logo.png" width="96" alt="Moirai Logo" />
+<img src="logo.png" width="96" alt="Moirai Logo" />
 
 # Moirai
 

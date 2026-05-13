@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Plus, Trash2, Search, Info, SlidersHorizontal, X } from 'lucide-react'
+import { Plus, Trash2, Search, Info, SlidersHorizontal, X, MessageSquareOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
@@ -323,19 +323,48 @@ export default function EventsPage() {
 
       <div className="flex flex-1 overflow-hidden relative">
         {/* Main Timeline View - Always full width */}
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <EventTimeline
-            events={filtered}
-            timeGap={timeGap}
-            highlightIds={highlightIds}
-            onEventClick={setDetailEvent}
-            selectedEventId={detailEvent?.id || null}
-            onSelectionChange={(id) => {
-              if (!id) setDetailEvent(null);
-            }}
-            onEdit={ev => { if (app.sudo) setEditEvent(ev); else app.toast(i18n.common.needSudo, 'destructive') }}
-            onDelete={handleDelete}
-          />
+        <div className="flex flex-1 flex-col overflow-hidden relative">
+          {app.rawEvents.length === 0 ? (
+            <div className="flex flex-1 flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
+              <div className="size-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                <MessageSquareOff className="size-8 text-muted-foreground/60" />
+              </div>
+              <h3 className="text-lg font-medium mb-1">{i18n.page.events.noEvents}</h3>
+              <p className="text-sm text-muted-foreground max-w-xs">
+                {i18n.page.events.description}
+              </p>
+              {app.sudo && (
+                <Button variant="outline" size="sm" className="mt-6" onClick={() => setCreateOpen(true)}>
+                  <Plus className="mr-1.5 size-3.5" />{i18n.common.create}
+                </Button>
+              )}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-1 flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
+              <Search className="size-12 text-muted-foreground/30 mb-4" />
+              <h3 className="text-md font-medium text-muted-foreground">{i18n.page.events.noResults}</h3>
+              <Button variant="ghost" size="sm" className="mt-2 text-xs" onClick={() => {
+                setSearch('');
+                setDateRange(undefined);
+                setActiveTags(new Set());
+              }}>
+                {i18n.common.clearHighlight}
+              </Button>
+            </div>
+          ) : (
+            <EventTimeline
+              events={filtered}
+              timeGap={timeGap}
+              highlightIds={highlightIds}
+              onEventClick={setDetailEvent}
+              selectedEventId={detailEvent?.id || null}
+              onSelectionChange={(id) => {
+                if (!id) setDetailEvent(null);
+              }}
+              onEdit={ev => { if (app.sudo) setEditEvent(ev); else app.toast(i18n.common.needSudo, 'destructive') }}
+              onDelete={handleDelete}
+            />
+          )}
         </div>
 
         {/* Responsive Detail Sheet */}

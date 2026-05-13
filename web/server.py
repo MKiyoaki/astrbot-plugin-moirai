@@ -128,7 +128,19 @@ class WebuiServer:
         self._port = port
         self._auth_enabled = auth_enabled
 
-        cfg_password = (initial_config or {}).get("webui_password", "").strip()
+        self._initial_config = initial_config or {}
+        
+        # Merge values from data/plugin_config.json if it exists
+        self._config_path = data_dir / "plugin_config.json"
+        effective_config = dict(self._initial_config)
+        if self._config_path.exists():
+            try:
+                local_cfg = json.loads(self._config_path.read_text(encoding="utf-8"))
+                effective_config.update(local_cfg)
+            except Exception as e:
+                logger.warning("[WebUI] Failed to read plugin_config.json: %s", e)
+
+        cfg_password = effective_config.get("webui_password", "").strip()
         self.token_generated = False
         is_token_configured = bool(cfg_password)
 
@@ -148,9 +160,7 @@ class WebuiServer:
         self._provider_getter = provider_getter
         self._all_providers_getter = all_providers_getter
         self._plugin_version = plugin_version
-        self._config_path = data_dir / "plugin_config.json"
-        self._initial_config = initial_config or {}
-        self._relation_enabled = bool(self._initial_config.get("relation_enabled", True))
+        self._relation_enabled = bool(effective_config.get("relation_enabled", True))
         self._recycle_bin: list[dict] = []
         self._app = self._build_app()
         self._runner: web.AppRunner | None = None

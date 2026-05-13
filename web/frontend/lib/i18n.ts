@@ -67,12 +67,17 @@ export const zh = {
     events: {
       title: '事件流',
       description: '按时间轴查看所有对话事件，支持搜索、新建、编辑和事件回收站。',
+      noEvents: '暂无记忆事件',
+      noResults: '没有找到符合条件的事件',
     },
     graph: {
       title: '关系图',
       description: '可视化人格节点与印象关系，支持点击查看证据事件并跳转时间线。',
       disabledTitle: '关系图功能已关闭',
       disabledDescription: '社交关系推断（relation_enabled）当前已禁用。如需启用，请前往「插件配置」页面将 relation_enabled 设为开启，重启后生效。',
+      noData: '暂无关系图数据',
+      noDataDescription: '目前尚未收集到足够的会话数据以构建关系网络。请继续与机器人交流。',
+      noResults: '没有找到匹配的群组',
     },
     summary: {
       title: '摘要记忆',
@@ -613,6 +618,7 @@ export const zh = {
     updateFailed: '保存失败',
     deleteFailed: '删除失败',
     needSudo: '需要 Sudo 模式',
+    clearHighlight: '清除筛选',
     status: '状态',
     unknown: '未知',
     all: '全部',
@@ -751,13 +757,19 @@ export const ja = {
     events: {
       title: 'イベントフロー',
       description: 'タイムライン形式で対話イベントを表示。検索、作成、編集、イベントゴミ箱に対応。',
+      noEvents: '記憶イベントがまだありません',
+      noResults: '条件に一致するイベントが見つかりませんでした',
     },
     graph: {
       title: '関係図',
-      description: 'パーソナノードと印象関係を可視化。クリックで証拠イベントを確認しタイムラインへジャンプ。',
+      description: 'パーソナノードと印象关系を可视化。クリックで証拠イベントを确认しタイムラインへジャンプ。',
       disabledTitle: 'グラフ機能は無効です',
       disabledDescription: '社会的関係推論（relation_enabled）が現在無効になっています。「プラグイン設定」で有効にして再起動してください。',
+      noData: '関係図データがありません',
+      noDataDescription: 'ネットワークを構築するのに十分なセッションデータがまだ収集されていません。引き続きボットとの交流を続けてください。',
+      noResults: '一致するグループが見つかりませんでした',
     },
+
     summary: {
       title: '記憶の要約',
       description: 'グループと日付ごとに定期生成された要約を閲覧。オンライン編集に対応。',
@@ -1277,6 +1289,7 @@ export const ja = {
     updateFailed: '更新に失敗しました',
     deleteFailed: '削除に失敗しました',
     needSudo: 'Sudoモードが必要です',
+    clearHighlight: 'ハイライト解除',
     status: 'ステータス',
     unknown: '不明',
     all: 'すべて',
@@ -1414,12 +1427,17 @@ export const en = {
     events: {
       title: 'Event Flow',
       description: 'View dialogue events on a timeline. Supports search, creation, editing, and event recycle bin.',
+      noEvents: 'No memory events yet',
+      noResults: 'No events matching your filters',
     },
     graph: {
       title: 'Relationship Graph',
       description: 'Visualize persona nodes and impression relationships. Click to view evidence and jump to timeline.',
       disabledTitle: 'Graph Disabled',
       disabledDescription: 'Social relationship inference (relation_enabled) is currently disabled. Enable it in "Plugin Config" and restart the plugin.',
+      noData: 'No Relationship Data',
+      noDataDescription: 'Not enough session data has been collected yet to build a relationship network. Continue interacting with the bot.',
+      noResults: 'No matching groups found',
     },
     summary: {
       title: 'Summaries',
@@ -1960,6 +1978,7 @@ export const en = {
     updateFailed: 'Update failed',
     deleteFailed: 'Delete failed',
     needSudo: 'Sudo mode required',
+    clearHighlight: 'Clear Highlight',
     status: 'Status',
     unknown: 'Unknown',
     all: 'All',
@@ -2073,4 +2092,5 @@ export function getLocalizedOrientation(label: string, i18n: I18n): string {
   const key = map[label]
   return key ? i18n.graph.orientations[key] : label
 }
+
 

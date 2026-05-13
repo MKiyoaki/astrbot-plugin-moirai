@@ -53,10 +53,10 @@ class MoiraiPlugin(Star):
         return None
 
     async def initialize(self) -> None:
+        data_dir: Path = StarTools.get_data_dir("astrbot_plugin_moirai")
         raw_cfg = self.config if hasattr(
             self, "config") and self.config else {}
-        cfg = PluginConfig(raw_cfg)
-        data_dir: Path = StarTools.get_data_dir("astrbot_plugin_moirai")
+        cfg = PluginConfig(raw_cfg, data_dir=data_dir)
         self._initializer = PluginInitializer(self.context, cfg, data_dir)
         await self._initializer.initialize()
         self._handler = EventHandler(self._initializer)

@@ -40,16 +40,21 @@ _REDIRECT_TEMPLATE = """\
     body{{font-family:system-ui,-apple-system,sans-serif;display:flex;
          align-items:center;justify-content:center;min-height:100vh;
          background:#f8f8f8;color:#222}}
-    .card{{text-align:center;padding:2.5rem 2rem;max-width:380px}}
-    h1{{font-size:1.6rem;font-weight:700;letter-spacing:-.02em;margin-bottom:.4rem}}
+    .card{{text-align:center;padding:2.5rem 2rem;max-width:380px;
+         background:#fff;border-radius:1rem;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1)}}
+    h1{{font-size:1.6rem;font-weight:700;letter-spacing:-.02em;margin-bottom:.4rem;color:#111}}
     .sub{{font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;
-          color:#888;margin-bottom:1.6rem}}
+          color:#6366f1;margin-bottom:1.6rem;font-weight:600}}
     p{{color:#555;font-size:.9rem;line-height:1.6;margin-bottom:1.8rem}}
-    a.btn{{display:inline-block;padding:.7rem 2rem;background:#6366f1;
-           color:#fff;border-radius:.5rem;text-decoration:none;
-           font-size:.95rem;transition:background .15s}}
-    a.btn:hover{{background:#4f46e5}}
-    .note{{margin-top:1.2rem;font-size:.78rem;color:#aaa}}
+    a.btn{{display:inline-block;padding:.8rem 2.2rem;background:#6366f1;
+           color:#fff;border-radius:.6rem;text-decoration:none;
+           font-size:.95rem;font-weight:500;transition:all .15s ease}}
+    a.btn:hover{{background:#4f46e5;transform:translateY(-1px);box-shadow:0 4px 12px rgba(99,102,241,0.3)}}
+    a.btn:active{{transform:translateY(0)}}
+    .note{{margin-top:1.5rem;padding-top:1.2rem;border-top:1px solid #eee;
+           font-size:.78rem;color:#999;word-break:break-all}}
+    code{{background:#f1f5f9;padding:.2rem .4rem;border-radius:.3rem;
+          color:#475569;font-family:monospace;margin-top:.4rem;display:inline-block}}
   </style>
 </head>
 <body>
@@ -58,12 +63,38 @@ _REDIRECT_TEMPLATE = """\
     <div class="sub">Memory Engine</div>
     <p>WebUI 运行在独立服务器上。<br>点击下方按钮在新标签页中打开。</p>
     <a class="btn" href="#" id="link" target="_blank" rel="noopener">打开 WebUI</a>
-    <p class="note">默认地址：<code>http://&lt;host&gt;:{port}</code></p>
+    <div class="note">
+      无法点击？请手动访问：<br>
+      <code id="url-display">http://<host>:{port}</code>
+    </div>
   </div>
   <script>
-    var port = {port};
-    var el = document.getElementById('link');
-    el.href = 'http://' + location.hostname + ':' + port;
+    (function() {{
+      var port = {port};
+      var host = window.location.hostname || '127.0.0.1';
+      
+      // Handle sandbox null origin or empty hostname
+      if (host === 'null' || host === '') {{
+        host = window.location.host.split(':')[0] || '127.0.0.1';
+      }}
+      
+      // IPv6 wrapping
+      if (host.indexOf(':') > -1 && host.indexOf('[') === -1) {{
+        host = '[' + host + ']';
+      }}
+      
+      var url = 'http://' + host + ':' + port;
+      var el = document.getElementById('link');
+      var display = document.getElementById('url-display');
+      
+      el.href = url;
+      if (display) display.textContent = url;
+      
+      // Fallback for some environments where target="_blank" might be blocked
+      el.onclick = function(e) {{
+        console.log("Navigating to: " + url);
+      }};
+    }})();
   </script>
 </body>
 </html>

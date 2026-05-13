@@ -323,7 +323,12 @@ export default function GraphPage() {
           onDateRangeChange={setDateRange}
         />
         <div className="flex-1 overflow-y-auto animate-in fade-in duration-700 delay-150 fill-mode-both">
-          <GroupCardList groups={filteredGroups} onOpen={handleOpenGroup} loading={loading} />
+          <GroupCardList 
+            groups={filteredGroups} 
+            onOpen={handleOpenGroup} 
+            loading={loading} 
+            isFiltered={groupCards.length > 0 && (search !== '' || activeTags.size > 0 || !!dateRange?.from)}
+          />
         </div>
 
         <CreatePersonaDialog

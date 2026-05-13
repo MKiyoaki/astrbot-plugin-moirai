@@ -289,15 +289,36 @@ class PluginConfig:
         port = cfg.webui_port
     """
 
-    def __init__(self, raw: dict) -> None:
+    def __init__(self, raw: dict, data_dir: Path | None = None) -> None:
         # AstrBot delivers nested dicts when _conf_schema.json uses "type": "object".
         # Flatten one level so all existing flat-key accessors continue to work.
         flat: dict = {}
         for k, v in raw.items():
             if isinstance(v, dict):
-                flat.update(v)
+                for sub_k, sub_v in v.items():
+                    # If key already exists at top level, only overwrite if sub_v is not empty/default
+                    # But for simplicity and matching existing behavior, we usually just update.
+                    # Here we ensure we don't overwrite a set value with an empty string from a sub-dict.
+                    if sub_k in flat and not sub_v and flat[sub_k]:
+                        continue
+                    flat[sub_k] = sub_v
             else:
                 flat[k] = v
+        
+        # Merge values from data/plugin_config.json if it exists (WebUI-saved config)
+        if data_dir:
+            config_path = data_dir / "plugin_config.json"
+            if config_path.exists():
+                try:
+                    import json
+                    local_cfg = json.loads(config_path.read_text(encoding="utf-8"))
+                    # Local config (saved via WebUI) takes precedence
+                    for k, v in local_cfg.items():
+                        if v is not None:
+                            flat[k] = v
+                except:
+                    pass
+
         self._raw = flat
 
     # ------------------------------------------------------------------

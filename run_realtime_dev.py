@@ -311,7 +311,7 @@ async def main() -> None:
             })
         else:
             raw["extraction_strategy"] = "llm"
-        return PluginConfig(raw)
+        return PluginConfig(raw, data_dir=DEV_DATA)
 
     cfg = _build_config(_EVENT_MODE)
     # Use _RealtimeProviderBridge instead of MockProviderBridge:
