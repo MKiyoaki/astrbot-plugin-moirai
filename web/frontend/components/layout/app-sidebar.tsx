@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import {
@@ -24,6 +24,22 @@ import Link from 'next/link'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { routeIsActive } from '@/lib/navigation'
+
+// Helper function to dynamically resolve the runtime base path in a nested environment.
+// It extracts the path prefix injected by the AstrBot host to prevent absolute routing errors.
+const getSafePath = (target: string): string => {
+  if (typeof window === 'undefined') return target
+  
+  const currentPath = window.location.pathname
+  const pagesIndex = currentPath.indexOf('/pages')
+  
+  if (pagesIndex !== -1) {
+    const basePath = currentPath.substring(0, pagesIndex + 6)
+    return `${basePath}${target}`
+  }
+  
+  return target
+}
 
 export function AppSidebar() {
   const pathname = usePathname()
@@ -75,20 +91,21 @@ export function AppSidebar() {
     window.location.reload()
   }
 
-  const NAV_VISUALIZATION = React.useMemo(() => [
-    { href: '/events', icon: Activity,  label: i18n.nav.events },
-    { href: '/graph',  icon: Share2,    label: i18n.nav.graph },
-    { href: '/summary',icon: BookOpen,  label: i18n.nav.summary },
+  // Wrap all target URLs with the environment-aware path resolver.
+  const NAV_VISUALIZATION = useMemo(() => [
+    { href: getSafePath('/events'), icon: Activity,  label: i18n.nav.events },
+    { href: getSafePath('/graph'),  icon: Share2,    label: i18n.nav.graph },
+    { href: getSafePath('/summary'),icon: BookOpen,  label: i18n.nav.summary },
   ], [i18n])
 
-  const NAV_TOOLS = React.useMemo(() => [
-    { href: '/recall', icon: Search,    label: i18n.nav.recall },
-    { href: '/stats',  icon: BarChart3, label: lang === 'zh' ? '数据统计' : (lang === 'ja' ? '統計' : 'Statistics') },
+  const NAV_TOOLS = useMemo(() => [
+    { href: getSafePath('/recall'), icon: Search,    label: i18n.nav.recall },
+    { href: getSafePath('/stats'),  icon: BarChart3, label: lang === 'zh' ? '数据统计' : (lang === 'ja' ? '統計' : 'Statistics') },
   ], [i18n, lang])
 
-  const NAV_ADMIN = React.useMemo(() => [
-    { href: '/library',  icon: Database,           label: i18n.nav.library },
-    { href: '/config',   icon: SlidersHorizontal,  label: i18n.nav.config },
+  const NAV_ADMIN = useMemo(() => [
+    { href: getSafePath('/library'),  icon: Database,           label: i18n.nav.library },
+    { href: getSafePath('/config'),   icon: SlidersHorizontal,  label: i18n.nav.config },
   ], [i18n])
 
   const { resolvedTheme, setTheme } = useTheme()
@@ -103,7 +120,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link href="/">
+              <Link href={getSafePath('/')}>
                 <div className="grid flex-1 text-left leading-tight ml-2">
                   <span className="truncate font-serif text-xl font-bold tracking-tighter text-primary">{i18n.app.name}</span>
                   <span className="text-muted-foreground truncate text-[9px] font-mono uppercase tracking-[0.18em] opacity-60">
@@ -213,8 +230,8 @@ export function AppSidebar() {
           </SidebarMenuItem>
 
           <SidebarMenuItem>
-            <Link href="/settings" className="flex w-full">
-              <SidebarMenuButton isActive={routeIsActive(pathname, '/settings')} tooltip={i18n.nav.settings} className="cursor-pointer">
+            <Link href={getSafePath('/settings')} className="flex w-full">
+              <SidebarMenuButton isActive={routeIsActive(pathname, getSafePath('/settings'))} tooltip={i18n.nav.settings} className="cursor-pointer">
                 <Settings />
                 <span>{i18n.nav.settings}</span>
               </SidebarMenuButton>
@@ -241,6 +258,7 @@ export function AppSidebar() {
     </Sidebar>
 
     <Dialog open={sudoDialogOpen} onOpenChange={setSudoDialogOpen}>
+      {/* Dialog content remains unmodified */}
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>{i18n.auth.sudoMode}</DialogTitle>
