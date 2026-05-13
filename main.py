@@ -61,6 +61,11 @@ class MoiraiPlugin(Star):
         await self._initializer.initialize()
         self._handler = EventHandler(self._initializer)
 
+        # Register official WebUI page
+        if cfg.webui_enabled:
+            self.register_page("Moirai", "pages/moirai/index.html")
+
+
     # ── Message hooks ─────────────────────────────────────────────────────────
 
     @filter.on_llm_request()

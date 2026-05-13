@@ -187,7 +187,7 @@ async def test_graph_data_nodes_and_edges(tmp_path: Path) -> None:
 async def test_graph_data_empty(tmp_path: Path) -> None:
     srv = _server(tmp_path)
     data = await srv.graph_data()
-    assert data == {"nodes": [], "edges": []}
+    assert data == {"nodes": [], "edges": [], "group_members": {}}
 
 
 async def test_summaries_data_group_files(tmp_path: Path) -> None:
@@ -291,6 +291,11 @@ async def test_api_summary_not_found(tmp_path: Path) -> None:
 
 async def test_api_index_returns_html(tmp_path: Path) -> None:
     srv = _server(tmp_path)
+    # Skip if static files are not built
+    static_index = Path(__file__).parent.parent / "pages" / "moirai" / "index.html"
+    if not static_index.exists():
+        pytest.skip("Static frontend files not built, skipping index test")
+
     async with TestClient(TestServer(srv.app)) as client:
         resp = await client.get("/")
         assert resp.status == 200

@@ -328,8 +328,11 @@ class PluginInitializer:
                 all_providers_getter=self._context.get_all_providers,
                 recall_manager=self.recall,
             )
-            if getattr(cfg, "webui_standalone_debug", False):
+            # Standalone server is now started by default if enabled
+            try:
                 await self.webui.start()
+            except Exception as e:
+                astrbot_logger.warning("[%s] Failed to start standalone WebUI server: %s. This may happen if the port %d is already in use.", _PLUGIN_NAME, e, cfg.webui_port)
 
         if cfg.markdown_projection_enabled:
             self.watcher = FileWatcher()

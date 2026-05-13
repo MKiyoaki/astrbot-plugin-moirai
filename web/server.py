@@ -409,18 +409,33 @@ class WebuiServer:
         return self._auth
 
     async def start(self) -> None:
+        if self._runner is not None:
+            logger.info("[WebUI] Server is already running.")
+            return
+
         # Ensure static resources are ready
         self._ensure_frontend_build()
 
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
-        site = web.TCPSite(self._runner, "0.0.0.0", self._port)
-        await site.start()
-        logger.info("[WebUI] listening on http://localhost:%d", self._port)
+        try:
+            site = web.TCPSite(self._runner, "0.0.0.0", self._port)
+            await site.start()
+            logger.info("[WebUI] listening on http://localhost:%d", self._port)
+        except Exception as e:
+            # Cleanup runner if site start fails
+            await self._runner.cleanup()
+            self._runner = None
+            raise e
 
     async def stop(self) -> None:
-        if self._runner is not None:
+        if self._runner is None:
+            logger.info("[WebUI] Server is not running.")
+            return
+
+        try:
             await self._runner.cleanup()
+        finally:
             self._runner = None
         logger.info("[WebUI] stopped")
 
