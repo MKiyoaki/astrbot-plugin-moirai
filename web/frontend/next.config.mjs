@@ -9,10 +9,6 @@ const nextConfig = {
   ...(isDev ? {} : {
     output: 'export',
     distDir: 'out',
-    basePath: '/plug/moirai',
-    env: {
-      NEXT_PUBLIC_BASE_PATH: '/plug/moirai',
-    },
   }),
 
   images: {

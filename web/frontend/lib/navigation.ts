@@ -12,8 +12,7 @@ const ROUTES = new Set([
   '/settings',
 ])
 
-// Set by next.config.mjs at build time; empty string in dev.
-const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || ''
+const BASE_PATH = ''
 
 function isIframeEmbed() {
   if (typeof window === 'undefined') return false
