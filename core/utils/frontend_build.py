@@ -1,18 +1,14 @@
 """Utility for building the Next.js frontend.
 
-`npm run build` outputs a static export to web/frontend/out/.
-The self-hosted WebuiServer serves out/ directly at root /.
-
-For AstrBot Plugin Pages, out/ is copied to pages/moirai/ with HTML-only
-path rewriting: absolute /_next/ and route hrefs are converted to relative
-paths so AstrBot can inject asset_token and route correctly.
-JS/CSS files are never touched.
+`npm run build` outputs a static export to web/frontend/out/ with
+basePath='/api/pages/astrbot_plugin_moirai/moirai', so all asset paths
+are already correct for AstrBot Plugin Pages. The output is then copied
+verbatim to pages/moirai/ — no HTML rewriting needed.
 """
 from __future__ import annotations
 
 import logging
 import os
-import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -27,11 +23,6 @@ _PAGES_INDEX = _PAGES_DIR / "index.html"
 
 _CONDA_NODE_BIN = Path.home() / "miniconda3" / "envs" / "node" / "bin"
 
-_ROUTES = {
-    'events', 'graph', 'summary', 'recall', 'stats', 'library', 'config', 'settings',
-}
-
-
 def _find_npm() -> str | None:
     if shutil.which("npm"):
         return "npm"
@@ -39,39 +30,6 @@ def _find_npm() -> str | None:
     if candidate.exists():
         return str(candidate)
     return None
-
-
-def _relative_prefix(html_file: Path) -> str:
-    """Return the relative path prefix from html_file's directory to pages/moirai/."""
-    parts = html_file.relative_to(_PAGES_DIR).parent.parts
-    depth = len(parts)
-    return "../" * depth if depth else "./"
-
-
-def _rewrite_html(file: Path) -> None:
-    """Rewrite absolute asset/route paths to relative in HTML files only."""
-    if file.suffix != ".html":
-        return
-    prefix = _relative_prefix(file)
-    text = file.read_text(encoding="utf-8")
-
-    # Asset paths: /_next/ and /favicon.ico
-    text = re.sub(r'(href=|src=|srcSet=|"\s*:\s*")(\\?")/(_next/)', lambda m: f'{m.group(1)}{m.group(2)}{prefix}_next/', text)
-    text = text.replace('"/_next/', f'"{prefix}_next/')
-    text = text.replace("'/_next/", f"'{prefix}_next/")
-    text = text.replace('\\u002F_next\\u002F', f'\\u002F{prefix}_next\\u002F'.replace('/', '\\u002F'))
-    text = re.sub(r'(href=(?:\\?"|\'))/favicon\.ico', lambda m: f'{m.group(1)}{prefix}favicon.ico', text)
-
-    # Route hrefs: /events, /graph, etc.
-    for route in _ROUTES:
-        text = re.sub(
-            rf'(href=(?:\\?"|\'))/{route}(?:/)?(?:\\?"|\')' ,
-            lambda m, r=route, p=prefix: m.group(0).replace(f'/{r}', f'{p}{r}/'),
-            text,
-        )
-    # Root href
-    text = re.sub(r'href=(?:\\?"|\')/(?:\\?"|\')', lambda m: m.group(0).replace('href=', f'href=').replace('/', f'{prefix}', 1), text)
-    file.write_text(text, encoding="utf-8")
 
 
 def build_frontend(force: bool = False) -> bool:
@@ -126,13 +84,9 @@ def build_frontend(force: bool = False) -> bool:
         logger.error("[FrontendBuild] Build finished but out/ not found.")
         return False
 
-    # Copy out/ → pages/moirai/, then rewrite HTML only (not JS/CSS)
     if _PAGES_DIR.exists():
         shutil.rmtree(_PAGES_DIR)
     shutil.copytree(_OUT_DIR, _PAGES_DIR)
-
-    for html_file in _PAGES_DIR.rglob("*.html"):
-        _rewrite_html(html_file)
 
     logger.info("[FrontendBuild] Frontend built successfully → %s", _PAGES_DIR)
     return True

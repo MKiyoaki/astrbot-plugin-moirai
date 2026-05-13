@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
+import { useState } from 'react'
+import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import {
@@ -20,26 +21,23 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
-import Link from 'next/link'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { routeIsActive } from '@/lib/navigation'
 
-// Helper function to dynamically resolve the runtime base path in a nested environment.
-// It extracts the path prefix injected by the AstrBot host to prevent absolute routing errors.
-const getSafePath = (target: string): string => {
-  if (typeof window === 'undefined') return target
-  
-  const currentPath = window.location.pathname
-  const pagesIndex = currentPath.indexOf('/pages')
-  
-  if (pagesIndex !== -1) {
-    const basePath = currentPath.substring(0, pagesIndex + 6)
-    return `${basePath}${target}`
-  }
-  
-  return target
-}
+const NAV_VISUALIZATION = [
+  { href: '/events',  icon: Activity,          labelKey: 'events' as const },
+  { href: '/graph',   icon: Share2,             labelKey: 'graph' as const },
+  { href: '/summary', icon: BookOpen,           labelKey: 'summary' as const },
+]
+const NAV_TOOLS = [
+  { href: '/recall',  icon: Search,             labelKey: 'recall' as const },
+  { href: '/stats',   icon: BarChart3,          labelKey: 'stats' as const },
+]
+const NAV_ADMIN = [
+  { href: '/library', icon: Database,           labelKey: 'library' as const },
+  { href: '/config',  icon: SlidersHorizontal,  labelKey: 'config' as const },
+]
 
 export function AppSidebar() {
   const pathname = usePathname()
@@ -91,26 +89,15 @@ export function AppSidebar() {
     window.location.reload()
   }
 
-  // Wrap all target URLs with the environment-aware path resolver.
-  const NAV_VISUALIZATION = useMemo(() => [
-    { href: getSafePath('/events'), icon: Activity,  label: i18n.nav.events },
-    { href: getSafePath('/graph'),  icon: Share2,    label: i18n.nav.graph },
-    { href: getSafePath('/summary'),icon: BookOpen,  label: i18n.nav.summary },
-  ], [i18n])
-
-  const NAV_TOOLS = useMemo(() => [
-    { href: getSafePath('/recall'), icon: Search,    label: i18n.nav.recall },
-    { href: getSafePath('/stats'),  icon: BarChart3, label: lang === 'zh' ? '数据统计' : (lang === 'ja' ? '統計' : 'Statistics') },
-  ], [i18n, lang])
-
-  const NAV_ADMIN = useMemo(() => [
-    { href: getSafePath('/library'),  icon: Database,           label: i18n.nav.library },
-    { href: getSafePath('/config'),   icon: SlidersHorizontal,  label: i18n.nav.config },
-  ], [i18n])
+  const navLabel = (labelKey: string) => {
+    if (labelKey === 'stats') {
+      return lang === 'zh' ? '数据统计' : lang === 'ja' ? '統計' : 'Statistics'
+    }
+    return (i18n.nav as Record<string, string>)[labelKey] ?? labelKey
+  }
 
   const { resolvedTheme, setTheme } = useTheme()
   const isDark = resolvedTheme === 'dark'
-
   const toggleTheme = () => setTheme(isDark ? 'light' : 'dark')
 
   return (
@@ -120,7 +107,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link href={getSafePath('/')}>
+              <Link href="/">
                 <div className="grid flex-1 text-left leading-tight ml-2">
                   <span className="truncate font-serif text-xl font-bold tracking-tighter text-primary">{i18n.app.name}</span>
                   <span className="text-muted-foreground truncate text-[9px] font-mono uppercase tracking-[0.18em] opacity-60">
@@ -143,9 +130,9 @@ export function AppSidebar() {
                 return (
                   <SidebarMenuItem key={item.href}>
                     <Link href={item.href} className="flex w-full">
-                      <SidebarMenuButton isActive={active} tooltip={item.label} className="w-full cursor-pointer">
+                      <SidebarMenuButton isActive={active} tooltip={navLabel(item.labelKey)} className="w-full cursor-pointer">
                         <item.icon />
-                        <span>{item.label}</span>
+                        <span>{navLabel(item.labelKey)}</span>
                       </SidebarMenuButton>
                     </Link>
                   </SidebarMenuItem>
@@ -166,9 +153,9 @@ export function AppSidebar() {
                 return (
                   <SidebarMenuItem key={item.href}>
                     <Link href={item.href} className="flex w-full">
-                      <SidebarMenuButton isActive={active} tooltip={item.label} className="w-full cursor-pointer">
+                      <SidebarMenuButton isActive={active} tooltip={navLabel(item.labelKey)} className="w-full cursor-pointer">
                         <item.icon />
-                        <span>{item.label}</span>
+                        <span>{navLabel(item.labelKey)}</span>
                       </SidebarMenuButton>
                     </Link>
                   </SidebarMenuItem>
@@ -189,9 +176,9 @@ export function AppSidebar() {
                 return (
                   <SidebarMenuItem key={item.href}>
                     <Link href={item.href} className="flex w-full">
-                      <SidebarMenuButton isActive={active} tooltip={item.label} className="w-full cursor-pointer">
+                      <SidebarMenuButton isActive={active} tooltip={navLabel(item.labelKey)} className="w-full cursor-pointer">
                         <item.icon />
-                        <span>{item.label}</span>
+                        <span>{navLabel(item.labelKey)}</span>
                       </SidebarMenuButton>
                     </Link>
                   </SidebarMenuItem>
@@ -230,8 +217,8 @@ export function AppSidebar() {
           </SidebarMenuItem>
 
           <SidebarMenuItem>
-            <Link href={getSafePath('/settings')} className="flex w-full">
-              <SidebarMenuButton isActive={routeIsActive(pathname, getSafePath('/settings'))} tooltip={i18n.nav.settings} className="cursor-pointer">
+            <Link href="/settings" className="flex w-full">
+              <SidebarMenuButton isActive={routeIsActive(pathname, '/settings')} tooltip={i18n.nav.settings} className="cursor-pointer">
                 <Settings />
                 <span>{i18n.nav.settings}</span>
               </SidebarMenuButton>
@@ -258,7 +245,6 @@ export function AppSidebar() {
     </Sidebar>
 
     <Dialog open={sudoDialogOpen} onOpenChange={setSudoDialogOpen}>
-      {/* Dialog content remains unmodified */}
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>{i18n.auth.sudoMode}</DialogTitle>

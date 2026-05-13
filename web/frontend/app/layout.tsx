@@ -5,6 +5,7 @@ import { ThemeProvider } from '@/components/theme-provider'
 import { AppProvider } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { AppShell } from '@/components/layout/app-shell'
+import { DebugInstaller } from '@/components/shared/debug-installer'
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-sans' })
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono' })
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="font-sans antialiased min-h-svh">
         <ThemeProvider>
           <AppProvider>
+            <DebugInstaller />
             <AppShell>{children}</AppShell>
           </AppProvider>
         </ThemeProvider>

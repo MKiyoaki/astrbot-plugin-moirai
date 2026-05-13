@@ -2,11 +2,10 @@
 const isDev = process.env.NODE_ENV === 'development'
 
 const nextConfig = {
-  // Production: static export directly into pages/moirai/ (AstrBot Plugin Pages).
-  // basePath tells Next.js the app is mounted at /api/pages/astrbot_plugin_moirai/moirai,
-  // so all /_next/ asset URLs are emitted as /api/pages/astrbot_plugin_moirai/moirai/_next/...
-  // — no post-build path rewriting needed.
-  // Dev: no output/basePath so next dev + HMR + API rewrites work normally.
+  // Production: static export to out/. frontend_build.py then copies out/ →
+  // pages/moirai/ with HTML-only path rewriting (absolute /_next/ → relative),
+  // so AstrBot Plugin Pages can inject asset_token on the relative hrefs.
+  // Dev: skip output so next dev + HMR + API rewrites work normally.
   ...(isDev ? {} : {
     output: 'export',
     distDir: 'out',
