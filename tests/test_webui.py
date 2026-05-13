@@ -322,16 +322,15 @@ async def test_auth_status_no_password(tmp_path: Path) -> None:
         resp = await client.get("/api/auth/status")
         data = await resp.json()
         assert data["auth_enabled"] is True
-        assert data["password_set"] is True  # Now always True
+        assert data["password_set"] is False
         assert data["authenticated"] is False
 
 
 async def test_auth_setup_then_query_succeeds(tmp_path: Path) -> None:
     srv = _server(tmp_path, auth_enabled=True)
     async with TestClient(TestServer(srv.app)) as client:
-        # setup is now blocked because password is set by default
         resp = await client.post("/api/auth/setup", json={"password": "secret123"})
-        assert resp.status == 409
+        assert resp.status == 200
         # login instead
         # Since _server doesn't specify a secret_token, it uses one from WebuiServer.
         # But we need to know it. In tests, we can use AuthManager directly.
@@ -414,8 +413,10 @@ async def test_run_task_503_when_runner_missing(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_auth_manager_setup_and_verify(tmp_path: Path) -> None:
-    mgr = AuthManager(tmp_path, secret_token="dev")
-    assert mgr.is_password_set() # Always True
+    mgr = AuthManager(tmp_path, secret_token="dev", is_token_configured=True)
+    assert mgr.is_password_set()
+    mgr = AuthManager(tmp_path)
+    assert not mgr.is_password_set()
     mgr.setup_password("hello123")
     assert mgr.is_password_set()
     assert mgr.verify_password("hello123")

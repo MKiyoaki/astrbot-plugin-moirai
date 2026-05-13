@@ -8,6 +8,7 @@ it can be unit-tested against.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from core.boundary.detector import BoundaryConfig
 from core.utils.i18n import LANG_ZH, LANG_EN, LANG_JA
