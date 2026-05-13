@@ -30,10 +30,11 @@ import { useApp } from '@/lib/store'
 import { setStored } from '@/lib/safe-storage'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { goToPage } from '@/lib/navigation'
+import { useRouter } from 'next/navigation'
 
 function LibraryContent() {
   const { i18n, lang, refreshStats, setRawEvents, setRawGraph, toast, sudo } = useApp()
+  const router = useRouter()
 
   const L = useMemo(() => ({
     editMode:       lang === 'zh' ? '编辑模式' : lang === 'ja' ? '編集モード' : 'Edit Mode',
@@ -350,8 +351,8 @@ function LibraryContent() {
     })
   }
 
-  const goToGraph = (uid: string) => { setStored('em_focus_persona', uid, 'session'); goToPage('/graph') }
-  const goToEvents = (eventId: string) => { setStored('em_focus_event', eventId, 'session'); goToPage('/events') }
+  const goToGraph = (uid: string) => { setStored('em_focus_persona', uid, 'session'); router.push('/graph') }
+  const goToEvents = (eventId: string) => { setStored('em_focus_event', eventId, 'session'); router.push('/events') }
   const handleTagClick = (t: string) => {
     const next = new Set(activeTags)
     if (next.has(t)) next.delete(t); else next.add(t)

@@ -88,5 +88,14 @@ def build_frontend(force: bool = False) -> bool:
         shutil.rmtree(_PAGES_DIR)
     shutil.copytree(_OUT_DIR, _PAGES_DIR)
 
+    # Rewrite HTML files only: make basePath-prefixed asset paths relative so
+    # AstrBot Plugin Pages can inject asset_token into them. JS/CSS untouched.
+    _BASE = "/api/pages/astrbot_plugin_moirai/moirai"
+    for html in _PAGES_DIR.rglob("*.html"):
+        text = html.read_text(encoding="utf-8")
+        text = text.replace(f"{_BASE}/_next/", "./_next/")
+        text = text.replace(f"{_BASE}/favicon.ico", "./favicon.ico")
+        html.write_text(text, encoding="utf-8")
+
     logger.info("[FrontendBuild] Frontend built successfully → %s", _PAGES_DIR)
     return True

@@ -29,11 +29,12 @@ import {
 } from '@/lib/graph-types'
 import { buildGroupCards } from '@/lib/graph-utils'
 import { useForceSimulation } from '@/hooks/use-force-simulation'
-import { goToPage } from '@/lib/navigation'
+import { useRouter } from 'next/navigation'
 
 export default function GraphPage() {
   const app = useApp()
   const { i18n } = app
+  const router = useRouter()
 
   // ── Tag & Date filter ──────────────────────────────────────────────────────
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set())
@@ -274,7 +275,7 @@ export default function GraphPage() {
 
   const handleJumpToEvent = (eventId: string) => {
     setStored('em_highlight_events', JSON.stringify([eventId]), 'session')
-    goToPage('/events')
+    router.push('/events')
   }
 
   // ── Standard Utilities ──────────────────────────────────────────────────────
