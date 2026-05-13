@@ -22,6 +22,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from core.utils.version import get_plugin_version
+from core.utils.frontend_build import build_frontend
 from web.server import WebuiServer, _DEMO_SUMMARY_1, _DEMO_SUMMARY_2
 from core.domain.models import Event, Impression, Persona, MessageRef
 from core.repository.memory import (
@@ -277,6 +278,10 @@ async def main() -> None:
     port = _parse_port()
     data_dir = _DATA_DIR
     data_dir.mkdir(parents=True, exist_ok=True)
+
+    if not build_frontend():
+        print("  ⚠ 前端构建失败，请检查 Node.js 环境后重试。")
+        return
 
     persona_repo    = InMemoryPersonaRepository()
     event_repo      = InMemoryEventRepository()
