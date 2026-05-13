@@ -503,3 +503,27 @@ async def test_registered_panel_route_callable(tmp_path: Path) -> None:
         resp = await client.get("/api/ext/p1/data")
         assert resp.status == 200
         assert (await resp.json()) == {"hello": "world"}
+
+
+# ---------------------------------------------------------------------------
+# WebUI error reporting: str(e) or repr(e) fallback
+# ---------------------------------------------------------------------------
+
+def test_webui_error_nonempty_for_empty_exception_message() -> None:
+    """Regression: if Exception() has no message, str(e) == '' (falsy).
+
+    plugin_initializer now uses `str(e) or repr(e) or 'unknown error'` so the
+    command manager never falls through to the misleading 'not_loaded' branch.
+    """
+    e = Exception()
+    assert str(e) == ""  # confirm the problematic case
+    error_msg = str(e) or repr(e) or "unknown error"
+    assert error_msg  # must be truthy
+    assert "Exception" in error_msg  # repr contains the type name
+
+
+def test_webui_error_str_preferred_when_nonempty() -> None:
+    """When the exception has a message, str(e) is used as-is."""
+    e = ImportError("No module named 'aiohttp'")
+    error_msg = str(e) or repr(e) or "unknown error"
+    assert "aiohttp" in error_msg

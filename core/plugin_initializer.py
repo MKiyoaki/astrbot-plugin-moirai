@@ -280,10 +280,14 @@ class PluginInitializer:
             interval=cfg.decay_interval_seconds,
             fn=_daily_maintenance,
         )
+        async def _context_cleanup() -> None:
+            if self.context_manager:
+                self.context_manager.cleanup_expired()
+
         self.scheduler.register(
             "context_cleanup",
             interval=60,
-            fn=lambda: self.context_manager.cleanup_expired() if self.context_manager else None,
+            fn=_context_cleanup,
         )
         if cfg.persona_synthesis_enabled:
             self.scheduler.register(
@@ -365,8 +369,8 @@ class PluginInitializer:
                 recall_manager=self.recall,
             )
         except Exception as e:
-            self.webui_error = str(e)
-            astrbot_logger.exception("[%s] Failed to construct standalone WebUI server", _PLUGIN_NAME)
+            self.webui_error = str(e) or repr(e) or "unknown error"
+            astrbot_logger.exception("[%s] Failed to construct standalone WebUI server: %s", _PLUGIN_NAME, self.webui_error)
 
         if cfg.webui_enabled and self.webui is not None:
             try:

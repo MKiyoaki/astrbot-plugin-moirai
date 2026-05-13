@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [v0.9.12] - 2026-05-13
+
+### 调度器与 WebUI 错误报告修复
+- 修复 `context_cleanup` 调度任务崩溃：`cleanup_expired()` 返回 `int` 但调度器执行 `await task.fn()`，导致 "object int can't be used in 'await' expression"；将 lambda 改为真正的 `async def _context_cleanup()`。
+- 修复 `/mrm webui on` 在 WebuiServer 构造失败时仍显示"WebUI 模块未加载"的问题：将 `str(e)` 改为 `str(e) or repr(e) or "unknown error"`，避免空字符串异常信息被误判为无错误；同时在日志中记录完整异常原因。
+- 新增测试：`test_scheduler_sync_fn_raises_type_error`（回归复现）、`test_scheduler_async_wrapper_around_sync_fn_works`（修复验证）、`test_context_cleanup_scheduler_pattern`（initializer 集成路径）、`test_context_cleanup_returns_int_not_awaitable`（假设验证）、`test_webui_error_nonempty_for_empty_exception_message`（错误报告修复验证）。
+
 ## [v0.9.11] - 2026-05-13
 
 ### AstrBot WebUI runtime hardening

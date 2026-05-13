@@ -90,6 +90,42 @@ def make_impression(observer: str, subject: str, evidence: list[str] | None = No
 # TaskScheduler
 # ---------------------------------------------------------------------------
 
+async def test_scheduler_sync_fn_raises_type_error(caplog) -> None:
+    """Regression: registering a sync fn that returns int causes TypeError on await.
+
+    This reproduces the original context_cleanup bug where cleanup_expired()
+    returned int and the scheduler tried to await it.  The scheduler catches the
+    exception internally but logs it — we verify the error is recorded.
+    """
+    import logging
+
+    def sync_returns_int() -> int:
+        return 42
+
+    s = TaskScheduler()
+    s.register("bad", interval=9999, fn=sync_returns_int)  # type: ignore[arg-type]
+    with caplog.at_level(logging.ERROR, logger="core.tasks.scheduler"):
+        await s.run_now("bad")
+    assert any("bad" in r.message and "int" in r.message for r in caplog.records)
+
+
+async def test_scheduler_async_wrapper_around_sync_fn_works() -> None:
+    """Fix verification: wrapping a sync fn in async def avoids TypeError."""
+    side_effects: list[int] = []
+
+    def sync_cleanup() -> int:
+        side_effects.append(1)
+        return len(side_effects)
+
+    async def cleanup_wrapper() -> None:
+        sync_cleanup()
+
+    s = TaskScheduler()
+    s.register("cleanup", interval=9999, fn=cleanup_wrapper)
+    await s.run_now("cleanup")
+    assert side_effects == [1]
+
+
 async def test_scheduler_register_and_list_tasks() -> None:
     s = TaskScheduler()
     s.register("task_a", interval=3600, fn=lambda: asyncio.sleep(0))

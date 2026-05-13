@@ -123,3 +123,45 @@ async def test_lru_eviction_without_callback_does_not_raise():
     await asyncio.sleep(0)
     assert mgr.get_window("s1") is None
     assert mgr.get_window("s2") is not None
+
+
+# ---------------------------------------------------------------------------
+# Scheduler integration: context_cleanup task pattern
+# ---------------------------------------------------------------------------
+
+async def test_context_cleanup_scheduler_pattern() -> None:
+    """Regression: verifies the async wrapper pattern used in plugin_initializer.
+
+    Old code registered `lambda: context_manager.cleanup_expired()` which returns
+    int — awaiting that caused TypeError.  New code wraps it in `async def`.
+    """
+    from core.tasks.scheduler import TaskScheduler
+
+    cfg = ContextConfig(max_sessions=10, vcm_enabled=False, session_idle_seconds=0)
+    mgr = ContextManager(cfg)
+
+    # Seed an idle session
+    mgr.get_window("old_session", create=True, now=0.0)
+
+    # Replicate the exact async wrapper from plugin_initializer
+    async def _context_cleanup() -> None:
+        mgr.cleanup_expired()
+
+    s = TaskScheduler()
+    s.register("context_cleanup", interval=60, fn=_context_cleanup)
+
+    # Must not raise TypeError
+    result = await s.run_now("context_cleanup")
+    assert result is True
+    # The idle session (last_active=0) should have been cleaned up
+    assert mgr.get_window("old_session") is None
+
+
+async def test_context_cleanup_returns_int_not_awaitable() -> None:
+    """cleanup_expired() is intentionally sync and returns int — confirm this assumption."""
+    cfg = ContextConfig(max_sessions=10, vcm_enabled=False, session_idle_seconds=0)
+    mgr = ContextManager(cfg)
+    mgr.get_window("s1", create=True, now=0.0)
+    result = mgr.cleanup_expired()
+    assert isinstance(result, int)
+    assert result == 1
