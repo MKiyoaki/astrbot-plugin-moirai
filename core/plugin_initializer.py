@@ -443,12 +443,19 @@ class PluginInitializer:
             
             # Move out/ to pages/moirai/
             import shutil
+            # With basePath: '/api/pages/astrbot_plugin_moirai/moirai', 
+            # Next.js export puts files in out/api/pages/astrbot_plugin_moirai/moirai/
+            base_path = "/api/pages/astrbot_plugin_moirai/moirai"
             build_out = frontend_src / "out"
-            if build_out.exists():
+            deep_out = build_out.joinpath(*base_path.split("/")[1:])
+            
+            effective_source = deep_out if deep_out.exists() else build_out
+            
+            if effective_source.exists():
                 if pages_index.parent.exists():
                     shutil.rmtree(pages_index.parent)
                 pages_index.parent.mkdir(parents=True, exist_ok=True)
-                for item in build_out.iterdir():
+                for item in effective_source.iterdir():
                     if item.is_dir():
                         shutil.copytree(item, pages_index.parent / item.name, dirs_exist_ok=True)
                     else:

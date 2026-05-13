@@ -15,7 +15,16 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+import logging
 from pathlib import Path
+
+# Configure basic logging to stdout
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s:%(message)s",
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
 
 _ROOT = Path(__file__).parent
 if str(_ROOT) not in sys.path:

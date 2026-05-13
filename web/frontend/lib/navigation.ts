@@ -12,7 +12,7 @@ const ROUTES = new Set([
   '/settings',
 ])
 
-const BASE_PATH = ''
+const BASE_PATH = '/api/pages/astrbot_plugin_moirai/moirai'
 
 function isIframeEmbed() {
   if (typeof window === 'undefined') return false
