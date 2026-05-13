@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 from core.domain.models import Event, Impression, Persona, MessageRef
-from web.registry import PanelRegistry
+from .registry import PanelRegistry
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -157,14 +157,18 @@ class PluginRoutes:
             (f"/{p}/events",                   self._handle_events,                  ["GET"],         "List events"),
             (f"/{p}/events",                   self._handle_create_event,            ["POST"],        "Create event"),
             (f"/{p}/events/{{event_id}}",      self._handle_update_event,            ["PUT"],         "Update event"),
+            (f"/{p}/events/{{event_id}}/update", self._handle_update_event,          ["POST"],        "Update event"),
             (f"/{p}/events/{{event_id}}",      self._handle_delete_event,            ["DELETE"],      "Delete event"),
+            (f"/{p}/events/{{event_id}}/delete", self._handle_delete_event,          ["POST"],        "Delete event"),
             (f"/{p}/events",                   self._handle_clear_events,            ["DELETE"],      "Clear all events"),
+            (f"/{p}/events/delete",            self._handle_clear_events,            ["POST"],        "Clear all events"),
             # Graph
             (f"/{p}/graph",                    self._handle_graph_guarded,           ["GET"],         "Relation graph"),
             # Summaries
             (f"/{p}/summaries",                self._handle_summaries,               ["GET"],         "List summaries"),
             (f"/{p}/summary",                  self._handle_summary,                 ["GET"],         "Get summary content"),
             (f"/{p}/summary",                  self._handle_update_summary,          ["PUT"],         "Update summary"),
+            (f"/{p}/summary/update",           self._handle_update_summary,          ["POST"],        "Update summary"),
             (f"/{p}/summary/regenerate",       self._handle_regenerate_summary,      ["POST"],        "Regenerate summary"),
             # Recall
             (f"/{p}/recall",                   self._handle_recall,                  ["GET"],         "Memory recall"),
@@ -173,7 +177,9 @@ class PluginRoutes:
             # Personas
             (f"/{p}/personas",                 self._handle_create_persona,          ["POST"],        "Create persona"),
             (f"/{p}/personas/{{uid}}",         self._handle_update_persona,          ["PUT"],         "Update persona"),
+            (f"/{p}/personas/{{uid}}/update",  self._handle_update_persona,          ["POST"],        "Update persona"),
             (f"/{p}/personas/{{uid}}",         self._handle_delete_persona,          ["DELETE"],      "Delete persona"),
+            (f"/{p}/personas/{{uid}}/delete",  self._handle_delete_persona,          ["POST"],        "Delete persona"),
             # Impressions
             (
                 f"/{p}/impressions/{{observer}}/{{subject}}/{{scope}}",
@@ -181,13 +187,21 @@ class PluginRoutes:
                 ["PUT"],
                 "Update impression",
             ),
+            (
+                f"/{p}/impressions/{{observer}}/{{subject}}/{{scope}}/update",
+                self._handle_update_impression_guarded,
+                ["POST"],
+                "Update impression",
+            ),
             # Recycle bin
             (f"/{p}/recycle_bin",              self._handle_recycle_bin_list,        ["GET"],         "Recycle bin list"),
             (f"/{p}/recycle_bin/restore",      self._handle_recycle_bin_restore,     ["POST"],        "Restore from recycle bin"),
             (f"/{p}/recycle_bin",              self._handle_recycle_bin_clear,       ["DELETE"],      "Clear recycle bin"),
+            (f"/{p}/recycle_bin/delete",       self._handle_recycle_bin_clear,       ["POST"],        "Clear recycle bin"),
             # Config
             (f"/{p}/config",                   self._handle_get_config,              ["GET"],         "Get config"),
             (f"/{p}/config",                   self._handle_update_config,           ["PUT"],         "Update config"),
+            (f"/{p}/config/update",            self._handle_update_config,           ["POST"],        "Update config"),
             (f"/{p}/config/schema",            self._handle_get_config_schema,       ["GET"],         "Config schema"),
             (f"/{p}/config/providers",         self._handle_get_providers,           ["GET"],         "Available providers"),
             # Admin

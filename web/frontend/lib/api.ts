@@ -3,22 +3,52 @@ export type ApiError = { status: number; body: string }
 declare global {
   interface Window {
     AstrBotPluginPage?: {
-      apiGet: <T>(path: string) => Promise<T>
+      apiGet: <T>(path: string, params?: Record<string, string>) => Promise<T>
       apiPost: <T>(path: string, body?: unknown) => Promise<T>
     }
   }
 }
 
 // When running inside AstrBot iframe, /api/X → /api/plug/moirai/X
-function _resolveUrl(url: string): string {
-  if (typeof window !== 'undefined' && 'AstrBotPluginPage' in window) {
-    return url.replace(/^\/api\//, '/api/plug/moirai/')
+function _bridge() {
+  return typeof window !== 'undefined' ? window.AstrBotPluginPage : undefined
+}
+
+function _parsePluginEndpoint(url: string) {
+  const normalized = url.replace(/^\/api\//, '')
+  const [endpoint, query = ''] = normalized.split('?')
+  const params = Object.fromEntries(new URLSearchParams(query).entries())
+  return { endpoint: endpoint.replace(/^\/+|\/+$/g, ''), params }
+}
+
+function _methodAlias(endpoint: string, method: string) {
+  if (method === 'PUT') return `${endpoint}/update`
+  if (method === 'DELETE') return `${endpoint}/delete`
+  return endpoint
+}
+
+function _jsonBody(body: BodyInit | null | undefined) {
+  if (typeof body !== 'string') return body
+  try {
+    return JSON.parse(body)
+  } catch {
+    return body
   }
-  return url
 }
 
 async function request<T>(url: string, opts: RequestInit = {}): Promise<T> {
-  const res = await fetch(_resolveUrl(url), {
+  const method = (opts.method ?? 'GET').toUpperCase()
+  const bridge = _bridge()
+
+  if (bridge) {
+    const { endpoint, params } = _parsePluginEndpoint(url)
+    if (method === 'GET') {
+      return bridge.apiGet<T>(endpoint, params)
+    }
+    return bridge.apiPost<T>(_methodAlias(endpoint, method), _jsonBody(opts.body))
+  }
+
+  const res = await fetch(url, {
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...opts.headers },
     ...opts,

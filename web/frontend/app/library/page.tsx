@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo, Suspense } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Search, Pencil, Trash2, Activity, Clock, Users, Building2 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
@@ -30,10 +30,10 @@ import { DateRange } from 'react-day-picker'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { goToPage } from '@/lib/navigation'
 
 function LibraryContent() {
   const searchParams = useSearchParams()
-  const router = useRouter()
   const { i18n, lang, refreshStats, setRawEvents, setRawGraph, toast, sudo } = useApp()
 
   const L = useMemo(() => ({
@@ -350,8 +350,8 @@ function LibraryContent() {
     })
   }
 
-  const goToGraph = (uid: string) => { sessionStorage.setItem('em_focus_persona', uid); router.push('/graph') }
-  const goToEvents = (eventId: string) => { sessionStorage.setItem('em_focus_event', eventId); router.push('/events') }
+  const goToGraph = (uid: string) => { sessionStorage.setItem('em_focus_persona', uid); goToPage('/graph') }
+  const goToEvents = (eventId: string) => { sessionStorage.setItem('em_focus_event', eventId); goToPage('/events') }
   const handleTagClick = (t: string) => {
     const next = new Set(activeTags)
     if (next.has(t)) next.delete(t); else next.add(t)

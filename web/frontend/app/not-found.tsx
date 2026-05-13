@@ -1,8 +1,8 @@
 'use client'
 
-import Link from 'next/link'
 import { FileQuestion, Home, ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { pageHref } from '@/lib/navigation'
 
 export default function NotFound() {
   return (
@@ -27,10 +27,10 @@ export default function NotFound() {
         </Button>
         
         <Button asChild>
-          <Link href="/" className="flex items-center gap-2">
+          <a href={pageHref('/')} className="flex items-center gap-2">
             <Home className="size-4" />
             回到首页
-          </Link>
+          </a>
         </Button>
       </div>
     </div>

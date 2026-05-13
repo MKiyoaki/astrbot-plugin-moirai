@@ -1,14 +1,14 @@
 # CHANGELOG
 
-## [v.0.9.10] - 2026-05-13
+## [v0.9.10] - 2026-05-13
 
-### WebUI 端口与 AstrBot Plugin Pages 修复
+### WebUI 插件页面与独立端口修复
 
-- 修复 `/mrm webui on` 在官方页面开关关闭或页面构建缺失时返回“WebUI 模块未加载”的问题：独立 aiohttp `WebuiServer` 现在与 AstrBot Plugin Pages 注册解耦，始终会接入 `CommandManager`，命令可真实启动/停止独立端口。
-- 将 `PluginConfig.webui_port` 的代码默认值修正为 `2655`，与 `_conf_schema.json`、README 和 `WebuiServer` 默认端口保持一致。
-- 新增前端构建同步脚本 `web/frontend/scripts/copy-export.mjs`，`npm run build` 会把 Next 静态导出复制到 `pages/moirai/`，确保 AstrBot Dashboard 可直接识别 WebUI 页面。
-- 重新生成并补齐 `pages/moirai/` 静态页面产物，官方 Dashboard 页面入口与独立端口服务现在共用同一份前端资源。
-- 清理遗留的前端登录组件对已移除 `api.auth` 的引用，修复生产构建类型检查失败。
+- 修复 AstrBot Plugin Pages 中 Next.js 静态导出资源仍使用 `/_next/...` 根路径的问题；`npm run build` 现在会在复制到 `pages/moirai/` 后把 HTML、RSC 文本和 Turbopack 运行时改写为插件页可用的相对资源路径，避免 CSS/JS 加载 404。
+- 将 WebUI 内部导航从 Dashboard 根路径跳转改为插件页相对跳转，修复进入事件流、关系图、摘要、配置等页面时落到 AstrBot 404 回调页的问题。
+- 将 AstrBot iframe 内的前端 API 调用切换到 `window.AstrBotPluginPage` bridge，并为需要写入的 PUT/DELETE 接口补充 POST 别名，保持插件页面沙箱内的请求路径和方法兼容。
+- 为 `PluginRoutes` 和独立 `WebuiServer` 增加本地 `web` 包加载兜底，降低 AstrBot 环境中同名模块冲突导致 `/mrm webui on` 返回“WebUI 模块未加载”的风险。
+- 重新生成 `pages/moirai/` 静态产物，官方 Dashboard 插件页入口和独立 aiohttp 端口继续共用同一份前端资源。
 
 ## [v0.9.9] — 2026-05-13
 
@@ -1339,3 +1339,4 @@
 - **双引擎存储**：实现 SQLite (FTS5) + sqlite-vec (向量) 持久化层。
 - **Markdown 投影**：支持将数据库状态投影为可阅读/编辑的本地 Markdown 文件，并实现双向同步。
 - **基础任务**：实现重要度衰减、画像合成与自动摘要生成的后台调度。
+

@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -9,6 +8,7 @@ import { useApp } from '@/lib/store'
 import type { ApiEvent } from '@/lib/api'
 import { parseSummaryTopics } from '@/lib/utils'
 import { cn } from '@/lib/utils'
+import { pageHref } from '@/lib/navigation'
 
 interface RecentEventsStripProps {
   events: ApiEvent[]
@@ -39,11 +39,11 @@ export function RecentEventsStrip({ events, loading }: RecentEventsStripProps) {
         <p className="text-xs uppercase tracking-widest text-muted-foreground font-mono">
           {i18n.landing.recentEventsStrip}
         </p>
-        <Link href="/events">
+        <a href={pageHref('/events')}>
           <Button variant="ghost" size="sm" className="text-[10px] gap-1 h-6 px-2">
             {i18n.landing.allEvents} <ChevronRight size={12} />
           </Button>
-        </Link>
+        </a>
       </CardHeader>
 
       <CardContent className="p-0">

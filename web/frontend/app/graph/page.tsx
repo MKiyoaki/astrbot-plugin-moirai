@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
 import { UserPlus, ChevronLeft, Maximize2, XCircle, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,9 +28,9 @@ import {
 } from '@/lib/graph-types'
 import { buildGroupCards } from '@/lib/graph-utils'
 import { useForceSimulation } from '@/hooks/use-force-simulation'
+import { goToPage } from '@/lib/navigation'
 
 export default function GraphPage() {
-  const router = useRouter()
   const app = useApp()
   const { i18n } = app
 
@@ -273,8 +272,8 @@ export default function GraphPage() {
   }
 
   const handleJumpToEvent = (eventId: string) => {
-    router.push('/events')
     sessionStorage.setItem('em_highlight_events', JSON.stringify([eventId]))
+    goToPage('/events')
   }
 
   // ── Standard Utilities ──────────────────────────────────────────────────────

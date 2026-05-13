@@ -1,7 +1,6 @@
 'use client'
 
 import React from 'react'
-import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import {
@@ -14,6 +13,7 @@ import {
   SidebarMenuItem, SidebarSeparator,
 } from '@/components/ui/sidebar'
 import { useApp } from '@/lib/store'
+import { pageHref, routeIsActive } from '@/lib/navigation'
 
 export function AppSidebar() {
   const pathname = usePathname()
@@ -47,14 +47,14 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link href="/">
+              <a href={pageHref('/')}>
                 <div className="grid flex-1 text-left leading-tight ml-2">
                   <span className="truncate font-serif text-xl font-bold tracking-tighter text-primary">{i18n.app.name}</span>
                   <span className="text-muted-foreground truncate text-[9px] font-mono uppercase tracking-[0.18em] opacity-60">
                     Memory Engine · v{app.stats.version}
                   </span>
                 </div>
-              </Link>
+              </a>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -66,15 +66,15 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {NAV_VISUALIZATION.map((item) => {
-                const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
+                const active = routeIsActive(pathname, item.href)
                 return (
                   <SidebarMenuItem key={item.href}>
-                    <Link href={item.href} className="flex w-full">
+                    <a href={pageHref(item.href)} className="flex w-full">
                       <SidebarMenuButton isActive={active} tooltip={item.label} className="w-full cursor-pointer">
                         <item.icon />
                         <span>{item.label}</span>
                       </SidebarMenuButton>
-                    </Link>
+                    </a>
                   </SidebarMenuItem>
                 )
               })}
@@ -89,15 +89,15 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {NAV_TOOLS.map((item) => {
-                const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
+                const active = routeIsActive(pathname, item.href)
                 return (
                   <SidebarMenuItem key={item.href}>
-                    <Link href={item.href} className="flex w-full">
+                    <a href={pageHref(item.href)} className="flex w-full">
                       <SidebarMenuButton isActive={active} tooltip={item.label} className="w-full cursor-pointer">
                         <item.icon />
                         <span>{item.label}</span>
                       </SidebarMenuButton>
-                    </Link>
+                    </a>
                   </SidebarMenuItem>
                 )
               })}
@@ -112,15 +112,15 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {NAV_ADMIN.map((item) => {
-                const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
+                const active = routeIsActive(pathname, item.href)
                 return (
                   <SidebarMenuItem key={item.href}>
-                    <Link href={item.href} className="flex w-full">
+                    <a href={pageHref(item.href)} className="flex w-full">
                       <SidebarMenuButton isActive={active} tooltip={item.label} className="w-full cursor-pointer">
                         <item.icon />
                         <span>{item.label}</span>
                       </SidebarMenuButton>
-                    </Link>
+                    </a>
                   </SidebarMenuItem>
                 )
               })}
@@ -142,12 +142,12 @@ export function AppSidebar() {
 
         <SidebarMenu>
           <SidebarMenuItem>
-            <Link href="/settings" className="flex w-full">
-              <SidebarMenuButton isActive={pathname === '/settings'} tooltip={i18n.nav.settings} className="cursor-pointer">
+            <a href={pageHref('/settings')} className="flex w-full">
+              <SidebarMenuButton isActive={routeIsActive(pathname, '/settings')} tooltip={i18n.nav.settings} className="cursor-pointer">
                 <Settings />
                 <span>{i18n.nav.settings}</span>
               </SidebarMenuButton>
-            </Link>
+            </a>
           </SidebarMenuItem>
 
           <SidebarMenuItem>

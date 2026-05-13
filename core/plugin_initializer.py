@@ -8,8 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import importlib
+import importlib.util
 import logging
+import sys
 import time
+import types
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -57,6 +61,43 @@ _VEC_DIM = 512
 _PLUGIN_NAME = "EnhancedMemory"
 
 logger = logging.getLogger(__name__)
+
+
+def _load_local_web_attr(module_name: str, attr_name: str):
+    """Load this plugin's local web package even if AstrBot has a top-level web module."""
+    root = Path(__file__).parent.parent
+    local_web_dir = root / "web"
+
+    try:
+        module = importlib.import_module(f"web.{module_name}")
+        module_file = Path(getattr(module, "__file__", "")).resolve()
+        module_file.relative_to(root.resolve())
+        return getattr(module, attr_name)
+    except Exception:
+        pass
+
+    package_name = "_moirai_local_web"
+    if package_name not in sys.modules:
+        package = types.ModuleType(package_name)
+        package.__path__ = [str(local_web_dir)]  # type: ignore[attr-defined]
+        package.__package__ = package_name
+        sys.modules[package_name] = package
+
+    qualified = f"{package_name}.{module_name}"
+    if qualified in sys.modules:
+        return getattr(sys.modules[qualified], attr_name)
+
+    spec = importlib.util.spec_from_file_location(
+        qualified,
+        local_web_dir / f"{module_name}.py",
+        submodule_search_locations=None,
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load local web module {module_name}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[qualified] = module
+    spec.loader.exec_module(module)
+    return getattr(module, attr_name)
 
 
 class PluginInitializer:
@@ -290,7 +331,7 @@ class PluginInitializer:
             fn=lambda: run_reindex_all(event_repo, retriever),
         )
 
-        from web.plugin_routes import PluginRoutes
+        PluginRoutes = _load_local_web_attr("plugin_routes", "PluginRoutes")
         self.plugin_routes = PluginRoutes(
             persona_repo=persona_repo,
             event_repo=event_repo,
@@ -314,7 +355,7 @@ class PluginInitializer:
         # Pages so `/mrm webui on/off` can still manage the direct port.
         self.webui = None
         try:
-            from web.server import WebuiServer
+            WebuiServer = _load_local_web_attr("server", "WebuiServer")
             self.webui = WebuiServer(
                 persona_repo=persona_repo,
                 event_repo=event_repo,
@@ -394,11 +435,14 @@ class PluginInitializer:
             _PLUGIN_NAME,
         )
         try:
-            import shutil
             subprocess.run("npm install", cwd=frontend_src, shell=True, check=True)
             subprocess.run("npm run build", cwd=frontend_src, shell=True, check=True)
+            if pages_index.exists():
+                astrbot_logger.info("[%s] Frontend build complete. pages/moirai/ is ready.", _PLUGIN_NAME)
+                return
             
             # Move out/ to pages/moirai/
+            import shutil
             build_out = frontend_src / "out"
             if build_out.exists():
                 if pages_index.parent.exists():
