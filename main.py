@@ -1,4 +1,15 @@
 from __future__ import annotations
+from core.utils.formatter import format_events_for_prompt
+from core.utils.version import get_plugin_version
+from core.plugin_initializer import PluginInitializer
+from core.event_handler import EventHandler
+from core.domain.models import Event
+from core.config import PluginConfig
+from astrbot.api.star import Context, Star, StarTools, register
+from astrbot.api.event import filter
+from typing import TYPE_CHECKING
+import uuid
+import time
 
 import sys
 from pathlib import Path
@@ -9,19 +20,6 @@ _ROOT_DIR = Path(__file__).parent
 if str(_ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(_ROOT_DIR))
 
-import time
-import uuid
-from typing import TYPE_CHECKING
-
-from astrbot.api.event import filter
-from astrbot.api.star import Context, Star, StarTools, register
-
-from core.config import PluginConfig
-from core.domain.models import Event
-from core.event_handler import EventHandler
-from core.plugin_initializer import PluginInitializer
-from core.utils.version import get_plugin_version
-from core.utils.formatter import format_events_for_prompt
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
@@ -54,13 +52,13 @@ class MoiraiPlugin(Star):
         return None
 
     async def initialize(self) -> None:
-        raw_cfg = self.config if hasattr(self, "config") and self.config else {}
+        raw_cfg = self.config if hasattr(
+            self, "config") and self.config else {}
         cfg = PluginConfig(raw_cfg)
-        data_dir: Path = StarTools.get_data_dir("astrbot_plugin_enhanced_memory")
+        data_dir: Path = StarTools.get_data_dir("astrbot_plugin_moirai")
         self._initializer = PluginInitializer(self.context, cfg, data_dir)
         await self._initializer.initialize()
         self._handler = EventHandler(self._initializer)
-
 
     # ── Message hooks ─────────────────────────────────────────────────────────
 

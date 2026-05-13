@@ -646,10 +646,10 @@ WebUI（aiohttp 后端 + 单页前端）
 
 **问题**：用户可能开发多个互相依赖的 AstrBot 插件（关系图增强、知识图谱、长期记忆等），需要统一 WebUI 而非各自启动 HTTP 服务。
 
-**方案**：本插件持有单例 `PanelRegistry`，通过 `EnhancedMemoryPlugin.webui_registry` 属性对外暴露。其他插件用 `context.get_registered_star("astrbot_plugin_enhanced_memory")` 获取本插件实例后注册：
+**方案**：本插件持有单例 `PanelRegistry`，通过 `EnhancedMemoryPlugin.webui_registry` 属性对外暴露。其他插件用 `context.get_registered_star("astrbot_plugin_moirai")` 获取本插件实例后注册：
 
 ```python
-em = self.context.get_registered_star("astrbot_plugin_enhanced_memory")
+em = self.context.get_registered_star("astrbot_plugin_moirai")
 em.webui_registry.register(
     PanelManifest(
         plugin_id="astrbot_plugin_xxx",

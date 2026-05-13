@@ -5,7 +5,7 @@
     # 在依赖本插件的插件 B 中：
     from astrbot.api.star import Context
 
-    em = context.get_registered_star("astrbot_plugin_enhanced_memory")
+    em = context.get_registered_star("astrbot_plugin_moirai")
     em.webui_registry.register(PanelManifest(
         plugin_id="astrbot_plugin_xxx",
         panel_id="my_panel",
@@ -77,11 +77,13 @@ class PanelRegistry:
 
     def register(self, manifest: PanelManifest, routes: list[PanelRoute] | None = None) -> None:
         if manifest.key in self._panels:
-            logger.warning("[Panels] %s already registered, overwriting", manifest.key)
+            logger.warning(
+                "[Panels] %s already registered, overwriting", manifest.key)
         self._panels[manifest.key] = manifest
         if routes:
             self._routes[manifest.key] = list(routes)
-        logger.info("[Panels] registered %s (%s)", manifest.key, manifest.title)
+        logger.info("[Panels] registered %s (%s)",
+                    manifest.key, manifest.title)
         self._notify()
 
     def unregister(self, plugin_id: str, panel_id: str) -> None:

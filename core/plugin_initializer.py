@@ -22,7 +22,7 @@ try:
     from astrbot.api import logger as astrbot_logger
 except:
     # Fallback if astrbot.api.logger is not available (e.g., during testing)
-    astrbot_logger = logging.getLogger("astrbot_plugin_enhanced_memory")
+    astrbot_logger = logging.getLogger("astrbot_plugin_moirai")
 
 from .adapters.astrbot import MessageRouter
 from .adapters.identity import IdentityResolver
@@ -244,9 +244,11 @@ class PluginInitializer:
         # also extracted instead of silently dropped.
         self.context_manager._evict_callback = on_event_close
 
-        resolver = IdentityResolver(persona_repo, default_confidence=cfg.persona_default_confidence)
+        resolver = IdentityResolver(
+            persona_repo, default_confidence=cfg.persona_default_confidence)
         self.resolver = resolver
-        detector = EventBoundaryDetector(cfg.get_boundary_config(), encoder=self.embedding_manager)
+        detector = EventBoundaryDetector(
+            cfg.get_boundary_config(), encoder=self.embedding_manager)
         self.router = MessageRouter(
             event_repo=event_repo,
             identity_resolver=resolver,
@@ -264,6 +266,7 @@ class PluginInitializer:
         # Daily maintenance: decay → cleanup → projection (order matters).
         # Decay runs first so archived events are excluded from the projection render.
         cleanup_cfg = cfg.get_cleanup_config()
+
         async def _daily_maintenance() -> None:
             if cfg.decay_enabled and self.memory:
                 await self.memory.apply_decay()
@@ -280,6 +283,7 @@ class PluginInitializer:
             interval=cfg.decay_interval_seconds,
             fn=_daily_maintenance,
         )
+
         async def _context_cleanup() -> None:
             if self.context_manager:
                 self.context_manager.cleanup_expired()
@@ -344,7 +348,8 @@ class PluginInitializer:
         if cfg.webui_enabled:
             self._ensure_pages_built()
             self.plugin_routes.register(self._context)
-            astrbot_logger.info("[%s] WebUI routes registered via AstrBot Plugin Pages", _PLUGIN_NAME)
+            astrbot_logger.info(
+                "[%s] WebUI routes registered via AstrBot Plugin Pages", _PLUGIN_NAME)
         else:
             astrbot_logger.info("[%s] WebUI disabled by config", _PLUGIN_NAME)
 
@@ -370,13 +375,15 @@ class PluginInitializer:
             )
         except Exception as e:
             self.webui_error = str(e) or repr(e) or "unknown error"
-            astrbot_logger.exception("[%s] Failed to construct standalone WebUI server: %s", _PLUGIN_NAME, self.webui_error)
+            astrbot_logger.exception(
+                "[%s] Failed to construct standalone WebUI server: %s", _PLUGIN_NAME, self.webui_error)
 
         if cfg.webui_enabled and self.webui is not None:
             try:
                 await self.webui.start()
             except Exception as e:
-                astrbot_logger.warning("[%s] Failed to start standalone WebUI server: %s. This may happen if the port %d is already in use.", _PLUGIN_NAME, e, cfg.webui_port)
+                astrbot_logger.warning(
+                    "[%s] Failed to start standalone WebUI server: %s. This may happen if the port %d is already in use.", _PLUGIN_NAME, e, cfg.webui_port)
 
         if cfg.markdown_projection_enabled:
             self.watcher = FileWatcher()
@@ -389,7 +396,8 @@ class PluginInitializer:
             await self.syncer.register_all()
             await self.watcher.start()
         else:
-            astrbot_logger.info("[%s] Markdown projection disabled by config", _PLUGIN_NAME)
+            astrbot_logger.info(
+                "[%s] Markdown projection disabled by config", _PLUGIN_NAME)
         if self.embedding_manager:
             await self.embedding_manager.start()
 
@@ -420,7 +428,8 @@ class PluginInitializer:
         """
         import subprocess
 
-        pages_index = Path(__file__).parent.parent / "pages" / "moirai" / "index.html"
+        pages_index = Path(__file__).parent.parent / \
+            "pages" / "moirai" / "index.html"
         if pages_index.exists():
             return
         frontend_src = Path(__file__).parent.parent / "web" / "frontend"
@@ -435,34 +444,40 @@ class PluginInitializer:
             _PLUGIN_NAME,
         )
         try:
-            subprocess.run("npm install", cwd=frontend_src, shell=True, check=True)
-            subprocess.run("npm run build", cwd=frontend_src, shell=True, check=True)
+            subprocess.run("npm install", cwd=frontend_src,
+                           shell=True, check=True)
+            subprocess.run("npm run build", cwd=frontend_src,
+                           shell=True, check=True)
             if pages_index.exists():
-                astrbot_logger.info("[%s] Frontend build complete. pages/moirai/ is ready.", _PLUGIN_NAME)
+                astrbot_logger.info(
+                    "[%s] Frontend build complete. pages/moirai/ is ready.", _PLUGIN_NAME)
                 return
-            
+
             # Move out/ to pages/moirai/
             import shutil
-            # With basePath: '/api/pages/astrbot_plugin_moirai/moirai', 
+            # With basePath: '/api/pages/astrbot_plugin_moirai/moirai',
             # Next.js export puts files in out/api/pages/astrbot_plugin_moirai/moirai/
             base_path = "/api/pages/astrbot_plugin_moirai/moirai"
             build_out = frontend_src / "out"
             deep_out = build_out.joinpath(*base_path.split("/")[1:])
-            
+
             effective_source = deep_out if deep_out.exists() else build_out
-            
+
             if effective_source.exists():
                 if pages_index.parent.exists():
                     shutil.rmtree(pages_index.parent)
                 pages_index.parent.mkdir(parents=True, exist_ok=True)
                 for item in effective_source.iterdir():
                     if item.is_dir():
-                        shutil.copytree(item, pages_index.parent / item.name, dirs_exist_ok=True)
+                        shutil.copytree(item, pages_index.parent /
+                                        item.name, dirs_exist_ok=True)
                     else:
                         shutil.copy2(item, pages_index.parent / item.name)
-                astrbot_logger.info("[%s] Frontend build complete — pages/moirai/ is ready.", _PLUGIN_NAME)
+                astrbot_logger.info(
+                    "[%s] Frontend build complete — pages/moirai/ is ready.", _PLUGIN_NAME)
             else:
-                astrbot_logger.warning("[%s] Frontend build finished but 'out' directory not found.", _PLUGIN_NAME)
+                astrbot_logger.warning(
+                    "[%s] Frontend build finished but 'out' directory not found.", _PLUGIN_NAME)
         except Exception as exc:
             astrbot_logger.warning(
                 "[%s] Frontend auto-build failed (%s). WebUI panel may be blank.", _PLUGIN_NAME, exc
@@ -482,6 +497,3 @@ class PluginInitializer:
         if self._exit_stack is not None:
             await self._exit_stack.aclose()
         astrbot_logger.info("[%s] terminated", _PLUGIN_NAME)
-
-
-

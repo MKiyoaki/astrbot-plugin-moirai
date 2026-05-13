@@ -134,7 +134,7 @@ This plugin acts as a **WebUI host** for the memory ecosystem. Other AstrBot plu
 
 ```python
 # In plugin B that lists this plugin as a dependency
-em = self.context.get_registered_star("astrbot_plugin_enhanced_memory")
+em = self.context.get_registered_star("astrbot_plugin_moirai")
 if em and em.webui_registry:
     em.webui_registry.register(
         PanelManifest(
