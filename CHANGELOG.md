@@ -4,6 +4,7 @@
 
 ### 前端构建与 WebUI 访问优化
 
+- **修复语法错误**：修复了 `core/extractor/partitioner.py` 中的缩进错误（`IndentationError`）以及变量未定义错误（`NameError`）。
 - **React SPA 目录迁移**：将 WebUI 静态产物目录从 `pages/moirai/` 迁移至 `pages/moirai/_app/`。
 - **新增动态跳转页**：在 `pages/moirai/index.html` 自动生成一个纯 HTML/JS 的引导页，解决 AstrBot Plugin Pages 无法动态适应配置端口的问题。
 - **端口同步更新**：在插件启动时自动刷新引导页中的跳转链接，保证始终指向最新的 `webui_port` 配置。
