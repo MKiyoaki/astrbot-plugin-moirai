@@ -96,10 +96,11 @@ def _load_local_web_attr(module_name: str, attr_name: str):
 class PluginInitializer:
     """Wires all subsystems together and owns their lifecycle."""
 
-    def __init__(self, context: Context, cfg: PluginConfig, data_dir: Path) -> None:
+    def __init__(self, context: Context, cfg: PluginConfig, data_dir: Path, star: Any = None) -> None:
         self._context = context
         self._cfg = cfg
         self._data_dir = data_dir
+        self._star = star
 
         self._exit_stack: AsyncExitStack | None = None
 
@@ -149,25 +150,17 @@ class PluginInitializer:
             lang=cfg.language,
         )
 
-        # Encoder: try local/API model, fall back to null (BM25-only) on any error
+        # Encoder: try local/API model. Local model will load lazily on first use.
         embed_cfg = cfg.get_embedding_config()
         if cfg.embedding_enabled:
-            try:
-                if embed_cfg.provider == "api":
-                    encoder: Encoder = ApiEncoder(
-                        model_name=embed_cfg.model,
-                        api_url=embed_cfg.api_url,
-                        api_key=embed_cfg.api_key
-                    )
-                else:
-                    encoder = SentenceTransformerEncoder(embed_cfg.model)
-                    _ = encoder.dim  # trigger lazy load early
-            except Exception as exc:
-                astrbot_logger.warning(
-                    "[%s] embedding provider (%s) unavailable: %s. Falling back to NullEncoder.",
-                    _PLUGIN_NAME, embed_cfg.provider, exc,
+            if embed_cfg.provider == "api":
+                encoder: Encoder = ApiEncoder(
+                    model_name=embed_cfg.model,
+                    api_url=embed_cfg.api_url,
+                    api_key=embed_cfg.api_key
                 )
-                encoder = NullEncoder()
+            else:
+                encoder = SentenceTransformerEncoder(embed_cfg.model)
         else:
             encoder = NullEncoder()
 
@@ -345,6 +338,7 @@ class PluginInitializer:
             provider_getter=provider_getter,
             all_providers_getter=self._context.get_all_providers,
             recall_manager=self.recall,
+            star=self._star,
         )
         if cfg.webui_enabled:
             self._ensure_pages_built()
@@ -374,6 +368,7 @@ class PluginInitializer:
                 provider_getter=provider_getter,
                 all_providers_getter=self._context.get_all_providers,
                 recall_manager=self.recall,
+                star=self._star,
             )
         except Exception as e:
             self.webui_error = str(e) or repr(e) or "unknown error"

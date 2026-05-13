@@ -297,9 +297,7 @@ class PluginConfig:
         for k, v in raw.items():
             if isinstance(v, dict):
                 for sub_k, sub_v in v.items():
-                    # If key already exists at top level, only overwrite if sub_v is not empty/default
-                    # But for simplicity and matching existing behavior, we usually just update.
-                    # Here we ensure we don't overwrite a set value with an empty string from a sub-dict.
+                    # Preserve non-empty values if they already exist
                     if sub_k in flat and not sub_v and flat[sub_k]:
                         continue
                     flat[sub_k] = sub_v
@@ -313,9 +311,21 @@ class PluginConfig:
                 try:
                     import json
                     local_cfg = json.loads(config_path.read_text(encoding="utf-8"))
-                    # Local config (saved via WebUI) takes precedence
+                    # Merge local config, but PRIORITISE non-empty panel values for sensitive keys
+                    # or keys that are likely to be managed by the host.
                     for k, v in local_cfg.items():
                         if v is not None:
+                            # Special case for password: if panel has a value, panel wins.
+                            # If panel is empty, local file can provide a value.
+                            if k == "webui_password" and flat.get(k):
+                                continue
+                            
+                            # General rule: if panel has a non-default value, it wins.
+                            # But since we don't know defaults easily, we check if flat[k] is "truthy"
+                            # for some critical fields.
+                            if k == "webui_port" and flat.get(k) and flat[k] != 2655: # non-default port
+                                continue
+
                             flat[k] = v
                 except:
                     pass

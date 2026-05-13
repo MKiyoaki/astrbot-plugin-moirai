@@ -45,7 +45,8 @@ def main():
     
     args = parser.parse_args()
     
-    root = Path(__file__).parent
+    # Updated: now in tools/, so root is parent.parent
+    root = Path(__file__).parent.parent
     metadata_path = root / "metadata.yaml"
     changelog_path = root / "CHANGELOG.md"
     

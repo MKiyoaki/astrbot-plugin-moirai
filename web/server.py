@@ -119,6 +119,7 @@ class WebuiServer:
         provider_getter: Callable | None = None,
         all_providers_getter: Callable | None = None,
         recall_manager: BaseRecallManager | None = None,
+        star: Any = None,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
@@ -127,6 +128,7 @@ class WebuiServer:
         self._data_dir = data_dir
         self._port = port
         self._auth_enabled = auth_enabled
+        self._star = star
 
         self._initial_config = initial_config or {}
         cfg_password = self._initial_config.get("webui_password", "").strip()
@@ -574,6 +576,17 @@ class WebuiServer:
         existing = json.loads(self._config_path.read_text(encoding="utf-8")) if self._config_path.exists() else {}
         existing.update(coerced)
         self._config_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        # Sync to AstrBot if star instance available
+        if self._star and hasattr(self._star, "config"):
+            try:
+                # AstrBotConfig inherits from dict and has save_config()
+                self._star.config.update(coerced)
+                if hasattr(self._star.config, "save_config"):
+                    self._star.config.save_config()
+            except Exception as e:
+                logger.warning("[WebUI] Failed to sync config to AstrBot: %s", e)
+
         return _json({"ok": True, "saved": list(coerced.keys())})
 
     async def _handle_get_providers(self, _: web.Request) -> web.Response:

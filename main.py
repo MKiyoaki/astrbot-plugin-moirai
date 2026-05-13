@@ -57,7 +57,7 @@ class MoiraiPlugin(Star):
         raw_cfg = self.config if hasattr(
             self, "config") and self.config else {}
         cfg = PluginConfig(raw_cfg, data_dir=data_dir)
-        self._initializer = PluginInitializer(self.context, cfg, data_dir)
+        self._initializer = PluginInitializer(self.context, cfg, data_dir, star=self)
         await self._initializer.initialize()
         self._handler = EventHandler(self._initializer)
 

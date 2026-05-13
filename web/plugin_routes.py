@@ -155,6 +155,7 @@ class PluginRoutes:
         all_providers_getter: Callable | None = None,
         recall_manager: BaseRecallManager | None = None,
         registry: PanelRegistry | None = None,
+        star: Any = None,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
@@ -167,6 +168,7 @@ class PluginRoutes:
         self._all_providers_getter = all_providers_getter
         self._recall_manager = recall_manager
         self.registry = registry or PanelRegistry()
+        self._star = star
 
         self._relation_enabled: bool = bool(self._initial_config.get("relation_enabled", True))
         self._config_path = data_dir / "plugin_config.json"
@@ -799,6 +801,17 @@ class PluginRoutes:
                 pass
         existing.update(coerced)
         self._config_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        # Sync to AstrBot if star instance available
+        if self._star and hasattr(self._star, "config"):
+            try:
+                # AstrBotConfig inherits from dict and has save_config()
+                self._star.config.update(coerced)
+                if hasattr(self._star.config, "save_config"):
+                    self._star.config.save_config()
+            except Exception as e:
+                logger.warning("[PluginRoutes] Failed to sync config to AstrBot: %s", e)
+
         return _json({"ok": True, "saved": list(coerced.keys())})
 
     async def _handle_get_providers(self, request: web.Request) -> web.Response:
