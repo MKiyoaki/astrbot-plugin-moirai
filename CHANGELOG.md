@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## [v0.9.17] — 2026-05-14
+
+### 前端构建与 WebUI 访问优化
+
+- **React SPA 目录迁移**：将 WebUI 静态产物目录从 `pages/moirai/` 迁移至 `pages/moirai/_app/`。
+- **新增动态跳转页**：在 `pages/moirai/index.html` 自动生成一个纯 HTML/JS 的引导页，解决 AstrBot Plugin Pages 无法动态适应配置端口的问题。
+- **端口同步更新**：在插件启动时自动刷新引导页中的跳转链接，保证始终指向最新的 `webui_port` 配置。
+- **构建脚本重构**：更新 `core/utils/frontend_build.py` 以支持新的目录结构，并重构了内部常量命名（`_PAGES_DIR`, `_PAGES_INDEX`）。
+- **静态资源服务更新**：同步更新 `web/server.py` 的 `_STATIC_DIR` 为 `_app/` 子目录，确保独立服务器正常运行。
+
+### 依赖优化与按需加载
+
+- **轻量化安装**：从 `requirements.txt` 中移除了 `sentence-transformers` 和 `scikit-learn` 等重型依赖。现在基础安装包极小，避免了在低配服务器上安装 Torch 导致卡死或环境冲突。
+- **优雅降级（Graceful Degradation）**：实现了对 `sentence-transformers` 和 `scikit-learn` 的软导入模式。若环境未安装这些库，插件仍能启动并自动降级为“关键词检索（BM25）”和“单事件切分”，不会报错崩溃。
+- **按需安装引导**：当用户在 WebUI 中尝试开启需要这些库的功能（如本地向量检索或语义切分策略）时，系统会通过控制台打印清晰的 `pip install` 指引。
+- **API 模式优先**：鼓励并优化了 API Embedding 模式，仅需轻量级的 `httpx` 即可运行完整的语义检索功能。
+- **新增数据校验**：引入 `pydantic` 用于后续更严谨的 API 数据模型校验。
+
+
 ## [v0.9.15] — 2026-05-14
 
 ### 系统集成与安全性增强

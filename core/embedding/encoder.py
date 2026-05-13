@@ -39,6 +39,13 @@ class NullEncoder:
         return [[] for _ in texts]
 
 
+try:
+    from sentence_transformers import SentenceTransformer
+    _ST_AVAILABLE = True
+except ImportError:
+    _ST_AVAILABLE = False
+
+
 class SentenceTransformerEncoder:
     """Local embedding via sentence-transformers.
 
@@ -54,7 +61,13 @@ class SentenceTransformerEncoder:
     def _load(self) -> None:
         if self._model is not None:
             return
-        from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+        
+        if not _ST_AVAILABLE:
+            raise ImportError(
+                "本地向量模型需要 sentence-transformers。请运行 `pip install sentence-transformers` "
+                "或在 WebUI 设置中切换为 API 模式 (OpenAI 兼容接口)。"
+            )
+            
         import asyncio
 
         self._model = SentenceTransformer(self._model_name)

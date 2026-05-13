@@ -47,7 +47,7 @@ from .social.big_five_scorer import BigFiveBuffer
 from .social.orientation_analyzer import SocialOrientationAnalyzer
 from .sync.syncer import ReverseSyncer
 from .sync.watcher import FileWatcher
-from .utils.frontend_build import build_frontend
+from .utils.frontend_build import build_frontend, write_redirect_page
 from .utils.version import get_plugin_version
 from .tasks.cleanup import run_memory_cleanup
 from .tasks.scheduler import TaskScheduler
@@ -348,6 +348,7 @@ class PluginInitializer:
         )
         if cfg.webui_enabled:
             self._ensure_pages_built()
+            write_redirect_page(cfg.webui_port)
             self.plugin_routes.register(self._context)
             astrbot_logger.info(
                 "[%s] WebUI routes registered via AstrBot Plugin Pages", _PLUGIN_NAME)
@@ -382,6 +383,11 @@ class PluginInitializer:
         if cfg.webui_enabled and self.webui is not None:
             try:
                 await self.webui.start()
+                if getattr(self.webui, "token_generated", False):
+                    astrbot_logger.info(
+                        "[%s] WebUI 访问密码未配置且未初始化，已生成临时访问 Token: %s",
+                        _PLUGIN_NAME, self.webui._secret_token
+                    )
             except Exception as e:
                 astrbot_logger.warning(
                     "[%s] Failed to start standalone WebUI server: %s. This may happen if the port %d is already in use.", _PLUGIN_NAME, e, cfg.webui_port)

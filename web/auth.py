@@ -80,20 +80,22 @@ class AuthManager:
         session_hours: int = _DEFAULT_SESSION_HOURS,
         sudo_minutes: int = _DEFAULT_SUDO_MINUTES,
         secret_token: str | None = None,
+        is_token_configured: bool = False,
     ) -> None:
         self._password_file = data_dir / _PASSWORD_FILENAME
         self._session_seconds = session_hours * 3600
         self._sudo_seconds = sudo_minutes * 60
         self._sessions: dict[str, _Session] = {}
         self._secret_token = secret_token
+        self._is_token_configured = is_token_configured
 
     # ------------------------------------------------------------------
     # 密码管理
     # ------------------------------------------------------------------
 
     def is_password_set(self) -> bool:
-        """Now always returns True because either a manual password or a secret token is available."""
-        return True
+        """返回是否已设置持久化密码，或在配置文件中显式指定了静态密码。"""
+        return self._password_file.exists() or self._is_token_configured
 
     def setup_password(self, password: str) -> None:
         """首次设置密码，仅在未设置时可用；调用方负责前置检查。"""

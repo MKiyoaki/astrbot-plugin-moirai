@@ -26,6 +26,44 @@
 > 另外，AstrBot Plugin Pages 的 bridge API 路径格式为 `/api/plug/<plugin_name>/<endpoint>`，
 > 而原方案 7a 里写的 `/{PLUGIN_NAME}/api/stats` 格式是错误的。
 
+### AstrBot Plugin Pages 在实测中的具体报错（已验证，不可修复）
+
+在 AstrBot 仪表板（`localhost:6185`）访问 moirai plugin page 时，出现两类无解错误：
+
+**错误 1：资源路径断裂 → CSS/JS 不可用**
+
+```
+Did not parse stylesheet at 'http://localhost:6185/_next/static/chunks/22d885ad2255e63a.css'
+because non CSS MIME types are not allowed in strict mode.
+
+SyntaxError: Unexpected identifier 'Not'   (d1a5cb67ca8b0be8.js:1)
+```
+
+根本原因：Next.js 静态导出生成的 `index.html` 中，所有资源使用绝对路径
+`/_next/static/chunks/xxx.js`。浏览器从 `localhost:6185` 的根路径请求这些文件，
+AstrBot 服务器不存在这些路径，返回 HTML 错误页（内容含 "Not Found"）但状态码 200。
+浏览器把这个 HTML 当作 CSS/JS 解析 → CSS 被拒（非 CSS MIME type），JS 报
+`SyntaxError: Unexpected identifier 'Not'`（HTML 第一个单词是 "Not"）。
+
+**修法理论上存在但代价极高**：需要为 AstrBot 模式单独构建一份带
+`basePath: '/api/pages/astrbot_plugin_moirai/moirai'` 的 Next.js 产物，
+同时维护两套构建配置。维护成本远超收益。
+
+**错误 2：字体 CORS 拦截 → 字体无法加载**
+
+```
+Origin null is not allowed by Access-Control-Allow-Origin. Status code: 200
+Failed to load resource: http://localhost:6185/_next/static/media/797e433ab948586e-s.p.dbea232f.woff2
+```
+
+根本原因：沙箱 iframe 的请求 origin 为 `null`（`allow-same-origin` 权限未授予），
+任何跨域资源（包括同一台机器上的字体文件）都被 CORS 策略拦截。
+即使服务器加了 `Access-Control-Allow-Origin: *` 头也无济于事，
+因为 `null` origin 在严格模式下匹配不到任何允许列表。
+
+**两个问题的共同根源**：AstrBot Plugin Pages iframe 的 `sandbox` 属性未包含
+`allow-same-origin`，这是 AstrBot 框架层面的硬限制，插件无法绕过。
+
 ### 生产部署方案（独立服务器，选项 A）
 
 插件在 AstrBot 中启动时：

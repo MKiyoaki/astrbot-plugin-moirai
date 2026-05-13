@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_STATIC_DIR = Path(__file__).parent.parent / "pages" / "moirai"
+_STATIC_DIR = Path(__file__).parent.parent / "pages" / "moirai" / "_app"
 _DEFAULT_PORT = 2655
 _SESSION_COOKIE = "em_session"
 
@@ -129,12 +129,20 @@ class WebuiServer:
         self._auth_enabled = auth_enabled
 
         cfg_password = (initial_config or {}).get("webui_password", "").strip()
-        if not cfg_password and auth_enabled:
+        self.token_generated = False
+        is_token_configured = bool(cfg_password)
+
+        if not is_token_configured and auth_enabled and not (data_dir / ".webui_password").exists():
             self._secret_token = secrets.token_urlsafe(16)
+            self.token_generated = True
         else:
             self._secret_token = cfg_password or None
 
-        self._auth = AuthManager(data_dir, secret_token=self._secret_token)
+        self._auth = AuthManager(
+            data_dir,
+            secret_token=self._secret_token,
+            is_token_configured=is_token_configured
+        )
         self.registry = registry or PanelRegistry()
         self._task_runner = task_runner
         self._provider_getter = provider_getter
