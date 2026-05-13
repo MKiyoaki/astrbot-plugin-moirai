@@ -190,6 +190,13 @@ class WebuiServer:
         for route in self.registry.all_routes():
             app.router.add_route(route.method, route.path, self._wrap(route.permission, route.handler))
 
+        # Static assets — must be registered before the SPA catch-all so aiohttp
+        # serves them directly instead of falling through to the wildcard handler,
+        # which has known issues with paths containing dots (e.g. chunk.abc123.js).
+        _next_dir = _STATIC_DIR / "_next"
+        if _next_dir.exists():
+            app.router.add_static("/_next", _next_dir)
+
         # SPA Catch-all
         app.router.add_get("/", self._handle_spa_fallback)
         app.router.add_get("/{tail:.*}", self._handle_spa_fallback)
@@ -230,7 +237,7 @@ class WebuiServer:
         await self._runner.setup()
         site = web.TCPSite(self._runner, "0.0.0.0", self._port)
         await site.start()
-        logger.info("[WebUI] listening on http://localhost:%d", self._port)
+        logger.info("[WebUI] listening on http://localhost:%d (Independent Server, NOT AstrBot Panel)", self._port)
 
     async def stop(self) -> None:
         if not self._runner: return
@@ -381,6 +388,7 @@ class WebuiServer:
     async def _handle_summary(self, request: web.Request) -> web.Response:
         group_id = request.rel_url.query.get("group_id")
         date = request.rel_url.query.get("date", "")
+        if not date: return _json({"error": "date required"}, status=400)
         content = self.summary_content(group_id, date)
         if content is None: return _json({"error": "not found"}, status=404)
         return _json({"content": content})

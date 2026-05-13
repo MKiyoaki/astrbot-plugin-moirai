@@ -527,3 +527,106 @@ def test_webui_error_str_preferred_when_nonempty() -> None:
     e = ImportError("No module named 'aiohttp'")
     error_msg = str(e) or repr(e) or "unknown error"
     assert "aiohttp" in error_msg
+
+
+# ---------------------------------------------------------------------------
+# Static file serving: /_next/** must use add_static, not the wildcard handler.
+#
+# aiohttp's /{tail:.*} wildcard handler silently returns 404 for paths that
+# contain dots (e.g. chunk.abc123.css). add_static() is aiohttp's native
+# static-file route and handles these paths correctly.
+# ---------------------------------------------------------------------------
+
+def _make_fake_static(base: Path) -> Path:
+    """Create a minimal Next.js export structure under base/."""
+    chunks = base / "_next" / "static" / "chunks"
+    chunks.mkdir(parents=True)
+    (chunks / "main.abc123.css").write_text("body{color:red}", encoding="utf-8")
+    (chunks / "page.deadbeef.js").write_text("console.log(1)", encoding="utf-8")
+    media = base / "_next" / "static" / "media"
+    media.mkdir(parents=True)
+    (media / "font.abc.woff2").write_bytes(b"\x00\x01\x02")
+    (base / "index.html").write_text("<html><body>SPA</body></html>", encoding="utf-8")
+    events_dir = base / "events"
+    events_dir.mkdir()
+    (events_dir / "index.html").write_text("<html>events</html>", encoding="utf-8")
+    return base
+
+
+async def test_next_css_chunk_returns_200(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """/_next/static/chunks/main.abc123.css must be served via add_static (not wildcard)."""
+    import web.server as ws
+    static_dir = _make_fake_static(tmp_path / "moirai")
+    monkeypatch.setattr(ws, "_STATIC_DIR", static_dir)
+
+    srv = _server(tmp_path)
+    async with TestClient(TestServer(srv.app)) as client:
+        resp = await client.get("/_next/static/chunks/main.abc123.css")
+        assert resp.status == 200
+        assert "color" in await resp.text()
+
+
+async def test_next_js_chunk_returns_200(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """/_next/static/chunks/page.deadbeef.js must return 200."""
+    import web.server as ws
+    static_dir = _make_fake_static(tmp_path / "moirai")
+    monkeypatch.setattr(ws, "_STATIC_DIR", static_dir)
+
+    srv = _server(tmp_path)
+    async with TestClient(TestServer(srv.app)) as client:
+        resp = await client.get("/_next/static/chunks/page.deadbeef.js")
+        assert resp.status == 200
+
+
+async def test_next_font_returns_200(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """/_next/static/media/font.abc.woff2 (binary) must return 200."""
+    import web.server as ws
+    static_dir = _make_fake_static(tmp_path / "moirai")
+    monkeypatch.setattr(ws, "_STATIC_DIR", static_dir)
+
+    srv = _server(tmp_path)
+    async with TestClient(TestServer(srv.app)) as client:
+        resp = await client.get("/_next/static/media/font.abc.woff2")
+        assert resp.status == 200
+
+
+async def test_nonexistent_next_chunk_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A chunk that does not exist on disk must return 404, not 200."""
+    import web.server as ws
+    static_dir = _make_fake_static(tmp_path / "moirai")
+    monkeypatch.setattr(ws, "_STATIC_DIR", static_dir)
+
+    srv = _server(tmp_path)
+    async with TestClient(TestServer(srv.app)) as client:
+        resp = await client.get("/_next/static/chunks/does-not-exist.js")
+        assert resp.status == 404
+
+
+async def test_spa_page_route_still_serves_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """/events/ (no dots) must still fall through to the SPA index.html."""
+    import web.server as ws
+    static_dir = _make_fake_static(tmp_path / "moirai")
+    monkeypatch.setattr(ws, "_STATIC_DIR", static_dir)
+
+    srv = _server(tmp_path)
+    async with TestClient(TestServer(srv.app)) as client:
+        resp = await client.get("/events/")
+        assert resp.status == 200
+        text = await resp.text()
+        assert "<html" in text.lower()
+
+
+async def test_api_routes_not_shadowed_by_static_mount(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """/api/events must not be shadowed by the /_next static mount."""
+    import web.server as ws
+    static_dir = _make_fake_static(tmp_path / "moirai")
+    monkeypatch.setattr(ws, "_STATIC_DIR", static_dir)
+
+    er = InMemoryEventRepository()
+    await er.upsert(make_event("e1", topic="verify"))
+    srv = _server(tmp_path, er=er)
+    async with TestClient(TestServer(srv.app)) as client:
+        resp = await client.get("/api/events")
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["items"][0]["content"] == "verify"

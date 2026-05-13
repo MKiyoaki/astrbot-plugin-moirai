@@ -47,6 +47,7 @@ from .social.big_five_scorer import BigFiveBuffer
 from .social.orientation_analyzer import SocialOrientationAnalyzer
 from .sync.syncer import ReverseSyncer
 from .sync.watcher import FileWatcher
+from .utils.frontend_build import build_frontend
 from .utils.version import get_plugin_version
 from .tasks.cleanup import run_memory_cleanup
 from .tasks.scheduler import TaskScheduler
@@ -420,67 +421,10 @@ class PluginInitializer:
                             _PLUGIN_NAME, db_path)
 
     def _ensure_pages_built(self) -> None:
-        """Auto-build the frontend if pages/moirai/index.html is missing.
-
-        Pre-built files are committed to the repo for normal installs.  This
-        fallback kicks in only for source checkouts where the developer hasn't
-        run `npm run build` yet, or after a fresh clone.
-        """
-        import subprocess
-
-        pages_index = Path(__file__).parent.parent / \
-            "pages" / "moirai" / "index.html"
-        if pages_index.exists():
-            return
-        frontend_src = Path(__file__).parent.parent / "web" / "frontend"
-        if not (frontend_src / "package.json").exists():
+        """Auto-build the frontend if pages/moirai/index.html is missing."""
+        if not build_frontend(force=False):
             astrbot_logger.warning(
-                "[%s] pages/moirai/index.html missing and no frontend source found — WebUI panel will be blank.",
-                _PLUGIN_NAME,
-            )
-            return
-        astrbot_logger.info(
-            "[%s] pages/moirai/index.html not found — auto-building frontend (this may take a minute) …",
-            _PLUGIN_NAME,
-        )
-        try:
-            subprocess.run("npm install", cwd=frontend_src,
-                           shell=True, check=True)
-            subprocess.run("npm run build", cwd=frontend_src,
-                           shell=True, check=True)
-            if pages_index.exists():
-                astrbot_logger.info(
-                    "[%s] Frontend build complete. pages/moirai/ is ready.", _PLUGIN_NAME)
-                return
-
-            # Move out/ to pages/moirai/
-            import shutil
-            # With basePath: '/api/pages/astrbot_plugin_moirai/moirai',
-            # Next.js export puts files in out/api/pages/astrbot_plugin_moirai/moirai/
-            base_path = "/api/pages/astrbot_plugin_moirai/moirai"
-            build_out = frontend_src / "out"
-            deep_out = build_out.joinpath(*base_path.split("/")[1:])
-
-            effective_source = deep_out if deep_out.exists() else build_out
-
-            if effective_source.exists():
-                if pages_index.parent.exists():
-                    shutil.rmtree(pages_index.parent)
-                pages_index.parent.mkdir(parents=True, exist_ok=True)
-                for item in effective_source.iterdir():
-                    if item.is_dir():
-                        shutil.copytree(item, pages_index.parent /
-                                        item.name, dirs_exist_ok=True)
-                    else:
-                        shutil.copy2(item, pages_index.parent / item.name)
-                astrbot_logger.info(
-                    "[%s] Frontend build complete — pages/moirai/ is ready.", _PLUGIN_NAME)
-            else:
-                astrbot_logger.warning(
-                    "[%s] Frontend build finished but 'out' directory not found.", _PLUGIN_NAME)
-        except Exception as exc:
-            astrbot_logger.warning(
-                "[%s] Frontend auto-build failed (%s). WebUI panel may be blank.", _PLUGIN_NAME, exc
+                "[%s] Frontend build failed — WebUI may be unavailable.", _PLUGIN_NAME
             )
 
     async def teardown(self) -> None:
