@@ -101,6 +101,11 @@ _DEMO_SUMMARY_1 = """# 群组 demo_group_001 活动摘要 — 2026-05-01 08:00 -
 _DEMO_SUMMARY_2 = """# 群组 demo_group_001 活动摘要 — 2026-05-02 14:00 - 18:00
 [主要话题] Alice 与 Charlie 确定了周末游戏约定..."""
 
+try:
+    from astrbot.api import logger as astrbot_logger
+except:
+    astrbot_logger = logging.getLogger("moirai")
+
 class WebuiServer:
     _CONF_SCHEMA_PATH = Path(__file__).parent.parent / "_conf_schema.json"
 
@@ -146,7 +151,6 @@ class WebuiServer:
         if not has_persistent_pw:
             if cfg_password:
                 # 这种情况说明用户在面板设了密码，但哈希文件还没生成
-                # 我们稍后会在 AuthManager 初始化后调用 setup_password
                 secret_token = cfg_password
             elif auth_enabled:
                 # 彻彻底底啥也没有，生成临时 Token
@@ -156,8 +160,8 @@ class WebuiServer:
         self._secret_token = secret_token
 
         def on_pw_changed(new_pw: str):
-            # 当密码通过 WebUI 设置或更改时，同步回 AstrBot 配置并【清空】明文显示
-            self._sync_password_to_config("") # 清空明文，因为哈希文件已经是 Source of Truth
+            astrbot_logger.info(f"[Moirai] WebUI 访问密码已更新！哈希文件已就绪，明文配置已清空，临时 Token 已失效。")
+            self._sync_password_to_config("") 
             self.token_generated = False
 
         self._auth = AuthManager(
@@ -171,9 +175,9 @@ class WebuiServer:
         if cfg_password and not has_persistent_pw:
             try:
                 self._auth.setup_password(cfg_password)
-                logger.info("[WebUI] Panel password migrated to hashed file and cleared from config.")
+                astrbot_logger.info(f"[Moirai] 检测到面板明文密码，已自动迁移至哈希文件并从配置中抹除。")
             except Exception as e:
-                logger.warning("[WebUI] Failed to migrate panel password: %s", e)
+                astrbot_logger.warning(f"[Moirai] 迁移面板密码失败: {e}")
         self.registry = registry or PanelRegistry()
         self._task_runner = task_runner
         self._provider_getter = provider_getter
@@ -603,6 +607,7 @@ class WebuiServer:
             # Sync to AstrBot
             if self._star and hasattr(self._star, "config"):
                 # Handle both flat and nested
+                # We NO LONGER clear the password here. We preserve it so AstrBot core knows it's set.
                 if "webui_password" in self._star.config:
                     self._star.config["webui_password"] = password
                 if "webui" in self._star.config and isinstance(self._star.config["webui"], dict):
@@ -611,7 +616,7 @@ class WebuiServer:
                 if hasattr(self._star.config, "save_config"):
                     self._star.config.save_config()
             
-            logger.info("[WebUI] Password field synced (and likely cleared) in configuration.")
+            logger.info("[WebUI] Password synced to configuration.")
         except Exception as e:
             logger.warning("[WebUI] Failed to sync password to config: %s", e)
 
@@ -632,12 +637,13 @@ class WebuiServer:
                 coerced[k] = bool(v) if t == "bool" else (int(v) if t == "int" else (float(v) if t == "float" else v))
             except: coerced[k] = v
         
-        # 核心逻辑：如果修改了密码，直接哈希化存入单源文件，并清空配置中的明文
+        # 核心逻辑：如果修改了密码，哈希化存入文件，但【严禁】清空配置中的明文
         if "webui_password" in coerced and coerced["webui_password"]:
             new_pw = coerced["webui_password"]
             try:
                 self._auth.setup_password(new_pw)
-                coerced["webui_password"] = "" # 存完哈希立刻清空明文
+                # DO NOT coerced["webui_password"] = "" 
+                logger.info("[WebUI] Password updated and hashed. Preserving plaintext for AstrBot core.")
             except Exception as e:
                 return _json({"error": f"Failed to set password: {str(e)}"}, status=400)
 
@@ -646,12 +652,16 @@ class WebuiServer:
             try:
                 # Update AstrBot's live config (handles nested structure)
                 for k, v in coerced.items():
-                    if k in self._star.config:
-                        self._star.config[k] = v
-                    # Also check nested
+                    found_in_sub = False
+                    # 1. 检查嵌套结构 (例如 webui.webui_password)
                     for group_k, group_v in self._star.config.items():
                         if isinstance(group_v, dict) and k in group_v:
                             group_v[k] = v
+                            found_in_sub = True
+                    
+                    # 2. 如果没在嵌套里找到，直接写在根部 (或者覆盖已有的根部键)
+                    if not found_in_sub or k in self._star.config:
+                        self._star.config[k] = v
                 
                 if hasattr(self._star.config, "save_config"):
                     self._star.config.save_config()

@@ -830,7 +830,7 @@ class PluginRoutes:
             except (TypeError, ValueError):
                 coerced[key] = val
         
-        # 核心逻辑：如果修改了密码，直接哈希化存入单源文件，并清空配置中的明文
+        # 核心逻辑：如果修改了密码，哈希化存入文件，但【严禁】清空配置中的明文
         if "webui_password" in coerced and coerced["webui_password"]:
             new_pw = coerced["webui_password"]
             try:
@@ -840,8 +840,8 @@ class PluginRoutes:
                 pw_file.write_text(_hash_password(new_pw), encoding="utf-8")
                 try: pw_file.chmod(0o600)
                 except: pass
-                coerced["webui_password"] = "" # 清空明文
-                logger.info("[PluginRoutes] Password migrated to hashed file and cleared from config.")
+                # DO NOT coerced["webui_password"] = "" 
+                logger.info("[PluginRoutes] Password updated and hashed. Preserving plaintext for AstrBot core.")
             except Exception as e:
                 return _json({"error": f"Failed to set password: {str(e)}"}, status=400)
 
@@ -850,12 +850,16 @@ class PluginRoutes:
             try:
                 # Update AstrBot's live config (handles nested structure)
                 for k, v in coerced.items():
-                    if k in self._star.config:
-                        self._star.config[k] = v
-                    # Also check nested
+                    found_in_sub = False
+                    # 1. 检查嵌套结构 (例如 webui.webui_password)
                     for group_k, group_v in self._star.config.items():
                         if isinstance(group_v, dict) and k in group_v:
                             group_v[k] = v
+                            found_in_sub = True
+                    
+                    # 2. 如果没在嵌套里找到，直接写在根部 (或者覆盖已有的根部键)
+                    if not found_in_sub or k in self._star.config:
+                        self._star.config[k] = v
                 
                 if hasattr(self._star.config, "save_config"):
                     self._star.config.save_config()
