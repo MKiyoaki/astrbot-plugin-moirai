@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## [v0.10.2] — 2026-05-14
+
+### 实机问题修复
+
+**Bug Fix**
+
+- **AstrBot 插件行为页"打开 WebUI"按钮失效** (`pages/moirai/index.html`, `core/utils/frontend_build.py`)
+  - 原 `onclick` 仅打印 `console.log`，不执行导航，AstrBot 沙箱 iframe 限制 `target="_blank"` 导致按钮完全无响应
+  - 改为主动调用 `window.open(url, '_blank')`，若沙箱阻止弹窗则退回 `window.top.location.href`，最终兜底 `window.location.href`
+  - 模板（`_REDIRECT_TEMPLATE`）与静态文件同步更新，下次插件启动时自动覆写
+
+- **WebUI 配置页"后台任务"两个新开关消失** (`pages/moirai/`)
+  - 源码（`page.tsx` / `i18n.ts`）已于 v0.10.1 正确添加 `show_thinking_process` / `show_system_prompt`，但构建产物未同步
+  - 重新执行 `npm run build` 生成最新静态文件，新开关恢复显示
+
 ## [v0.10.1] — 2026-05-14
 
 ### 调试可见性功能

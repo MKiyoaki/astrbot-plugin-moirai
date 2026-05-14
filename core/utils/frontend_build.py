@@ -90,9 +90,14 @@ _REDIRECT_TEMPLATE = """\
       el.href = url;
       if (display) display.textContent = url;
       
-      // Fallback for some environments where target="_blank" might be blocked
+      // AstrBot sandbox may block target="_blank"; use window.open with fallback
       el.onclick = function(e) {{
-        console.log("Navigating to: " + url);
+        e.preventDefault();
+        var opened = window.open(url, '_blank', 'noopener,noreferrer');
+        if (!opened) {{
+          try {{ window.top.location.href = url; }}
+          catch(ex) {{ window.location.href = url; }}
+        }}
       }};
     }})();
   </script>
