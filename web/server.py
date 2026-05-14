@@ -106,6 +106,8 @@ try:
 except:
     astrbot_logger = logging.getLogger("moirai")
 
+_PASSWORD_MASK = "(已设置加密密码)"
+
 class WebuiServer:
     _CONF_SCHEMA_PATH = Path(__file__).parent.parent / "_conf_schema.json"
 
@@ -139,7 +141,7 @@ class WebuiServer:
         # 1. 检查是否有持久化哈希文件
         has_persistent_pw = (data_dir / ".webui_password").exists()
         
-        # 2. 检查配置面板里有没有刚填入的明文密码
+        # 2. 检查配置面板
         cfg_password = self._initial_config.get("webui_password")
         if cfg_password is None and "webui" in self._initial_config:
             cfg_password = self._initial_config["webui"].get("webui_password")
@@ -147,37 +149,38 @@ class WebuiServer:
 
         self.token_generated = False
         secret_token = None
-
-        if not has_persistent_pw:
-            if cfg_password:
-                # 这种情况说明用户在面板设了密码，但哈希文件还没生成
-                secret_token = cfg_password
-            elif auth_enabled:
-                # 彻彻底底啥也没有，生成临时 Token
-                secret_token = secrets.token_urlsafe(16)
-                self.token_generated = True
         
-        self._secret_token = secret_token
-
-        def on_pw_changed(new_pw: str):
-            astrbot_logger.info(f"[Moirai] WebUI 访问密码已更新！哈希文件已就绪，明文配置已清空，临时 Token 已失效。")
-            self._sync_password_to_config("") 
+        # 3. 核心初始化认证状态
+        def on_pw_changed(_: str):
+            # 当密码通过 WebUI (AuthManager) 设置时，同步【掩码】回配置
+            self._sync_password_to_config(_PASSWORD_MASK)
             self.token_generated = False
 
         self._auth = AuthManager(
             data_dir,
-            secret_token=self._secret_token,
-            is_token_configured=bool(cfg_password),
+            secret_token=None,
+            is_token_configured=False,
             on_password_changed=on_pw_changed
         )
 
-        # 核心逻辑：如果面板里有明文密码，立刻哈希化并清空面板
-        if cfg_password and not has_persistent_pw:
+        # 逻辑：
+        # A. 如果配置里是明文（非空且不是掩码），迁移它
+        if cfg_password and cfg_password != _PASSWORD_MASK:
             try:
                 self._auth.setup_password(cfg_password)
-                astrbot_logger.info(f"[Moirai] 检测到面板明文密码，已自动迁移至哈希文件并从配置中抹除。")
+                self._sync_password_to_config(_PASSWORD_MASK)
+                astrbot_logger.info(f"[Moirai] 检测到明文配置密码，已哈希化并掩码。")
             except Exception as e:
-                astrbot_logger.warning(f"[Moirai] 迁移面板密码失败: {e}")
+                astrbot_logger.warning(f"[Moirai] 迁移明文密码失败: {e}")
+        
+        # B. 决定是否生成临时 Token
+        if not (data_dir / ".webui_password").exists() and auth_enabled:
+            # 只有在完全没有持久化密码的情况下才生成 Token
+            self._secret_token = secrets.token_urlsafe(16)
+            self._auth.update_secret_token(self._secret_token, False)
+            self.token_generated = True
+        else:
+            self._secret_token = None
         self.registry = registry or PanelRegistry()
         self._task_runner = task_runner
         self._provider_getter = provider_getter
@@ -637,15 +640,19 @@ class WebuiServer:
                 coerced[k] = bool(v) if t == "bool" else (int(v) if t == "int" else (float(v) if t == "float" else v))
             except: coerced[k] = v
         
-        # 核心逻辑：如果修改了密码，哈希化存入文件，但【严禁】清空配置中的明文
+        # 核心逻辑：如果修改了密码，哈希化存入文件，并【掩码】配置中的明文
         if "webui_password" in coerced and coerced["webui_password"]:
             new_pw = coerced["webui_password"]
-            try:
-                self._auth.setup_password(new_pw)
-                # DO NOT coerced["webui_password"] = "" 
-                logger.info("[WebUI] Password updated and hashed. Preserving plaintext for AstrBot core.")
-            except Exception as e:
-                return _json({"error": f"Failed to set password: {str(e)}"}, status=400)
+            if new_pw != _PASSWORD_MASK:
+                try:
+                    self._auth.setup_password(new_pw)
+                    coerced["webui_password"] = _PASSWORD_MASK # 存完哈希立刻掩码
+                    logger.info("[WebUI] Password updated, hashed and masked.")
+                except Exception as e:
+                    return _json({"error": f"Failed to set password: {str(e)}"}, status=400)
+            else:
+                # 如果用户只是保存配置而没改掩码，我们就把它从待更新列表中删掉，防止覆盖
+                del coerced["webui_password"]
 
         # Sync to AstrBot
         if self._star and hasattr(self._star, "config"):

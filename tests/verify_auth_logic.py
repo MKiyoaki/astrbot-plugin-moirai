@@ -9,7 +9,7 @@ import asyncio
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from web.server import WebuiServer
+from web.server import WebuiServer, _PASSWORD_MASK
 from web.auth import AuthManager
 
 class MockStar:
@@ -39,9 +39,7 @@ async def test_auth_logic():
         )
         
         print(f"Token generated: {server.token_generated}")
-        print(f"Secret token exists: {bool(server._secret_token)}")
         assert server.token_generated == True
-        assert server._secret_token is not None
         
         # 2. Simulate User setting password via WebUI
         print("\n--- Phase 2: Setting password via WebUI ---")
@@ -51,22 +49,18 @@ async def test_auth_logic():
             async def json(self):
                 return {"webui_password": new_pw}
         
-        # Mocking the schema path for the handler
         server._CONF_SCHEMA_PATH = ROOT / "_conf_schema.json"
-        
         await server._handle_update_config(MockRequest())
         
         print(f"Hashed file exists: {(test_data_dir / '.webui_password').exists()}")
-        print(f"Plaintext in config: '{star.config.get('webui_password')}'")
-        print(f"Config saved: {star.saved}")
+        print(f"Mask in config: '{star.config.get('webui_password')}'")
         
         assert (test_data_dir / ".webui_password").exists()
-        assert star.config.get("webui_password") == new_pw # CRITICAL: Must be preserved!
+        assert star.config.get("webui_password") == _PASSWORD_MASK # CRITICAL: Must be MASKED!
         
-        # 3. Simulate Restart with password set
-        print("\n--- Phase 3: Restart with password ---")
-        # In a real scenario, AstrBot would load the config with the password
-        restarted_config = {"webui_password": new_pw}
+        # 3. Simulate Restart with mask in config
+        print("\n--- Phase 3: Restart with Masked Config ---")
+        restarted_config = {"webui_password": _PASSWORD_MASK}
         restarted_star = MockStar(restarted_config)
         
         restarted_server = WebuiServer(
@@ -81,7 +75,6 @@ async def test_auth_logic():
         # 4. Verify Authentication
         print("\n--- Phase 4: Verifying Authentication ---")
         auth = restarted_server._auth
-        # Now verify that the actual authentication works
         v1 = auth.verify_password(new_pw)
         v2 = auth.verify_password("wrong_password")
         
@@ -91,7 +84,27 @@ async def test_auth_logic():
         assert v1 == True
         assert v2 == False
         
-        print("\n✅ All authentication logic tests passed!")
+        # 5. Simulate setting password via PANEL (Plaintext)
+        print("\n--- Phase 5: Setting password via Panel (Plaintext) ---")
+        panel_pw = "panel_password_123"
+        panel_config = {"webui_password": panel_pw}
+        panel_star = MockStar(panel_config)
+        
+        # This simulates plugin restart after user saves plaintext in panel
+        panel_server = WebuiServer(
+            persona_repo=None, event_repo=None, impression_repo=None,
+            data_dir=test_data_dir, star=panel_star, auth_enabled=True,
+            initial_config=panel_config
+        )
+        
+        print(f"New password masked in config: {panel_star.config.get('webui_password') == _PASSWORD_MASK}")
+        print(f"Token generated: {panel_server.token_generated}")
+        
+        assert panel_star.config.get("webui_password") == _PASSWORD_MASK
+        assert panel_server.token_generated == False
+        assert panel_server._auth.verify_password(panel_pw) == True
+        
+        print("\n✅ All secure masking and auth logic tests passed!")
 
     finally:
         shutil.rmtree(test_data_dir)

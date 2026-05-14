@@ -804,6 +804,8 @@ class PluginRoutes:
         except Exception as e:
             logger.warning("[PluginRoutes] Failed to sync password to file: %s", e)
 
+from .server import _PASSWORD_MASK
+
     async def _handle_update_config(self, request: web.Request) -> web.Response:
         body = await _request_json(request)
         raw = self._load_conf_schema()
@@ -830,20 +832,23 @@ class PluginRoutes:
             except (TypeError, ValueError):
                 coerced[key] = val
         
-        # 核心逻辑：如果修改了密码，哈希化存入文件，但【严禁】清空配置中的明文
+        # 核心逻辑：如果修改了密码，哈希化存入文件，并【掩码】配置中的明文
         if "webui_password" in coerced and coerced["webui_password"]:
             new_pw = coerced["webui_password"]
-            try:
-                # 这里我们手动处理哈希化，因为 PluginRoutes 没持有 AuthManager
-                from .auth import _hash_password
-                pw_file = self._data_dir / ".webui_password"
-                pw_file.write_text(_hash_password(new_pw), encoding="utf-8")
-                try: pw_file.chmod(0o600)
-                except: pass
-                # DO NOT coerced["webui_password"] = "" 
-                logger.info("[PluginRoutes] Password updated and hashed. Preserving plaintext for AstrBot core.")
-            except Exception as e:
-                return _json({"error": f"Failed to set password: {str(e)}"}, status=400)
+            if new_pw != _PASSWORD_MASK:
+                try:
+                    from .auth import _hash_password
+                    pw_file = self._data_dir / ".webui_password"
+                    pw_file.write_text(_hash_password(new_pw), encoding="utf-8")
+                    try: pw_file.chmod(0o600)
+                    except: pass
+                    coerced["webui_password"] = _PASSWORD_MASK # 存完哈希立刻掩码
+                    logger.info("[PluginRoutes] Password updated, hashed and masked.")
+                except Exception as e:
+                    return _json({"error": f"Failed to set password: {str(e)}"}, status=400)
+            else:
+                # 如果用户只是保存配置而没改掩码，我们就把它从待更新列表中删掉
+                del coerced["webui_password"]
 
         # Sync to AstrBot
         if self._star and hasattr(self._star, "config"):

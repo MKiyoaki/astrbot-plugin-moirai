@@ -37,8 +37,9 @@ _PLUGIN_VERSION = get_plugin_version()
     "https://github.com/MKiyoaki/astrbot-plugin-moirai",
 )
 class MoiraiPlugin(Star):
-    def __init__(self, context: Context) -> None:
-        super().__init__(context)
+    def __init__(self, context: Context, config: dict | None = None) -> None:
+        super().__init__(context, config)
+        self.config = config or {}
         self._initializer: PluginInitializer | None = None
         self._handler: EventHandler | None = None
 

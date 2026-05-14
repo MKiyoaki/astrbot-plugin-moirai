@@ -291,15 +291,25 @@ class PluginConfig:
     """
 
     def __init__(self, raw: dict, data_dir: Path | None = None) -> None:
-        # AstrBot delivers nested dicts when _conf_schema.json uses "type": "object".
-        # Flatten one level so all existing flat-key accessors continue to work.
+        # AstrBot delivers nested structures when _conf_schema.json uses "type": "object".
+        # We flatten one level so existing code continues to work.
+        # CRITICAL: We check for .items() because AstrBot config objects are not always plain dicts.
         flat: dict = {}
-        for k, v in raw.items():
-            if isinstance(v, dict):
-                for sub_k, sub_v in v.items():
-                    # Priority: take the nested value
+        
+        # Helper to safely get items from a dict or dict-like object
+        def get_items(obj):
+            if hasattr(obj, "items") and callable(getattr(obj, "items")):
+                return obj.items()
+            return []
+
+        for k, v in get_items(raw):
+            items = get_items(v)
+            if items:
+                # It's a nested group
+                for sub_k, sub_v in items:
                     flat[sub_k] = sub_v
             else:
+                # It's a top-level key
                 flat[k] = v
         
         self._raw = flat
