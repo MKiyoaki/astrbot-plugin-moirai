@@ -2,6 +2,13 @@
 
 ## [v0.9.17] — 2026-05-14
 
+### 安装兼容与插件 i18n 修复
+
+- **修复 AstrBot v4.24.4 插件安装异常**：`main.py` 不再以关键字参数形式向 `PluginConfig` 传入 `data_dir`，避免实机环境中出现 `PluginConfig.init() got an unexpected keyword argument 'data_dir'` 导致插件加载失败。
+- **适配 AstrBot 插件配置页 i18n 加载结构**：将 `.astrbot-plugin/i18n/zh_CN/plugin.json` 与 `.astrbot-plugin/i18n/en_US/plugin.json` 旧目录式结构迁移为 AstrBot 可直接读取的 `.astrbot-plugin/i18n/zh-CN.json` 和 `.astrbot-plugin/i18n/en-US.json`。
+- **补全配置页多语言文案覆盖**：`zh-CN` / `en-US` 均覆盖 `_conf_schema.json` 中的配置分组、字段 `description`、`hint` 与 `labels` 文本。
+- **修复插件路由模块语法阻断**：调整 `web/plugin_routes.py` 中 `_PASSWORD_MASK` 的导入位置，避免模块解析阶段因缩进错误失败。
+
 ### 启动报告与依赖管理增强
 
 - **多语言启动报告**：`PluginInitializer` 现在会在插件初始化成功后，通过 AstrBot 控制台打印详细的组件状态报告（支持中/英/日三语）。报告涵盖记忆、情绪、WebUI、社交关系等模块的启用状态，以及当前使用的 Embedding 和 LLM 模型信息。

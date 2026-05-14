@@ -57,7 +57,7 @@ class MoiraiPlugin(Star):
         data_dir: Path = StarTools.get_data_dir("astrbot_plugin_moirai")
         raw_cfg = self.config if hasattr(
             self, "config") and self.config else {}
-        cfg = PluginConfig(raw_cfg, data_dir=data_dir)
+        cfg = PluginConfig(raw_cfg)
         self._initializer = PluginInitializer(self.context, cfg, data_dir, star=self)
         await self._initializer.initialize()
         self._handler = EventHandler(self._initializer)

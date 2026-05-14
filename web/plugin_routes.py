@@ -21,6 +21,7 @@ from quart import Response, request as quart_request
 
 from core.domain.models import Event, Impression, Persona, MessageRef
 from .registry import PanelRegistry
+from .server import _PASSWORD_MASK
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -803,8 +804,6 @@ class PluginRoutes:
             except: pass
         except Exception as e:
             logger.warning("[PluginRoutes] Failed to sync password to file: %s", e)
-
-from .server import _PASSWORD_MASK
 
     async def _handle_update_config(self, request: web.Request) -> web.Response:
         body = await _request_json(request)

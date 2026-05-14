@@ -1,0 +1,626 @@
+{
+  "display_name": "Moirai Memory Plugin",
+  "desc": "A three-axis long-term memory plugin for AstrBot, covering episodic memory, social relationships, and narrative summaries with persistent cross-platform storage and a rich WebUI.",
+  "metadata": {
+    "display_name": "Moirai Memory Plugin",
+    "desc": "A three-axis long-term memory plugin for AstrBot, covering episodic memory, social relationships, and narrative summaries with persistent cross-platform storage and a rich WebUI."
+  },
+  "config": {
+    "general": {
+      "description": "Basic Settings",
+      "hint": "Plugin language and LLM provider settings"
+    },
+    "general.language": {
+      "description": "Plugin Language",
+      "hint": "Sets the language used by backend-generated content such as summary headings and Markdown file headers. The WebUI language is configured separately in the interface."
+    },
+    "language": {
+      "description": "Plugin Language",
+      "hint": "Sets the language used by backend-generated content such as summary headings and Markdown file headers. The WebUI language is configured separately in the interface."
+    },
+    "general.llm_provider": {
+      "description": "LLM Provider for Summaries and Extraction",
+      "hint": "Select the LLM provider used for background tasks such as event extraction, persona synthesis, and narrative summaries. Leave empty to use AstrBot default provider."
+    },
+    "llm_provider": {
+      "description": "LLM Provider for Summaries and Extraction",
+      "hint": "Select the LLM provider used for background tasks such as event extraction, persona synthesis, and narrative summaries. Leave empty to use AstrBot default provider."
+    },
+    "general.llm_concurrency": {
+      "description": "Maximum Background LLM Concurrency",
+      "hint": "Maximum number of background LLM requests this plugin may run at once, such as event extraction, persona synthesis, and summary generation. Recommended: 1-3 to avoid API rate limits."
+    },
+    "llm_concurrency": {
+      "description": "Maximum Background LLM Concurrency",
+      "hint": "Maximum number of background LLM requests this plugin may run at once, such as event extraction, persona synthesis, and summary generation. Recommended: 1-3 to avoid API rate limits."
+    },
+    "webui": {
+      "description": "WebUI Panel",
+      "hint": "Enable browser access to the Moirai three-axis memory panel"
+    },
+    "webui.webui_enabled": {
+      "description": "Enable Moirai Memory Management Panel",
+      "hint": "When enabled, the Moirai memory panel is available in the browser, including event flow, graph, and summaries."
+    },
+    "webui_enabled": {
+      "description": "Enable Moirai Memory Management Panel",
+      "hint": "When enabled, the Moirai memory panel is available in the browser, including event flow, graph, and summaries."
+    },
+    "webui.webui_port": {
+      "description": "WebUI Port",
+      "hint": "Local port used by the WebUI HTTP service. Default is 2655. Restart required after changing."
+    },
+    "webui_port": {
+      "description": "WebUI Port",
+      "hint": "Local port used by the WebUI HTTP service. Default is 2655. Restart required after changing."
+    },
+    "webui.webui_auth_enabled": {
+      "description": "Enable WebUI Password Authentication",
+      "hint": "When enabled, the first visit requires setting an admin password. When disabled, anyone can access the WebUI; only recommended for local deployments without public exposure."
+    },
+    "webui_auth_enabled": {
+      "description": "Enable WebUI Password Authentication",
+      "hint": "When enabled, the first visit requires setting an admin password. When disabled, anyone can access the WebUI; only recommended for local deployments without public exposure."
+    },
+    "webui.webui_session_hours": {
+      "description": "WebUI Login Session Duration (hours)",
+      "hint": "Number of idle hours after login before the session expires automatically."
+    },
+    "webui_session_hours": {
+      "description": "WebUI Login Session Duration (hours)",
+      "hint": "Number of idle hours after login before the session expires automatically."
+    },
+    "webui.webui_sudo_minutes": {
+      "description": "WebUI Sudo Mode Duration (minutes)",
+      "hint": "Number of minutes before Sudo mode exits automatically. Write operations require entering the password again after timeout."
+    },
+    "webui_sudo_minutes": {
+      "description": "WebUI Sudo Mode Duration (minutes)",
+      "hint": "Number of minutes before Sudo mode exits automatically. Write operations require entering the password again after timeout."
+    },
+    "webui.webui_password": {
+      "description": "WebUI Access Password",
+      "hint": "Manually configure the WebUI access password. If empty, a random access token is generated on startup and printed to the console."
+    },
+    "webui_password": {
+      "description": "WebUI Access Password",
+      "hint": "Manually configure the WebUI access password. If empty, a random access token is generated on startup and printed to the console."
+    },
+    "embedding": {
+      "description": "Vector Embeddings",
+      "hint": "Embedding model settings required for semantic retrieval"
+    },
+    "embedding.embedding_enabled": {
+      "description": "Enable Vector Semantic Retrieval",
+      "hint": "Requires a local Sentence Transformer model, about 100 MB. When disabled, retrieval falls back to BM25 keyword search only."
+    },
+    "embedding_enabled": {
+      "description": "Enable Vector Semantic Retrieval",
+      "hint": "Requires a local Sentence Transformer model, about 100 MB. When disabled, retrieval falls back to BM25 keyword search only."
+    },
+    "embedding.embedding_provider": {
+      "description": "Embedding Provider",
+      "hint": "Choose whether to use a local model or remote API."
+    },
+    "embedding_provider": {
+      "description": "Embedding Provider",
+      "hint": "Choose whether to use a local model or remote API."
+    },
+    "embedding.embedding_model": {
+      "description": "Embedding Model Name",
+      "hint": "HuggingFace model ID for local mode, or API model name for API mode."
+    },
+    "embedding_model": {
+      "description": "Embedding Model Name",
+      "hint": "HuggingFace model ID for local mode, or API model name for API mode."
+    },
+    "embedding.embedding_api_url": {
+      "description": "Embedding API URL",
+      "hint": "Only used when the provider is API, for example https://api.openai.com/v1/embeddings."
+    },
+    "embedding_api_url": {
+      "description": "Embedding API URL",
+      "hint": "Only used when the provider is API, for example https://api.openai.com/v1/embeddings."
+    },
+    "embedding.embedding_api_key": {
+      "description": "Embedding API Key",
+      "hint": "Only used when the provider is API."
+    },
+    "embedding_api_key": {
+      "description": "Embedding API Key",
+      "hint": "Only used when the provider is API."
+    },
+    "embedding.embedding_batch_size": {
+      "description": "Embedding Batch Size",
+      "hint": "Number of messages processed in a single batch."
+    },
+    "embedding_batch_size": {
+      "description": "Embedding Batch Size",
+      "hint": "Number of messages processed in a single batch."
+    },
+    "embedding.embedding_concurrency": {
+      "description": "Maximum Embedding Concurrency",
+      "hint": "Number of embedding requests or batches that may run at the same time."
+    },
+    "embedding_concurrency": {
+      "description": "Maximum Embedding Concurrency",
+      "hint": "Number of embedding requests or batches that may run at the same time."
+    },
+    "embedding.embedding_batch_interval_ms": {
+      "description": "Batch Read Interval (ms)",
+      "hint": "Delay before reading the next batch after one batch finishes."
+    },
+    "embedding_batch_interval_ms": {
+      "description": "Batch Read Interval (ms)",
+      "hint": "Delay before reading the next batch after one batch finishes."
+    },
+    "embedding.embedding_request_interval_ms": {
+      "description": "Request Interval (ms)",
+      "hint": "Minimum wait time between two network requests."
+    },
+    "embedding_request_interval_ms": {
+      "description": "Request Interval (ms)",
+      "hint": "Minimum wait time between two network requests."
+    },
+    "embedding.embedding_failure_tolerance_ratio": {
+      "description": "Allowed Failure Ratio",
+      "hint": "Maximum ratio of failed messages allowed in a batch (0.0-1.0)."
+    },
+    "embedding_failure_tolerance_ratio": {
+      "description": "Allowed Failure Ratio",
+      "hint": "Maximum ratio of failed messages allowed in a batch (0.0-1.0)."
+    },
+    "embedding.embedding_retry_max": {
+      "description": "Maximum Retry Attempts",
+      "hint": "Maximum number of attempts when an embedding request fails."
+    },
+    "embedding_retry_max": {
+      "description": "Maximum Retry Attempts",
+      "hint": "Maximum number of attempts when an embedding request fails."
+    },
+    "embedding.embedding_retry_delay_ms": {
+      "description": "Retry Delay (ms)",
+      "hint": "Wait time before retrying."
+    },
+    "embedding_retry_delay_ms": {
+      "description": "Retry Delay (ms)",
+      "hint": "Wait time before retrying."
+    },
+    "retrieval": {
+      "description": "Memory Retrieval",
+      "hint": "Controls how memories are retrieved from the database and injected into prompts."
+    },
+    "retrieval.retrieval_top_k": {
+      "description": "Maximum Retrieved Events to Inject",
+      "hint": "Final number of events kept before prompt injection. Higher values provide richer context but consume more tokens."
+    },
+    "retrieval_top_k": {
+      "description": "Maximum Retrieved Events to Inject",
+      "hint": "Final number of events kept before prompt injection. Higher values provide richer context but consume more tokens."
+    },
+    "retrieval.retrieval_token_budget": {
+      "description": "Memory Injection Token Budget",
+      "hint": "When over budget, memories are greedily truncated by importance, freshness, and relevance."
+    },
+    "retrieval_token_budget": {
+      "description": "Memory Injection Token Budget",
+      "hint": "When over budget, memories are greedily truncated by importance, freshness, and relevance."
+    },
+    "retrieval.memory_isolation_enabled": {
+      "description": "Enable Memory Isolation by Group ID",
+      "hint": "When enabled, private chats and group chats retrieve memories independently. When disabled, retrieval is global across group IDs."
+    },
+    "memory_isolation_enabled": {
+      "description": "Enable Memory Isolation by Group ID",
+      "hint": "When enabled, private chats and group chats retrieve memories independently. When disabled, retrieval is global across group IDs."
+    },
+    "retrieval.retrieval_weighted_random": {
+      "description": "Enable Weighted Random Retrieval",
+      "hint": "When enabled, uses Softmax sampling instead of deterministic Top-K truncation, making memory recall more natural by occasionally recalling lower-scored events."
+    },
+    "retrieval_weighted_random": {
+      "description": "Enable Weighted Random Retrieval",
+      "hint": "When enabled, uses Softmax sampling instead of deterministic Top-K truncation, making memory recall more natural by occasionally recalling lower-scored events."
+    },
+    "retrieval.retrieval_sampling_temperature": {
+      "description": "Retrieval Sampling Temperature",
+      "hint": "Only effective in weighted random mode. 1.0 is standard; lower values approach deterministic ranking, while higher values increase randomness."
+    },
+    "retrieval_sampling_temperature": {
+      "description": "Retrieval Sampling Temperature",
+      "hint": "Only effective in weighted random mode. 1.0 is standard; lower values approach deterministic ranking, while higher values increase randomness."
+    },
+    "vcm": {
+      "description": "Context Management (VCM)",
+      "hint": "Virtual Context Manager settings for active session cache and context window size."
+    },
+    "vcm.vcm_enabled": {
+      "description": "Enable VCM State Machine",
+      "hint": "Enables the virtual context management state machine: Focused, Recall, Eviction, and Drift."
+    },
+    "vcm_enabled": {
+      "description": "Enable VCM State Machine",
+      "hint": "Enables the virtual context management state machine: Focused, Recall, Eviction, and Drift."
+    },
+    "vcm.context_max_sessions": {
+      "description": "Maximum Cached Sessions",
+      "hint": "Maximum number of active sessions (MessageWindow) kept in memory."
+    },
+    "context_max_sessions": {
+      "description": "Maximum Cached Sessions",
+      "hint": "Maximum number of active sessions (MessageWindow) kept in memory."
+    },
+    "vcm.context_session_idle_seconds": {
+      "description": "Session Idle Expiration Time (seconds)",
+      "hint": "A session is automatically removed from memory after this many seconds without new messages."
+    },
+    "context_session_idle_seconds": {
+      "description": "Session Idle Expiration Time (seconds)",
+      "hint": "A session is automatically removed from memory after this many seconds without new messages."
+    },
+    "vcm.context_window_size": {
+      "description": "Context Window Size",
+      "hint": "Maximum number of historical messages passed to the LLM for event summarization."
+    },
+    "context_window_size": {
+      "description": "Context Window Size",
+      "hint": "Maximum number of historical messages passed to the LLM for event summarization."
+    },
+    "soul": {
+      "description": "Emotion Four-Dimensional State (Soul Layer)",
+      "hint": "Dynamic emotion state that changes with conversation and can be injected into the system prompt to influence reply style."
+    },
+    "soul.soul_enabled": {
+      "description": "Enable Emotion Four-Dimensional State (Soul Layer)",
+      "hint": "When enabled, RecallDepth, ImpressionDepth, ExpressionDesire, and Creativity update dynamically during conversation and are injected into the system prompt to influence reply style."
+    },
+    "soul_enabled": {
+      "description": "Enable Emotion Four-Dimensional State (Soul Layer)",
+      "hint": "When enabled, RecallDepth, ImpressionDepth, ExpressionDesire, and Creativity update dynamically during conversation and are injected into the system prompt to influence reply style."
+    },
+    "soul.soul_decay_rate": {
+      "description": "Emotion Decay Rate (per turn)",
+      "hint": "The ratio by which each emotion dimension decays toward zero after every conversation turn. 0.1 means 10% decay per turn."
+    },
+    "soul_decay_rate": {
+      "description": "Emotion Decay Rate (per turn)",
+      "hint": "The ratio by which each emotion dimension decays toward zero after every conversation turn. 0.1 means 10% decay per turn."
+    },
+    "soul.soul_recall_depth_init": {
+      "description": "Initial Memory Retrieval Drive",
+      "hint": "Initial value for RecallDepth, from -20 to +20. 0 is neutral."
+    },
+    "soul_recall_depth_init": {
+      "description": "Initial Memory Retrieval Drive",
+      "hint": "Initial value for RecallDepth, from -20 to +20. 0 is neutral."
+    },
+    "soul.soul_impression_depth_init": {
+      "description": "Initial Social Attention",
+      "hint": "Initial value for ImpressionDepth, from -20 to +20. 0 is neutral."
+    },
+    "soul_impression_depth_init": {
+      "description": "Initial Social Attention",
+      "hint": "Initial value for ImpressionDepth, from -20 to +20. 0 is neutral."
+    },
+    "soul.soul_expression_desire_init": {
+      "description": "Initial Expression Desire",
+      "hint": "Initial value for ExpressionDesire, from -20 to +20. 0 is neutral."
+    },
+    "soul_expression_desire_init": {
+      "description": "Initial Expression Desire",
+      "hint": "Initial value for ExpressionDesire, from -20 to +20. 0 is neutral."
+    },
+    "soul.soul_creativity_init": {
+      "description": "Initial Creativity",
+      "hint": "Initial value for Creativity, from -20 to +20. 0 is neutral."
+    },
+    "soul_creativity_init": {
+      "description": "Initial Creativity",
+      "hint": "Initial value for Creativity, from -20 to +20. 0 is neutral."
+    },
+    "cleanup": {
+      "description": "Memory Cleanup",
+      "hint": "Periodically cleans old memories whose importance decays below the threshold to control database size."
+    },
+    "cleanup.memory_cleanup_enabled": {
+      "description": "Enable Automatic Memory Cleanup",
+      "hint": "When enabled, periodically cleans memories whose importance is below the threshold."
+    },
+    "memory_cleanup_enabled": {
+      "description": "Enable Automatic Memory Cleanup",
+      "hint": "When enabled, periodically cleans memories whose importance is below the threshold."
+    },
+    "cleanup.memory_cleanup_threshold": {
+      "description": "Memory Cleanup Threshold",
+      "hint": "Unlocked memories with salience below this value are automatically cleaned."
+    },
+    "memory_cleanup_threshold": {
+      "description": "Memory Cleanup Threshold",
+      "hint": "Unlocked memories with salience below this value are automatically cleaned."
+    },
+    "cleanup.memory_cleanup_interval_days": {
+      "description": "Memory Cleanup Interval (days)",
+      "hint": "How many days between automatic cleanup runs."
+    },
+    "memory_cleanup_interval_days": {
+      "description": "Memory Cleanup Interval (days)",
+      "hint": "How many days between automatic cleanup runs."
+    },
+    "cleanup.memory_cleanup_retention_days": {
+      "description": "Archive Retention Period (days)",
+      "hint": "Number of days archived events are retained before permanent deletion."
+    },
+    "memory_cleanup_retention_days": {
+      "description": "Archive Retention Period (days)",
+      "hint": "Number of days archived events are retained before permanent deletion."
+    },
+    "summaries": {
+      "description": "Narrative Summaries",
+      "hint": "Periodically generate daily narrative summaries for active groups."
+    },
+    "summaries.summary_enabled": {
+      "description": "Enable Daily Narrative Summary",
+      "hint": "When enabled, periodically generates daily summary Markdown files for active groups."
+    },
+    "summary_enabled": {
+      "description": "Enable Daily Narrative Summary",
+      "hint": "When enabled, periodically generates daily summary Markdown files for active groups."
+    },
+    "summaries.summary_interval_hours": {
+      "description": "Summary Generation Frequency",
+      "hint": "How many hours between narrative summary generations for each active group."
+    },
+    "summary_interval_hours": {
+      "description": "Summary Generation Frequency",
+      "hint": "How many hours between narrative summary generations for each active group."
+    },
+    "summaries.summary_word_limit": {
+      "description": "Summary Word Limit",
+      "hint": "Upper bound for generated daily summary text, between 200 and 500 Chinese characters or equivalent length."
+    },
+    "summary_word_limit": {
+      "description": "Summary Word Limit",
+      "hint": "Upper bound for generated daily summary text, between 200 and 500 Chinese characters or equivalent length."
+    },
+    "summaries.summary_mood_source": {
+      "description": "Mood Dynamics Data Source",
+      "hint": "Determines how the [Mood Dynamics] section in daily summaries is generated. Database mode aggregates real social model data."
+    },
+    "summary_mood_source": {
+      "description": "Mood Dynamics Data Source",
+      "hint": "Determines how the [Mood Dynamics] section in daily summaries is generated. Database mode aggregates real social model data."
+    },
+    "boundary": {
+      "description": "Event Boundary and Extraction",
+      "hint": "Controls how conversations are split into events, as well as extraction strategy and tag system settings."
+    },
+    "boundary.persona_influenced_summary": {
+      "description": "Use Current Persona When Summarizing Events",
+      "hint": "When enabled, injects the bot persona description during event summary extraction, giving summaries the current bot persona perspective."
+    },
+    "persona_influenced_summary": {
+      "description": "Use Current Persona When Summarizing Events",
+      "hint": "When enabled, injects the bot persona description during event summary extraction, giving summaries the current bot persona perspective."
+    },
+    "boundary.extraction_strategy": {
+      "description": "Event Partitioning Strategy",
+      "hint": "LLM partitioning is semantically more accurate but slower. Semantic clustering is faster and can handle interleaved topics."
+    },
+    "extraction_strategy": {
+      "description": "Event Partitioning Strategy",
+      "hint": "LLM partitioning is semantically more accurate but slower. Semantic clustering is faster and can handle interleaved topics."
+    },
+    "boundary.semantic_clustering_eps": {
+      "description": "Semantic Clustering Sensitivity (Eps)",
+      "hint": "Only effective for the Semantic strategy. Lower values produce finer topic splits. Recommended range: 0.4-0.6."
+    },
+    "semantic_clustering_eps": {
+      "description": "Semantic Clustering Sensitivity (Eps)",
+      "hint": "Only effective for the Semantic strategy. Lower values produce finer topic splits. Recommended range: 0.4-0.6."
+    },
+    "boundary.semantic_clustering_min_samples": {
+      "description": "Minimum Messages for Semantic Cluster",
+      "hint": "Only effective for the Semantic strategy. Minimum messages required for a topic; 2 avoids generating many single-message events."
+    },
+    "semantic_clustering_min_samples": {
+      "description": "Minimum Messages for Semantic Cluster",
+      "hint": "Only effective for the Semantic strategy. Minimum messages required for a topic; 2 avoids generating many single-message events."
+    },
+    "boundary.tag_normalization_threshold": {
+      "description": "Tag Normalization Threshold",
+      "hint": "Vector similarity threshold from 0 to 1. During tag extraction, a tag is merged into an existing tag when similarity exceeds this value."
+    },
+    "tag_normalization_threshold": {
+      "description": "Tag Normalization Threshold",
+      "hint": "Vector similarity threshold from 0 to 1. During tag extraction, a tag is merged into an existing tag when similarity exceeds this value."
+    },
+    "boundary.tag_seeds": {
+      "description": "Tag Seed Vocabulary (memory abstraction levels)",
+      "hint": "Comma-separated words defining the system memory macro categories. The LLM imitates their abstraction level when tagging."
+    },
+    "tag_seeds": {
+      "description": "Tag Seed Vocabulary (memory abstraction levels)",
+      "hint": "Comma-separated words defining the system memory macro categories. The LLM imitates their abstraction level when tagging."
+    },
+    "boundary.boundary_time_gap_minutes": {
+      "description": "Event Boundary: Idle Time Threshold (minutes)",
+      "hint": "Automatically closes the current event window and starts a new event when the interval between messages exceeds this value."
+    },
+    "boundary_time_gap_minutes": {
+      "description": "Event Boundary: Idle Time Threshold (minutes)",
+      "hint": "Automatically closes the current event window and starts a new event when the interval between messages exceeds this value."
+    },
+    "boundary.boundary_max_messages": {
+      "description": "Event Boundary: Maximum Messages (hard limit)",
+      "hint": "Force-closes a single event window when the message count reaches this limit, preventing oversized events."
+    },
+    "boundary_max_messages": {
+      "description": "Event Boundary: Maximum Messages (hard limit)",
+      "hint": "Force-closes a single event window when the message count reaches this limit, preventing oversized events."
+    },
+    "boundary.boundary_max_duration_minutes": {
+      "description": "Event Boundary: Maximum Duration (minutes)",
+      "hint": "Force-closes a single event window when its duration exceeds this value."
+    },
+    "boundary_max_duration_minutes": {
+      "description": "Event Boundary: Maximum Duration (minutes)",
+      "hint": "Force-closes a single event window when its duration exceeds this value."
+    },
+    "boundary.boundary_topic_drift_enabled": {
+      "description": "Enable Topic Drift Detection",
+      "hint": "When enabled, detects topic switches by vector cosine distance and dynamically closes events. This is more computationally expensive; disable if conversations feel slow."
+    },
+    "boundary_topic_drift_enabled": {
+      "description": "Enable Topic Drift Detection",
+      "hint": "When enabled, detects topic switches by vector cosine distance and dynamically closes events. This is more computationally expensive; disable if conversations feel slow."
+    },
+    "boundary.boundary_topic_drift_threshold": {
+      "description": "Event Boundary: Topic Drift Threshold",
+      "hint": "Cosine distance threshold from 0 to 1. Topic switch detection triggers when exceeded. Requires vector retrieval."
+    },
+    "boundary_topic_drift_threshold": {
+      "description": "Event Boundary: Topic Drift Threshold",
+      "hint": "Cosine distance threshold from 0 to 1. Topic switch detection triggers when exceeded. Requires vector retrieval."
+    },
+    "boundary.boundary_topic_drift_min_messages": {
+      "description": "Event Boundary: Minimum Messages for Drift Detection",
+      "hint": "Topic drift detection starts only after a single event window reaches this many messages."
+    },
+    "boundary_topic_drift_min_messages": {
+      "description": "Event Boundary: Minimum Messages for Drift Detection",
+      "hint": "Topic drift detection starts only after a single event window reaches this many messages."
+    },
+    "boundary.boundary_topic_drift_interval": {
+      "description": "Event Boundary: Topic Drift Detection Step",
+      "hint": "How many messages between topic drift checks. 1 checks every message; 5 checks every five messages. Recommended: 3-10."
+    },
+    "boundary_topic_drift_interval": {
+      "description": "Event Boundary: Topic Drift Detection Step",
+      "hint": "How many messages between topic drift checks. 1 checks every message; 5 checks every five messages. Recommended: 3-10."
+    },
+    "relation": {
+      "description": "Social Relations and Periodic Tasks",
+      "hint": "Switches and intervals for social relation inference, persona profile synthesis, and background periodic tasks."
+    },
+    "relation.relation_enabled": {
+      "description": "Enable Social Relation Inference",
+      "hint": "When disabled, only episodic memory is kept; Impression inference and relationship graph construction are skipped."
+    },
+    "relation_enabled": {
+      "description": "Enable Social Relation Inference",
+      "hint": "When disabled, only episodic memory is kept; Impression inference and relationship graph construction are skipped."
+    },
+    "relation.persona_default_confidence": {
+      "description": "Default Persona Confidence",
+      "hint": "Initial confidence assigned to new personas, automatically updated after model inference."
+    },
+    "persona_default_confidence": {
+      "description": "Default Persona Confidence",
+      "hint": "Initial confidence assigned to new personas, automatically updated after model inference."
+    },
+    "relation.persona_isolation_enabled": {
+      "description": "Enable Persona Perspective Isolation",
+      "hint": "When enabled, Impression aggregation uses only events from the same group as evidence. When disabled, events from all groups are mixed."
+    },
+    "persona_isolation_enabled": {
+      "description": "Enable Persona Perspective Isolation",
+      "hint": "When enabled, Impression aggregation uses only events from the same group as evidence. When disabled, events from all groups are mixed."
+    },
+    "relation.impression_event_trigger_enabled": {
+      "description": "Enable Event Count Triggered Impression Updates",
+      "hint": "After each event closes, a rule-based impression update is triggered when participants share enough events. This does not consume LLM tokens."
+    },
+    "impression_event_trigger_enabled": {
+      "description": "Enable Event Count Triggered Impression Updates",
+      "hint": "After each event closes, a rule-based impression update is triggered when participants share enough events. This does not consume LLM tokens."
+    },
+    "relation.impression_event_trigger_threshold": {
+      "description": "Minimum Shared Events for Impression Trigger",
+      "hint": "An impression update is triggered only when two people have at least this many shared events in the same scope."
+    },
+    "impression_event_trigger_threshold": {
+      "description": "Minimum Shared Events for Impression Trigger",
+      "hint": "An impression update is triggered only when two people have at least this many shared events in the same scope."
+    },
+    "relation.impression_trigger_debounce_hours": {
+      "description": "Impression Trigger Debounce Time (hours)",
+      "hint": "Skip a trigger if the last update was less than this many hours ago, avoiding high-frequency refreshes."
+    },
+    "impression_trigger_debounce_hours": {
+      "description": "Impression Trigger Debounce Time (hours)",
+      "hint": "Skip a trigger if the last update was less than this many hours ago, avoiding high-frequency refreshes."
+    },
+    "relation.impression_update_alpha": {
+      "description": "Impression Update Smoothing Coefficient (Alpha)",
+      "hint": "Higher values accept new impressions faster; lower values preserve old impressions more strongly. 0.4 means 40% new information and 60% old memory."
+    },
+    "impression_update_alpha": {
+      "description": "Impression Update Smoothing Coefficient (Alpha)",
+      "hint": "Higher values accept new impressions faster; lower values preserve old impressions more strongly. 0.4 means 40% new information and 60% old memory."
+    },
+    "relation.decay_enabled": {
+      "description": "Enable Importance Decay",
+      "hint": "When enabled, event importance decays periodically. When disabled, memories no longer fade over time."
+    },
+    "decay_enabled": {
+      "description": "Enable Importance Decay",
+      "hint": "When enabled, event importance decays periodically. When disabled, memories no longer fade over time."
+    },
+    "relation.decay_interval_hours": {
+      "description": "Importance Decay Task Interval (hours)",
+      "hint": "How many hours between salience time-decay runs over all events. Default is once per day."
+    },
+    "decay_interval_hours": {
+      "description": "Importance Decay Task Interval (hours)",
+      "hint": "How many hours between salience time-decay runs over all events. Default is once per day."
+    },
+    "relation.persona_synthesis_enabled": {
+      "description": "Enable Persona Profile Synthesis",
+      "hint": "When enabled, periodically synthesizes user persona profile files (PROFILE.md) from conversation history."
+    },
+    "persona_synthesis_enabled": {
+      "description": "Enable Persona Profile Synthesis",
+      "hint": "When enabled, periodically synthesizes user persona profile files (PROFILE.md) from conversation history."
+    },
+    "relation.persona_synthesis_interval_hours": {
+      "description": "Persona Synthesis Interval (hours)",
+      "hint": "How many hours between LLM-based user persona profile synthesis runs. Default is once per week."
+    },
+    "persona_synthesis_interval_hours": {
+      "description": "Persona Synthesis Interval (hours)",
+      "hint": "How many hours between LLM-based user persona profile synthesis runs. Default is once per week."
+    },
+    "relation.markdown_projection_enabled": {
+      "description": "Enable Markdown Projection Generation",
+      "hint": "When enabled, projects database memories into readable Markdown files. When disabled, WebUI remains available, but .md files are no longer generated under data/."
+    },
+    "markdown_projection_enabled": {
+      "description": "Enable Markdown Projection Generation",
+      "hint": "When enabled, projects database memories into readable Markdown files. When disabled, WebUI remains available, but .md files are no longer generated under data/."
+    },
+    "relation.impression_aggregation_interval_hours": {
+      "description": "Impression Derived Field Recalculation Interval (hours)",
+      "hint": "How many hours between recalculating social orientation (IPC) derived fields and aligning evidence events from latest data. Pure algorithmic task; no LLM tokens consumed."
+    },
+    "impression_aggregation_interval_hours": {
+      "description": "Impression Derived Field Recalculation Interval (hours)",
+      "hint": "How many hours between recalculating social orientation (IPC) derived fields and aligning evidence events from latest data. Pure algorithmic task; no LLM tokens consumed."
+    },
+    "relation.file_watcher_poll_seconds": {
+      "description": "Markdown File Watch Poll Interval (seconds)",
+      "hint": "Polling frequency for detecting user edits to IMPRESSIONS.md. Lower values respond faster but cost more I/O."
+    },
+    "file_watcher_poll_seconds": {
+      "description": "Markdown File Watch Poll Interval (seconds)",
+      "hint": "Polling frequency for detecting user edits to IMPRESSIONS.md. Lower values respond faster but cost more I/O."
+    },
+    "relation.migration_auto_backup": {
+      "description": "Automatically Back Up Database Before Migration",
+      "hint": "When pending migration scripts are detected on plugin startup, automatically backs up the database as core.db.bak before running them. When disabled, skips backup."
+    },
+    "migration_auto_backup": {
+      "description": "Automatically Back Up Database Before Migration",
+      "hint": "When pending migration scripts are detected on plugin startup, automatically backs up the database as core.db.bak before running them. When disabled, skips backup."
+    }
+  }
+}
