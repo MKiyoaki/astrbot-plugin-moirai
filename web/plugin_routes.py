@@ -757,7 +757,28 @@ class PluginRoutes:
             if isinstance(group_data, dict) and group_data.get("type") == "object":
                 flat_schema.update(group_data.get("items", {}))
         
-        values = self._read_config()
+        # Construct values from flat_schema default
+        values: dict = {k: v.get("default") for k, v in flat_schema.items()}
+        
+        # Priority: 1. Live AstrBot config, 2. Local file, 3. Initial config
+        values.update(self._initial_config)
+        if self._config_path.exists():
+            try:
+                saved = json.loads(self._config_path.read_text(encoding="utf-8"))
+                values.update(saved)
+            except: pass
+
+        if self._star and hasattr(self._star, "config"):
+            star_cfg = self._star.config
+            for k in flat_schema:
+                if k in star_cfg:
+                    values[k] = star_cfg[k]
+                else:
+                    # Check nested
+                    for group_k, group_v in star_cfg.items():
+                        if isinstance(group_v, dict) and k in group_v:
+                            values[k] = group_v[k]
+
         return _json({"schema": flat_schema, "values": values})
 
     async def _handle_get_config_schema(self, request: web.Request) -> web.Response:
@@ -767,6 +788,21 @@ class PluginRoutes:
             if isinstance(group_data, dict) and group_data.get("type") == "object":
                 flat_schema.update(group_data.get("items", {}))
         return _json(flat_schema)
+
+    def _sync_password_to_file(self, password: str):
+        """Helper to sync password back to .webui_password file (hashed)."""
+        if not password: return
+        try:
+            # We don't have AuthManager here, but we can do a simple hash
+            # or just rely on the next restart to pick it up.
+            # Actually, it's better to use the same logic as AuthManager.
+            from .auth import _hash_password
+            pw_file = self._data_dir / ".webui_password"
+            pw_file.write_text(_hash_password(password), encoding="utf-8")
+            try: pw_file.chmod(0o600)
+            except: pass
+        except Exception as e:
+            logger.warning("[PluginRoutes] Failed to sync password to file: %s", e)
 
     async def _handle_update_config(self, request: web.Request) -> web.Response:
         body = await _request_json(request)
@@ -793,6 +829,11 @@ class PluginRoutes:
                     coerced[key] = val
             except (TypeError, ValueError):
                 coerced[key] = val
+        
+        # Special handling for password: sync to hashed file
+        if "webui_password" in coerced:
+            self._sync_password_to_file(coerced["webui_password"])
+
         existing: dict = {}
         if self._config_path.exists():
             try:

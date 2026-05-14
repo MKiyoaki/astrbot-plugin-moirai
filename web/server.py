@@ -141,10 +141,15 @@ class WebuiServer:
         else:
             self._secret_token = cfg_password or None
 
+        def on_pw_changed(new_pw: str):
+            # Sync back to config file and AstrBot
+            self._sync_password_to_config(new_pw)
+
         self._auth = AuthManager(
             data_dir,
             secret_token=self._secret_token,
-            is_token_configured=is_token_configured
+            is_token_configured=is_token_configured,
+            on_password_changed=on_pw_changed
         )
         self.registry = registry or PanelRegistry()
         self._task_runner = task_runner
@@ -544,14 +549,55 @@ class WebuiServer:
 
         # Construct values from flat_schema default
         values: dict = {k: v.get("default") for k, v in flat_schema.items()}
+        
+        # Priority: 1. Live AstrBot config, 2. Local file, 3. Initial config
         values.update(self._initial_config)
         if self._config_path.exists():
-            values.update(json.loads(self._config_path.read_text(encoding="utf-8")))
+            try:
+                values.update(json.loads(self._config_path.read_text(encoding="utf-8")))
+            except: pass
+        
+        if self._star and hasattr(self._star, "config"):
+            # AstrBot config might be nested or flat, handle both
+            star_cfg = self._star.config
+            for k in flat_schema:
+                if k in star_cfg:
+                    values[k] = star_cfg[k]
+                else:
+                    # Check nested
+                    for group_k, group_v in star_cfg.items():
+                        if isinstance(group_v, dict) and k in group_v:
+                            values[k] = group_v[k]
         
         return _json({"schema": flat_schema, "values": values})
 
     async def _handle_get_config_schema(self, _: web.Request) -> web.Response:
         return _json(json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {})
+
+    def _sync_password_to_config(self, password: str):
+        """Helper to sync password back to config files and AstrBot instance."""
+        try:
+            # 1. Update local file
+            existing = {}
+            if self._config_path.exists():
+                try:
+                    existing = json.loads(self._config_path.read_text(encoding="utf-8"))
+                except: pass
+            existing["webui_password"] = password
+            self._config_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+            
+            # 2. Update memory token in AuthManager (so it's immediately effective)
+            self._auth.update_secret_token(password, True)
+
+            # 3. Sync to AstrBot
+            if self._star and hasattr(self._star, "config"):
+                self._star.config["webui_password"] = password
+                if hasattr(self._star.config, "save_config"):
+                    self._star.config.save_config()
+            
+            logger.info("[WebUI] Password synced to configuration.")
+        except Exception as e:
+            logger.warning("[WebUI] Failed to sync password to config: %s", e)
 
     async def _handle_update_config(self, request: web.Request) -> web.Response:
         body = await request.json()
@@ -573,6 +619,11 @@ class WebuiServer:
             except:
                 coerced[k] = v
         
+        # Special handling for password: if it's changed in the config panel, update AuthManager
+        if "webui_password" in coerced:
+            new_pw = coerced["webui_password"]
+            self._auth.update_secret_token(new_pw, bool(new_pw))
+
         existing = json.loads(self._config_path.read_text(encoding="utf-8")) if self._config_path.exists() else {}
         existing.update(coerced)
         self._config_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")

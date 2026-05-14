@@ -311,19 +311,19 @@ class PluginConfig:
                 try:
                     import json
                     local_cfg = json.loads(config_path.read_text(encoding="utf-8"))
-                    # Merge local config, but PRIORITISE non-empty panel values for sensitive keys
-                    # or keys that are likely to be managed by the host.
+                    # Merge local config. For most fields, the WebUI (local_cfg) is the source of truth
+                    # if the user has been using it.
                     for k, v in local_cfg.items():
                         if v is not None:
-                            # Special case for password: if panel has a value, panel wins.
-                            # If panel is empty, local file can provide a value.
-                            if k == "webui_password" and flat.get(k):
-                                continue
+                            # If it's a critical WebUI field, we generally trust the local_cfg
+                            # unless the panel has a non-default value we want to keep.
+                            # But password is the main pain point.
                             
-                            # General rule: if panel has a non-default value, it wins.
-                            # But since we don't know defaults easily, we check if flat[k] is "truthy"
-                            # for some critical fields.
-                            if k == "webui_port" and flat.get(k) and flat[k] != 2655: # non-default port
+                            # If the key is 'webui_password', we ONLY override if the panel's
+                            # value is DIFFERENT from what we have locally and not empty.
+                            # This is tricky. Let's simplify: local_cfg wins for WebUI fields.
+                            if k.startswith("webui_") and k != "webui_enabled":
+                                flat[k] = v
                                 continue
 
                             flat[k] = v

@@ -15,7 +15,7 @@ import secrets
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +81,7 @@ class AuthManager:
         sudo_minutes: int = _DEFAULT_SUDO_MINUTES,
         secret_token: str | None = None,
         is_token_configured: bool = False,
+        on_password_changed: Callable[[str], None] | None = None,
     ) -> None:
         self._password_file = data_dir / _PASSWORD_FILENAME
         self._session_seconds = session_hours * 3600
@@ -88,10 +89,16 @@ class AuthManager:
         self._sessions: dict[str, _Session] = {}
         self._secret_token = secret_token
         self._is_token_configured = is_token_configured
+        self._on_password_changed = on_password_changed
 
     # ------------------------------------------------------------------
     # 密码管理
     # ------------------------------------------------------------------
+
+    def update_secret_token(self, token: str | None, is_configured: bool) -> None:
+        """从外部（如配置更新）同步静态 Token。"""
+        self._secret_token = token
+        self._is_token_configured = is_configured
 
     def is_password_set(self) -> bool:
         """返回是否已设置持久化密码，或在配置文件中显式指定了静态密码。"""
@@ -107,13 +114,28 @@ class AuthManager:
             self._password_file.chmod(0o600)
         except OSError:
             pass
+        
+        # 同步回配置
+        if self._on_password_changed:
+            self._on_password_changed(password)
 
     def change_password(self, old_password: str, new_password: str) -> bool:
         if not self.is_password_set():
             return False
-        current = self._password_file.read_text(encoding="utf-8").strip()
-        if not _verify_password(old_password, current):
+        
+        # 验证旧密码：优先验证文件，其次验证内存 token
+        verified = False
+        if self._password_file.exists():
+            current = self._password_file.read_text(encoding="utf-8").strip()
+            if _verify_password(old_password, current):
+                verified = True
+        
+        if not verified and self._secret_token and old_password == self._secret_token:
+            verified = True
+            
+        if not verified:
             return False
+            
         self.setup_password(new_password)
         self._sessions.clear()
         return True
