@@ -1,5 +1,39 @@
 # CHANGELOG
 
+## [v0.10.7] — 2026-05-15
+
+### Moirai 注入内容摘要调试
+
+**Features**
+
+- **新增”显示 Moirai 实际注入内容摘要”开关** (`core/config.py`, `_conf_schema.json`, `web/frontend/app/config/page.tsx`, `web/frontend/lib/i18n.ts`)
+  - AstrBot 设置与 WebUI 设置页均新增 `show_injection_summary`
+  - 开启后每条 LLM 回复前会附加 `[系统测试消息]` 调试块，展示 Moirai 本轮实际注入内容的安全摘要
+  - 摘要包含记忆注入条数、事件标题/短摘要、用户 Big Five/OCEAN 维度百分比、Soul Layer 四维状态和注入位置
+  - 明确隐藏完整 System Prompt、后台任务 prompt、完整 Persona 内容、Skill Rules 与 Big Five evidence 原文
+
+**Bug Fix**
+
+- **修复用户画像注入读取接口错误** (`core/managers/recall_manager.py`)
+  - 将不存在的 `persona_repo.get_by_uid(sender_uid)` 改为仓库接口已有的 `persona_repo.get(sender_uid)`
+  - 修复数据库中已存在用户 Big Five/OCEAN 信息时，实时回复阶段可能无法实际注入用户画像的问题
+
+- **还原 WebUI Google Fonts 配置** (`web/frontend/app/layout.tsx`, `web/frontend/app/globals.css`)
+  - 恢复 `Geist`、`Geist_Mono`、`PT_Serif_Caption` 的 `next/font/google` 导入及 CSS 变量声明
+  - 恢复 `@theme` 块中字体定义为 CSS 变量引用（`var(--font-sans)` 等），修复 Codex 为绕过 Google Fonts 构建超时而写入的硬编码系统字体栈回退
+
+**Improvements**
+
+- **精简注入摘要调试输出格式** (`core/event_handler.py`)
+  - 移除”注入状态”与”注入位置”两行内部实现细节字段，输出不再暴露注入位置等技术信息
+  - 记忆注入、用户画像、Soul Layer 各节之间增加空行，提升可读性
+
+**测试**
+
+- 新增注入摘要格式测试，确认不会泄漏内部提示词或 evidence 原文
+- 新增 RecallManager 集成测试，覆盖用户画像注入与 debug payload 生成
+- 回归验证调试可见性、配置同步与检索链路
+
 ## [v0.10.6] — 2026-05-14
 
 ### 实机调试可见性与插件页入口修复
@@ -14,6 +48,10 @@
   - `MessageEventResult` 继承自 `MessageChain`，实际消息段保存在 `chain` 列表中；调试前缀现在通过 `result.chain.insert(0, Plain(...))` 前置到最终回复
   - 保留旧式 `result.insert(...)` 作为兼容回退，并增加请求配置、装饰结果类型、前缀生成状态的 debug 日志，便于实机继续定位链路问题
 
+- **缩短 System Prompt 调试输出** (`core/event_handler.py`)
+  - `Persona Instructions` 调试展示仅保留当前 Persona 名称，不再输出完整 Persona prompt 正文
+  - `Skills` 调试展示仅保留当前启用 Skill 名称，不再输出 `Skills` / `Available skills` / `Skill Rules` 说明与规则正文
+
 - **修复调试开关运行时配置读取** (`core/plugin_initializer.py`, `web/plugin_routes.py`, `web/server.py`)
   - `PluginInitializer` 新增 `cfg` 运行时配置视图，合并初始化配置、`data_dir/plugin_config.json` 与 AstrBot live config
   - WebUI / Plugin Pages 配置保存现在会写入 `plugin_config.json`，并同步更新 AstrBot 配置对象
@@ -25,7 +63,7 @@
 
 **测试**
 
-- 新增 `tests/test_debug_visibility.py`，覆盖 LLM 响应字段兼容、`MessageEventResult.chain` 前缀插入、调试前缀组装、运行时配置合并、WebUI 跳转页模板
+- 新增 `tests/test_debug_visibility.py`，覆盖 LLM 响应字段兼容、`MessageEventResult.chain` 前缀插入、System Prompt 摘要化、调试前缀组装、运行时配置合并、WebUI 跳转页模板
 - 回归验证 `tests/test_config_sync.py` 配置同步路径
 
 ## [v0.10.5] — 2026-05-14

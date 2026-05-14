@@ -63,6 +63,101 @@ _INJECTION_RE = re.compile(
     re.DOTALL,
 )
 
+_DIM_NAMES = {"O": "开放性", "C": "尽责性", "E": "外向性", "A": "宜人性", "N": "神经质"}
+
+
+def _truncate(text: str, limit: int) -> str:
+    text = " ".join(str(text).split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)] + "…"
+
+
+def _event_debug_summary(ev: Event) -> dict[str, str]:
+    event_type = getattr(ev, "event_type", "")
+    label = "叙事" if event_type == EventType.NARRATIVE or str(event_type) == "narrative" else "情节"
+    summary = getattr(ev, "summary", "") or ""
+    return {
+        "type": str(event_type),
+        "label": label,
+        "topic": _truncate(getattr(ev, "topic", "") or "未命名记忆", 48),
+        "summary": _truncate(summary, 80) if summary else "",
+    }
+
+
+def _persona_debug_summary(persona: object | None) -> dict | None:
+    if persona is None:
+        return None
+    attrs = getattr(persona, "persona_attrs", {}) or {}
+    if not isinstance(attrs, dict):
+        return None
+    bf = attrs.get("big_five", {})
+    if not isinstance(bf, dict) or not bf:
+        return None
+
+    dimensions: list[dict[str, object]] = []
+    for dim, label in _DIM_NAMES.items():
+        value = bf.get(dim)
+        if value is None:
+            continue
+        try:
+            pct = round((float(value) + 1.0) / 2.0 * 100)
+        except (TypeError, ValueError):
+            continue
+        dimensions.append({"key": dim, "label": label, "percent": pct})
+
+    if not dimensions:
+        return None
+    return {
+        "name": getattr(persona, "primary_name", None) or "用户",
+        "dimensions": dimensions,
+    }
+
+
+def _soul_debug_summary(state: object | None) -> dict[str, float] | None:
+    if state is None:
+        return None
+    keys = ("recall_depth", "impression_depth", "expression_desire", "creativity")
+    values: dict[str, float] = {}
+    for key in keys:
+        value = getattr(state, key, None)
+        if value is None:
+            continue
+        try:
+            values[key] = round(float(value), 2)
+        except (TypeError, ValueError):
+            continue
+    return values or None
+
+
+def _build_injection_debug(
+    *,
+    position: str,
+    events: list[Event],
+    injected: bool,
+    memory_injected: bool,
+    persona: object | None = None,
+    soul_state: object | None = None,
+) -> dict:
+    return {
+        "position": position,
+        "injected": injected,
+        "memory": {
+            "injected": memory_injected,
+            "count": len(events) if memory_injected else 0,
+            "events": [_event_debug_summary(ev) for ev in events[:8]] if memory_injected else [],
+        },
+        "persona": _persona_debug_summary(persona),
+        "soul": _soul_debug_summary(soul_state),
+        "hidden": [
+            "完整 System Prompt",
+            "后台任务 prompt",
+            "完整 Persona 内容",
+            "Skill Rules",
+            "Big Five evidence 原文",
+        ],
+    }
+
 
 class RecallManager(BaseRecallManager):
     """Retrieval + injection pipeline driven by RetrievalConfig and InjectionConfig."""
@@ -83,10 +178,15 @@ class RecallManager(BaseRecallManager):
         self._soul_cfg = soul_config
         self._soul_states: dict[str, SoulState] = {}
         self._last_recall_debug: dict[str, dict] = {}
+        self._last_injection_debug: dict[str, dict] = {}
 
     def pop_recall_debug(self, session_id: str) -> dict | None:
         """Return and remove the last recall debug info for a session."""
         return self._last_recall_debug.pop(session_id, None)
+
+    def pop_injection_debug(self, session_id: str) -> dict | None:
+        """Return and remove the last sanitized injection debug info for a session."""
+        return self._last_injection_debug.pop(session_id, None)
 
     def get_soul_states(self) -> dict[str, Any]:
         """Return all active soul states as a dict of dicts."""
@@ -217,6 +317,7 @@ class RecallManager(BaseRecallManager):
         group_id: str | None = None,
         sender_uid: str | None = None,
         store_debug: bool = False,
+        store_injection_debug: bool = False,
     ) -> int:
         """Recall and inject memory into req. Returns the number of events injected."""
         from ..utils.perf import performance_timer, tracker
@@ -245,10 +346,24 @@ class RecallManager(BaseRecallManager):
 
             if position == "fake_tool_call":
                 if not events:
+                    if store_injection_debug:
+                        self._last_injection_debug[session_id] = _build_injection_debug(
+                            position=position,
+                            events=[],
+                            injected=False,
+                            memory_injected=False,
+                        )
                     return 0
                 messages = format_events_for_fake_tool_call(
                     events, query, token_budget=token_budget
                 )
+                if store_injection_debug:
+                    self._last_injection_debug[session_id] = _build_injection_debug(
+                        position=position,
+                        events=events,
+                        injected=bool(messages),
+                        memory_injected=bool(messages),
+                    )
                 if messages:
                     contexts = getattr(req, "contexts", None)
                     if contexts is None:
@@ -261,16 +376,18 @@ class RecallManager(BaseRecallManager):
 
             # OCEAN persona injection — soft stylistic heuristic, system_prompt only.
             persona_segment = ""
+            persona_obj = None
             if sender_uid and self._persona_repo and position in ("system_prompt", None, ""):
                 try:
-                    persona = await self._persona_repo.get_by_uid(sender_uid)
-                    if persona:
-                        persona_segment = format_persona_for_prompt(persona)
+                    persona_obj = await self._persona_repo.get(sender_uid)
+                    if persona_obj:
+                        persona_segment = format_persona_for_prompt(persona_obj)
                 except Exception:
                     pass
 
             # Soul Layer injection — short-term emotional state.
             soul_segment = ""
+            soul_state_for_debug = None
             if self._soul_cfg and self._soul_cfg.enabled:
                 state = self._soul_states.get(session_id)
                 if state is None:
@@ -286,9 +403,18 @@ class RecallManager(BaseRecallManager):
                 )
                 self._soul_states[session_id] = state
                 soul_segment = format_soul_for_prompt(state)
+                if soul_segment:
+                    soul_state_for_debug = state
 
             # Nothing to inject — exit early only if all three segments are empty.
             if not body and not persona_segment and not soul_segment:
+                if store_injection_debug:
+                    self._last_injection_debug[session_id] = _build_injection_debug(
+                        position=position,
+                        events=[],
+                        injected=False,
+                        memory_injected=False,
+                    )
                 return 0
 
             # Assemble injection block.
@@ -307,6 +433,16 @@ class RecallManager(BaseRecallManager):
                 + "\n"
                 + MEMORY_INJECTION_FOOTER
             )
+
+            if store_injection_debug:
+                self._last_injection_debug[session_id] = _build_injection_debug(
+                    position=position,
+                    events=events,
+                    injected=True,
+                    memory_injected=bool(body),
+                    persona=persona_obj if persona_segment else None,
+                    soul_state=soul_state_for_debug,
+                )
 
             if position == "system_prompt":
                 sep = "\n\n" if getattr(req, "system_prompt", "") else ""

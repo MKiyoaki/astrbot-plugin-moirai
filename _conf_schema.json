@@ -486,6 +486,12 @@
                 "default": false,
                 "hint": "开启后，回复前将附加本次请求的 System Prompt（已过滤记忆注入块），便于检查提示词拼接效果"
             },
+            "show_injection_summary": {
+                "description": "显示 Moirai 实际注入内容摘要",
+                "type": "bool",
+                "default": false,
+                "hint": "开启后，回复前将附加 Moirai 本轮实际注入内容的安全摘要（记忆、用户画像、Soul 状态），不会显示完整内部提示词或证据原文"
+            },
             "decay_enabled": {
                 "description": "启用重要度衰减",
                 "type": "bool",

@@ -170,10 +170,13 @@ class BaseRecallManager(BaseManager, ABC):
         session_id: str,
         group_id: str | None = None,
         sender_uid: str | None = None,
+        store_debug: bool = False,
+        store_injection_debug: bool = False,
     ) -> int:
         """Recall events and inject them into the ProviderRequest.
 
         sender_uid is used to look up the sender's persona for OCEAN injection.
+        store_debug/store_injection_debug enable user-facing diagnostics.
         Returns the number of events actually injected.
         """
         ...

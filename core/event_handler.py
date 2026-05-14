@@ -13,6 +13,10 @@ _EM_BLOCK_RE = _re.compile(
     r"<!-- EM:MEMORY:START -->.*?<!-- EM:MEMORY:END -->",
     _re.DOTALL,
 )
+_PERSONA_INSTRUCTIONS_HEADING_RE = _re.compile(r"^#\s+Persona Instructions\s*$", _re.IGNORECASE)
+_SKILLS_HEADING_RE = _re.compile(r"^##\s+Skills\s*$", _re.IGNORECASE)
+_TOP_LEVEL_HEADING_RE = _re.compile(r"^#{1,2}\s+")
+_SKILL_LINE_RE = _re.compile(r"^\s*-\s*([A-Za-z0-9._-]+)\s*:")
 
 
 def _check_is_admin(event) -> bool:
@@ -57,6 +61,129 @@ def _response_text(resp: object) -> str:
             return text
     return ""
 
+
+def _normalize_persona_name(value: object | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text == "[%None]":
+        return "无"
+    return text
+
+
+def _extract_skill_names(lines: list[str]) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for line in lines:
+        match = _SKILL_LINE_RE.match(line)
+        if not match:
+            continue
+        name = match.group(1)
+        if name in seen:
+            continue
+        names.append(name)
+        seen.add(name)
+    return names
+
+
+def _format_system_prompt_for_debug(system_prompt: str, persona_name: str | None = None) -> str:
+    """Compact AstrBot system prompt for user-facing debug output."""
+    lines = system_prompt.splitlines()
+    output: list[str] = []
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        if _PERSONA_INSTRUCTIONS_HEADING_RE.match(stripped):
+            output.append(f"Persona Instruction：{persona_name or '未知'}")
+            i += 1
+            next_skills_idx = None
+            for idx in range(i, len(lines)):
+                if _SKILLS_HEADING_RE.match(lines[idx].strip()):
+                    next_skills_idx = idx
+                    break
+            i = next_skills_idx if next_skills_idx is not None else len(lines)
+            continue
+
+        if _SKILLS_HEADING_RE.match(stripped):
+            block = [line]
+            i += 1
+            while i < len(lines) and not _TOP_LEVEL_HEADING_RE.match(lines[i].strip()):
+                block.append(lines[i])
+                i += 1
+            skill_names = _extract_skill_names(block)
+            output.append("已启用 Skill：" + (", ".join(skill_names) if skill_names else "无"))
+            continue
+
+        output.append(line)
+        i += 1
+
+    return "\n".join(output).strip()
+
+
+def _format_injection_debug_for_display(debug: dict) -> str:
+    """Render sanitized Moirai injection debug data without exposing internal prompts."""
+    lines = [
+        "[Moirai 实际注入摘要]",
+    ]
+
+    memory = debug.get("memory") if isinstance(debug.get("memory"), dict) else {}
+    if memory.get("injected"):
+        lines.append(f"记忆注入：{memory.get('count', 0)} 条")
+        for ev in memory.get("events", [])[:8]:
+            label = ev.get("label") or ("叙事" if ev.get("type") == "narrative" else "情节")
+            topic = ev.get("topic") or "未命名记忆"
+            summary = ev.get("summary") or ""
+            if summary:
+                lines.append(f"  ▸ [{label}] {topic}：{summary}")
+            else:
+                lines.append(f"  ▸ [{label}] {topic}")
+    else:
+        lines.append("记忆注入：无")
+
+    lines.append("")
+
+    persona = debug.get("persona") if isinstance(debug.get("persona"), dict) else None
+    if persona:
+        dims = []
+        for dim in persona.get("dimensions", []):
+            label = dim.get("label")
+            percent = dim.get("percent")
+            if label is None or percent is None:
+                continue
+            dims.append(f"{label} {percent}%")
+        lines.append("用户画像参考：已注入")
+        if dims:
+            lines.append("  ▸ " + "，".join(dims))
+        lines.append("  ▸ 已隐藏证据句与完整画像 prompt")
+    else:
+        lines.append("用户画像参考：未注入")
+
+    soul = debug.get("soul") if isinstance(debug.get("soul"), dict) else None
+    if soul:
+        ordered = [
+            f"recall_depth={soul.get('recall_depth')}",
+            f"impression_depth={soul.get('impression_depth')}",
+            f"expression_desire={soul.get('expression_desire')}",
+            f"creativity={soul.get('creativity')}",
+        ]
+        lines.append("")
+        lines.append("Soul Layer：已注入")
+        lines.append("  ▸ " + ", ".join(ordered))
+
+    lines.append("")
+    hidden = debug.get("hidden")
+    if isinstance(hidden, list) and hidden:
+        lines.append("已隐藏：" + "、".join(str(item) for item in hidden))
+    else:
+        lines.append("已隐藏：完整 System Prompt、后台任务 prompt、完整 Persona 内容、Skill Rules、Big Five evidence 原文")
+    lines.append("─" * 20)
+    return "\n".join(lines)
+
 from astrbot.api import logger as astrbot_logger
 
 if TYPE_CHECKING:
@@ -75,6 +202,45 @@ class EventHandler:
     def __init__(self, initializer: PluginInitializer) -> None:
         self._init = initializer
         self._pre_inject_sys_prompt: dict[str, str] = {}
+        self._pre_inject_persona_name: dict[str, str | None] = {}
+
+    async def _resolve_persona_name(self, event: AstrMessageEvent, req: ProviderRequest) -> str | None:
+        try:
+            from astrbot.core import sp
+
+            session_cfg = await sp.get_async(
+                scope="umo",
+                scope_id=event.unified_msg_origin,
+                key="session_service_config",
+                default={},
+            )
+            name = _normalize_persona_name(session_cfg.get("persona_id"))
+            if name:
+                return name
+        except Exception:
+            pass
+
+        conversation = getattr(req, "conversation", None)
+        name = _normalize_persona_name(getattr(conversation, "persona_id", None))
+        if name:
+            return name
+
+        try:
+            context = getattr(self._init, "_context", None)
+            get_config = getattr(context, "get_config", None)
+            if callable(get_config):
+                try:
+                    cfg = get_config(umo=event.unified_msg_origin)
+                except TypeError:
+                    cfg = get_config()
+                if isinstance(cfg, dict):
+                    provider_settings = cfg.get("provider_settings", cfg)
+                    if isinstance(provider_settings, dict):
+                        return _normalize_persona_name(provider_settings.get("default_personality"))
+        except Exception:
+            pass
+
+        return None
 
     async def handle_llm_request(
         self, event: AstrMessageEvent, req: ProviderRequest
@@ -100,16 +266,20 @@ class EventHandler:
 
                 icfg = self._init.cfg.get_injection_config()
                 astrbot_logger.debug(
-                    "[%s] debug config on request: show_thinking_process=%s, show_system_prompt=%s",
+                    "[%s] debug config on request: show_thinking_process=%s, show_system_prompt=%s, show_injection_summary=%s",
                     _PLUGIN_NAME,
                     icfg.show_thinking_process,
                     icfg.show_system_prompt,
+                    icfg.show_injection_summary,
                 )
 
                 # Capture system_prompt before injection for show_system_prompt feature.
                 if icfg.show_system_prompt:
                     self._pre_inject_sys_prompt[session_id] = (
                         getattr(req, "system_prompt", "") or ""
+                    )
+                    self._pre_inject_persona_name[session_id] = await self._resolve_persona_name(
+                        event, req
                     )
 
                 # Resolve sender uid for OCEAN persona injection (best-effort).
@@ -132,6 +302,7 @@ class EventHandler:
                     group_id=group_id,
                     sender_uid=sender_uid,
                     store_debug=icfg.show_thinking_process,
+                    store_injection_debug=icfg.show_injection_summary,
                 )
                 
                 # Sync VCM state with hit rate feedback
@@ -205,13 +376,18 @@ class EventHandler:
             return
         icfg = self._init.cfg.get_injection_config()
         astrbot_logger.debug(
-            "[%s] debug config on decoration: show_thinking_process=%s, show_system_prompt=%s, result_content_type=%s",
+            "[%s] debug config on decoration: show_thinking_process=%s, show_system_prompt=%s, show_injection_summary=%s, result_content_type=%s",
             _PLUGIN_NAME,
             icfg.show_thinking_process,
             icfg.show_system_prompt,
+            icfg.show_injection_summary,
             result_content_type,
         )
-        if not icfg.show_thinking_process and not icfg.show_system_prompt:
+        if (
+            not icfg.show_thinking_process
+            and not icfg.show_system_prompt
+            and not icfg.show_injection_summary
+        ):
             return
 
         session_id = event.unified_msg_origin
@@ -233,13 +409,21 @@ class EventHandler:
                 lines.append("─" * 20)
                 prefix_parts.append("\n".join(lines))
 
+        if icfg.show_injection_summary:
+            pop_injection_debug = getattr(recall, "pop_injection_debug", None)
+            debug = pop_injection_debug(session_id) if callable(pop_injection_debug) else None
+            if debug:
+                prefix_parts.append(_format_injection_debug_for_display(debug))
+
         if icfg.show_system_prompt:
             raw_sp = self._pre_inject_sys_prompt.pop(session_id, None)
+            persona_name = self._pre_inject_persona_name.pop(session_id, None)
             if raw_sp:
                 cleaned = _EM_BLOCK_RE.sub("", raw_sp).strip()
-                if cleaned:
+                display = _format_system_prompt_for_debug(cleaned, persona_name)
+                if display:
                     prefix_parts.append(
-                        f"[System Prompt（记忆注入块已过滤）]\n{cleaned}\n{'─' * 20}"
+                        f"[System Prompt（摘要，记忆注入块已过滤）]\n{display}\n{'─' * 20}"
                     )
 
         if not prefix_parts:

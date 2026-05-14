@@ -417,6 +417,7 @@ export default function ConfigPage() {
       keys: [
         'show_thinking_process',
         'show_system_prompt',
+        'show_injection_summary',
         'decay_enabled',
         'decay_interval_hours',
         'persona_synthesis_enabled',

@@ -213,6 +213,8 @@ class InjectionConfig:
     """Prepend memory-retrieval debug info to each reply."""
     show_system_prompt: bool = False
     """Prepend the pre-injection system prompt to replies for admin senders."""
+    show_injection_summary: bool = False
+    """Prepend a sanitized summary of Moirai's actual injected prompt content."""
 
 
 @dataclass
@@ -451,6 +453,7 @@ class PluginConfig:
             token_budget=self._int("retrieval_token_budget", 800),
             show_thinking_process=self._bool("show_thinking_process", False),
             show_system_prompt=self._bool("show_system_prompt", False),
+            show_injection_summary=self._bool("show_injection_summary", False),
         )
 
     def get_ipc_config(self) -> IPCConfig:

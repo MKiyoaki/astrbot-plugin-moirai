@@ -1,13 +1,16 @@
 """Tests for RRF fusion, HybridRetriever, and SQLite vector operations."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
-from core.domain.models import Event, MessageRef
+from types import SimpleNamespace
+
+from core.domain.models import Event, MessageRef, Persona
 from core.embedding.encoder import NullEncoder
-from core.repository.memory import InMemoryEventRepository
+from core.repository.memory import InMemoryEventRepository, InMemoryPersonaRepository
 from core.retrieval.hybrid import HybridRetriever
 from core.retrieval.rrf import rrf_fuse
 
@@ -391,3 +394,55 @@ async def test_recall_manager_expansion_deduplication():
     assert len(ids) == len(set(ids))
     # Order: B (Anchor1) -> A (Neighbor of B) -> (Anchor A is skipped as duplicate)
     assert ids == ["B", "A"]
+
+
+@pytest.mark.asyncio
+async def test_recall_manager_injection_summary_uses_persona_repo_get():
+    from core.managers.recall_manager import RecallManager
+    from core.config import RetrievalConfig, InjectionConfig
+
+    event_repo = InMemoryEventRepository()
+    persona_repo = InMemoryPersonaRepository()
+    await event_repo.upsert(make_event("A", topic="Target memory", salience=0.9))
+    await persona_repo.upsert(
+        Persona(
+            uid="uid-a",
+            bound_identities=[("discord", "physical-a")],
+            primary_name="Alice",
+            persona_attrs={
+                "big_five": {"O": 0.5, "N": 0.4},
+                "big_five_evidence": {"O": "internal evidence must not enter debug payload"},
+            },
+            confidence=0.8,
+            created_at=1.0,
+            last_active_at=2.0,
+        )
+    )
+
+    retriever = HybridRetriever(event_repo, NullEncoder())
+    recall_manager = RecallManager(
+        retriever,
+        RetrievalConfig(final_limit=5),
+        InjectionConfig(position="system_prompt"),
+        persona_repo=persona_repo,
+    )
+    req = SimpleNamespace(system_prompt="", prompt="", contexts=[])
+
+    injected = await recall_manager.recall_and_inject(
+        "Target",
+        req,
+        "session-1",
+        group_id="g1",
+        sender_uid="uid-a",
+        store_injection_debug=True,
+    )
+
+    debug = recall_manager.pop_injection_debug("session-1")
+    assert injected == 1
+    assert "[用户画像参考]" in req.system_prompt
+    assert debug["persona"]["name"] == "Alice"
+    assert debug["persona"]["dimensions"] == [
+        {"key": "O", "label": "开放性", "percent": 75},
+        {"key": "N", "label": "神经质", "percent": 70},
+    ]
+    assert "internal evidence" not in json.dumps(debug, ensure_ascii=False)
