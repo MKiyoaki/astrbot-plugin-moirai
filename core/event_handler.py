@@ -71,13 +71,13 @@ class EventHandler:
                 session_id = event.unified_msg_origin
                 group_id = event.get_group_id() or None
 
+                icfg = self._init.cfg.get_injection_config()
+
                 # Capture system_prompt before injection for show_system_prompt feature.
-                if recall is not None:
-                    icfg = self._init.cfg.get_injection_config()
-                    if icfg.show_system_prompt:
-                        self._pre_inject_sys_prompt[session_id] = (
-                            getattr(req, "system_prompt", "") or ""
-                        )
+                if icfg.show_system_prompt:
+                    self._pre_inject_sys_prompt[session_id] = (
+                        getattr(req, "system_prompt", "") or ""
+                    )
 
                 # Resolve sender uid for OCEAN persona injection (best-effort).
                 sender_uid: str | None = None
@@ -98,6 +98,7 @@ class EventHandler:
                     session_id=session_id,
                     group_id=group_id,
                     sender_uid=sender_uid,
+                    store_debug=icfg.show_thinking_process,
                 )
                 
                 # Sync VCM state with hit rate feedback
@@ -184,7 +185,7 @@ class EventHandler:
                 lines.append("─" * 20)
                 prefix_parts.append("\n".join(lines))
 
-        if icfg.show_system_prompt and _check_is_admin(event):
+        if icfg.show_system_prompt:
             raw_sp = self._pre_inject_sys_prompt.pop(session_id, None)
             if raw_sp:
                 cleaned = _EM_BLOCK_RE.sub("", raw_sp).strip()

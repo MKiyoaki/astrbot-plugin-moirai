@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## [v0.10.4] — 2026-05-14
+
+### 调试功能完善
+
+**Bug Fix**
+
+- **`[系统测试消息]` 从未出现** (`core/managers/recall_manager.py`, `core/event_handler.py`)
+  - 根因：`RecallManager._icfg` 是插件启动时的快照，运行期在 AstrBot 面板或 WebUI 修改 `show_thinking_process` 后，`recall_and_inject` 里的检查 `self._icfg.show_thinking_process` 仍然读取旧值（`False`），导致 `_last_recall_debug` 从未被写入，`pop_recall_debug` 始终返回 `None`
+  - 修复：给 `recall_and_inject` 添加 `store_debug: bool = False` 参数；`EventHandler.handle_llm_request` 在每次请求时新鲜读取 `icfg.show_thinking_process` 并传入，彻底绕过快照问题
+
+**功能调整**
+
+- **取消 `show_system_prompt` 的管理员限制** (`core/event_handler.py`, `_conf_schema.json`, `web/frontend/lib/i18n.ts`)
+  - 原实现仅对 `admin/superadmin/operator/owner` 角色显示 System Prompt，现改为所有用户均可见
+  - 同步更新 `_conf_schema.json` description/hint 及三语 i18n 标签，去除"仅管理员"说明
+
+- **WebUI 配置页同步** (`pages/moirai/_app/`)
+  - 重建前端静态文件，确保"后台任务"分组中的两个开关与 AstrBot 面板配置保持一致
+
 ## [v0.10.3] — 2026-05-14
 
 ### 调试功能稳定性修复 + 系统消息标记

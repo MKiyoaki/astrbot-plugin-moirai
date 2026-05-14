@@ -216,6 +216,7 @@ class RecallManager(BaseRecallManager):
         session_id: str,
         group_id: str | None = None,
         sender_uid: str | None = None,
+        store_debug: bool = False,
     ) -> int:
         """Recall and inject memory into req. Returns the number of events injected."""
         from ..utils.perf import performance_timer, tracker
@@ -226,7 +227,7 @@ class RecallManager(BaseRecallManager):
             events = await self.recall(query, group_id=group_id)
             await tracker.record_hit("recall", len(events))
 
-            if self._icfg.show_thinking_process:
+            if store_debug:
                 self._last_recall_debug[session_id] = {
                     "query": query,
                     "granularity": _classify_granularity(query),
