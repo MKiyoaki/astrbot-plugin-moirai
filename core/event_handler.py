@@ -128,16 +128,16 @@ class EventHandler:
     ) -> None:
         """Record the bot's own response into the memory stream."""
         router = self._init.router
-        if router is None or not resp.text:
+        if router is None or not resp.completion_text:
             return
-            
+
         # Use a special internal UID for the bot to distinguish it from users.
         # router.process will handle get_or_create_uid.
         await router.process(
             platform="internal",
             physical_id="bot",
             display_name="Bot",
-            text=resp.text,
+            text=resp.completion_text,
             raw_group_id=event.get_group_id() or None,
         )
 

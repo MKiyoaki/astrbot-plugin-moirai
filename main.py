@@ -77,9 +77,11 @@ class MoiraiPlugin(Star):
             await self._handler.handle_llm_response(event, resp)
 
     @filter.on_decorating_result()
-    async def on_decorating_result(self, event: AstrMessageEvent, result: CommandResult) -> None:
+    async def on_decorating_result(self, event: AstrMessageEvent) -> None:
         if self._handler:
-            await self._handler.handle_decorating_result(event, result)
+            result = event.get_result()
+            if result is not None:
+                await self._handler.handle_decorating_result(event, result)
 
     @filter.on_using_llm_tool()
     async def on_using_llm_tool(self, event: AstrMessageEvent, tool_name: str, arguments: dict) -> None:

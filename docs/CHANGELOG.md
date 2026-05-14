@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## [v0.10.5] — 2026-05-14
+
+### AstrBot API 兼容性修复
+
+**Bug Fix**
+
+- **`AttributeError: 'LLMResponse' has no attribute 'text'`** (`core/event_handler.py`)
+  - AstrBot v4.24.4 的 `LLMResponse` 对象不提供 `.text` 属性，正确属性为 `.completion_text`
+  - 修复 `handle_llm_response` 中的两处引用：检查条件与传参均改用 `resp.completion_text`
+
+- **`TypeError: on_decorating_result() missing 1 required positional argument: 'result'`** (`main.py`)
+  - AstrBot v4.24.4 的 pipeline 在触发 `on_decorating_result` 钩子时只传递 `event`，不传 `result`
+  - 修复签名为 `on_decorating_result(self, event)`，通过 `event.get_result()` 获取当前结果后再传给 `handle_decorating_result`
+  - 此 bug 导致 `show_system_prompt` / `show_thinking_process` 功能完全无法触发
+
 ## [v0.10.4] — 2026-05-14
 
 ### 调试功能完善
