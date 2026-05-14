@@ -209,6 +209,10 @@ class InjectionConfig:
     """Strip previous injection markers from the request before re-injecting."""
     token_budget: int = 800
     """Maximum tokens to fill with injected memory text."""
+    show_thinking_process: bool = False
+    """Prepend memory-retrieval debug info to each reply."""
+    show_system_prompt: bool = False
+    """Prepend the pre-injection system prompt to replies for admin senders."""
 
 
 @dataclass
@@ -445,6 +449,8 @@ class PluginConfig:
             position=pos if pos in valid else "system_prompt",
             auto_clear=self._bool("injection_auto_clear", True),
             token_budget=self._int("retrieval_token_budget", 800),
+            show_thinking_process=self._bool("show_thinking_process", False),
+            show_system_prompt=self._bool("show_system_prompt", False),
         )
 
     def get_ipc_config(self) -> IPCConfig:

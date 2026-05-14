@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [v0.10.1] — 2026-05-14
+
+### 调试可见性功能
+
+**新增功能**
+
+- **显示记忆检索过程**（`show_thinking_process`，`_conf_schema.json` / `core/config.py` / `core/managers/recall_manager.py` / `core/event_handler.py`）
+  - 配置面板"后台任务"分组顶部新增布尔开关
+  - 开启后每条回复前附加记忆检索调试块：查询词、粒度分类（macro/micro/both）、召回事件列表（最多 8 条，注明叙事/情节类型）、注入位置
+  - `RecallManager` 新增 `_last_recall_debug` per-session 存储及 `pop_recall_debug()` 方法；调试信息在 `recall_and_inject` 的 recall 阶段完成后写入
+
+- **显示 System Prompt（仅管理员可见）**（`show_system_prompt`，同上文件）
+  - 配置面板"后台任务"分组顶部新增布尔开关
+  - 开启后，仅当消息发送者为管理员（`event.role` 属于 admin/superadmin/operator/owner）时，在回复前附加本次请求的原始 System Prompt
+  - 自动过滤 `<!-- EM:MEMORY:START -->…<!-- EM:MEMORY:END -->` 记忆注入块，仅保留人类可读的原始提示词部分
+  - `EventHandler` 在 `handle_llm_request` 中注入前捕获 system_prompt，存入 `_pre_inject_sys_prompt` 字典；`handle_decorating_result` 消费并清除
+
+**实现细节**
+
+- `handle_decorating_result` 从占位符升级为完整实现，两条调试信息均在此处组装并前置到 `CommandResult`，不影响 `on_llm_response` 中记录到记忆库的内容
+- `_prepend_to_result` 防御性地尝试 `result.chain`（优先 `Plain` 段，次之裸字符串）→ `result.result_texts`，兼容不同版本 AstrBot 的 `CommandResult` 结构
+- WebUI 配置页面（`web/frontend/app/config/page.tsx`）的 `tasks` 分组 keys 同步更新；`lib/i18n.ts` 补充中文、日语、英语三语标签
+
 ## [v0.10.0] — 2026-05-14
 
 ### 后端架构优化（Refinement & Evolution）

@@ -415,8 +415,10 @@ export default function ConfigPage() {
       id: 'tasks',
       label: i18n.config.sections.tasks,
       keys: [
+        'show_thinking_process',
+        'show_system_prompt',
         'decay_enabled',
-        'decay_interval_hours', 
+        'decay_interval_hours',
         'persona_synthesis_enabled',
         'persona_synthesis_interval_hours', 
         'markdown_projection_enabled',

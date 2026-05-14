@@ -6,7 +6,46 @@ Keeps main.py free of business logic; all routing decisions live here.
 from __future__ import annotations
 
 import logging
+import re as _re
 from typing import TYPE_CHECKING
+
+_EM_BLOCK_RE = _re.compile(
+    r"<!-- EM:MEMORY:START -->.*?<!-- EM:MEMORY:END -->",
+    _re.DOTALL,
+)
+
+
+def _check_is_admin(event) -> bool:
+    try:
+        role = getattr(event, "role", None)
+        if role is not None:
+            return str(role).lower() in ("admin", "superadmin", "operator", "owner")
+    except Exception:
+        pass
+    return False
+
+
+def _prepend_to_result(result, text: str) -> None:
+    """Defensively prepend text to a CommandResult chain."""
+    try:
+        chain = getattr(result, "chain", None)
+        if chain is not None:
+            try:
+                from astrbot.api.message_components import Plain
+                chain.insert(0, Plain(text))
+                return
+            except (ImportError, AttributeError):
+                pass
+            chain.insert(0, text)
+            return
+    except Exception:
+        pass
+    try:
+        rt = getattr(result, "result_texts", None)
+        if rt is not None:
+            rt.insert(0, text)
+    except Exception:
+        pass
 
 from astrbot.api import logger as astrbot_logger
 
@@ -25,6 +64,7 @@ class EventHandler:
 
     def __init__(self, initializer: PluginInitializer) -> None:
         self._init = initializer
+        self._pre_inject_sys_prompt: dict[str, str] = {}
 
     async def handle_llm_request(
         self, event: AstrMessageEvent, req: ProviderRequest
@@ -47,6 +87,14 @@ class EventHandler:
             try:
                 session_id = event.unified_msg_origin
                 group_id = event.get_group_id() or None
+
+                # Capture system_prompt before injection for show_system_prompt feature.
+                if recall is not None:
+                    icfg = self._init.cfg.get_injection_config()
+                    if icfg.show_system_prompt:
+                        self._pre_inject_sys_prompt[session_id] = (
+                            getattr(req, "system_prompt", "") or ""
+                        )
 
                 # Resolve sender uid for OCEAN persona injection (best-effort).
                 sender_uid: str | None = None
@@ -120,6 +168,42 @@ class EventHandler:
     async def handle_decorating_result(
         self, event: AstrMessageEvent, result: CommandResult
     ) -> None:
-        """Opportunity to modify the final response based on social relations (Soul)."""
-        # Placeholder for future emotion/persona-based response decoration.
-        pass
+        """Prepend memory-retrieval debug info and/or system prompt to the reply."""
+        recall = self._init.recall
+        if recall is None:
+            return
+        icfg = self._init.cfg.get_injection_config()
+        if not icfg.show_thinking_process and not icfg.show_system_prompt:
+            return
+
+        session_id = event.unified_msg_origin
+        prefix_parts: list[str] = []
+
+        if icfg.show_thinking_process:
+            debug = recall.pop_recall_debug(session_id)
+            if debug:
+                lines = [
+                    "[Moirai 记忆检索]",
+                    f"查询词：\"{debug['query']}\"",
+                    f"分类策略：{debug['granularity']}",
+                    f"召回数量：{debug['total']} 条",
+                ]
+                for ev in debug["events"]:
+                    tag = "叙事" if ev["type"] == "narrative" else "情节"
+                    lines.append(f"  ▸ [{tag}] {ev['topic']}")
+                lines.append(f"注入位置：{debug['position']}")
+                lines.append("─" * 20)
+                prefix_parts.append("\n".join(lines))
+
+        if icfg.show_system_prompt and _check_is_admin(event):
+            raw_sp = self._pre_inject_sys_prompt.pop(session_id, None)
+            if raw_sp:
+                cleaned = _EM_BLOCK_RE.sub("", raw_sp).strip()
+                if cleaned:
+                    prefix_parts.append(
+                        f"[System Prompt（记忆注入块已过滤）]\n{cleaned}\n{'─' * 20}"
+                    )
+
+        if not prefix_parts:
+            return
+        _prepend_to_result(result, "\n\n".join(prefix_parts) + "\n\n")

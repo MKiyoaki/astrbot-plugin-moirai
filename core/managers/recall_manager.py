@@ -82,6 +82,11 @@ class RecallManager(BaseRecallManager):
         self._persona_repo = persona_repo
         self._soul_cfg = soul_config
         self._soul_states: dict[str, SoulState] = {}
+        self._last_recall_debug: dict[str, dict] = {}
+
+    def pop_recall_debug(self, session_id: str) -> dict | None:
+        """Return and remove the last recall debug info for a session."""
+        return self._last_recall_debug.pop(session_id, None)
 
     def get_soul_states(self) -> dict[str, Any]:
         """Return all active soul states as a dict of dicts."""
@@ -220,6 +225,18 @@ class RecallManager(BaseRecallManager):
 
             events = await self.recall(query, group_id=group_id)
             await tracker.record_hit("recall", len(events))
+
+            if self._icfg.show_thinking_process:
+                self._last_recall_debug[session_id] = {
+                    "query": query,
+                    "granularity": _classify_granularity(query),
+                    "total": len(events),
+                    "events": [
+                        {"topic": e.topic, "type": e.event_type}
+                        for e in events[:8]
+                    ],
+                    "position": self._icfg.position,
+                }
 
             async with performance_timer("recall_inject"):
                 position = self._icfg.position

@@ -474,6 +474,18 @@
                 "hint": "数值越大则越快接受新印象，数值越小越倾向于维持旧印象。0.4 表示新信息占比 40%，旧记忆占比 60%。",
                 "default": 0.4
             },
+            "show_thinking_process": {
+                "description": "显示记忆检索过程",
+                "type": "bool",
+                "default": false,
+                "hint": "开启后将在每条回复前附加记忆检索调试信息（查询词、分类策略、召回事件列表、注入方式），便于理解记忆系统行为"
+            },
+            "show_system_prompt": {
+                "description": "显示 System Prompt（仅管理员可见）",
+                "type": "bool",
+                "default": false,
+                "hint": "开启后，管理员发言的回复前将附加本次请求的 System Prompt（已过滤记忆注入块），便于检查提示词拼接效果"
+            },
             "decay_enabled": {
                 "description": "启用重要度衰减",
                 "type": "bool",
