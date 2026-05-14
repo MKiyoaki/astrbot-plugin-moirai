@@ -28,7 +28,18 @@ def _check_is_admin(event) -> bool:
 def _prepend_to_result(result, text: str) -> None:
     """Prepend text to a CommandResult (MessageEventResult inherits MessageChain = list)."""
     from astrbot.api.message_components import Plain
-    result.insert(0, Plain(text))
+    segment = Plain(text)
+    chain = getattr(result, "chain", None)
+    if isinstance(chain, list):
+        chain.insert(0, segment)
+        return
+
+    insert = getattr(result, "insert", None)
+    if callable(insert):
+        insert(0, segment)
+        return
+
+    logger.warning("[%s] cannot prepend debug prefix to result type %s", _PLUGIN_NAME, type(result))
 
 
 def _response_text(resp: object) -> str:
@@ -88,6 +99,12 @@ class EventHandler:
                 group_id = event.get_group_id() or None
 
                 icfg = self._init.cfg.get_injection_config()
+                astrbot_logger.debug(
+                    "[%s] debug config on request: show_thinking_process=%s, show_system_prompt=%s",
+                    _PLUGIN_NAME,
+                    icfg.show_thinking_process,
+                    icfg.show_system_prompt,
+                )
 
                 # Capture system_prompt before injection for show_system_prompt feature.
                 if icfg.show_system_prompt:
@@ -173,13 +190,27 @@ class EventHandler:
         # Only decorate actual LLM responses; tool call results (GENERAL_RESULT) must
         # not receive the prefix — they would corrupt conversation history and cause
         # the LLM to loop on core_memory_recall calls.
-        if not getattr(result, "is_llm_result", lambda: False)():
+        result_content_type = getattr(result, "result_content_type", None)
+        is_llm_result = getattr(result, "is_llm_result", lambda: False)()
+        if not is_llm_result:
+            astrbot_logger.debug(
+                "[%s] skip debug decoration: result_content_type=%s",
+                _PLUGIN_NAME,
+                result_content_type,
+            )
             return
 
         recall = self._init.recall
         if recall is None:
             return
         icfg = self._init.cfg.get_injection_config()
+        astrbot_logger.debug(
+            "[%s] debug config on decoration: show_thinking_process=%s, show_system_prompt=%s, result_content_type=%s",
+            _PLUGIN_NAME,
+            icfg.show_thinking_process,
+            icfg.show_system_prompt,
+            result_content_type,
+        )
         if not icfg.show_thinking_process and not icfg.show_system_prompt:
             return
 
@@ -212,5 +243,12 @@ class EventHandler:
                     )
 
         if not prefix_parts:
+            astrbot_logger.debug("[%s] no debug prefix parts produced", _PLUGIN_NAME)
             return
         _prepend_to_result(result, "[系统测试消息]\n\n" + "\n\n".join(prefix_parts) + "\n\n")
+        astrbot_logger.debug(
+            "[%s] prepended debug prefix: parts=%d, chain_len=%s",
+            _PLUGIN_NAME,
+            len(prefix_parts),
+            len(getattr(result, "chain", [])),
+        )

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from core.config import PluginConfig
-from core.event_handler import EventHandler, _response_text
+from core.event_handler import EventHandler, _prepend_to_result, _response_text
 from core.plugin_initializer import PluginInitializer
 from core.utils.frontend_build import _render_redirect_page
 
@@ -24,6 +24,15 @@ class _Router:
 
     async def process(self, **kwargs) -> None:
         self.calls.append(kwargs)
+
+
+def test_prepend_to_result_uses_message_event_result_chain() -> None:
+    result = SimpleNamespace(chain=[])
+
+    _prepend_to_result(result, "debug prefix")
+
+    assert len(result.chain) == 1
+    assert result.chain[0].text == "debug prefix"
 
 
 def test_response_text_supports_completion_text_and_legacy_text() -> None:

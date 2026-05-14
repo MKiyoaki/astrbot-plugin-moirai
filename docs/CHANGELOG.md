@@ -10,6 +10,10 @@
   - 新增 `_response_text()`，优先读取 `completion_text`，并兼容旧式 `text` 字段，避免实机环境中 `AttributeError: 'LLMResponse' object has no attribute 'text'` 再次中断 `on_llm_response` 钩子
   - 机器人自身回复写入记忆流时统一使用该兼容文本读取路径
 
+- **修复 AstrBot v4.24.4 调试前缀插入路径** (`core/event_handler.py`)
+  - `MessageEventResult` 继承自 `MessageChain`，实际消息段保存在 `chain` 列表中；调试前缀现在通过 `result.chain.insert(0, Plain(...))` 前置到最终回复
+  - 保留旧式 `result.insert(...)` 作为兼容回退，并增加请求配置、装饰结果类型、前缀生成状态的 debug 日志，便于实机继续定位链路问题
+
 - **修复调试开关运行时配置读取** (`core/plugin_initializer.py`, `web/plugin_routes.py`, `web/server.py`)
   - `PluginInitializer` 新增 `cfg` 运行时配置视图，合并初始化配置、`data_dir/plugin_config.json` 与 AstrBot live config
   - WebUI / Plugin Pages 配置保存现在会写入 `plugin_config.json`，并同步更新 AstrBot 配置对象
@@ -21,7 +25,7 @@
 
 **测试**
 
-- 新增 `tests/test_debug_visibility.py`，覆盖 LLM 响应字段兼容、调试前缀组装、运行时配置合并、WebUI 跳转页模板
+- 新增 `tests/test_debug_visibility.py`，覆盖 LLM 响应字段兼容、`MessageEventResult.chain` 前缀插入、调试前缀组装、运行时配置合并、WebUI 跳转页模板
 - 回归验证 `tests/test_config_sync.py` 配置同步路径
 
 ## [v0.10.5] — 2026-05-14
