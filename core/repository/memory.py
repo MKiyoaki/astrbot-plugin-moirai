@@ -75,9 +75,12 @@ class InMemoryEventRepository(EventRepository):
         events.sort(key=lambda e: e.start_time, reverse=True)
         return events[:limit]
 
-    async def list_by_group(self, group_id: str | None, limit: int = 100) -> list[Event]:
+    async def list_by_group(
+        self, group_id: str | None, limit: int = 100, exclude_type: str | None = None,
+    ) -> list[Event]:
         events = [
-            deepcopy(e) for e in self._store.values() if e.group_id == group_id
+            deepcopy(e) for e in self._store.values()
+            if e.group_id == group_id and (exclude_type is None or e.event_type != exclude_type)
         ]
         events.sort(key=lambda e: e.start_time, reverse=True)
         return events[:limit]
@@ -94,7 +97,7 @@ class InMemoryEventRepository(EventRepository):
 
     async def search_fts(
         self, query: str, limit: int = 20, active_only: bool = True,
-        group_id: str | None = None,
+        group_id: str | None = None, event_type: str | None = None,
     ) -> list[Event]:
         """Naive term-in-string match over topic + tags. FTS5 replaces this in production."""
         terms = query.lower().split()
@@ -104,6 +107,8 @@ class InMemoryEventRepository(EventRepository):
                 continue
             if group_id is not None and event.group_id != group_id:
                 continue
+            if event_type is not None and event.event_type != event_type:
+                continue
             haystack = (event.topic + " " + " ".join(event.chat_content_tags)).lower()
             if any(term in haystack for term in terms):
                 results.append(deepcopy(event))
@@ -112,7 +117,7 @@ class InMemoryEventRepository(EventRepository):
 
     async def search_vector(
         self, embedding: list[float], limit: int = 20, active_only: bool = True,
-        group_id: str | None = None,
+        group_id: str | None = None, event_type: str | None = None,
     ) -> list[Event]:
         """Stub — no vector index in memory. Production uses sqlite-vec."""
         return []

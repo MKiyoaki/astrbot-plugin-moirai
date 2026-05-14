@@ -52,7 +52,7 @@ from .utils.version import get_plugin_version
 from .tasks.cleanup import run_memory_cleanup
 from .tasks.scheduler import TaskScheduler
 from .tasks.summary import run_group_summary
-from .tasks.synthesis import run_impression_recalculation, run_persona_synthesis
+from .tasks.synthesis import run_consolidated_maintenance, run_impression_recalculation, run_persona_synthesis
 
 if TYPE_CHECKING:
     from astrbot.api.star import Context
@@ -287,24 +287,42 @@ class PluginInitializer:
             interval=60,
             fn=_context_cleanup,
         )
-        if cfg.persona_synthesis_enabled:
-            self.scheduler.register(
-                "persona_synthesis",
-                interval=cfg.persona_synthesis_interval_seconds,
-                fn=lambda: run_persona_synthesis(
-                    persona_repo, event_repo, provider_getter,
-                    synthesis_config=synthesis_cfg,
-                    llm_manager=self.llm_manager,
-                ),
-            )
-        if cfg.relation_enabled:
-            self.scheduler.register(
-                "impression_recalculation",
-                interval=cfg.impression_aggregation_interval_seconds,
-                fn=lambda: run_impression_recalculation(
-                    persona_repo, event_repo, impression_repo,
-                ),
-            )
+        if cfg.persona_synthesis_enabled or cfg.relation_enabled:
+            # Use consolidated task when both are enabled to share DB scan overhead.
+            # Fall back to individual tasks if only one is enabled.
+            if cfg.persona_synthesis_enabled and cfg.relation_enabled:
+                interval = min(
+                    cfg.persona_synthesis_interval_seconds,
+                    cfg.impression_aggregation_interval_seconds,
+                )
+                self.scheduler.register(
+                    "consolidated_maintenance",
+                    interval=interval,
+                    fn=lambda: run_consolidated_maintenance(
+                        persona_repo, event_repo, impression_repo,
+                        provider_getter,
+                        synthesis_config=synthesis_cfg,
+                        llm_manager=self.llm_manager,
+                    ),
+                )
+            elif cfg.persona_synthesis_enabled:
+                self.scheduler.register(
+                    "persona_synthesis",
+                    interval=cfg.persona_synthesis_interval_seconds,
+                    fn=lambda: run_persona_synthesis(
+                        persona_repo, event_repo, provider_getter,
+                        synthesis_config=synthesis_cfg,
+                        llm_manager=self.llm_manager,
+                    ),
+                )
+            else:
+                self.scheduler.register(
+                    "impression_recalculation",
+                    interval=cfg.impression_aggregation_interval_seconds,
+                    fn=lambda: run_impression_recalculation(
+                        persona_repo, event_repo, impression_repo,
+                    ),
+                )
         if cfg.summary_enabled:
             self.scheduler.register(
                 "group_summary",
@@ -315,6 +333,7 @@ class PluginInitializer:
                     persona_repo=persona_repo,
                     impression_repo=impression_repo,
                     llm_manager=self.llm_manager,
+                    encoder=encoder,
                 ),
             )
         await self.scheduler.start()

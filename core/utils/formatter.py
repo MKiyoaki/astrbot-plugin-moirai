@@ -40,31 +40,53 @@ def format_events_for_prompt(
     token_budget: int = _TOKEN_BUDGET,
     now: float | None = None,
 ) -> str:
-    """Return the memory body string (no wrapper), or empty string if events is empty."""
+    """Return the memory body string (no wrapper), or empty string if events is empty.
+
+    When both narrative and episode events are present, they are rendered in
+    two sections: [宏观背景] for narrative summaries and [相关历史记忆] for episodes.
+    """
     if not events:
         return ""
     if now is None:
         now = time.time()
 
-    header = "## 相关历史记忆\n"
-    budget_used = _estimate_tokens(header)
-    lines: list[str] = []
+    from ..domain.models import EventType
+    narratives = [e for e in events if e.event_type == EventType.NARRATIVE]
+    episodes = [e for e in events if e.event_type != EventType.NARRATIVE]
 
-    for event in sorted(events, key=lambda e: e.salience, reverse=True):
-        label = _time_label(event.end_time, now)
-        entry = f"- [{label}] {event.topic}"
-        if event.chat_content_tags:
-            entry += "（" + "、".join(event.chat_content_tags) + "）"
-        cost = _estimate_tokens(entry + "\n")
-        if budget_used + cost > token_budget:
-            break
-        lines.append(entry)
-        budget_used += cost
+    def _render_section(header: str, evs: list[Event], budget: int) -> tuple[str, int]:
+        used = _estimate_tokens(header)
+        lines: list[str] = []
+        for ev in sorted(evs, key=lambda e: e.salience, reverse=True):
+            label = _time_label(ev.end_time, now)
+            entry = f"- [{label}] {ev.topic}"
+            if ev.chat_content_tags and ev.event_type != EventType.NARRATIVE:
+                entry += "（" + "、".join(ev.chat_content_tags) + "）"
+            if ev.summary and ev.event_type == EventType.NARRATIVE:
+                entry += f"：{ev.summary[:80]}"
+            cost = _estimate_tokens(entry + "\n")
+            if used + cost > budget:
+                break
+            lines.append(entry)
+            used += cost
+        if not lines:
+            return "", 0
+        return header + "\n".join(lines), used
 
-    if not lines:
-        return ""
-
-    return header + "\n".join(lines)
+    if narratives and episodes:
+        # Allocate token budget: 25% for macro context, 75% for episodes
+        narrative_budget = max(100, token_budget // 4)
+        episode_budget = token_budget - narrative_budget
+        macro_body, macro_used = _render_section("## 宏观背景\n", narratives, narrative_budget)
+        episode_body, _ = _render_section("## 相关历史记忆\n", episodes, episode_budget)
+        parts = [p for p in (macro_body, episode_body) if p]
+        return "\n\n".join(parts) if parts else ""
+    elif narratives:
+        body, _ = _render_section("## 宏观背景\n", narratives, token_budget)
+        return body
+    else:
+        body, _ = _render_section("## 相关历史记忆\n", episodes, token_budget)
+        return body
 
 
 _DIM_NAMES = {"O": "开放性", "C": "尽责性", "E": "外向性", "A": "宜人性", "N": "神经质"}

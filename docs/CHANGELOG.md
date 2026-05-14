@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## [v0.10.0] — 2026-05-14
+
+### 后端架构优化（Refinement & Evolution）
+
+**新增功能**
+
+- **叙事轴摘要向量化与分层 RAG** (`core/domain/models.py`, `core/tasks/summary.py`, `core/managers/recall_manager.py`)
+  - `events` 表新增 `event_type` 列（`episode` / `narrative`，含迁移脚本 `009_narrative_event_type.sql`）
+  - 每日摘要生成后自动创建 `narrative` 类型 Event 并向量化入库，避免摘要仅存于 Markdown 文件
+  - `RecallManager` 新增关键词粒度分类器（`_classify_granularity`），按 macro/micro/both 路由检索层级
+  - `format_events_for_prompt` 按 event_type 分 `## 宏观背景` / `## 相关历史记忆` 两段输出
+
+- **周期性维护任务合并** (`core/tasks/synthesis.py`, `core/plugin_initializer.py`)
+  - 新增 `run_consolidated_maintenance()`：一次全量 Persona 扫描 + 事件预加载，同时完成人格合成与印象重算
+  - 当 `persona_synthesis_enabled` 和 `relation_enabled` 均开启时，自动注册合并任务替代原两个独立任务
+  - 预计减少约 40% 周期性维护的 DB I/O 往返次数
+
+- **语义提取策略预筛选** (`core/extractor/noise_filter.py`, `core/extractor/extractor.py`)
+  - 新增 `noise_filter` 模块，规则过滤纯表情包（emoji ratio）、极短消息（<3 字符）、复读消息（单字符占比>70%）
+  - 在 `semantic` 策略 DBSCAN 分段后、LLM 蒸馏前自动应用，噪声比例超过 80% 的 partition 直接跳过
+  - 降低 LLM 幻觉风险，节省无效 Token 消耗
+
+**架构调整**
+
+- **SSOT 边界明确化**：`list_by_group` 新增 `exclude_type` 参数，摘要生成时自动排除 narrative Events，避免摘要套摘要
+- **Repository 接口更新**：`search_fts` / `search_vector` 新增 `event_type` 过滤参数；`InMemoryEventRepository` 同步适配
+- `TODO.md` 更新：已实现条目标记完成，新增待确认设计决策章节（inherit_from 下钻、IMPRESSIONS.md 同步长期方向、分类器精度提升）
+
+---
+
 ## [v0.9.18] — 2026-05-14
 
 ### 归档事件功能 (Archived Events Feature)
@@ -24,8 +54,7 @@
   - 时间轴气泡 (`EventTimeline`)：编辑与删除图标之间加入归档图标按钮
   - 以上所有归档按钮均采用**二次确认**交互：首次点击变为琥珀色「确认」状态，3 秒内再次点击执行归档，超时自动复原
 
-- **三语适配** (`web/frontend/lib/i18n.ts`)
-  - 新增 zh / ja / en 三语 keys：`archive`、`archivedBin`、`archivedBinDescription`、`archivedBinEmpty`、`unarchive`、`archiveSuccess`、`unarchiveSuccess`、`archiveBinLoadError`
+---
 
 **问题修复**
 

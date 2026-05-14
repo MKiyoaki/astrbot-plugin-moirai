@@ -21,6 +21,11 @@ class EventStatus:
     ARCHIVED = "archived"
 
 
+class EventType:
+    EPISODE = "episode"
+    NARRATIVE = "narrative"
+
+
 # ---------------------------------------------------------------------------
 # IPC social orientation constants
 # ---------------------------------------------------------------------------
@@ -99,6 +104,7 @@ class Event(SerializableMixin, ValidationMixin):
     status: str = field(default=EventStatus.ACTIVE)
     is_locked: bool = field(default=False)
     bot_persona_name: str | None = None
+    event_type: str = field(default=EventType.EPISODE)
 
     def __post_init__(self) -> None:
         self._check_unit("salience", self.salience)
@@ -131,6 +137,7 @@ class Event(SerializableMixin, ValidationMixin):
             "status": self.status or "active",
             "is_locked": bool(self.is_locked),
             "bot_persona_name": self.bot_persona_name,
+            "event_type": self.event_type,
         }
 
 

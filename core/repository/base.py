@@ -43,9 +43,12 @@ class EventRepository(ABC):
         ...
 
     @abstractmethod
-    async def list_by_group(self, group_id: str | None, limit: int = 100) -> list[Event]:
+    async def list_by_group(
+        self, group_id: str | None, limit: int = 100, exclude_type: str | None = None,
+    ) -> list[Event]:
         """Return events for a group, sorted by start_time DESC.
         group_id=None returns private-chat events.
+        exclude_type skips events of the given event_type (e.g. 'narrative').
         """
         ...
 
@@ -64,23 +67,25 @@ class EventRepository(ABC):
     @abstractmethod
     async def search_fts(
         self, query: str, limit: int = 20, active_only: bool = True,
-        group_id: str | None = None,
+        group_id: str | None = None, event_type: str | None = None,
     ) -> list[Event]:
         """Keyword search over topic and chat_content_tags.
 
         group_id=None searches across all groups; pass a value to restrict to one scope.
+        event_type restricts to 'episode' or 'narrative' when specified.
         """
         ...
 
     @abstractmethod
     async def search_vector(
         self, embedding: list[float], limit: int = 20, active_only: bool = True,
-        group_id: str | None = None,
+        group_id: str | None = None, event_type: str | None = None,
     ) -> list[Event]:
         """Semantic search via embedding similarity.
 
         group_id=None searches across all groups; pass a value to restrict to one scope.
-        Stub returns []; real implementation uses sqlite-vec vec0 (Phase 5).
+        event_type restricts to 'episode' or 'narrative' when specified.
+        Stub returns []; real implementation uses sqlite-vec vec0.
         """
         ...
 

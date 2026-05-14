@@ -10,6 +10,7 @@ Owns the full hot-path from raw query to ProviderRequest mutation:
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from math import exp, log
@@ -20,7 +21,7 @@ from ..config import (
     MEMORY_INJECTION_FOOTER,
     MEMORY_INJECTION_HEADER,
 )
-from ..domain.models import Event
+from ..domain.models import Event, EventType
 from ..utils.formatter import format_events_for_fake_tool_call, format_events_for_prompt, format_persona_for_prompt
 from ..retrieval.rrf import rrf_scores
 from .base import BaseRecallManager
@@ -32,6 +33,30 @@ if TYPE_CHECKING:
     from ..repository.base import PersonaRepository
 
 _LOG2 = log(2)
+
+# Keywords that signal a broad / temporal / summary-type query (macro layer).
+_MACRO_KWS = frozenset([
+    "最近", "这段时间", "这周", "本周", "这个月", "上周", "上个月",
+    "总结", "概括", "整体", "大概", "发生了什么", "有什么事", "都做了什么",
+    "最近怎么样", "一段时间", "过去", "回顾",
+])
+
+# Keywords that signal a specific / entity-focused query (micro layer).
+_MICRO_KWS = frozenset([
+    "具体", "说了什么", "怎么说", "什么时候", "为什么", "怎么了", "详细",
+    "哪次", "那次", "上次", "那时候",
+])
+
+
+def _classify_granularity(query: str) -> str:
+    """Return 'macro', 'micro', or 'both' based on keyword overlap."""
+    macro_hits = sum(1 for kw in _MACRO_KWS if kw in query)
+    micro_hits = sum(1 for kw in _MICRO_KWS if kw in query)
+    if macro_hits > micro_hits:
+        return "macro"
+    if micro_hits > macro_hits:
+        return "micro"
+    return "both"
 
 _INJECTION_RE = re.compile(
     re.escape(MEMORY_INJECTION_HEADER) + r".*?" + re.escape(MEMORY_INJECTION_FOOTER),
@@ -63,88 +88,121 @@ class RecallManager(BaseRecallManager):
         return {sid: state.__dict__.copy() for sid, state in self._soul_states.items()}
 
     async def recall(self, query: str, group_id: str | None = None) -> list[Event]:
-        """Return re-ranked events for injection."""
+        """Return re-ranked events for injection.
+
+        Uses a two-tier hierarchical strategy when narrative events exist:
+        1. Macro layer: narrative daily summaries
+        2. Episode layer: raw conversation events
+        Allocation ratio depends on query granularity (classified via keywords).
+        """
         from ..utils.perf import performance_timer
         cfg = self._rcfg
-        
+        granularity = _classify_granularity(query)
+
+        # Determine per-tier limits based on granularity
+        if granularity == "macro":
+            narrative_limit = min(4, cfg.final_limit)
+            episode_limit = max(cfg.final_limit - 2, 1)
+        elif granularity == "micro":
+            narrative_limit = 1
+            episode_limit = cfg.final_limit
+        else:  # "both"
+            narrative_limit = min(2, cfg.final_limit)
+            episode_limit = cfg.final_limit
+
         async with performance_timer("recall_search"):
-            bm25, vec = await self._retriever.search_raw(
-                query, active_only=cfg.active_only, group_id=group_id
+            # Parallel searches for each tier
+            narrative_task = self._retriever.search_raw(
+                query, active_only=cfg.active_only, group_id=group_id,
+                event_type=EventType.NARRATIVE,
+            )
+            episode_task = self._retriever.search_raw(
+                query, active_only=cfg.active_only, group_id=group_id,
+                event_type=EventType.EPISODE,
+            )
+            (narrative_bm25, narrative_vec), (bm25, vec) = await asyncio.gather(
+                narrative_task, episode_task
             )
         
         import logging
         _log = logging.getLogger(__name__)
-        _log.debug("[RecallManager] query: %r, group_id: %r", query, group_id)
+        _log.debug(
+            "[RecallManager] query: %r, granularity: %s, group_id: %r",
+            query, granularity, group_id,
+        )
         _log.debug("[RecallManager] BM25 hits: %d, Vec hits: %d", len(bm25), len(vec))
 
         async with performance_timer("recall_rerank"):
-            # Vector fallback: if BM25 returned nothing and fallback is enabled, use vec only.
-            if not bm25 and cfg.vector_fallback_enabled and vec:
-                candidates = vec
-                scores: dict[str, float] = {e.event_id: 1.0 / (cfg.rrf_k + 1) for e in vec}
-            else:
-                scores = rrf_scores([bm25, vec], k=cfg.rrf_k)
-                seen: set[str] = set()
-                candidates: list[Event] = []
-                for e in bm25 + vec:
-                    if e.event_id not in seen:
-                        seen.add(e.event_id)
-                        candidates.append(e)
-
-            if not candidates:
-                return []
-
             now = time.time()
-            max_rrf = max(scores.values()) if scores else 1.0
 
-            def _final_score(event: Event) -> float:
-                days = (now - event.end_time) / 86400.0
-                recency = exp(-_LOG2 * days / cfg.recency_half_life_days)
-                rrf = scores.get(event.event_id, 0.0)
-                return (
-                    cfg.relevance_weight * rrf / max_rrf
-                    + cfg.salience_weight * event.salience
-                    + cfg.recency_weight * recency
-                )
+            def _rank_tier(
+                bm25_tier: list[Event], vec_tier: list[Event], limit: int
+            ) -> list[Event]:
+                """RRF + multi-signal rerank for a single event type tier."""
+                if not bm25_tier and cfg.vector_fallback_enabled and vec_tier:
+                    tier_candidates = vec_tier
+                    tier_scores: dict[str, float] = {
+                        e.event_id: 1.0 / (cfg.rrf_k + 1) for e in vec_tier
+                    }
+                else:
+                    tier_scores = rrf_scores([bm25_tier, vec_tier], k=cfg.rrf_k)
+                    seen: set[str] = set()
+                    tier_candidates = []
+                    for e in bm25_tier + vec_tier:
+                        if e.event_id not in seen:
+                            seen.add(e.event_id)
+                            tier_candidates.append(e)
+                if not tier_candidates:
+                    return []
+                max_rrf = max(tier_scores.values()) if tier_scores else 1.0
 
-            ranked = sorted(candidates, key=_final_score, reverse=True)
-            anchors = ranked[: cfg.final_limit]
+                def _score(ev: Event) -> float:
+                    days = (now - ev.end_time) / 86400.0
+                    recency = exp(-_LOG2 * days / cfg.recency_half_life_days)
+                    rrf = tier_scores.get(ev.event_id, 0.0)
+                    return (
+                        cfg.relevance_weight * rrf / max_rrf
+                        + cfg.salience_weight * ev.salience
+                        + cfg.recency_weight * recency
+                    )
 
-            if not anchors:
+                return sorted(tier_candidates, key=_score, reverse=True)[:limit]
+
+            narrative_anchors = _rank_tier(narrative_bm25, narrative_vec, narrative_limit)
+            episode_anchors = _rank_tier(bm25, vec, episode_limit)
+
+            if not narrative_anchors and not episode_anchors:
                 return []
 
-            # --- Primary Thread Filling (Neighbor Expansion) ---
-            # Fetch context for the Top-1 anchor to provide narrative continuity.
+            # Build deduped result: narratives first, then episode thread expansion
             result_list: list[Event] = []
             seen_ids: set[str] = set()
 
-            async def _add_event(ev: Event):
+            def _add_event_sync(ev: Event) -> None:
                 if ev.event_id not in seen_ids:
                     result_list.append(ev)
                     seen_ids.add(ev.event_id)
 
-            top_anchor = anchors[0]
-            await _add_event(top_anchor)
+            for n_ev in narrative_anchors:
+                _add_event_sync(n_ev)
 
-            # Expand neighbors for the top anchor only
+        # Episode thread expansion (async I/O outside performance_timer)
+        if episode_anchors:
+            top_ep = episode_anchors[0]
+            _add_event_sync(top_ep)
             async with performance_timer("recall_expand"):
-                # 1. Parent expansion
-                if top_anchor.inherit_from:
-                    for parent_id in top_anchor.inherit_from:
+                if top_ep.inherit_from:
+                    for parent_id in top_ep.inherit_from:
                         parent = await self._retriever._event_repo.get(parent_id)
                         if parent:
-                            await _add_event(parent)
-                
-                # 2. Children expansion
-                children = await self._retriever._event_repo.get_children(top_anchor.event_id)
+                            _add_event_sync(parent)
+                children = await self._retriever._event_repo.get_children(top_ep.event_id)
                 for child in children:
-                    await _add_event(child)
+                    _add_event_sync(child)
+            for anchor in episode_anchors[1:]:
+                _add_event_sync(anchor)
 
-            # 3. Add remaining anchors
-            for anchor in anchors[1:]:
-                await _add_event(anchor)
-
-            return result_list
+        return result_list
 
     async def recall_and_inject(
         self,

@@ -42,20 +42,24 @@ class HybridRetriever:
 
     async def search_raw(
         self, query: str, active_only: bool = True, group_id: str | None = None,
+        event_type: str | None = None,
     ) -> tuple[list[Event], list[Event]]:
         """Return (bm25_results, vec_results) without fusion.
 
         group_id=None searches across all groups; pass a value to restrict to one scope.
+        event_type restricts to 'episode' or 'narrative' when specified.
         Encoding runs in a thread to avoid blocking the event loop.
         """
         bm25 = await self._event_repo.search_fts(
-            query, limit=self._bm25_limit, active_only=active_only, group_id=group_id,
+            query, limit=self._bm25_limit, active_only=active_only,
+            group_id=group_id, event_type=event_type,
         )
         vec: list[Event] = []
         if self._encoder.dim > 0:
             embedding = await self._encoder.encode(query)
             vec = await self._event_repo.search_vector(
-                embedding, limit=self._vec_limit, active_only=active_only, group_id=group_id,
+                embedding, limit=self._vec_limit, active_only=active_only,
+                group_id=group_id, event_type=event_type,
             )
         return bm25, vec
 

@@ -32,7 +32,7 @@ from typing import AsyncIterator
 
 import aiosqlite
 
-from ..domain.models import Event, EventStatus, Impression, MessageRef, Persona
+from ..domain.models import Event, EventStatus, EventType, Impression, MessageRef, Persona
 from .base import EventRepository, ImpressionRepository, PersonaRepository
 
 logger = logging.getLogger(__name__)
@@ -145,6 +145,7 @@ def _row_to_event(row: aiosqlite.Row) -> Event:
     is_locked = bool(row["is_locked"]) if "is_locked" in keys else False
     summary = row["summary"] if "summary" in keys else ""
     bot_persona_name = row["bot_persona_name"] if "bot_persona_name" in keys else None
+    event_type = row["event_type"] if "event_type" in keys else EventType.EPISODE
     return Event(
         event_id=row["event_id"],
         group_id=row["group_id"],
@@ -162,6 +163,7 @@ def _row_to_event(row: aiosqlite.Row) -> Event:
         status=status,
         is_locked=is_locked,
         bot_persona_name=bot_persona_name,
+        event_type=event_type,
     )
 
 
@@ -295,13 +297,13 @@ class SQLitePersonaRepository(PersonaRepository):
 _EVENT_COLS = (
     "event_id, group_id, start_time, end_time, participants, "
     "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
-    "inherit_from, last_accessed_at, status, is_locked"
+    "inherit_from, last_accessed_at, status, is_locked, event_type"
 )
 
 _EVENT_SELECT_COLS = (
     "e.event_id, e.group_id, e.start_time, e.end_time, e.participants, "
     "e.interaction_flow, e.topic, e.summary, e.chat_content_tags, e.salience, e.confidence, "
-    "e.inherit_from, e.last_accessed_at, e.status, e.is_locked"
+    "e.inherit_from, e.last_accessed_at, e.status, e.is_locked, e.event_type"
 )
 
 _EVENT_SELECT = f"SELECT {_EVENT_COLS} FROM events"
@@ -325,13 +327,24 @@ class SQLiteEventRepository(EventRepository):
             rows = await cur.fetchall()
         return [_row_to_event(r) for r in rows]
 
-    async def list_by_group(self, group_id: str | None, limit: int = 100) -> list[Event]:
+    async def list_by_group(
+        self, group_id: str | None, limit: int = 100,
+        exclude_type: str | None = None,
+    ) -> list[Event]:
         # IS ? correctly handles NULL comparison (group_id IS NULL)
-        async with self._db.execute(
-            f"{_EVENT_SELECT} WHERE group_id IS ? ORDER BY start_time DESC LIMIT ?",
-            (group_id, limit),
-        ) as cur:
-            rows = await cur.fetchall()
+        if exclude_type:
+            async with self._db.execute(
+                f"{_EVENT_SELECT} WHERE group_id IS ? AND event_type != ?"
+                " ORDER BY start_time DESC LIMIT ?",
+                (group_id, exclude_type, limit),
+            ) as cur:
+                rows = await cur.fetchall()
+        else:
+            async with self._db.execute(
+                f"{_EVENT_SELECT} WHERE group_id IS ? ORDER BY start_time DESC LIMIT ?",
+                (group_id, limit),
+            ) as cur:
+                rows = await cur.fetchall()
         return [_row_to_event(r) for r in rows]
 
     async def list_by_participant(self, uid: str, limit: int = 100) -> list[Event]:
@@ -351,22 +364,28 @@ class SQLiteEventRepository(EventRepository):
 
     async def search_fts(
         self, query: str, limit: int = 20, active_only: bool = True,
-        group_id: str | None = None,
+        group_id: str | None = None, event_type: str | None = None,
     ) -> list[Event]:
         """BM25 full-text search over topic and chat_content_tags.
 
         group_id=None searches across all groups; pass a value to restrict to one scope.
+        event_type filters by 'episode' or 'narrative' when specified.
         """
         try:
             status_clause = " AND e.status = 'active'" if active_only else ""
+            type_clause = " AND e.event_type = ?" if event_type else ""
+            params = [query, limit, group_id, group_id]
+            if event_type:
+                params.append(event_type)
             async with self._db.execute(
                 f"{_EVENT_SELECT} e WHERE e.rowid IN ("
                 "  SELECT rowid FROM events_fts WHERE events_fts MATCH ?"
                 "  ORDER BY rank LIMIT ?"
                 f"){status_clause}"
                 " AND (? IS NULL OR e.group_id = ?)"
+                f"{type_clause}"
                 " ORDER BY e.salience DESC",
-                (query, limit, group_id, group_id),
+                params,
             ) as cur:
                 rows = await cur.fetchall()
             return [_row_to_event(r) for r in rows]
@@ -375,25 +394,31 @@ class SQLiteEventRepository(EventRepository):
 
     async def search_vector(
         self, embedding: list[float], limit: int = 20, active_only: bool = True,
-        group_id: str | None = None,
+        group_id: str | None = None, event_type: str | None = None,
     ) -> list[Event]:
         """Cosine-approximate nearest-neighbour search via sqlite-vec vec0.
 
         group_id=None searches across all groups; pass a value to restrict to one scope.
+        event_type filters by 'episode' or 'narrative' when specified.
         Returns [] if sqlite-vec is not loaded or the embedding is empty.
         """
         if not embedding:
             return []
         try:
             status_clause = " AND e.status = 'active'" if active_only else ""
+            type_clause = " AND e.event_type = ?" if event_type else ""
+            params = [json.dumps(embedding), limit, group_id, group_id]
+            if event_type:
+                params.append(event_type)
             async with self._db.execute(
                 f"SELECT {_EVENT_SELECT_COLS} FROM "
                 "(SELECT rowid, distance FROM events_vec WHERE embedding MATCH ? "
                 " ORDER BY distance LIMIT ?) v "
                 f"JOIN events e ON e.rowid = v.rowid{status_clause}"
                 " AND (? IS NULL OR e.group_id = ?)"
+                f"{type_clause}"
                 " ORDER BY v.distance",
-                (json.dumps(embedding), limit, group_id, group_id),
+                params,
             ) as cur:
                 rows = await cur.fetchall()
             return [_row_to_event(r) for r in rows]
@@ -443,7 +468,8 @@ class SQLiteEventRepository(EventRepository):
         await self._db.execute(
             "INSERT INTO events(event_id, group_id, start_time, end_time, participants, "
             "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
-            "inherit_from, last_accessed_at, status, is_locked, bot_persona_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "inherit_from, last_accessed_at, status, is_locked, bot_persona_name, event_type) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(event_id) DO UPDATE SET "
             "group_id=excluded.group_id, "
             "start_time=excluded.start_time, "
@@ -459,7 +485,8 @@ class SQLiteEventRepository(EventRepository):
             "last_accessed_at=excluded.last_accessed_at, "
             "status=excluded.status, "
             "is_locked=excluded.is_locked, "
-            "bot_persona_name=excluded.bot_persona_name",
+            "bot_persona_name=excluded.bot_persona_name, "
+            "event_type=excluded.event_type",
             (
                 event.event_id,
                 event.group_id,
@@ -477,6 +504,7 @@ class SQLiteEventRepository(EventRepository):
                 event.status,
                 int(event.is_locked),
                 event.bot_persona_name,
+                event.event_type,
             ),
         )
         await self._db.commit()

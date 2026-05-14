@@ -146,6 +146,12 @@ class EventExtractor:
         async with performance_timer("partition"):
             partitions = await self._partitioner.partition(window)
 
+        # 3b. Noise filter (semantic strategy only): strip pure-emoji / 复读 messages
+        #     before sending partitions to the LLM to reduce hallucination risk.
+        if self._strategy != "llm":
+            from .noise_filter import filter_partitions
+            partitions = filter_partitions(partitions, window)
+
         # 4. Extract fields
         extracted_results: list[tuple[list[int], dict]] = []  # (indices, result_dict)
 

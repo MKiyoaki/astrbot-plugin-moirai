@@ -123,7 +123,7 @@ async def test_hybrid_retriever_uses_rrf_when_encoder_active() -> None:
     # Mock: search_vector always returns [e2, e1] regardless of query
     original_vec = repo.search_vector
 
-    async def mock_vec(embedding, limit=20, active_only=True, group_id=None):
+    async def mock_vec(embedding, limit=20, active_only=True, group_id=None, event_type=None):
         return [e2, e1]
 
     repo.search_vector = mock_vec
@@ -139,7 +139,7 @@ async def test_hybrid_retriever_falls_back_on_empty_vec_results() -> None:
     repo = InMemoryEventRepository()
     await repo.upsert(make_event("e1", topic="hello world"))
 
-    async def mock_vec(embedding, limit=20, active_only=True, group_id=None):
+    async def mock_vec(embedding, limit=20, active_only=True, group_id=None, event_type=None):
         return []
 
     repo.search_vector = mock_vec
