@@ -26,26 +26,9 @@ def _check_is_admin(event) -> bool:
 
 
 def _prepend_to_result(result, text: str) -> None:
-    """Defensively prepend text to a CommandResult chain."""
-    try:
-        chain = getattr(result, "chain", None)
-        if chain is not None:
-            try:
-                from astrbot.api.message_components import Plain
-                chain.insert(0, Plain(text))
-                return
-            except (ImportError, AttributeError):
-                pass
-            chain.insert(0, text)
-            return
-    except Exception:
-        pass
-    try:
-        rt = getattr(result, "result_texts", None)
-        if rt is not None:
-            rt.insert(0, text)
-    except Exception:
-        pass
+    """Prepend text to a CommandResult (MessageEventResult inherits MessageChain = list)."""
+    from astrbot.api.message_components import Plain
+    result.insert(0, Plain(text))
 
 from astrbot.api import logger as astrbot_logger
 
