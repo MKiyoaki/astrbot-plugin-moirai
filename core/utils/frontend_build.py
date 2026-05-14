@@ -47,14 +47,17 @@ _REDIRECT_TEMPLATE = """\
           color:#6366f1;margin-bottom:1.6rem;font-weight:600}}
     p{{color:#555;font-size:.9rem;line-height:1.6;margin-bottom:1.8rem}}
     a.btn{{display:inline-block;padding:.8rem 2.2rem;background:#6366f1;
-           color:#fff;border-radius:.6rem;text-decoration:none;
-           font-size:.95rem;font-weight:500;transition:all .15s ease}}
+            color:#fff;border-radius:.6rem;text-decoration:none;
+            font-size:.95rem;font-weight:500;transition:all .15s ease}}
     a.btn:hover{{background:#4f46e5;transform:translateY(-1px);box-shadow:0 4px 12px rgba(99,102,241,0.3)}}
     a.btn:active{{transform:translateY(0)}}
+    a.alt{{display:inline-block;margin-top:.75rem;color:#4f46e5;
+           font-size:.82rem;text-decoration:none}}
+    a.alt:hover{{text-decoration:underline}}
     .note{{margin-top:1.5rem;padding-top:1.2rem;border-top:1px solid #eee;
            font-size:.78rem;color:#999;word-break:break-all}}
     code{{background:#f1f5f9;padding:.2rem .4rem;border-radius:.3rem;
-          color:#475569;font-family:monospace;margin-top:.4rem;display:inline-block}}
+           color:#475569;font-family:monospace;margin-top:.4rem;display:inline-block}}
   </style>
 </head>
 <body>
@@ -62,7 +65,9 @@ _REDIRECT_TEMPLATE = """\
     <h1>Moirai</h1>
     <div class="sub">Memory Engine</div>
     <p>WebUI 运行在独立服务器上。<br>点击下方按钮在新标签页中打开。</p>
-    <a class="btn" href="#" id="link" target="_blank" rel="noopener">打开 WebUI</a>
+    <a class="btn" href="http://127.0.0.1:{port}" id="link" target="_blank" rel="noopener noreferrer">打开 WebUI</a>
+    <br>
+    <a class="alt" href="http://127.0.0.1:{port}" id="top-link" target="_top">在当前标签页打开</a>
     <div class="note">
       无法点击？请手动访问：<br>
       <code id="url-display">http://<host>:{port}</code>
@@ -85,20 +90,12 @@ _REDIRECT_TEMPLATE = """\
       
       var url = 'http://' + host + ':' + port;
       var el = document.getElementById('link');
+      var topEl = document.getElementById('top-link');
       var display = document.getElementById('url-display');
       
-      el.href = url;
+      if (el) el.href = url;
+      if (topEl) topEl.href = url;
       if (display) display.textContent = url;
-      
-      // AstrBot sandbox may block target="_blank"; use window.open with fallback
-      el.onclick = function(e) {{
-        e.preventDefault();
-        var opened = window.open(url, '_blank', 'noopener,noreferrer');
-        if (!opened) {{
-          try {{ window.top.location.href = url; }}
-          catch(ex) {{ window.location.href = url; }}
-        }}
-      }};
     }})();
   </script>
 </body>
@@ -115,6 +112,10 @@ def _find_npm() -> str | None:
     return None
 
 
+def _render_redirect_page(port: int) -> str:
+    return _REDIRECT_TEMPLATE.format(port=port)
+
+
 def write_redirect_page(port: int) -> None:
     """Write pages/moirai/index.html — a lightweight redirect stub for AstrBot Plugin Pages.
 
@@ -124,7 +125,7 @@ def write_redirect_page(port: int) -> None:
     """
     redirect_path = _REPO_ROOT / "pages" / "moirai" / "index.html"
     redirect_path.parent.mkdir(parents=True, exist_ok=True)
-    redirect_path.write_text(_REDIRECT_TEMPLATE.format(port=port), encoding="utf-8")
+    redirect_path.write_text(_render_redirect_page(port), encoding="utf-8")
     logger.debug("[FrontendBuild] Redirect page written → %s (port %d)", redirect_path, port)
 
 

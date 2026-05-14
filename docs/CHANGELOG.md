@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## [v0.10.6] — 2026-05-14
+
+### 实机调试可见性与插件页入口修复
+
+**Bug Fix**
+
+- **兼容 AstrBot `LLMResponse` 字段差异** (`core/event_handler.py`)
+  - 新增 `_response_text()`，优先读取 `completion_text`，并兼容旧式 `text` 字段，避免实机环境中 `AttributeError: 'LLMResponse' object has no attribute 'text'` 再次中断 `on_llm_response` 钩子
+  - 机器人自身回复写入记忆流时统一使用该兼容文本读取路径
+
+- **修复调试开关运行时配置读取** (`core/plugin_initializer.py`, `web/plugin_routes.py`, `web/server.py`)
+  - `PluginInitializer` 新增 `cfg` 运行时配置视图，合并初始化配置、`data_dir/plugin_config.json` 与 AstrBot live config
+  - WebUI / Plugin Pages 配置保存现在会写入 `plugin_config.json`，并同步更新 AstrBot 配置对象
+  - 修复 `show_thinking_process` / `show_system_prompt` 在 WebUI 或 AstrBot 面板保存后，运行时仍可能读取旧配置导致调试前缀不出现的问题
+
+- **修复 AstrBot 插件行为页 WebUI 打开按钮** (`core/utils/frontend_build.py`, `pages/moirai/index.html`)
+  - 跳转页按钮不再依赖 `preventDefault()` + `window.open()`，避免被 AstrBot iframe sandbox 拦截后完全无响应
+  - 主按钮现在直接使用有效 `href` 打开独立 WebUI，并新增“在当前标签页打开”备用链接
+
+**测试**
+
+- 新增 `tests/test_debug_visibility.py`，覆盖 LLM 响应字段兼容、调试前缀组装、运行时配置合并、WebUI 跳转页模板
+- 回归验证 `tests/test_config_sync.py` 配置同步路径
+
 ## [v0.10.5] — 2026-05-14
 
 ### AstrBot API 兼容性修复

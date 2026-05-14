@@ -30,6 +30,22 @@ def _prepend_to_result(result, text: str) -> None:
     from astrbot.api.message_components import Plain
     result.insert(0, Plain(text))
 
+
+def _response_text(resp: object) -> str:
+    """Return response text across AstrBot/provider response versions."""
+    for attr in ("completion_text", "text"):
+        value = getattr(resp, attr, None)
+        if value is None or callable(value):
+            continue
+        if isinstance(value, str):
+            if value:
+                return value
+            continue
+        text = str(value)
+        if text:
+            return text
+    return ""
+
 from astrbot.api import logger as astrbot_logger
 
 if TYPE_CHECKING:
@@ -128,7 +144,8 @@ class EventHandler:
     ) -> None:
         """Record the bot's own response into the memory stream."""
         router = self._init.router
-        if router is None or not resp.completion_text:
+        text = _response_text(resp)
+        if router is None or not text:
             return
 
         # Use a special internal UID for the bot to distinguish it from users.
@@ -137,7 +154,7 @@ class EventHandler:
             platform="internal",
             physical_id="bot",
             display_name="Bot",
-            text=resp.completion_text,
+            text=text,
             raw_group_id=event.get_group_id() or None,
         )
 

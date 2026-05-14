@@ -680,9 +680,28 @@ class WebuiServer:
                 # 如果用户只是保存配置而没改掩码，我们就把它从待更新列表中删掉，防止覆盖
                 del coerced["webui_password"]
 
+        if coerced:
+            try:
+                current: dict = {}
+                if self._config_path.exists():
+                    loaded = json.loads(self._config_path.read_text(encoding="utf-8"))
+                    if isinstance(loaded, dict):
+                        current.update(loaded)
+                current.update(coerced)
+                self._config_path.parent.mkdir(parents=True, exist_ok=True)
+                self._config_path.write_text(
+                    json.dumps(current, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except Exception as e:
+                logger.warning("[WebUI] Failed to write local config: %s", e)
+
         # Sync to AstrBot
         if self._star and hasattr(self._star, "config"):
             try:
+                if hasattr(self._star.config, "update"):
+                    self._star.config.update(coerced)
+
                 # Update AstrBot's live config (handles nested structure)
                 for k, v in coerced.items():
                     found_in_sub = False

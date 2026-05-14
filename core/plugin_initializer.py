@@ -10,13 +10,14 @@ import asyncio
 import dataclasses
 import importlib
 import importlib.util
+import json
 import logging
 import sys
 import time
 import types
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 try:
     from astrbot.api import logger as astrbot_logger
@@ -120,6 +121,37 @@ class PluginInitializer:
         self.command_manager = None
         self.plugin_routes = None
         self.webui_error: str | None = None
+
+    @property
+    def cfg(self) -> PluginConfig:
+        """Return config with runtime overrides from WebUI/AstrBot when available."""
+        raw = self._cfg.as_dict()
+
+        config_path = self._data_dir / "plugin_config.json"
+        if config_path.exists():
+            try:
+                saved = json.loads(config_path.read_text(encoding="utf-8"))
+                if isinstance(saved, dict):
+                    raw.update(saved)
+            except Exception as exc:
+                logger.debug("[PluginInitializer] failed to read runtime config: %s", exc)
+
+        star_cfg = getattr(self._star, "config", None)
+        if star_cfg is not None:
+            for key, value in self._config_items(star_cfg):
+                raw[key] = value
+
+        return PluginConfig(raw)
+
+    @staticmethod
+    def _config_items(config: object) -> list[tuple[object, object]]:
+        items = getattr(config, "items", None)
+        if not callable(items):
+            return []
+        try:
+            return list(items())
+        except Exception:
+            return []
 
     async def initialize(self) -> None:
         cfg = self._cfg
