@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useRef, useEffect, useMemo } from 'react'
-import { Pencil, Trash2, Lock } from 'lucide-react'
+import { Pencil, Trash2, Lock, Archive } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -82,6 +82,7 @@ interface EventTimelineProps {
   onSelectionChange: (id: string | null) => void
   onEdit: (ev: ApiEvent) => void
   onDelete: (ev: ApiEvent) => void
+  onArchive?: (ev: ApiEvent) => void
 }
 
 export function EventTimeline({
@@ -93,13 +94,33 @@ export function EventTimeline({
   onSelectionChange,
   onEdit,
   onDelete,
+  onArchive,
 }: EventTimelineProps) {
   const { i18n } = useApp()
   const [dimmedIds, setDimmedIds] = useState<Set<string>>(new Set())
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null)
+  const [hoveredBubbleId, setHoveredBubbleId] = useState<string | null>(null)
+  const [pendingArchiveBubbleId, setPendingArchiveBubbleId] = useState<string | null>(null)
+  const bubbleArchiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [hoveredStack, setHoveredStack] = useState<{ row: number; tid: string } | null>(null)
   const [metrics, setMetrics] = useState(DEFAULT_METRICS)
-  
+  const hoverLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearHoverTimer = () => {
+    if (hoverLeaveTimer.current !== null) {
+      clearTimeout(hoverLeaveTimer.current)
+      hoverLeaveTimer.current = null
+    }
+  }
+
+  const scheduleHoverClear = (clear: () => void) => {
+    clearHoverTimer()
+    hoverLeaveTimer.current = setTimeout(() => {
+      clear()
+      hoverLeaveTimer.current = null
+    }, 120)
+  }
+
   const containerRef = useRef<HTMLDivElement>(null)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
 
@@ -551,8 +572,8 @@ export function EventTimeline({
                     height: box.h, 
                     zIndex: isStackHovered ? 100 : 20 
                   }}
-                  onMouseEnter={() => setHoveredStack({ row: rowIdx, tid: thread.id })}
-                  onMouseLeave={() => { setHoveredStack(null); setHoveredEventId(null) }}
+                  onMouseEnter={() => { clearHoverTimer(); setHoveredStack({ row: rowIdx, tid: thread.id }) }}
+                  onMouseLeave={() => scheduleHoverClear(() => { setHoveredStack(null); setHoveredEventId(null) })}
                 >
                    <div className="relative size-full">
                      {group.map((ev, i) => {
@@ -568,8 +589,8 @@ export function EventTimeline({
                              width: 24, height: 24, zIndex: 30, 
                              transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' 
                            }}
-                           onMouseEnter={(e) => { e.stopPropagation(); setHoveredEventId(ev.id) }}
-                           onMouseLeave={() => setHoveredEventId(null)}
+                           onMouseEnter={(e) => { e.stopPropagation(); clearHoverTimer(); setHoveredEventId(ev.id) }}
+                           onMouseLeave={() => scheduleHoverClear(() => setHoveredEventId(null))}
                            onClick={(e) => { 
                              e.stopPropagation(); 
                              if (selectedEventId === ev.id) onSelectionChange(null);
@@ -584,8 +605,9 @@ export function EventTimeline({
             })
           })}
 
-          {hoveredEventId && (() => {
-            const ev = visible.find(e => e.id === hoveredEventId)
+          {(hoveredEventId || hoveredBubbleId) && (() => {
+            const activeId = hoveredEventId ?? hoveredBubbleId
+            const ev = visible.find(e => e.id === activeId)
             if (!ev) return null
             const rowIdx = erm[ev.id]
             if (rowIdx === undefined) return null
@@ -600,15 +622,26 @@ export function EventTimeline({
             if (!offset) return null
 
             const x = tx(ti)
+            const bubbleGap = metrics.NR + metrics.BG
             return (
               <div
-                className="absolute z-50 min-w-48 max-w-64 pointer-events-none rounded-lg border bg-card p-3 shadow-xl ring-1 ring-black/5"
+                className="absolute z-50"
                 style={{
-                  top: ry(rowIdx) + offset.y - 20, 
-                  left: x + offset.x + metrics.NR + metrics.BG,
-                  borderLeftColor: thread.color, borderLeftWidth: 3,
+                  top: ry(rowIdx) + offset.y - 20,
+                  left: x + offset.x,
+                  paddingLeft: bubbleGap,
                   animation: 'tlBubbleIn 0.15s cubic-bezier(0.16, 1, 0.3, 1)',
                 }}
+                onMouseEnter={() => { clearHoverTimer(); setHoveredBubbleId(ev.id) }}
+                onMouseLeave={() => {
+                  setHoveredBubbleId(null); setHoveredEventId(null)
+                  if (bubbleArchiveTimerRef.current) clearTimeout(bubbleArchiveTimerRef.current)
+                  setPendingArchiveBubbleId(null)
+                }}
+              >
+              <div
+                className="min-w-48 max-w-64 rounded-lg border bg-card p-3 shadow-xl ring-1 ring-black/5"
+                style={{ borderLeftColor: thread.color, borderLeftWidth: 3 }}
               >
                 <p className="mb-1 text-sm font-semibold leading-tight flex items-center gap-1.5">
                   {ev.content || ev.topic || ev.id}
@@ -619,13 +652,13 @@ export function EventTimeline({
                   {(ev.tags ?? []).slice(0, 4).map(tag => {
                     const tagColor = getTagColor(tag)
                     return (
-                      <Badge 
-                        key={tag} 
-                        variant="secondary" 
-                        className="rounded px-1.5 py-0 text-[10px] font-medium" 
-                        style={{ 
-                          background: `color-mix(in srgb, ${tagColor} 12%, transparent)`, 
-                          color: tagColor 
+                      <Badge
+                        key={tag}
+                        variant="secondary"
+                        className="rounded px-1.5 py-0 text-[10px] font-medium"
+                        style={{
+                          background: `color-mix(in srgb, ${tagColor} 12%, transparent)`,
+                          color: tagColor
                         }}
                       >
                         #{tag}
@@ -634,17 +667,43 @@ export function EventTimeline({
                   })}
                 </div>
                 <div className="mt-2.5 pt-2 border-t flex items-center justify-between">
-                   <div className="flex items-center gap-2">
-                     <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Salience</span>
-                     <span className="font-mono text-xs font-bold" style={{ color: ev.salience > 0.8 ? 'var(--color-chart-2)' : 'inherit' }}>
-                       {(ev.salience * 100).toFixed(0)}%
-                     </span>
-                   </div>
-                   <div className="flex gap-1 pointer-events-auto">
-                     <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); onEdit(ev) }}><Pencil className="size-3" /></Button>
-                     <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); onDelete(ev) }}><Trash2 className="size-3" /></Button>
-                   </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Salience</span>
+                    <span className="font-mono text-xs font-bold" style={{ color: ev.salience > 0.8 ? 'var(--color-chart-2)' : 'inherit' }}>
+                      {(ev.salience * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); onEdit(ev) }}>
+                      <Pencil className="size-3" />
+                    </Button>
+                    {onArchive && (
+                      <Button
+                        variant="ghost" size="icon"
+                        className={`h-6 w-6 ${pendingArchiveBubbleId === ev.id ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
+                        title={pendingArchiveBubbleId === ev.id ? i18n.common.confirm : i18n.events.archive}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (pendingArchiveBubbleId !== ev.id) {
+                            setPendingArchiveBubbleId(ev.id)
+                            if (bubbleArchiveTimerRef.current) clearTimeout(bubbleArchiveTimerRef.current)
+                            bubbleArchiveTimerRef.current = setTimeout(() => setPendingArchiveBubbleId(null), 3000)
+                          } else {
+                            if (bubbleArchiveTimerRef.current) clearTimeout(bubbleArchiveTimerRef.current)
+                            setPendingArchiveBubbleId(null)
+                            onArchive(ev)
+                          }
+                        }}
+                      >
+                        <Archive className="size-3" />
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); onDelete(ev) }}>
+                      <Trash2 className="size-3" />
+                    </Button>
+                  </div>
                 </div>
+              </div>
               </div>
             )
           })()}

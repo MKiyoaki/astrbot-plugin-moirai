@@ -192,6 +192,16 @@ async def list_events(
         for gid in group_ids:
             events.extend(await event_repo.list_by_group(gid, limit=per_group))
         events = events[:limit]
+    events = [e for e in events if e.status == EventStatus.ACTIVE]
+    return {"items": [event_to_dict(e) for e in events]}
+
+
+async def list_archived_events(
+    event_repo: EventRepository,
+    limit: int = 1000,
+) -> dict[str, Any]:
+    from .domain.models import EventStatus
+    events = await event_repo.list_by_status(EventStatus.ARCHIVED, limit=limit)
     return {"items": [event_to_dict(e) for e in events]}
 
 

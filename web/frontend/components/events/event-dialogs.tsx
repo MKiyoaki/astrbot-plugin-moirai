@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Undo2, Trash2, Pencil, Check, ChevronsUpDown, X, Lock, Unlock } from 'lucide-react'
+import { Plus, Undo2, Trash2, Pencil, Check, ChevronsUpDown, X, Lock, Unlock, Archive } from 'lucide-react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
@@ -82,15 +82,15 @@ function GroupPicker({
         </span>
         <div className="flex items-center gap-1">
           {value && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 hover:text-destructive"
+            <span
+              role="button"
+              tabIndex={0}
+              className="inline-flex h-6 w-6 items-center justify-center rounded hover:text-destructive cursor-pointer"
               onClick={e => { e.stopPropagation(); onChange('') }}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); onChange('') } }}
             >
               <X className="size-3" />
-            </Button>
+            </span>
           )}
           <ChevronsUpDown className="text-muted-foreground shrink-0" data-icon="inline-end" />
         </div>
@@ -721,6 +721,72 @@ export function RecycleBinDialog({ open, items, loading, onClose, onRestore, onC
   )
 }
 
+// ── Archive Events Dialog ─────────────────────────────────────────────────
+
+interface ArchiveEventsDialogProps {
+  open: boolean
+  items: ApiEvent[]
+  loading: boolean
+  onClose: () => void
+  onUnarchive: (id: string) => Promise<void>
+  sudoMode: boolean
+}
+export function ArchiveEventsDialog({ open, items, loading, onClose, onUnarchive, sudoMode }: ArchiveEventsDialogProps) {
+  const { i18n } = useApp()
+  return (
+    <Dialog open={open} onOpenChange={(v: boolean) => !v && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{i18n.events.archivedBin}</DialogTitle>
+          <DialogDescription>{i18n.events.archivedBinDescription}</DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="max-h-[65vh]">
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <Spinner />
+            </div>
+          ) : items.length === 0 ? (
+            <p className="text-muted-foreground py-8 text-center text-sm">{i18n.events.archivedBinEmpty}</p>
+          ) : (
+            <div className="flex flex-col gap-2 pr-2">
+              {items.map(ev => (
+                <div key={ev.id} className="bg-muted flex items-center justify-between rounded-lg p-3">
+                  <div className="min-w-0 flex-1 pr-4">
+                    <div className="text-sm font-medium truncate">{ev.content || ev.topic || ev.id}</div>
+                    <div className="text-muted-foreground text-xs mt-0.5 flex items-center gap-2">
+                      <span>{ev.group || i18n.events.privateChat}</span>
+                      <span>·</span>
+                      <span>{new Date(ev.start).toLocaleDateString()}</span>
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                        {(ev.salience * 100).toFixed(0)}%
+                      </Badge>
+                      {(ev.tags ?? []).slice(0, 2).map(t => (
+                        <Badge key={t} variant="outline" className="text-[10px] px-1.5 py-0 h-4">#{t}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!sudoMode}
+                    onClick={() => onUnarchive(ev.id)}
+                  >
+                    <Undo2 data-icon="inline-start" />
+                    {i18n.events.unarchive}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </ScrollArea>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>{i18n.common.close}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ── Event Detail Sheet ────────────────────────────────────────────────────
 
 interface EventDetailProps {
@@ -729,12 +795,15 @@ interface EventDetailProps {
   onEdit: (ev: ApiEvent) => void
   onDelete: (ev: ApiEvent) => void
   onLockToggle: (ev: ApiEvent) => void
+  onArchive?: (ev: ApiEvent) => void
   onSelect?: () => void
   sudoMode: boolean
 }
 
-export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockToggle, onSelect, sudoMode }: EventDetailProps) {
+export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockToggle, onArchive, onSelect, sudoMode }: EventDetailProps) {
   const { i18n } = useApp()
+  const [pendingArchive, setPendingArchive] = useState(false)
+  const archiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   if (!event) return null
   const isArchived = event.status === 'archived'
 
@@ -851,26 +920,47 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
             <Button size="sm" variant="default" className="h-9 px-4 shadow-sm" disabled={!sudoMode} onClick={() => onEdit(event)}>
               <Pencil className="mr-2 size-3.5" />{i18n.common.edit}
             </Button>
-            <Button 
-              size="sm" 
-              variant="outline" 
+            <Button
+              size="sm"
+              variant="outline"
               className={cn("h-9 px-4", event.is_locked && "text-primary border-primary/30 bg-primary/5")}
-              disabled={!sudoMode} 
+              disabled={!sudoMode}
               onClick={() => onLockToggle(event)}
             >
               {event.is_locked ? <Lock className="mr-2 size-3.5" /> : <Unlock className="mr-2 size-3.5" />}
               {event.is_locked ? i18n.events.unlock : i18n.events.lock}
             </Button>
+            {onArchive && (
+              <Button
+                size="sm"
+                variant={pendingArchive ? "default" : "outline"}
+                className={cn("h-9 px-4 transition-colors", pendingArchive && "bg-amber-500 hover:bg-amber-600 border-amber-500 text-white")}
+                disabled={!sudoMode || event.is_locked || event.status === 'archived'}
+                onClick={() => {
+                  if (!pendingArchive) {
+                    setPendingArchive(true)
+                    archiveTimerRef.current = setTimeout(() => setPendingArchive(false), 3000)
+                  } else {
+                    if (archiveTimerRef.current) clearTimeout(archiveTimerRef.current)
+                    setPendingArchive(false)
+                    onArchive(event)
+                  }
+                }}
+              >
+                <Archive className="mr-2 size-3.5" />
+                {pendingArchive ? i18n.common.confirm : i18n.events.archive}
+              </Button>
+            )}
             <div className="flex-1" />
-            <Button 
-              size="sm" 
-              variant="ghost" 
-              className="h-9 px-4 text-destructive hover:bg-destructive/10 hover:text-destructive" 
-              disabled={!sudoMode || event.is_locked} 
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-9 px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              disabled={!sudoMode || event.is_locked}
               onClick={(e) => { e.stopPropagation(); onDelete(event) }}
               title={event.is_locked ? (i18n.events.lockedDeleteHint || 'Locked events cannot be deleted') : ''}
             >
-              <Trash2 className="mr-2 size-3.5" />{i18n.common.delete}
+              <Trash2 className="size-3.5" />
             </Button>
           </>
         ) : (

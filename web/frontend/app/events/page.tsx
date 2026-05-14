@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Plus, Trash2, Search, Info, SlidersHorizontal, X, MessageSquareOff } from 'lucide-react'
+import { Plus, Trash2, Archive, Search, Info, SlidersHorizontal, X, MessageSquareOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
@@ -11,7 +11,7 @@ import { PageHeader } from '@/components/layout/page-header'
 import { EventTimeline } from '@/components/events/event-timeline'
 import { FilterBar } from '@/components/shared/filter-bar'
 import {
-  CreateEventDialog, EditEventDialog, RecycleBinDialog, EventDetailCard,
+  CreateEventDialog, EditEventDialog, RecycleBinDialog, ArchiveEventsDialog, EventDetailCard,
   type EventFormData,
 } from '@/components/events/event-dialogs'
 import {
@@ -54,6 +54,9 @@ export default function EventsPage() {
   const [binOpen, setBinOpen] = useState(false)
   const [binItems, setBinItems] = useState<(api.ApiEvent & { deleted_at?: string })[]>([])
   const [binLoading, setBinLoading] = useState(false)
+  const [archiveBinOpen, setArchiveBinOpen] = useState(false)
+  const [archiveBinItems, setArchiveBinItems] = useState<api.ApiEvent[]>([])
+  const [archiveBinLoading, setArchiveBinLoading] = useState(false)
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([])
   const [tagList, setTagList] = useState<{ name: string; count: number }[]>([])
 
@@ -138,12 +141,26 @@ export default function EventsPage() {
     })
   }, [app.rawEvents, search, dateRange, activeTags])
 
+  // Returns the nearest sibling event in the same group, preferring the next one chronologically.
+  // Must be called BEFORE removing ev from rawEvents.
+  const findSiblingEvent = (ev: api.ApiEvent): api.ApiEvent | null => {
+    const inGroup = app.rawEvents
+      .filter(e => e.group === ev.group)
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+    const idx = inGroup.findIndex(e => e.id === ev.id)
+    const siblings = inGroup.filter(e => e.id !== ev.id)
+    if (siblings.length === 0) return null
+    // idx within siblings: next event occupies position idx, previous is idx-1
+    return siblings[idx] ?? siblings[idx - 1] ?? null
+  }
+
   const handleDelete = async (ev: api.ApiEvent) => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
     if (!confirm(i18n.events.deleteConfirm.replace('{name}', ev.content || ev.topic || ev.id))) return
+    const sibling = findSiblingEvent(ev)
     try {
       await api.events.delete(ev.id)
-      setDetailEvent(null)
+      setDetailEvent(prev => prev?.id === ev.id ? sibling : prev)
       app.toast(i18n.events.moveBinSuccess)
       await loadEvents()
     } catch (e: unknown) {
@@ -250,6 +267,44 @@ export default function EventsPage() {
     }
   }
 
+  const openArchiveBin = async () => {
+    setArchiveBinOpen(true)
+    setArchiveBinLoading(true)
+    try {
+      const d = await api.events.listArchived()
+      setArchiveBinItems(d.items)
+    } catch { app.toast(i18n.events.archiveBinLoadError, 'destructive') }
+    finally { setArchiveBinLoading(false) }
+  }
+
+  const handleUnarchive = async (id: string) => {
+    if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
+    try {
+      await api.events.unarchive(id)
+      app.toast(i18n.events.unarchiveSuccess)
+      await loadEvents()
+      const d = await api.events.listArchived()
+      setArchiveBinItems(d.items)
+      app.refreshStats()
+    } catch (e: any) {
+      app.toast(e?.body || e?.message || i18n.common.updateFailed, 'destructive')
+    }
+  }
+
+  const handleArchive = async (ev: api.ApiEvent) => {
+    if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
+    const sibling = findSiblingEvent(ev)
+    try {
+      await api.events.archive(ev.id)
+      app.toast(i18n.events.archiveSuccess)
+      setDetailEvent(prev => prev?.id === ev.id ? sibling : prev)
+      app.setRawEvents(app.rawEvents.filter(e => e.id !== ev.id))
+      app.refreshStats()
+    } catch (e: any) {
+      app.toast(e?.body || e?.message || i18n.common.updateFailed, 'destructive')
+    }
+  }
+
   const actions = (
     <div className="flex items-center gap-2">
       <div className="relative hidden md:block">
@@ -285,6 +340,11 @@ export default function EventsPage() {
           </div>
         </PopoverContent>
       </Popover>
+
+      <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2" onClick={openArchiveBin}>
+        <Archive className="size-3.5" />
+        <span className="hidden sm:inline">{i18n.events.archivedBin}</span>
+      </Button>
 
       <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2" onClick={openBin}>
         <Trash2 className="size-3.5" />
@@ -360,6 +420,7 @@ export default function EventsPage() {
               }}
               onEdit={ev => { if (app.sudo) setEditEvent(ev); else app.toast(i18n.common.needSudo, 'destructive') }}
               onDelete={handleDelete}
+              onArchive={handleArchive}
             />
           )}
         </div>
@@ -409,6 +470,7 @@ export default function EventsPage() {
                             onEdit={ev => setEditEvent(ev)}
                             onDelete={handleDelete}
                             onLockToggle={handleLockToggle}
+                            onArchive={handleArchive}
                             onSelect={() => setDetailEvent(ev)}
                             sudoMode={app.sudo}
                           />
@@ -445,6 +507,14 @@ export default function EventsPage() {
         onClose={() => setBinOpen(false)}
         onRestore={handleRestore}
         onClear={handleClearBin}
+        sudoMode={app.sudo}
+      />
+      <ArchiveEventsDialog
+        open={archiveBinOpen}
+        items={archiveBinItems}
+        loading={archiveBinLoading}
+        onClose={() => setArchiveBinOpen(false)}
+        onUnarchive={handleUnarchive}
         sudoMode={app.sudo}
       />
     </div>

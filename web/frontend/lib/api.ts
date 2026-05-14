@@ -105,6 +105,9 @@ export const events = {
   restore: (event_id: string) =>
     request('/api/recycle_bin/restore', { method: 'POST', body: JSON.stringify({ event_id }) }),
   clearBin: () => request('/api/recycle_bin', { method: 'DELETE' }),
+  listArchived: () => request<{ items: ApiEvent[] }>('/api/archived_events'),
+  archive: (id: string) => request(`/api/events/${id}/archive`, { method: 'POST' }),
+  unarchive: (id: string) => request(`/api/events/${id}/unarchive`, { method: 'POST' }),
 }
 
 // ── Graph ─────────────────────────────────────────────────────────────────

@@ -221,6 +221,9 @@ class WebuiServer:
         app.router.add_get("/api/recycle_bin", self._wrap("auth", self._handle_recycle_bin_list))
         app.router.add_post("/api/recycle_bin/restore", self._wrap("sudo", self._handle_recycle_bin_restore))
         app.router.add_delete("/api/recycle_bin", self._wrap("sudo", self._handle_recycle_bin_clear))
+        app.router.add_get("/api/archived_events", self._wrap("auth", self._handle_archived_events_list))
+        app.router.add_post("/api/events/{event_id}/archive", self._wrap("sudo", self._handle_archive_event))
+        app.router.add_post("/api/events/{event_id}/unarchive", self._wrap("sudo", self._handle_unarchive_event))
         app.router.add_post("/api/personas", self._wrap("sudo", self._handle_create_persona))
         app.router.add_put("/api/personas/{uid}", self._wrap("sudo", self._handle_update_persona))
         app.router.add_delete("/api/personas/{uid}", self._wrap("sudo", self._handle_delete_persona))
@@ -316,6 +319,7 @@ class WebuiServer:
             for gid in group_ids:
                 events.extend(await self._event_repo.list_by_group(gid, limit=per_group))
             events = events[:limit]
+        events = [e for e in events if e.status == "active"]
         return {"items": [event_to_dict(e) for e in events], "total": len(events)}
 
     async def graph_data(self) -> dict[str, Any]:
@@ -531,6 +535,28 @@ class WebuiServer:
     async def _handle_recycle_bin_clear(self, _: web.Request) -> web.Response:
         count = len(self._recycle_bin); self._recycle_bin.clear()
         return _json({"ok": True, "cleared": count})
+
+    async def _handle_archived_events_list(self, _: web.Request) -> web.Response:
+        from core.api import list_archived_events
+        return _json(await list_archived_events(self._event_repo))
+
+    async def _handle_archive_event(self, request: web.Request) -> web.Response:
+        from core.domain.models import EventStatus
+        event_id = request.match_info["event_id"]
+        existing = await self._event_repo.get(event_id)
+        if not existing:
+            return _json({"error": "not found"}, status=404)
+        await self._event_repo.set_status(event_id, EventStatus.ARCHIVED)
+        return _json({"ok": True})
+
+    async def _handle_unarchive_event(self, request: web.Request) -> web.Response:
+        from core.domain.models import EventStatus
+        event_id = request.match_info["event_id"]
+        existing = await self._event_repo.get(event_id)
+        if not existing:
+            return _json({"error": "not found"}, status=404)
+        await self._event_repo.set_status(event_id, EventStatus.ACTIVE)
+        return _json({"ok": True})
 
     async def _handle_create_persona(self, request: web.Request) -> web.Response:
         body = await request.json(); now = time.time()

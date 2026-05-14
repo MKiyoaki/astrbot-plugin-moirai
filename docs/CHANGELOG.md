@@ -1,5 +1,52 @@
 # CHANGELOG
 
+## [v0.9.18] — 2026-05-14
+
+### 归档事件功能 (Archived Events Feature)
+
+**新增功能**
+
+- **后端 API** (`web/server.py`, `core/api.py`)
+  - 新增 `GET /api/archived_events` 端点，返回所有已归档事件列表
+  - 新增 `POST /api/events/{event_id}/archive` 端点，将事件标记为已归档
+  - 新增 `POST /api/events/{event_id}/unarchive` 端点，将已归档事件恢复为活跃状态
+
+- **前端 API 客户端** (`web/frontend/lib/api.ts`)
+  - 新增 `events.listArchived()`、`events.archive(id)`、`events.unarchive(id)` 方法
+
+- **归档事件浏览弹窗** (`ArchiveEventsDialog`)
+  - 可在事件流页面和素材库页面工具栏（回收站按钮左侧）点击「归档事件」按钮打开
+  - 显示所有已归档事件，支持一键恢复为活跃状态
+
+- **归档按钮（二次确认）**
+  - 事件详情卡 (`EventDetailCard`)：锁定与删除按钮之间插入归档按钮；删除按钮改为纯图标
+  - 素材库事件行展开面板 (`EventDetailPanel` in `event-row.tsx`)：事件流与编辑按钮之间加入归档按钮
+  - 时间轴气泡 (`EventTimeline`)：编辑与删除图标之间加入归档图标按钮
+  - 以上所有归档按钮均采用**二次确认**交互：首次点击变为琥珀色「确认」状态，3 秒内再次点击执行归档，超时自动复原
+
+- **三语适配** (`web/frontend/lib/i18n.ts`)
+  - 新增 zh / ja / en 三语 keys：`archive`、`archivedBin`、`archivedBinDescription`、`archivedBinEmpty`、`unarchive`、`archiveSuccess`、`unarchiveSuccess`、`archiveBinLoadError`
+
+**问题修复**
+
+- **时间轴气泡悬停** (`EventTimeline`)
+  - 修复鼠标从事件点移向气泡时气泡立即消失的竞态问题
+  - 采用延迟计时器（120 ms）：鼠标离开事件点后延迟清除悬停状态；鼠标进入气泡时取消计时器，确保气泡保持显示
+
+- **归档后事件重新出现** (`web/server.py`, `core/api.py`)
+  - `list_by_group` 不过滤状态，修复为在 `events_data` / `list_events` 层对结果后过滤 `status == 'active'`，归档后刷新页面事件不再重新出现于主列表
+
+- **操作后事件面板自动跳转** (`events/page.tsx`)
+  - 归档或删除事件后，面板不再直接关闭，而是自动聚焦同一时间线上的下一个（或上一个）事件；仅当该时间线已无其他事件时才关闭面板
+
+- **操作后面板意外关闭** (`events/page.tsx`)
+  - `handleArchive` / `handleDelete` 改用函数式状态更新（`setDetailEvent(prev => ...)`），避免异步回调中闭包陈旧导致面板关闭判断错误
+
+- **水合错误：`<button>` 嵌套** (`GroupPicker` in `event-dialogs.tsx`)
+  - `PopoverTrigger`（渲染为 `<button>`）内部的清除按钮从 `<Button>` 改为 `<span role="button">`，消除 HTML 非法嵌套导致的 hydration error
+
+---
+
 ## [v0.9.17] — 2026-05-14
 
 ### 安装兼容与插件 i18n 修复

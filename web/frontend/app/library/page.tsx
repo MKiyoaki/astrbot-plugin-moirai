@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Search, Pencil, Trash2, Activity, Clock, Users, Building2 } from 'lucide-react'
+import { Search, Pencil, Trash2, Archive, Activity, Clock, Users, Building2 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -20,7 +20,7 @@ import { PageHeader } from '@/components/layout/page-header'
 import { FilterBar } from '@/components/shared/filter-bar'
 import { RefreshButton } from '@/components/shared/refresh-button'
 import { EditPersonaDialog } from '@/components/graph/persona-dialogs'
-import { EditEventDialog, RecycleBinDialog, type EventFormData } from '@/components/events/event-dialogs'
+import { EditEventDialog, RecycleBinDialog, ArchiveEventsDialog, type EventFormData } from '@/components/events/event-dialogs'
 import { EventRow } from '@/components/library/event-row'
 import { PersonaRow } from '@/components/library/persona-row'
 import { GroupRow, type GroupInfo } from '@/components/library/group-row'
@@ -80,6 +80,9 @@ function LibraryContent() {
   const [binOpen, setBinOpen] = useState(false)
   const [binItems, setBinItems] = useState<any[]>([])
   const [binLoading, setBinLoading] = useState(false)
+  const [archiveBinOpen, setArchiveBinOpen] = useState(false)
+  const [archiveBinItems, setArchiveBinItems] = useState<api.ApiEvent[]>([])
+  const [archiveBinLoading, setArchiveBinLoading] = useState(false)
 
   const openBin = useCallback(async () => {
     setBinOpen(true)
@@ -116,6 +119,32 @@ function LibraryContent() {
       setBinItems([])
     } catch {
       toast(i18n.common.deleteFailed, 'destructive')
+    }
+  }
+
+  const openArchiveBin = useCallback(async () => {
+    setArchiveBinOpen(true)
+    setArchiveBinLoading(true)
+    try {
+      const res = await api.events.listArchived()
+      setArchiveBinItems(res.items)
+    } catch {
+      toast(i18n.events.archiveBinLoadError, 'destructive')
+    } finally {
+      setArchiveBinLoading(false)
+    }
+  }, [toast, i18n])
+
+  const handleUnarchive = async (eventId: string) => {
+    if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
+    try {
+      await api.events.unarchive(eventId)
+      toast(i18n.events.unarchiveSuccess)
+      setArchiveBinItems(prev => prev.filter(x => x.id !== eventId))
+      loadData()
+      refreshStats()
+    } catch (e: any) {
+      toast(e?.body || e?.message || i18n.common.updateFailed, 'destructive')
     }
   }
 
@@ -351,6 +380,19 @@ function LibraryContent() {
     })
   }
 
+  const handleArchiveEvent = async (ev: api.ApiEvent) => {
+    if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
+    try {
+      await api.events.archive(ev.id)
+      toast(i18n.events.archiveSuccess)
+      setExpandedId(prev => prev === ev.id ? null : prev)
+      loadData()
+      refreshStats()
+    } catch (e: any) {
+      toast(e?.body || e?.message || i18n.common.updateFailed, 'destructive')
+    }
+  }
+
   const goToGraph = (uid: string) => { setStored('em_focus_persona', uid, 'session'); router.push('/graph') }
   const goToEvents = (eventId: string) => { setStored('em_focus_event', eventId, 'session'); router.push('/events') }
   const handleTagClick = (t: string) => {
@@ -370,6 +412,11 @@ function LibraryContent() {
           onChange={e => setSearch(e.target.value)}
         />
       </div>
+
+      <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2" onClick={openArchiveBin}>
+        <Archive className="size-3.5" />
+        <span className="hidden sm:inline">{i18n.events.archivedBin}</span>
+      </Button>
 
       <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2" onClick={openBin}>
         <Trash2 className="size-3.5" />
@@ -477,6 +524,7 @@ function LibraryContent() {
                         onEdit={setEditEvent}
                         onDelete={handleDeleteEvent}
                         onLockToggle={handleLockToggle}
+                        onArchive={handleArchiveEvent}
                         onGoToEvents={goToEvents}
                         onTagClick={handleTagClick}
                       />
@@ -659,6 +707,11 @@ function LibraryContent() {
         open={binOpen} items={binItems} loading={binLoading}
         onClose={() => setBinOpen(false)} onRestore={handleRestore}
         onClear={handleClearBin} sudoMode={sudo}
+      />
+      <ArchiveEventsDialog
+        open={archiveBinOpen} items={archiveBinItems} loading={archiveBinLoading}
+        onClose={() => setArchiveBinOpen(false)} onUnarchive={handleUnarchive}
+        sudoMode={sudo}
       />
 
       <AlertDialog open={deleteDialog.open} onOpenChange={o => setDeleteDialog(prev => ({ ...prev, open: o }))}>

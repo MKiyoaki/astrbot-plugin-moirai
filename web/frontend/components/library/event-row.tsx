@@ -1,7 +1,7 @@
 'use client'
 
-import { Fragment } from 'react'
-import { Lock, Unlock, Pencil, Trash2, GitBranch, ChevronDown, ChevronRight } from 'lucide-react'
+import { Fragment, useState, useRef } from 'react'
+import { Lock, Unlock, Pencil, Trash2, GitBranch, ChevronDown, ChevronRight, Archive } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -35,13 +35,14 @@ interface EventRowProps {
   onEdit: (ev: ApiEvent) => void
   onDelete: (ev: ApiEvent) => void
   onLockToggle: (ev: ApiEvent) => void
+  onArchive?: (ev: ApiEvent) => void
   onGoToEvents: (id: string) => void
   onTagClick: (tag: string) => void
 }
 
 export function EventRow({
   ev, expanded, editMode, selected, sudoMode, activeTags, lang,
-  onToggleExpand, onToggleSelect, onEdit, onDelete, onLockToggle, onGoToEvents, onTagClick,
+  onToggleExpand, onToggleSelect, onEdit, onDelete, onLockToggle, onArchive, onGoToEvents, onTagClick,
 }: EventRowProps) {
   const { i18n } = useApp()
   const color = threadColor(ev.id)
@@ -116,7 +117,7 @@ export function EventRow({
             <EventDetailPanel
               ev={ev} sudoMode={sudoMode} lang={lang}
               onGoToEvents={onGoToEvents} onEdit={onEdit}
-              onDelete={onDelete} onLockToggle={onLockToggle}
+              onDelete={onDelete} onLockToggle={onLockToggle} onArchive={onArchive}
             />
           </TableCell>
         </TableRow>
@@ -126,15 +127,18 @@ export function EventRow({
 }
 
 function EventDetailPanel({
-  ev, sudoMode, lang, onGoToEvents, onEdit, onDelete, onLockToggle,
+  ev, sudoMode, lang, onGoToEvents, onEdit, onDelete, onLockToggle, onArchive,
 }: {
   ev: ApiEvent; sudoMode: boolean; lang: string
   onGoToEvents: (id: string) => void
   onEdit: (ev: ApiEvent) => void
   onDelete: (ev: ApiEvent) => void
   onLockToggle: (ev: ApiEvent) => void
+  onArchive?: (ev: ApiEvent) => void
 }) {
   const { i18n } = useApp()
+  const [pendingArchive, setPendingArchive] = useState(false)
+  const archiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const topics = parseSummaryTopics(ev.summary)
 
   return (
@@ -191,7 +195,7 @@ function EventDetailPanel({
       )}
 
       {/* Actions */}
-      <div className="flex gap-2 pt-1">
+      <div className="flex gap-2 pt-1 flex-wrap">
         <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => onGoToEvents(ev.id)}>
           <GitBranch className="mr-1.5 size-3" />{lang === 'zh' ? '事件流' : 'Events'}
         </Button>
@@ -199,6 +203,27 @@ function EventDetailPanel({
           {ev.is_locked ? <Unlock className="mr-1.5 size-3" /> : <Lock className="mr-1.5 size-3" />}
           {ev.is_locked ? i18n.events.unlock : i18n.events.lock}
         </Button>
+        {onArchive && (
+          <Button
+            size="sm"
+            variant={pendingArchive ? 'default' : 'outline'}
+            className={`h-7 text-xs transition-colors ${pendingArchive ? 'bg-amber-500 hover:bg-amber-600 border-amber-500 text-white' : ''}`}
+            disabled={!sudoMode || ev.is_locked || ev.status === 'archived'}
+            onClick={() => {
+              if (!pendingArchive) {
+                setPendingArchive(true)
+                archiveTimerRef.current = setTimeout(() => setPendingArchive(false), 3000)
+              } else {
+                if (archiveTimerRef.current) clearTimeout(archiveTimerRef.current)
+                setPendingArchive(false)
+                onArchive(ev)
+              }
+            }}
+          >
+            <Archive className="mr-1.5 size-3" />
+            {pendingArchive ? i18n.common.confirm : i18n.events.archive}
+          </Button>
+        )}
         <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={!sudoMode} onClick={() => onEdit(ev)}>
           <Pencil className="mr-1.5 size-3" />{i18n.common.edit}
         </Button>
