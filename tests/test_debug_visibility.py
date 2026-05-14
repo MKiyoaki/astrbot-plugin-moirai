@@ -75,8 +75,9 @@ def test_format_system_prompt_debug_compacts_persona_and_skills() -> None:
     assert "Skill Rules" not in text
     assert "format code" not in text
     assert "已启用 Skill：code_formatter, web_search" in text
-    assert "## Tools" in text
-    assert "keep this section" in text
+    # Unrecognized heading sections are now skipped entirely
+    assert "## Tools" not in text
+    assert "keep this section" not in text
 
 
 def test_format_injection_debug_hides_internal_prompt_details() -> None:

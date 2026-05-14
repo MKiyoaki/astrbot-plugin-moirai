@@ -119,6 +119,13 @@ def _format_system_prompt_for_debug(system_prompt: str, persona_name: str | None
             output.append("已启用 Skill：" + (", ".join(skill_names) if skill_names else "无"))
             continue
 
+        if _TOP_LEVEL_HEADING_RE.match(stripped):
+            # Skip unrecognized heading sections — only known sections above are kept
+            i += 1
+            while i < len(lines) and not _TOP_LEVEL_HEADING_RE.match(lines[i].strip()):
+                i += 1
+            continue
+
         output.append(line)
         i += 1
 
@@ -130,6 +137,10 @@ def _format_injection_debug_for_display(debug: dict) -> str:
     lines = [
         "[Moirai 实际注入摘要]",
     ]
+
+    error = debug.get("_error")
+    if error:
+        lines.append(f"注入错误：{error}")
 
     memory = debug.get("memory") if isinstance(debug.get("memory"), dict) else {}
     if memory.get("injected"):
@@ -312,6 +323,16 @@ class EventHandler:
                     
             except Exception as exc:
                 astrbot_logger.warning("[%s] recall hook failed: %s", _PLUGIN_NAME, exc)
+                if icfg.show_injection_summary:
+                    try:
+                        recall._last_injection_debug[session_id] = {
+                            "injected": False, "position": "unknown",
+                            "memory": {"injected": False, "count": 0, "events": []},
+                            "persona": None, "soul": None,
+                            "hidden": [], "_error": str(exc),
+                        }
+                    except Exception:
+                        pass
 
     async def handle_message(self, event: AstrMessageEvent) -> None:
         """Route incoming messages through the event boundary detector."""
@@ -414,6 +435,11 @@ class EventHandler:
             debug = pop_injection_debug(session_id) if callable(pop_injection_debug) else None
             if debug:
                 prefix_parts.append(_format_injection_debug_for_display(debug))
+            else:
+                astrbot_logger.warning(
+                    "[%s] show_injection_summary=True but no debug for session %s",
+                    _PLUGIN_NAME, session_id,
+                )
 
         if icfg.show_system_prompt:
             raw_sp = self._pre_inject_sys_prompt.pop(session_id, None)
