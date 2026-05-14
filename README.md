@@ -8,7 +8,7 @@
 
 [![version](https://img.shields.io/badge/版本-v0.9.11-blueviolet)](metadata.yaml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
-[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![license](https://img.shields.io/badge/license-APGL-green)](LICENSE)
 [![en](https://img.shields.io/badge/English-README__EN.md-blue)](README_EN.md)
 
 *情节轴 · 社交轴 · 叙事轴*

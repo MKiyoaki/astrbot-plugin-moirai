@@ -830,24 +830,33 @@ class PluginRoutes:
             except (TypeError, ValueError):
                 coerced[key] = val
         
-        # Special handling for password: sync to hashed file
-        if "webui_password" in coerced:
-            self._sync_password_to_file(coerced["webui_password"])
-
-        existing: dict = {}
-        if self._config_path.exists():
+        # 核心逻辑：如果修改了密码，直接哈希化存入单源文件，并清空配置中的明文
+        if "webui_password" in coerced and coerced["webui_password"]:
+            new_pw = coerced["webui_password"]
             try:
-                existing = json.loads(self._config_path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        existing.update(coerced)
-        self._config_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+                # 这里我们手动处理哈希化，因为 PluginRoutes 没持有 AuthManager
+                from .auth import _hash_password
+                pw_file = self._data_dir / ".webui_password"
+                pw_file.write_text(_hash_password(new_pw), encoding="utf-8")
+                try: pw_file.chmod(0o600)
+                except: pass
+                coerced["webui_password"] = "" # 清空明文
+                logger.info("[PluginRoutes] Password migrated to hashed file and cleared from config.")
+            except Exception as e:
+                return _json({"error": f"Failed to set password: {str(e)}"}, status=400)
 
-        # Sync to AstrBot if star instance available
+        # Sync to AstrBot
         if self._star and hasattr(self._star, "config"):
             try:
-                # AstrBotConfig inherits from dict and has save_config()
-                self._star.config.update(coerced)
+                # Update AstrBot's live config (handles nested structure)
+                for k, v in coerced.items():
+                    if k in self._star.config:
+                        self._star.config[k] = v
+                    # Also check nested
+                    for group_k, group_v in self._star.config.items():
+                        if isinstance(group_v, dict) and k in group_v:
+                            group_v[k] = v
+                
                 if hasattr(self._star.config, "save_config"):
                     self._star.config.save_config()
             except Exception as e:

@@ -101,8 +101,8 @@ class AuthManager:
         self._is_token_configured = is_configured
 
     def is_password_set(self) -> bool:
-        """返回是否已设置持久化密码，或在配置文件中显式指定了静态密码。"""
-        return self._password_file.exists() or self._is_token_configured
+        """返回是否已设置持久化密码。不再依赖配置中的静态密码。"""
+        return self._password_file.exists()
 
     def setup_password(self, password: str) -> None:
         """首次设置密码，仅在未设置时可用；调用方负责前置检查。"""
@@ -115,25 +115,17 @@ class AuthManager:
         except OSError:
             pass
         
+        # 只要设了持久化密码，内存中的临时 Token 就该滚蛋
+        self._secret_token = None
+        self._is_token_configured = False
+        
         # 同步回配置
         if self._on_password_changed:
             self._on_password_changed(password)
 
     def change_password(self, old_password: str, new_password: str) -> bool:
-        if not self.is_password_set():
-            return False
-        
-        # 验证旧密码：优先验证文件，其次验证内存 token
-        verified = False
-        if self._password_file.exists():
-            current = self._password_file.read_text(encoding="utf-8").strip()
-            if _verify_password(old_password, current):
-                verified = True
-        
-        if not verified and self._secret_token and old_password == self._secret_token:
-            verified = True
-            
-        if not verified:
+        # 验证旧密码：由于现在是单源，直接用 verify_password
+        if not self.verify_password(old_password):
             return False
             
         self.setup_password(new_password)
@@ -143,14 +135,18 @@ class AuthManager:
     def verify_password(self, password: str) -> bool:
         if not password:
             return False
-        # 1. Check against memory-only secret token (if generated or configured)
-        if self._secret_token and password == self._secret_token:
-            return True
-        # 2. Check against persistent password file
+        # 1. 优先校验持久化哈希文件
         if self._password_file.exists():
             current = self._password_file.read_text(encoding="utf-8").strip()
             if current and _verify_password(password, current):
                 return True
+            # 如果哈希文件存在但校验失败，不应该再往下走去校验 Token，防止后门
+            return False
+            
+        # 2. 只有在没有哈希文件时，才校验内存 Token（生成的或配置临时传入的）
+        if self._secret_token and password == self._secret_token:
+            return True
+            
         return False
 
     # ------------------------------------------------------------------

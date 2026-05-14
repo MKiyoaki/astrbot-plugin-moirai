@@ -297,39 +297,11 @@ class PluginConfig:
         for k, v in raw.items():
             if isinstance(v, dict):
                 for sub_k, sub_v in v.items():
-                    # Preserve non-empty values if they already exist
-                    if sub_k in flat and not sub_v and flat[sub_k]:
-                        continue
+                    # Priority: take the nested value
                     flat[sub_k] = sub_v
             else:
                 flat[k] = v
         
-        # Merge values from data/plugin_config.json if it exists (WebUI-saved config)
-        if data_dir:
-            config_path = data_dir / "plugin_config.json"
-            if config_path.exists():
-                try:
-                    import json
-                    local_cfg = json.loads(config_path.read_text(encoding="utf-8"))
-                    # Merge local config. For most fields, the WebUI (local_cfg) is the source of truth
-                    # if the user has been using it.
-                    for k, v in local_cfg.items():
-                        if v is not None:
-                            # If it's a critical WebUI field, we generally trust the local_cfg
-                            # unless the panel has a non-default value we want to keep.
-                            # But password is the main pain point.
-                            
-                            # If the key is 'webui_password', we ONLY override if the panel's
-                            # value is DIFFERENT from what we have locally and not empty.
-                            # This is tricky. Let's simplify: local_cfg wins for WebUI fields.
-                            if k.startswith("webui_") and k != "webui_enabled":
-                                flat[k] = v
-                                continue
-
-                            flat[k] = v
-                except:
-                    pass
-
         self._raw = flat
 
     # ------------------------------------------------------------------

@@ -8,7 +8,7 @@
 
 [![version](https://img.shields.io/badge/version-v0.9.11-blueviolet)](metadata.yaml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
-[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![license](https://img.shields.io/badge/license-APGL-green)](LICENSE)
 [![zh](https://img.shields.io/badge/中文-README.md-red)](README.md)
 
 *Episodic · Social · Narrative*

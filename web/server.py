@@ -131,26 +131,49 @@ class WebuiServer:
         self._star = star
 
         self._initial_config = initial_config or {}
-        cfg_password = self._initial_config.get("webui_password", "").strip()
-        self.token_generated = False
-        is_token_configured = bool(cfg_password)
+        # 1. 检查是否有持久化哈希文件
+        has_persistent_pw = (data_dir / ".webui_password").exists()
+        
+        # 2. 检查配置面板里有没有刚填入的明文密码
+        cfg_password = self._initial_config.get("webui_password")
+        if cfg_password is None and "webui" in self._initial_config:
+            cfg_password = self._initial_config["webui"].get("webui_password")
+        cfg_password = str(cfg_password or "").strip()
 
-        if not is_token_configured and auth_enabled and not (data_dir / ".webui_password").exists():
-            self._secret_token = secrets.token_urlsafe(16)
-            self.token_generated = True
-        else:
-            self._secret_token = cfg_password or None
+        self.token_generated = False
+        secret_token = None
+
+        if not has_persistent_pw:
+            if cfg_password:
+                # 这种情况说明用户在面板设了密码，但哈希文件还没生成
+                # 我们稍后会在 AuthManager 初始化后调用 setup_password
+                secret_token = cfg_password
+            elif auth_enabled:
+                # 彻彻底底啥也没有，生成临时 Token
+                secret_token = secrets.token_urlsafe(16)
+                self.token_generated = True
+        
+        self._secret_token = secret_token
 
         def on_pw_changed(new_pw: str):
-            # Sync back to config file and AstrBot
-            self._sync_password_to_config(new_pw)
+            # 当密码通过 WebUI 设置或更改时，同步回 AstrBot 配置并【清空】明文显示
+            self._sync_password_to_config("") # 清空明文，因为哈希文件已经是 Source of Truth
+            self.token_generated = False
 
         self._auth = AuthManager(
             data_dir,
             secret_token=self._secret_token,
-            is_token_configured=is_token_configured,
+            is_token_configured=bool(cfg_password),
             on_password_changed=on_pw_changed
         )
+
+        # 核心逻辑：如果面板里有明文密码，立刻哈希化并清空面板
+        if cfg_password and not has_persistent_pw:
+            try:
+                self._auth.setup_password(cfg_password)
+                logger.info("[WebUI] Panel password migrated to hashed file and cleared from config.")
+            except Exception as e:
+                logger.warning("[WebUI] Failed to migrate panel password: %s", e)
         self.registry = registry or PanelRegistry()
         self._task_runner = task_runner
         self._provider_getter = provider_getter
@@ -575,27 +598,20 @@ class WebuiServer:
         return _json(json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {})
 
     def _sync_password_to_config(self, password: str):
-        """Helper to sync password back to config files and AstrBot instance."""
+        """Helper to sync password back to AstrBot instance."""
         try:
-            # 1. Update local file
-            existing = {}
-            if self._config_path.exists():
-                try:
-                    existing = json.loads(self._config_path.read_text(encoding="utf-8"))
-                except: pass
-            existing["webui_password"] = password
-            self._config_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
-            
-            # 2. Update memory token in AuthManager (so it's immediately effective)
-            self._auth.update_secret_token(password, True)
-
-            # 3. Sync to AstrBot
+            # Sync to AstrBot
             if self._star and hasattr(self._star, "config"):
-                self._star.config["webui_password"] = password
+                # Handle both flat and nested
+                if "webui_password" in self._star.config:
+                    self._star.config["webui_password"] = password
+                if "webui" in self._star.config and isinstance(self._star.config["webui"], dict):
+                    self._star.config["webui"]["webui_password"] = password
+                
                 if hasattr(self._star.config, "save_config"):
                     self._star.config.save_config()
             
-            logger.info("[WebUI] Password synced to configuration.")
+            logger.info("[WebUI] Password field synced (and likely cleared) in configuration.")
         except Exception as e:
             logger.warning("[WebUI] Failed to sync password to config: %s", e)
 
@@ -603,7 +619,6 @@ class WebuiServer:
         body = await request.json()
         raw = json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {}
         
-        # 构建 flat schema 用于类型校验
         flat_schema: dict = {}
         for group_data in raw.values():
             if isinstance(group_data, dict) and group_data.get("type") == "object":
@@ -611,28 +626,33 @@ class WebuiServer:
         
         coerced = {}
         for k, v in body.items():
-            if k not in flat_schema:
-                continue
+            if k not in flat_schema: continue
             try:
                 t = flat_schema[k].get("type", "string")
                 coerced[k] = bool(v) if t == "bool" else (int(v) if t == "int" else (float(v) if t == "float" else v))
-            except:
-                coerced[k] = v
+            except: coerced[k] = v
         
-        # Special handling for password: if it's changed in the config panel, update AuthManager
-        if "webui_password" in coerced:
+        # 核心逻辑：如果修改了密码，直接哈希化存入单源文件，并清空配置中的明文
+        if "webui_password" in coerced and coerced["webui_password"]:
             new_pw = coerced["webui_password"]
-            self._auth.update_secret_token(new_pw, bool(new_pw))
+            try:
+                self._auth.setup_password(new_pw)
+                coerced["webui_password"] = "" # 存完哈希立刻清空明文
+            except Exception as e:
+                return _json({"error": f"Failed to set password: {str(e)}"}, status=400)
 
-        existing = json.loads(self._config_path.read_text(encoding="utf-8")) if self._config_path.exists() else {}
-        existing.update(coerced)
-        self._config_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
-
-        # Sync to AstrBot if star instance available
+        # Sync to AstrBot
         if self._star and hasattr(self._star, "config"):
             try:
-                # AstrBotConfig inherits from dict and has save_config()
-                self._star.config.update(coerced)
+                # Update AstrBot's live config (handles nested structure)
+                for k, v in coerced.items():
+                    if k in self._star.config:
+                        self._star.config[k] = v
+                    # Also check nested
+                    for group_k, group_v in self._star.config.items():
+                        if isinstance(group_v, dict) and k in group_v:
+                            group_v[k] = v
+                
                 if hasattr(self._star.config, "save_config"):
                     self._star.config.save_config()
             except Exception as e:
