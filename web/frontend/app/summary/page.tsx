@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Pencil, Save, X, Search, RotateCcw } from 'lucide-react'
+import { Pencil, Save, X, Search, RotateCcw, ScrollText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { PageHeader } from '@/components/layout/page-header'
 import { RefreshButton } from '@/components/shared/refresh-button'
+import { EmptyState } from '@/components/shared/empty-state'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -230,7 +231,7 @@ export default function SummaryPage() {
           <ScrollArea className="flex-1">
             <div className="p-2">
               {filtered.length === 0 ? (
-                <p className="text-muted-foreground px-2 py-4 text-center text-xs">
+                <p className="text-muted-foreground px-2 py-4 text-center text-xs whitespace-pre-line">
                   {i18n.summary.noneHint}
                 </p>
               ) : (
@@ -256,9 +257,11 @@ export default function SummaryPage() {
 
         <div className="flex flex-1 flex-col overflow-hidden min-w-0">
           {!current.date ? (
-            <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm animate-in fade-in duration-500">
-              {i18n.summary.placeholder}
-            </div>
+            <EmptyState
+              icon={ScrollText}
+              title={summaries.length === 0 ? i18n.summary.noneHint.split('\n')[0] : i18n.summary.placeholder}
+              description={summaries.length === 0 ? i18n.summary.noneHint.split('\n').slice(1).join(' ') : undefined}
+            />
           ) : loading ? (
             <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm animate-pulse">
               {i18n.common.loading}

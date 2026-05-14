@@ -69,7 +69,7 @@ class SemanticPartitioner(BasePartitioner):
             return [Partition(indices=list(range(len(window.messages))))]
 
         # 1. Extract embeddings
-        embeddings = await self._encoder.encode_batch([m.content for m in window.messages])
+        embeddings = await self._encoder.encode_batch([m.text for m in window.messages])
 
         # 2. Compute semantic distances
         dists = cosine_distances(embeddings)

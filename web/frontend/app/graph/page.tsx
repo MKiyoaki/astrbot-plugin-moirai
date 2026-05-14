@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { UserPlus, ChevronLeft, Maximize2, XCircle, Search } from 'lucide-react'
+import { UserPlus, ChevronLeft, Maximize2, XCircle, Search, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/layout/page-header'
@@ -14,11 +14,11 @@ import { NodeDetail } from '@/components/graph/node-detail'
 import { EdgeDetail } from '@/components/graph/edge-detail'
 import { GroupCardList } from '@/components/graph/group-card-list'
 import { RefreshButton } from '@/components/shared/refresh-button'
+import { EmptyState } from '@/components/shared/empty-state'
 import { useApp } from '@/lib/store'
 import { getStored, removeStored, setStored } from '@/lib/safe-storage'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   DEFAULT_PHYSICS_PARAMS,
   DEFAULT_VISUAL_PARAMS,
@@ -396,16 +396,11 @@ export default function GraphPage() {
     return (
       <div className="flex h-screen flex-col overflow-hidden animate-in fade-in duration-500">
         <PageHeader title={i18n.page.graph.title} description={i18n.page.graph.description} />
-        <div className="flex flex-1 items-center justify-center p-8">
-          <Card className="max-w-md w-full">
-            <CardHeader>
-              <CardTitle>{i18n.page.graph.disabledTitle}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">{i18n.page.graph.disabledDescription}</p>
-            </CardContent>
-          </Card>
-        </div>
+        <EmptyState
+          icon={Share2}
+          title={i18n.page.graph.disabledTitle}
+          description={i18n.page.graph.disabledDescription}
+        />
       </div>
     )
   }

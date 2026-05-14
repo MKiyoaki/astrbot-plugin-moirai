@@ -21,6 +21,7 @@ import {
   Popover, PopoverTrigger, PopoverContent,
 } from '@/components/ui/popover'
 import { RefreshButton } from '@/components/shared/refresh-button'
+import { EmptyState } from '@/components/shared/empty-state'
 import { useApp } from '@/lib/store'
 import { getStored, removeStored } from '@/lib/safe-storage'
 import * as api from '@/lib/api'
@@ -325,20 +326,16 @@ export default function EventsPage() {
         {/* Main Timeline View - Always full width */}
         <div className="flex flex-1 flex-col overflow-hidden relative">
           {app.rawEvents.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
-              <div className="size-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                <MessageSquareOff className="size-8 text-muted-foreground/60" />
-              </div>
-              <h3 className="text-lg font-medium mb-1">{i18n.page.events.noEvents}</h3>
-              <p className="text-sm text-muted-foreground max-w-xs">
-                {i18n.page.events.description}
-              </p>
-              {app.sudo && (
-                <Button variant="outline" size="sm" className="mt-6" onClick={() => setCreateOpen(true)}>
+            <EmptyState
+              icon={MessageSquareOff}
+              title={i18n.page.events.noEvents}
+              description={i18n.page.events.description}
+              action={app.sudo && (
+                <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
                   <Plus className="mr-1.5 size-3.5" />{i18n.common.create}
                 </Button>
               )}
-            </div>
+            />
           ) : filtered.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
               <Search className="size-12 text-muted-foreground/30 mb-4" />
