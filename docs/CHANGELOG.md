@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [v0.10.3] — 2026-05-14
+
+### 调试功能稳定性修复 + 系统消息标记
+
+**Bug Fix**
+
+- **两个调试开关同时开启时机器人只回复"未找到相关记忆。"** (`core/event_handler.py`)
+  - 根因：`@filter.on_decorating_result()` 对**所有** `CommandResult` 触发，包括 `@filter.llm_tool` 工具调用返回的 `GENERAL_RESULT`
+  - 当 LLM 调用 `core_memory_recall` 并得到空结果时，`handle_decorating_result` 会将调试前缀拼接到"未找到相关记忆。"上，该奇怪文本进入对话历史后导致 LLM 行为混乱
+  - 此外，`pop_recall_debug` 会被工具调用结果提前消耗，使真正的 LLM 响应无法附带调试信息
+  - 修复：在 `handle_decorating_result` 开头增加 `is_llm_result()` 守卫，仅对 `LLM_RESULT` 类型结果执行装饰逻辑，工具调用结果直接跳过
+
+**新增功能**
+
+- **调试消息前加 `[系统测试消息]` 标记** (`core/event_handler.py`)
+  - 当记忆检索过程或 System Prompt 前缀被附加到回复时，消息最开头会显示 `[系统测试消息]`，清楚标明这是调试输出而非正常回复内容
+
 ## [v0.10.2] — 2026-05-14
 
 ### 实机问题修复

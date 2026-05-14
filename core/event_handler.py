@@ -152,6 +152,12 @@ class EventHandler:
         self, event: AstrMessageEvent, result: CommandResult
     ) -> None:
         """Prepend memory-retrieval debug info and/or system prompt to the reply."""
+        # Only decorate actual LLM responses; tool call results (GENERAL_RESULT) must
+        # not receive the prefix — they would corrupt conversation history and cause
+        # the LLM to loop on core_memory_recall calls.
+        if not getattr(result, "is_llm_result", lambda: False)():
+            return
+
         recall = self._init.recall
         if recall is None:
             return
@@ -189,4 +195,4 @@ class EventHandler:
 
         if not prefix_parts:
             return
-        _prepend_to_result(result, "\n\n".join(prefix_parts) + "\n\n")
+        _prepend_to_result(result, "[系统测试消息]\n\n" + "\n\n".join(prefix_parts) + "\n\n")
