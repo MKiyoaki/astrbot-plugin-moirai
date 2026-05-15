@@ -101,13 +101,13 @@ export const events = {
   update: (id: string, data: Record<string, unknown>) =>
     request(`/api/events/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) => request(`/api/events/${id}`, { method: 'DELETE' }),
+  listArchived: () => request<EventsResponse>('/api/archived_events'),
+  archive: (event_id: string) => request(`/api/events/${event_id}/archive`, { method: 'POST' }),
+  unarchive: (event_id: string) => request(`/api/events/${event_id}/unarchive`, { method: 'POST' }),
   recycleBin: () => request<{ items: (ApiEvent & { deleted_at?: string })[] }>('/api/recycle_bin'),
   restore: (event_id: string) =>
     request('/api/recycle_bin/restore', { method: 'POST', body: JSON.stringify({ event_id }) }),
   clearBin: () => request('/api/recycle_bin', { method: 'DELETE' }),
-  listArchived: () => request<{ items: ApiEvent[] }>('/api/archived_events'),
-  archive: (id: string) => request(`/api/events/${id}/archive`, { method: 'POST' }),
-  unarchive: (id: string) => request(`/api/events/${id}/unarchive`, { method: 'POST' }),
 }
 
 // ── Graph ─────────────────────────────────────────────────────────────────
@@ -217,7 +217,7 @@ export const pluginConfig = {
 }
 
 export const auth = {
-  status: () => request<{ authenticated: boolean; sudo: boolean; auth_enabled: boolean }>('/api/auth/status'),
+  status: () => request<{ authenticated: boolean; sudo: boolean; auth_enabled: boolean; version?: string }>('/api/auth/status'),
   login: (password: string) => request<{ ok: boolean }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
   logout: () => request<{ ok: boolean }>('/api/auth/logout', { method: 'POST', body: '{}' }),
   sudo: (password: string) => request<{ ok: boolean }>('/api/auth/sudo', { method: 'POST', body: JSON.stringify({ password }) }),

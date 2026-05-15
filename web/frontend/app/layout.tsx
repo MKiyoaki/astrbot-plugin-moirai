@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono, PT_Serif_Caption } from 'next/font/google'
+import { Geist, Geist_Mono, PT_Serif } from 'next/font/google'
 import './globals.css'
 import { ThemeProvider } from '@/components/theme-provider'
 import { AppProvider } from '@/lib/store'
@@ -9,7 +9,7 @@ import { DebugInstaller } from '@/components/shared/debug-installer'
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-sans' })
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono' })
-const ptSerif = PT_Serif_Caption({ weight: '400', subsets: ['latin'], variable: '--font-serif' })
+const ptSerif = PT_Serif({ weight: ['400', '700'], style: ['normal', 'italic'], subsets: ['latin'], variable: '--font-serif' })
 
 export const metadata: Metadata = {
   title: 'Moirai',

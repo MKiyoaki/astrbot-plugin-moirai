@@ -7,8 +7,10 @@
 - 默认端口 2654，不与生产端口 2653 冲突
 
 用法：
-    python run_webui_dev.py
+    python run_webui_dev.py                    # 无认证，直接进入主界面
+    python run_webui_dev.py --auth             # 启用认证，可预览登录页面
     python run_webui_dev.py --port 9000
+    python run_webui_dev.py --auth --port 9000
 """
 from __future__ import annotations
 
@@ -43,15 +45,19 @@ _PORT = 2654
 _DATA_DIR = _ROOT / ".dev_data"
 
 
-def _parse_port() -> int:
+def _parse_args() -> tuple[int, bool]:
     args = sys.argv[1:]
+    port = _PORT
+    auth = False
     if "--port" in args:
         idx = args.index("--port")
         try:
-            return int(args[idx + 1])
+            port = int(args[idx + 1])
         except (IndexError, ValueError):
             pass
-    return _PORT
+    if "--auth" in args:
+        auth = True
+    return port, auth
 
 
 async def _seed(
@@ -283,7 +289,7 @@ async def _seed(
 
 
 async def main() -> None:
-    port = _parse_port()
+    port, auth_enabled = _parse_args()
     data_dir = _DATA_DIR
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -299,7 +305,7 @@ async def main() -> None:
         impression_repo=impression_repo,
         data_dir=data_dir,
         port=port,
-        auth_enabled=False,      # 本地调试无需密码
+        auth_enabled=auth_enabled,
         plugin_version=get_plugin_version(),
     )
     await srv.start()
@@ -308,7 +314,10 @@ async def main() -> None:
     print(f"  API:     http://localhost:{port}/api/stats")
     print(f"  前端开发: cd web/frontend && npm run dev → http://localhost:3000")
     print(f"  数据目录: {data_dir}")
-    print(f"  认证: 已关闭（本地调试模式）")
+    if auth_enabled:
+        print(f"  认证: 已启用（--auth 模式，首次访问需设置密码）")
+    else:
+        print(f"  认证: 已关闭（本地调试模式，使用 --auth 可启用登录页）")
 
     stop_event = asyncio.Event()
     try:

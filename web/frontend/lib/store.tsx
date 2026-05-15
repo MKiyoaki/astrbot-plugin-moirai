@@ -13,6 +13,7 @@ interface AppState {
   authEnabled: boolean
   authenticated: boolean
   authLoading: boolean
+  preAuthVersion: string
   // Persona defaults (localStorage-backed)
   defaultPersonaConfidence: number
   // i18n
@@ -49,12 +50,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [authEnabled, setAuthEnabled] = useState(true)
   const [authenticated, setAuthenticated] = useState(false)
   const [authLoading, setAuthLoading] = useState(true)
+  const [preAuthVersion, setPreAuthVersion] = useState('…')
 
   useEffect(() => {
     api.auth.status().then(s => {
       setAuthEnabled(s.auth_enabled)
       setAuthenticated(!s.auth_enabled || s.authenticated)
       setSudo(!s.auth_enabled || s.sudo)
+      if (s.version) setPreAuthVersion(s.version)
     }).catch(() => {
       setAuthEnabled(false)
       setAuthenticated(true)
@@ -142,6 +145,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     authEnabled,
     authenticated,
     authLoading,
+    preAuthVersion,
     setSudo,
     setAuthenticated,
     defaultPersonaConfidence,
@@ -155,7 +159,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast,
     dismissToast,
   }), [
-    sudo, authEnabled, authenticated, authLoading,
+    sudo, authEnabled, authenticated, authLoading, preAuthVersion,
     defaultPersonaConfidence,
     lang, i18n,
     stats, rawGraph, rawEvents, toasts,

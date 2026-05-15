@@ -1,5 +1,41 @@
 # CHANGELOG
 
+## [v0.10.10] — 2026-05-15
+
+### WebUI 登录页视觉升级
+
+**Features**
+
+- **全新编辑风格登录页** (`components/shared/login-screen.tsx`)
+  - 左右分栏布局：左侧封面区含品牌标题、插件说明标语与装饰丝线，右侧为登录表单
+  - 移动端自动收为单栏，右下角悬浮设置控件（语言 / 明暗模式 / 配色方案）
+  - 移除「没有账户？请求邀请」入口，登录页不再暴露无关功能
+
+- **字体统一为 PT Serif** (`app/layout.tsx`)
+  - 从 `PT_Serif_Caption` 升级为正文 `PT_Serif`（400 / 700 字重 + 斜体）
+  - 品牌标题 `Moíπαι.` 的 `π` 与结尾 `.` 均使用 primary color，与侧边栏名称保持一致
+
+- **丝线背景动画** (`components/shared/login-screen.tsx`)
+  - 背景改为 6 条 quadratic bezier 曲线，各具不同弯曲度与透明度，呈现织物质感
+  - 1 条 accent 色线使用 `stroke-dasharray` 流动动画（7s 循环）+ 呼吸透明度动画（4s），模拟丝线光泽
+
+- **「忘记密码」Hover 提示** (`components/shared/login-screen.tsx`)
+  - 悬停「忘记？」时显示 tooltip，引导用户在 AstrBot 面板日志查看随机 Token 或在插件配置中手动设置密码
+
+- **版本号来源统一** (`web/server.py`, `lib/store.tsx`, `lib/api.ts`)
+  - `/api/auth/status` 响应新增 `version` 字段（公开端点，登录前可读）
+  - 登录页版本号直接读取后端实时版本，不再硬编码
+
+- **`run_webui_dev.py` 新增 `--auth` 参数**
+  - `python run_webui_dev.py --auth` 启用认证模式，可在本地 dev server 直接预览登录页
+
+**Bug Fix**
+
+- **补全 Events API 缺失方法** (`lib/api.ts`)
+  - 新增 `listArchived`、`archive`、`unarchive` 三个方法，对应后端已有的 `/api/archived_events`、`/api/events/{id}/archive`、`/api/events/{id}/unarchive` 路由，修复 TypeScript 构建报错
+
+---
+
 ## [v0.10.9] — 2026-05-15
 
 ### AstrBot 热重载模块缓存修复

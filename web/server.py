@@ -379,6 +379,7 @@ class WebuiServer:
             "authenticated": state.is_authenticated,
             "sudo": state.is_sudo,
             "sudo_remaining_seconds": state.sudo_remaining_seconds,
+            "version": self._plugin_version,
         })
 
     async def _handle_auth_setup(self, request: web.Request) -> web.Response:
