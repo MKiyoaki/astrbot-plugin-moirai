@@ -8,6 +8,38 @@ _ROOT_DIR = Path(__file__).parent
 if str(_ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(_ROOT_DIR))
 
+
+def _purge_stale_local_modules() -> None:
+    """Drop cached plugin modules so AstrBot hot-reload picks up updated files.
+
+    AstrBot reloads main.py when a plugin is reinstalled/reloaded, but absolute
+    imports like ``core.event_handler`` can remain in ``sys.modules`` from the
+    previous plugin version. That creates a mixed deployment: metadata.yaml is
+    read from the new files while handler logic still comes from old code.
+    """
+    root = _ROOT_DIR.resolve()
+    for name, module in list(sys.modules.items()):
+        if name == __name__:
+            continue
+        module_file = getattr(module, "__file__", None)
+        if not module_file:
+            continue
+        try:
+            path = Path(module_file).resolve()
+            is_local = path == root or root in path.parents
+        except Exception:
+            continue
+        if is_local and (
+            name == "core"
+            or name.startswith("core.")
+            or name == "web"
+            or name.startswith("web.")
+        ):
+            sys.modules.pop(name, None)
+
+
+_purge_stale_local_modules()
+
 from core.utils.formatter import format_events_for_prompt
 from core.utils.version import get_plugin_version
 from core.plugin_initializer import PluginInitializer
