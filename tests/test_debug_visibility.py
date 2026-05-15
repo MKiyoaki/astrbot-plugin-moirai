@@ -8,8 +8,10 @@ import pytest
 from core.config import PluginConfig
 from core.event_handler import (
     EventHandler,
+    _extract_system_prompt_skill_names,
     _format_injection_debug_for_display,
     _format_system_prompt_for_debug,
+    _is_llm_like_result,
     _prepend_to_result,
     _response_text,
 )
@@ -75,9 +77,31 @@ def test_format_system_prompt_debug_compacts_persona_and_skills() -> None:
     assert "Skill Rules" not in text
     assert "format code" not in text
     assert "已启用 Skill：code_formatter, web_search" in text
+    assert "Discovery" not in text
     # Unrecognized heading sections are now skipped entirely
     assert "## Tools" not in text
     assert "keep this section" not in text
+
+
+def test_format_system_prompt_debug_outputs_fixed_summary_without_prompt_blocks() -> None:
+    text = _format_system_prompt_for_debug("", "DefaultPersona", ["code_formatter"])
+
+    assert text == "Persona Instruction：DefaultPersona\n已启用 Skill：code_formatter"
+
+
+def test_extract_system_prompt_skill_names_ignores_skill_rules() -> None:
+    raw = (
+        "## Skills\n"
+        "intro\n"
+        "### Available skills\n"
+        "- code_formatter: format code (file: skills/code_formatter/SKILL.md)\n"
+        "- web_search: search docs (file: skills/web_search/SKILL.md)\n"
+        "### Skill Rules\n"
+        "- Discovery: do not show this rule.\n"
+        "- Trigger rules: do not show this rule.\n"
+    )
+
+    assert _extract_system_prompt_skill_names(raw) == ["code_formatter", "web_search"]
 
 
 def test_format_injection_debug_hides_internal_prompt_details() -> None:
@@ -181,6 +205,7 @@ async def test_handle_decorating_result_adds_debug_prefix(monkeypatch: pytest.Mo
     assert "[System Prompt" in result[0]
     # Whitelist: only persona name and skill names; raw content excluded
     assert "Persona Instruction：TestPersona" in result[0]
+    assert "已启用 Skill：search" in result[0]
     assert "You are a helpful assistant" not in result[0]
     assert "memory" not in result[0]
 
@@ -227,6 +252,42 @@ async def test_handle_decorating_result_adds_injection_summary(monkeypatch: pyte
     assert "topic：summary" in result[0]
     assert "开放性 75%" in result[0]
     assert "完整 Persona 内容" in result[0]
+
+
+async def test_handle_decorating_result_accepts_streaming_finish(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Recall:
+        def pop_injection_debug(self, session_id: str) -> dict:
+            assert session_id == "session-1"
+            return {
+                "memory": {"injected": False, "count": 0, "events": []},
+                "persona": None,
+                "soul": None,
+            }
+
+    class Result(list):
+        result_content_type = SimpleNamespace(name="STREAMING_FINISH")
+
+        def is_llm_result(self) -> bool:
+            return False
+
+    init = SimpleNamespace(
+        recall=Recall(),
+        cfg=PluginConfig({"show_injection_summary": True}),
+    )
+    handler = EventHandler(init)
+    result = Result(["normal reply"])
+
+    monkeypatch.setattr(
+        "core.event_handler._prepend_to_result",
+        lambda current_result, text: current_result.insert(0, text),
+    )
+
+    assert _is_llm_like_result(result) is True
+
+    await handler.handle_decorating_result(_Event(), result)
+
+    assert result[0].startswith("[系统测试消息]")
+    assert "[Moirai 实际注入摘要]" in result[0]
 
 
 def test_plugin_initializer_cfg_reads_runtime_overrides(tmp_path) -> None:

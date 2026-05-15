@@ -13,10 +13,12 @@ _EM_BLOCK_RE = _re.compile(
     r"<!-- EM:MEMORY:START -->.*?<!-- EM:MEMORY:END -->",
     _re.DOTALL,
 )
-_PERSONA_INSTRUCTIONS_HEADING_RE = _re.compile(r"^#\s+Persona Instructions\s*$", _re.IGNORECASE)
+_PERSONA_INSTRUCTIONS_HEADING_RE = _re.compile(r"^#\s+Persona Instructions?\s*$", _re.IGNORECASE)
 _SKILLS_HEADING_RE = _re.compile(r"^##\s+Skills\s*$", _re.IGNORECASE)
+_AVAILABLE_SKILLS_HEADING_RE = _re.compile(r"^###\s+Available skills\s*$", _re.IGNORECASE)
+_ANY_HEADING_RE = _re.compile(r"^#{1,6}\s+")
 _TOP_LEVEL_HEADING_RE = _re.compile(r"^#{1,2}\s+")
-_SKILL_LINE_RE = _re.compile(r"^\s*-\s*([A-Za-z0-9._-]+)\s*:")
+_SKILL_LINE_RE = _re.compile(r"^\s*-\s*([A-Za-z0-9._-]+)(?=\s*:|\s|$)")
 
 
 def _check_is_admin(event) -> bool:
@@ -88,21 +90,13 @@ def _extract_skill_names(lines: list[str]) -> list[str]:
     return names
 
 
-def _format_system_prompt_for_debug(system_prompt: str, persona_name: str | None = None) -> str:
-    """Compact AstrBot system prompt — whitelist: only emit recognised summary lines."""
+def _extract_system_prompt_skill_names(system_prompt: str) -> list[str]:
+    """Extract active skill names from AstrBot's build_skills_prompt() block."""
     lines = system_prompt.splitlines()
-    output: list[str] = []
     i = 0
 
     while i < len(lines):
         stripped = lines[i].strip()
-
-        if _PERSONA_INSTRUCTIONS_HEADING_RE.match(stripped):
-            output.append(f"Persona Instruction：{persona_name or '未知'}")
-            i += 1
-            while i < len(lines) and not _TOP_LEVEL_HEADING_RE.match(lines[i].strip()):
-                i += 1
-            continue
 
         if _SKILLS_HEADING_RE.match(stripped):
             block = [lines[i]]
@@ -110,14 +104,83 @@ def _format_system_prompt_for_debug(system_prompt: str, persona_name: str | None
             while i < len(lines) and not _TOP_LEVEL_HEADING_RE.match(lines[i].strip()):
                 block.append(lines[i])
                 i += 1
-            skill_names = _extract_skill_names(block)
-            output.append("已启用 Skill：" + (", ".join(skill_names) if skill_names else "无"))
-            continue
+            available_lines: list[str] = []
+            in_available = False
+            for block_line in block:
+                block_stripped = block_line.strip()
+                if _AVAILABLE_SKILLS_HEADING_RE.match(block_stripped):
+                    in_available = True
+                    continue
+                if in_available and _ANY_HEADING_RE.match(block_stripped):
+                    break
+                if in_available:
+                    available_lines.append(block_line)
+            if available_lines:
+                return _extract_skill_names(available_lines)
 
-        # Skip everything else — raw system prompt content is never emitted
+            fallback_lines: list[str] = []
+            for block_line in block[1:]:
+                block_stripped = block_line.strip()
+                if block_stripped.lower().startswith("### skill rules"):
+                    break
+                fallback_lines.append(block_line)
+            return _extract_skill_names(fallback_lines)
+
         i += 1
 
-    return "\n".join(output).strip()
+    return []
+
+
+def _format_system_prompt_for_debug(
+    system_prompt: str,
+    persona_name: str | None = None,
+    skill_names: list[str] | None = None,
+) -> str:
+    """Compact AstrBot system prompt — whitelist summary only.
+
+    The original prompt body is intentionally ignored. We only show the active
+    persona name and active skill names so large Persona/Skill rules never leak
+    into the user-facing debug message.
+    """
+    has_persona_block = any(
+        _PERSONA_INSTRUCTIONS_HEADING_RE.match(line.strip())
+        for line in system_prompt.splitlines()
+    )
+    resolved_persona = persona_name or ("未知" if has_persona_block else "无")
+    resolved_skill_names = (
+        list(skill_names)
+        if skill_names is not None
+        else _extract_system_prompt_skill_names(system_prompt)
+    )
+
+    return "\n".join(
+        [
+            f"Persona Instruction：{resolved_persona}",
+            "已启用 Skill：" + (", ".join(resolved_skill_names) if resolved_skill_names else "无"),
+        ]
+    )
+
+
+def _result_content_type_name(result: object) -> str:
+    content_type = getattr(result, "result_content_type", None)
+    name = getattr(content_type, "name", None)
+    if name:
+        return str(name)
+    return str(content_type or "")
+
+
+def _is_llm_like_result(result: object) -> bool:
+    is_llm_result = getattr(result, "is_llm_result", None)
+    if callable(is_llm_result):
+        try:
+            if is_llm_result():
+                return True
+        except Exception:
+            pass
+
+    # AstrBot v4.24.x reports stream completion as STREAMING_FINISH. It is still
+    # an LLM response and needs the same debug decoration path.
+    return _result_content_type_name(result) in {"LLM_RESULT", "STREAMING_FINISH"}
 
 
 def _format_injection_debug_for_display(debug: dict) -> str:
@@ -202,6 +265,7 @@ class EventHandler:
         self._init = initializer
         self._pre_inject_sys_prompt: dict[str, str] = {}
         self._pre_inject_persona_name: dict[str, str | None] = {}
+        self._pre_inject_skill_names: dict[str, list[str]] = {}
 
     async def _resolve_persona_name(self, event: AstrMessageEvent, req: ProviderRequest) -> str | None:
         try:
@@ -259,8 +323,9 @@ class EventHandler:
             if not query:
                 return
 
+            icfg = None
+            session_id = event.unified_msg_origin
             try:
-                session_id = event.unified_msg_origin
                 group_id = event.get_group_id() or None
 
                 icfg = self._init.cfg.get_injection_config()
@@ -274,11 +339,15 @@ class EventHandler:
 
                 # Capture system_prompt before injection for show_system_prompt feature.
                 if icfg.show_system_prompt:
+                    raw_system_prompt = getattr(req, "system_prompt", "") or ""
                     self._pre_inject_sys_prompt[session_id] = (
-                        getattr(req, "system_prompt", "") or ""
+                        raw_system_prompt
                     )
                     self._pre_inject_persona_name[session_id] = await self._resolve_persona_name(
                         event, req
+                    )
+                    self._pre_inject_skill_names[session_id] = _extract_system_prompt_skill_names(
+                        raw_system_prompt
                     )
 
                 # Resolve sender uid for OCEAN persona injection (best-effort).
@@ -291,6 +360,20 @@ class EventHandler:
                             physical_id=event.get_sender_id(),
                             display_name=event.get_sender_name(),
                         )
+                    except Exception:
+                        pass
+
+                if icfg.show_injection_summary:
+                    try:
+                        recall._last_injection_debug[session_id] = {
+                            "injected": False,
+                            "position": "unknown",
+                            "memory": {"injected": False, "count": 0, "events": []},
+                            "persona": None,
+                            "soul": None,
+                            "hidden": [],
+                            "_error": "recall_and_inject 未生成注入摘要",
+                        }
                     except Exception:
                         pass
 
@@ -311,7 +394,7 @@ class EventHandler:
                     
             except Exception as exc:
                 astrbot_logger.warning("[%s] recall hook failed: %s", _PLUGIN_NAME, exc)
-                if icfg.show_injection_summary:
+                if icfg is not None and icfg.show_injection_summary:
                     try:
                         recall._last_injection_debug[session_id] = {
                             "injected": False, "position": "unknown",
@@ -371,8 +454,7 @@ class EventHandler:
         # not receive the prefix — they would corrupt conversation history and cause
         # the LLM to loop on core_memory_recall calls.
         result_content_type = getattr(result, "result_content_type", None)
-        is_llm_result = getattr(result, "is_llm_result", lambda: False)()
-        if not is_llm_result:
+        if not _is_llm_like_result(result):
             astrbot_logger.debug(
                 "[%s] skip debug decoration: result_content_type=%s",
                 _PLUGIN_NAME,
@@ -435,13 +517,13 @@ class EventHandler:
         if icfg.show_system_prompt:
             raw_sp = self._pre_inject_sys_prompt.pop(session_id, None)
             persona_name = self._pre_inject_persona_name.pop(session_id, None)
-            if raw_sp:
-                cleaned = _EM_BLOCK_RE.sub("", raw_sp).strip()
-                display = _format_system_prompt_for_debug(cleaned, persona_name)
-                if display:
-                    prefix_parts.append(
-                        f"[System Prompt（摘要，记忆注入块已过滤）]\n{display}\n{'─' * 20}"
-                    )
+            skill_names = self._pre_inject_skill_names.pop(session_id, None)
+            cleaned = _EM_BLOCK_RE.sub("", raw_sp or "").strip()
+            display = _format_system_prompt_for_debug(cleaned, persona_name, skill_names)
+            if display:
+                prefix_parts.append(
+                    f"[System Prompt（摘要，记忆注入块已过滤）]\n{display}\n{'─' * 20}"
+                )
 
         if not prefix_parts:
             astrbot_logger.debug("[%s] no debug prefix parts produced", _PLUGIN_NAME)

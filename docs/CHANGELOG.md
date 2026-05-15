@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## [v0.10.8] — 2026-05-15
+
+### 调试摘要实际生效修复
+
+**Bug Fix**
+
+- **修复流式完成结果跳过调试装饰** (`core/event_handler.py`)
+  - AstrBot v4.24.x 的流式回复完成态为 `STREAMING_FINISH`，但插件原先只接受 `LLM_RESULT`
+  - 现在 `STREAMING_FINISH` 也会进入 `[系统测试消息]` 装饰路径，避免 Discord / 流式场景下看不到缩减 System Prompt 或实际注入摘要
+
+- **修复 System Prompt 缩减不稳定的问题** (`core/event_handler.py`)
+  - `show_system_prompt` 现在固定输出两行白名单摘要：`Persona Instruction：<当前 Persona 名>` 与 `已启用 Skill：<Skill 名列表>`
+  - 不再依赖完整 prompt 块能否被精确匹配；即使原始 System Prompt 结构变化，也不会回退输出 Persona 正文或 Skill Rules
+  - Skill 名称只从 `### Available skills` 区段提取，明确忽略 `### Skill Rules`、Discovery、Trigger rules 等内部规则
+
+- **增强实际注入摘要失败可见性** (`core/event_handler.py`)
+  - 当 `show_injection_summary=True` 时，请求阶段会先写入一个安全 fallback
+  - 若 `recall_and_inject()` 未生成摘要或中途异常，回复中会显示“注入摘要不可用/未生成”，不再静默丢失
+
+**Tests**
+
+- 新增 `STREAMING_FINISH` 装饰路径测试，覆盖流式完成结果仍可输出 `[系统测试消息]`
+- 新增 System Prompt 固定摘要测试，确认不会泄漏 Persona 正文、Available Skills 描述、Skill Rules 与内部规则文本
+- 回归验证 `tests/test_debug_visibility.py`、`tests/test_retrieval.py`、`tests/test_config_sync.py`
+
 ## [v0.10.7] — 2026-05-15
 
 ### Moirai 注入内容摘要调试
@@ -1675,4 +1700,3 @@
 - **双引擎存储**：实现 SQLite (FTS5) + sqlite-vec (向量) 持久化层。
 - **Markdown 投影**：支持将数据库状态投影为可阅读/编辑的本地 Markdown 文件，并实现双向同步。
 - **基础任务**：实现重要度衰减、画像合成与自动摘要生成的后台调度。
-
