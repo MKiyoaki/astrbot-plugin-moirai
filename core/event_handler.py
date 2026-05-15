@@ -89,28 +89,23 @@ def _extract_skill_names(lines: list[str]) -> list[str]:
 
 
 def _format_system_prompt_for_debug(system_prompt: str, persona_name: str | None = None) -> str:
-    """Compact AstrBot system prompt for user-facing debug output."""
+    """Compact AstrBot system prompt — whitelist: only emit recognised summary lines."""
     lines = system_prompt.splitlines()
     output: list[str] = []
     i = 0
 
     while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
+        stripped = lines[i].strip()
 
         if _PERSONA_INSTRUCTIONS_HEADING_RE.match(stripped):
             output.append(f"Persona Instruction：{persona_name or '未知'}")
             i += 1
-            next_skills_idx = None
-            for idx in range(i, len(lines)):
-                if _SKILLS_HEADING_RE.match(lines[idx].strip()):
-                    next_skills_idx = idx
-                    break
-            i = next_skills_idx if next_skills_idx is not None else len(lines)
+            while i < len(lines) and not _TOP_LEVEL_HEADING_RE.match(lines[i].strip()):
+                i += 1
             continue
 
         if _SKILLS_HEADING_RE.match(stripped):
-            block = [line]
+            block = [lines[i]]
             i += 1
             while i < len(lines) and not _TOP_LEVEL_HEADING_RE.match(lines[i].strip()):
                 block.append(lines[i])
@@ -119,14 +114,7 @@ def _format_system_prompt_for_debug(system_prompt: str, persona_name: str | None
             output.append("已启用 Skill：" + (", ".join(skill_names) if skill_names else "无"))
             continue
 
-        if _TOP_LEVEL_HEADING_RE.match(stripped):
-            # Skip unrecognized heading sections — only known sections above are kept
-            i += 1
-            while i < len(lines) and not _TOP_LEVEL_HEADING_RE.match(lines[i].strip()):
-                i += 1
-            continue
-
-        output.append(line)
+        # Skip everything else — raw system prompt content is never emitted
         i += 1
 
     return "\n".join(output).strip()
@@ -439,6 +427,9 @@ class EventHandler:
                 astrbot_logger.warning(
                     "[%s] show_injection_summary=True but no debug for session %s",
                     _PLUGIN_NAME, session_id,
+                )
+                prefix_parts.append(
+                    "[Moirai 实际注入摘要]\n注入摘要不可用（recall_and_inject 未完成或发生异常）\n" + "─" * 20
                 )
 
         if icfg.show_system_prompt:

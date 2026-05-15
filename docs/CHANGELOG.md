@@ -28,6 +28,14 @@
   - 移除”注入状态”与”注入位置”两行内部实现细节字段，输出不再暴露注入位置等技术信息
   - 记忆注入、用户画像、Soul Layer 各节之间增加空行，提升可读性
 
+- **`show_system_prompt` 改为白名单策略** (`core/event_handler.py`)
+  - `_format_system_prompt_for_debug()` 从”黑名单（跳过已知 heading）”改为”白名单（只输出识别到的摘要行）”
+  - 无论 System Prompt 有多长，输出永远只有 `Persona Instruction：<名>` 和 `已启用 Skill：<名>` 两行，彻底消除冗余内容
+
+- **`show_injection_summary` 失败时产生可见提示** (`core/event_handler.py`)
+  - 当 `pop_injection_debug()` 返回 None（recall 链路未完成或异常）时，不再仅写 warning 日志，而是在 `[系统测试消息]` 块中显示”注入摘要不可用（recall_and_inject 未完成或发生异常）”
+  - 保证 `show_injection_summary=True` 时回复中总是出现摘要块，使失败可见、可排查
+
 **测试**
 
 - 新增注入摘要格式测试，确认不会泄漏内部提示词或 evidence 原文

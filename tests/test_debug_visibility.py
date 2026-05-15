@@ -67,7 +67,7 @@ def test_format_system_prompt_debug_compacts_persona_and_skills() -> None:
 
     text = _format_system_prompt_for_debug(raw, "DefaultPersona")
 
-    assert "prefix" in text
+    assert "prefix" not in text  # whitelist: non-heading raw content is not emitted
     assert "Persona Instruction：DefaultPersona" in text
     assert "You are a very long persona" not in text
     assert "## Skills" not in text
@@ -161,8 +161,12 @@ async def test_handle_decorating_result_adds_debug_prefix(monkeypatch: pytest.Mo
     )
     handler = EventHandler(init)
     handler._pre_inject_sys_prompt["session-1"] = (
-        "base\n<!-- EM:MEMORY:START -->memory<!-- EM:MEMORY:END -->"
+        "base\n"
+        "# Persona Instructions\n\nYou are a helpful assistant.\n"
+        "## Skills\n- search: search the web\n"
+        "<!-- EM:MEMORY:START -->memory<!-- EM:MEMORY:END -->"
     )
+    handler._pre_inject_persona_name["session-1"] = "TestPersona"
     result = Result(["normal reply"])
 
     monkeypatch.setattr(
@@ -175,7 +179,9 @@ async def test_handle_decorating_result_adds_debug_prefix(monkeypatch: pytest.Mo
     assert result[0].startswith("[系统测试消息]")
     assert "[Moirai 记忆检索]" in result[0]
     assert "[System Prompt" in result[0]
-    assert "base" in result[0]
+    # Whitelist: only persona name and skill names; raw content excluded
+    assert "Persona Instruction：TestPersona" in result[0]
+    assert "You are a helpful assistant" not in result[0]
     assert "memory" not in result[0]
 
 
