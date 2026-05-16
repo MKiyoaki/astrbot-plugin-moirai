@@ -100,8 +100,10 @@ export default function StatsPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
+        variant="loom"
+        loomIssue="ΠΑΡΑΤΗΡΗΤΗΡΙΟ"
+          loomWindow={i18n.page.stats.loomWindow}
         title={i18n.page.stats.title}
-        description={i18n.page.stats.description}
         globalActions={<RefreshButton onClick={loadData} loading={isRefreshing} />}
       />
 

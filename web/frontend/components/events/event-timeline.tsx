@@ -1,77 +1,123 @@
 'use client'
 
-import React, { useState, useRef, useEffect, useMemo } from 'react'
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { Pencil, Trash2, Lock, Archive } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { type ApiEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { getTagColor, CHART_COLORS as THREAD_COLORS } from '@/lib/colors'
 
-// 基础绘图指标
+// ── Layout constants ──────────────────────────────────────────────────────────
 
-const DEFAULT_METRICS = {
-  AX: 64,  // 主轴 X 坐标
-  FTX: 100, // 第一个线程的 X 坐标
-  TW: 18,  // 线程可点击热区宽度
-  TG: 22,  // 线程之间的间距
-  NR: 7,   // 节点半径
-  RH: 100, // 行高 (缩小时会动态调整)
-  TP: 60,  // 顶部内边距
-  BG: 20,  // 气泡间距
-}
+const HEADER_H   = 44   // thread label row
+const EVENT_H    = 36   // pixels allocated per event row
+const SESSION_PX = 20   // extra gap between sessions
+const TCW        = 90   // thread column width
+const LP         = 52   // left label area width
+const NR         = 5    // node radius
+const ELPH       = 8    // session capsule horizontal pad
+const ELPV       = 10   // session capsule vertical pad
+const BG         = 20   // tooltip offset
 
-interface Thread {
-  id: string
-  label: string
-  color: string
-  events: ApiEvent[]
-}
-
-interface RowInfo {
-  idx: number
-  tsMs: number
-}
-
-/**
- * 根据 timeGap 聚合行。如果两个事件的时间差小于 timeGap，则可能放在同一行（或紧邻）。
- * 实际上 timeGap 在这里作为最小视觉间距的参考。
- */
-function buildRowMap(threads: Thread[], timeGap: number) {
-  const evts = threads
-    .flatMap(t => t.events.map(ev => ({ ...ev, tsMs: new Date(ev.start).getTime() })))
-    .sort((a, b) => a.tsMs - b.tsMs)
-
-  const rows: RowInfo[] = []
-  const erm: Record<string, number> = {}
-
-  for (const ev of evts) {
-    const last = rows[rows.length - 1]
-    // 恢复简单的聚合逻辑，不再硬切分新行
-    if (last && ev.tsMs - last.tsMs <= timeGap / 2) {
-      erm[ev.id] = last.idx
-    } else {
-      const idx = rows.length
-      rows.push({ idx, tsMs: ev.tsMs })
-      erm[ev.id] = idx
-    }
-  }
-
-  return { erm, total: rows.length, rows }
-}
-
-function fmtDate(ts: number) {
-  return new Date(ts).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtTime(ts: string) {
   return new Date(ts).toLocaleString('zh-CN', {
-    month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit',
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
   })
 }
+
+function fmtDay(ts: number) {
+  const d = new Date(ts)
+  return `${d.getMonth() + 1}/${d.getDate()}`
+}
+
+function dayStart(ts: number) {
+  const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime()
+}
+
+// ── Session clustering ────────────────────────────────────────────────────────
+
+interface Session { events: ApiEvent[]; startTs: number; endTs: number }
+
+function buildSessions(events: ApiEvent[], timeGap: number): Session[] {
+  const sorted = [...events]
+    .filter(ev => ev?.start)
+    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+  const sessions: Session[] = []
+  for (const ev of sorted) {
+    const ts = new Date(ev.start).getTime()
+    const last = sessions[sessions.length - 1]
+    if (last && ts - last.endTs <= timeGap) {
+      last.events.push(ev); last.endTs = ts
+    } else {
+      sessions.push({ events: [ev], startTs: ts, endTs: ts })
+    }
+  }
+  return sessions
+}
+
+// ── Layout: assign a Y pixel to every event ───────────────────────────────────
+// Events are laid out top-to-bottom in chronological order.
+// Within a session: EVENT_H per event.
+// Between sessions: SESSION_PX extra gap.
+// This means spacing is density-based, NOT proportional to elapsed time.
+
+interface RowInfo {
+  ev: ApiEvent
+  y: number          // center Y of this event row
+  sessionIdx: number
+  isFirstInSession: boolean
+  isLastInSession: boolean
+  day: number        // dayStart timestamp
+  showDayLabel: boolean
+}
+
+function buildLayout(
+  allEvents: ApiEvent[],
+  timeGap: number,
+): { rows: RowInfo[]; totalH: number } {
+  const sorted = [...allEvents]
+    .filter(ev => ev?.start)
+    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+
+  if (!sorted.length) return { rows: [], totalH: HEADER_H + 40 }
+
+  // Group into sessions (ignoring thread boundaries for the global Y layout)
+  const sessions = buildSessions(sorted, timeGap)
+
+  const rows: RowInfo[] = []
+  let y = HEADER_H + SESSION_PX
+  let lastDay = -1
+
+  sessions.forEach((sess, si) => {
+    if (si > 0) y += SESSION_PX  // extra gap before new session
+
+    sess.events.forEach((ev, ei) => {
+      const day = dayStart(new Date(ev.start).getTime())
+      const showDayLabel = day !== lastDay
+      if (showDayLabel) lastDay = day
+
+      rows.push({
+        ev,
+        y: y + EVENT_H / 2,
+        sessionIdx: si,
+        isFirstInSession: ei === 0,
+        isLastInSession: ei === sess.events.length - 1,
+        day,
+        showDayLabel,
+      })
+      y += EVENT_H
+    })
+  })
+
+  return { rows, totalH: y + SESSION_PX + 16 }
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+interface Thread { id: string; label: string; color: string }
 
 interface EventTimelineProps {
   events: ApiEvent[]
@@ -86,629 +132,378 @@ interface EventTimelineProps {
 }
 
 export function EventTimeline({
-  events,
-  timeGap,
-  highlightIds,
-  onEventClick,
-  selectedEventId,
-  onSelectionChange,
-  onEdit,
-  onDelete,
-  onArchive,
+  events, timeGap, highlightIds,
+  onEventClick, selectedEventId, onSelectionChange,
+  onEdit, onDelete, onArchive,
 }: EventTimelineProps) {
   const { i18n } = useApp()
-  const [dimmedIds, setDimmedIds] = useState<Set<string>>(new Set())
-  const [hoveredEventId, setHoveredEventId] = useState<string | null>(null)
-  const [hoveredBubbleId, setHoveredBubbleId] = useState<string | null>(null)
-  const [pendingArchiveBubbleId, setPendingArchiveBubbleId] = useState<string | null>(null)
-  const bubbleArchiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [hoveredStack, setHoveredStack] = useState<{ row: number; tid: string } | null>(null)
-  const [metrics, setMetrics] = useState(DEFAULT_METRICS)
-  const hoverLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const clearHoverTimer = () => {
-    if (hoverLeaveTimer.current !== null) {
-      clearTimeout(hoverLeaveTimer.current)
-      hoverLeaveTimer.current = null
-    }
-  }
-
-  const scheduleHoverClear = (clear: () => void) => {
-    clearHoverTimer()
-    hoverLeaveTimer.current = setTimeout(() => {
-      clear()
-      hoverLeaveTimer.current = null
-    }, 120)
-  }
-
-  const containerRef = useRef<HTMLDivElement>(null)
-  const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const [dimmedIds, setDimmedIds]             = useState<Set<string>>(new Set())
+  const [hoveredEvId, setHoveredEvId]         = useState<string | null>(null)
+  const [bubbleEvId, setBubbleEvId]           = useState<string | null>(null)
+  const [pendingArchiveId, setPendingArchiveId] = useState<string | null>(null)
+  const archiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hoverTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrollRef       = useRef<HTMLDivElement>(null)
+  const outerRef        = useRef<HTMLDivElement>(null)
+  const [outerW, setOuterW] = useState(0)
+  const [scrollH, setScrollH] = useState(0)
 
   useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const width = entry.contentRect.width
-        if (width < 800) {
-          setMetrics({ AX: 40, FTX: 70, TW: 14, TG: 12, NR: 5, RH: 80, TP: 40, BG: 16 })
-        } else if (width > 1600) {
-          setMetrics({ AX: 80, FTX: 130, TW: 22, TG: 32, NR: 9, RH: 120, TP: 80, BG: 24 })
-        } else {
-          setMetrics(DEFAULT_METRICS)
-        }
-      }
-    })
-
-    observer.observe(container)
-    return () => observer.disconnect()
+    const el = outerRef.current; if (!el) return
+    const obs = new ResizeObserver(e => setOuterW(e[0]?.contentRect.width ?? 0))
+    obs.observe(el); return () => obs.disconnect()
   }, [])
 
-  const visible = useMemo(() => {
-    return [...events]
-      .filter(ev => ev && ev.start) // Defensive filter
-      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
-  }, [events])
+  useEffect(() => {
+    const el = scrollRef.current; if (!el) return
+    const obs = new ResizeObserver(e => setScrollH(e[0]?.contentRect.height ?? 0))
+    obs.observe(el); return () => obs.disconnect()
+  }, [])
 
-  const threads = useMemo(() => {
-    const allThreads: Thread[] = []
-    const threadMap: Record<string, Thread> = {}
-    for (const ev of visible) {
+  const clearHover = useCallback(() => {
+    if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null }
+  }, [])
+  const scheduleHoverClear = useCallback((fn: () => void) => {
+    clearHover()
+    hoverTimerRef.current = setTimeout(() => { fn(); hoverTimerRef.current = null }, 200)
+  }, [clearHover])
+
+  // ── Threads (unique groups, stable colors) ────────────────────────────────
+
+  const threads = useMemo<Thread[]>(() => {
+    const all: Thread[] = []; const seen = new Set<string>()
+    for (const ev of events) {
+      if (!ev?.start) continue
       const key = ev.group || '__pvt__'
-      if (!threadMap[key]) {
-        const thread: Thread = {
+      if (!seen.has(key)) {
+        seen.add(key)
+        all.push({
           id: key,
           label: key === '__pvt__' ? i18n.events.privateChat : key,
-          color: THREAD_COLORS[allThreads.length % THREAD_COLORS.length],
-          events: [],
-        }
-        threadMap[key] = thread
-        allThreads.push(thread)
+          color: THREAD_COLORS[all.length % THREAD_COLORS.length],
+        })
       }
-      threadMap[key].events.push(ev)
     }
-    return allThreads
-  }, [visible])
+    return all
+  }, [events, i18n.events.privateChat])
 
-  const { erm, total, rows } = useMemo(() => buildRowMap(threads, timeGap), [threads, timeGap])
-  
-  const threadRowGroups = useMemo(() => {
-    const groups: Record<string, Record<number, ApiEvent[]>> = {}
-    threads.forEach(thread => {
-      groups[thread.id] = {}
-      thread.events.forEach(ev => {
-        const rowIdx = erm[ev.id]
-        if (rowIdx === undefined) return
-        if (!groups[thread.id][rowIdx]) groups[thread.id][rowIdx] = []
-        groups[thread.id][rowIdx].push(ev)
+  const threadIdx = useMemo(() => {
+    const m: Record<string, number> = {}
+    threads.forEach((th, i) => { m[th.id] = i })
+    return m
+  }, [threads])
+
+  // Responsive column width
+  const tcw = useMemo(() => {
+    if (!outerW || !threads.length) return TCW
+    const available = outerW - LP
+    return Math.max(56, Math.min(TCW, Math.floor(available / threads.length)))
+  }, [outerW, threads.length])
+
+  const thX = useCallback((ti: number) => LP + ti * tcw + tcw / 2, [tcw])
+
+  // ── Layout ────────────────────────────────────────────────────────────────
+
+  const { rows, totalH } = useMemo(
+    () => buildLayout(events, timeGap),
+    [events, timeGap]
+  )
+
+  // Map ev.id → row
+  const rowById = useMemo(() => {
+    const m: Record<string, RowInfo> = {}
+    rows.forEach(r => { m[r.ev.id] = r })
+    return m
+  }, [rows])
+
+  // Sessions info for capsule rendering per thread
+  // For each thread, find consecutive rows in the same session → draw one capsule
+  const threadSessionRanges = useMemo(() => {
+    const result: Record<string, { minY: number; maxY: number; count: number }[]> = {}
+    threads.forEach(th => { result[th.id] = [] })
+
+    // Group rows by (threadId, sessionIdx)
+    const groups: Record<string, Record<number, number[]>> = {}
+    threads.forEach(th => { groups[th.id] = {} })
+
+    rows.forEach(row => {
+      const key = row.ev.group || '__pvt__'
+      if (!groups[key]) return
+      if (!groups[key][row.sessionIdx]) groups[key][row.sessionIdx] = []
+      groups[key][row.sessionIdx].push(row.y)
+    })
+
+    threads.forEach(th => {
+      Object.values(groups[th.id]).forEach(ys => {
+        if (ys.length < 2) return
+        result[th.id].push({ minY: Math.min(...ys), maxY: Math.max(...ys), count: ys.length })
       })
     })
-    return groups
-  }, [threads, erm])
+    return result
+  }, [rows, threads])
 
-  const tx = (ti: number) => metrics.FTX + ti * (metrics.TW + metrics.TG)
-  const ry = (idx: number) => metrics.TP + idx * metrics.RH
+  const svgW = LP + threads.length * tcw
+  const svgH = Math.max(totalH, scrollH)
 
-  /**
-   * 计算事件堆叠的包围盒大小及偏移量
-   */
-  const getStackBoundingBox = (group: ApiEvent[], isExpanded: boolean) => {
-    if (!group || group.length === 0) return { w: 40, h: 40, x: -20, y: -20 }
-    
-    const offsets = group.map((_, i) => getDotOffset(i, group.length, isExpanded))
-    const valid = offsets.filter(o => o !== null) as { x: number, y: number }[]
-    
-    if (valid.length === 0) return { w: 40, h: 40, x: -20, y: -20 }
-
-    const minX = Math.min(...valid.map(o => o.x))
-    const maxX = Math.max(...valid.map(o => o.x))
-    const minY = Math.min(...valid.map(o => o.y))
-    const maxY = Math.max(...valid.map(o => o.y))
-
-    const paddingX = metrics.NR * (isExpanded ? 3 : 2)
-    const paddingY = metrics.NR * (isExpanded ? 2.5 : 2)
-
-    return {
-      w: (maxX - minX) + paddingX * 2,
-      h: (maxY - minY) + paddingY * 2,
-      x: minX - paddingX,
-      y: minY - paddingY
-    }
-  }
-
-  /**
-   * 核心布局逻辑：计算堆叠点的偏移
-   * 默认折叠：最多显示 3 个，超出部分在第 3 个位置叠加渐变
-   * 展开时：全量显示，采用更宽的间距或网格
-   */
-  const getDotOffset = (i: number, total: number, isExpanded: boolean) => {
-    const dotSpacing = metrics.NR * (isExpanded ? 2.4 : 1.4)
-    
-    if (!isExpanded) {
-      // 折叠模式：只显示索引 0, 1, 2
-      if (i >= 3) return null 
-      const displayTotal = Math.min(total, 3)
-      return {
-        x: (i - (displayTotal - 1) / 2) * dotSpacing,
-        y: 0,
-        isMore: i === 2 && total > 3
-      }
-    }
-
-    // 展开模式：全量显示，如果超过 4 个使用双排排列
-    if (total > 4) {
-      const cols = Math.ceil(total / 2)
-      const col = i % cols
-      const row = Math.floor(i / cols)
-      return {
-        x: (col - (cols - 1) / 2) * (metrics.NR * 2.8),
-        y: (row - 0.5) * (metrics.NR * 2.4),
-        isMore: false
-      }
-    }
-    
-    return {
-      x: (i - (total - 1) / 2) * dotSpacing,
-      y: 0,
-      isMore: false
-    }
-  }
+  // ── Scroll to selected ────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (selectedEventId && containerRef.current) {
-      const timer = setTimeout(() => {
-        const rowIdx = erm[selectedEventId]
-        if (rowIdx !== undefined) {
-          const y = ry(rowIdx)
-          const viewport = containerRef.current?.querySelector('[data-radix-scroll-area-viewport]')
-          if (viewport) {
-            const viewportHeight = (viewport as HTMLElement).clientHeight
-            if (viewportHeight > 0) {
-              const targetScroll = y - viewportHeight / 2
-              viewport.scrollTo({ top: targetScroll, behavior: 'smooth' })
-            }
-          }
-        }
-      }, 350) 
-      return () => clearTimeout(timer)
-    }
-  }, [selectedEventId, erm, ry])
+    if (!selectedEventId) return
+    const t = setTimeout(() => {
+      const row = rowById[selectedEventId]; if (!row) return
+      scrollRef.current?.scrollTo({ top: row.y - (scrollRef.current.clientHeight / 2), behavior: 'smooth' })
+    }, 350)
+    return () => clearTimeout(t)
+  }, [selectedEventId, rowById])
 
-  const svgH = Math.max(400, metrics.TP + total * metrics.RH + 60)
+  // ── Diamond ───────────────────────────────────────────────────────────────
 
-  const renderInheritanceLines = () => {
-    const lines: React.ReactNode[] = []
-    visible.forEach(ev => {
-      if (!ev.inherit_from?.length) return
-      const targetRow = erm[ev.id]
-      if (targetRow === undefined) return
-      
-      const threadIdx = threads.findIndex(t => (t.id === (ev.group || '__pvt__')))
-      if (threadIdx === -1) return
-      const targetX = tx(threadIdx)
-      const targetY = ry(targetRow)
+  const diamond = (cx: number, cy: number, r: number) =>
+    `M ${cx} ${cy - r * 1.5} L ${cx + r} ${cy} L ${cx} ${cy + r * 1.5} L ${cx - r} ${cy} Z`
 
-      ev.inherit_from.forEach(parentEmailId => {
-        const parentEv = visible.find(e => e.id === parentEmailId)
-        const parentRow = erm[parentEmailId]
-        
-        if (parentEv && parentRow !== undefined) {
-          const parentThreadIdx = threads.findIndex(t => t.id === (parentEv.group || '__pvt__'))
-          if (parentThreadIdx === -1) return
-          const parentX = tx(parentThreadIdx)
-          const parentY = ry(parentRow)
-          lines.push(
-            <path
-              key={`${parentEmailId}-${ev.id}`}
-              d={`M ${parentX} ${parentY} C ${parentX} ${(parentY + targetY) / 2}, ${targetX} ${(parentY + targetY) / 2}, ${targetX} ${targetY}`}
-              stroke="currentColor" strokeWidth={1} strokeOpacity={0.2} fill="none" strokeDasharray="4 2"
-            />
-          )
-        } else {
-          lines.push(
-            <g key={`broken-${parentEmailId}-${ev.id}`}>
-              <defs>
-                <linearGradient id={`grad-broken-${ev.id}`} x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor="currentColor" stopOpacity="0" />
-                  <stop offset="100%" stopColor="currentColor" stopOpacity="0.15" />
-                </linearGradient>
-              </defs>
-              <line
-                x1={targetX} y1={targetY} x2={targetX} y2={targetY - 40}
-                stroke={`url(#grad-broken-${ev.id})`} strokeWidth={1.5} strokeDasharray="3 3" className="animate-pulse"
-              />
-            </g>
-          )
-        }
-      })
-    })
-    return lines
-  }
+  const activeId   = hoveredEvId ?? bubbleEvId
+  const activeRow  = activeId ? rowById[activeId] : null
+  const activeTi   = activeRow ? (threadIdx[activeRow.ev.group || '__pvt__'] ?? 0) : 0
+  const activeThread = activeRow ? threads[activeTi] : null
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" ref={containerRef}>
-      {threads.length > 1 && (
-        <div className="border-b px-4 py-2 shrink-0 bg-muted/5">
-          <p className="mb-1.5 text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">
-            活跃群组轴
-          </p>
-          <ToggleGroup 
-            type="multiple"
-            className="flex flex-wrap gap-1.5 justify-start"
-            value={threads.filter(th => !dimmedIds.has(th.id)).map(th => th.id)}
-            onValueChange={(values: string[]) => {
-              const newDimmed = new Set<string>()
-              threads.forEach(th => { if (!values.includes(th.id)) newDimmed.add(th.id) })
-              setDimmedIds(newDimmed)
-            }}
-          >
+    <div ref={outerRef} className="flex flex-col h-full overflow-hidden">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-auto relative"
+        onClick={() => onSelectionChange(null)}>
+        <div className="relative" style={{ width: svgW, minHeight: svgH }}>
+
+          {/* ── SVG layer ── */}
+          <svg className="absolute inset-0 pointer-events-none"
+            style={{ width: svgW, height: svgH, overflow: 'visible' }}>
+
+            {/* Thread column header backgrounds */}
+            {threads.map((th, ti) => {
+              const x = thX(ti); const dim = dimmedIds.has(th.id)
+              return (
+                <rect key={`hbg-${th.id}`}
+                  x={x - tcw / 2 + 2} y={2} width={tcw - 4} height={HEADER_H - 4}
+                  fill={th.color} fillOpacity={dim ? 0.02 : 0.07} rx={4} />
+              )
+            })}
+
+            {/* Header separator */}
+            <line x1={0} y1={HEADER_H} x2={svgW} y2={HEADER_H}
+              stroke="currentColor" strokeOpacity={0.08} strokeWidth={1} />
+
+            {/* Vertical thread lines — extend to full visible height */}
+            {threads.map((th, ti) => {
+              const x = thX(ti); const dim = dimmedIds.has(th.id)
+              return (
+                <line key={`vl-${th.id}`}
+                  x1={x} y1={HEADER_H} x2={x} y2={svgH}
+                  stroke={th.color} strokeWidth={1} strokeOpacity={dim ? 0.05 : 0.2} />
+              )
+            })}
+
+            {/* Decorative background grid — subtle vertical guides between threads */}
+            {threads.length > 0 && Array.from({ length: threads.length - 1 }, (_, i) => {
+              const x = LP + (i + 1) * tcw
+              return (
+                <line key={`grid-${i}`}
+                  x1={x} y1={HEADER_H} x2={x} y2={svgH}
+                  stroke="currentColor" strokeWidth={0.5} strokeOpacity={0.03} strokeDasharray="2 8" />
+              )
+            })}
+
+            {/* Session capsules per thread */}
             {threads.map(th => {
-              const lit = !dimmedIds.has(th.id)
-              return (
-                <ToggleGroupItem
-                  key={th.id} value={th.id}
-                  className="h-6 inline-flex items-center gap-1.5 rounded border px-2.5 py-0.5 text-[10.5px] transition-all data-[state=on]:bg-transparent"
-                  style={{
-                    borderColor: lit ? `color-mix(in srgb, ${th.color} 40%, transparent)` : 'transparent',
-                    background: lit ? `color-mix(in srgb, ${th.color} 15%, transparent)` : undefined,
-                    color: lit ? th.color : undefined,
-                  }}
-                >
-                  <span className="inline-block size-1.5 shrink-0 rounded-full" style={{ background: lit ? th.color : undefined }} />
-                  {th.label}
-                </ToggleGroupItem>
-              )
+              const dim = dimmedIds.has(th.id)
+              const ti  = threadIdx[th.id] ?? 0
+              const x   = thX(ti)
+              return (threadSessionRanges[th.id] || []).map((range, ri) => (
+                <rect key={`cap-${th.id}-${ri}`}
+                  x={x - ELPH} y={range.minY - ELPV}
+                  width={ELPH * 2} height={range.maxY - range.minY + ELPV * 2}
+                  rx={ELPH}
+                  fill={th.color} fillOpacity={dim ? 0.01 : 0.06}
+                  stroke={th.color} strokeOpacity={dim ? 0.05 : 0.3}
+                  strokeWidth={1} strokeDasharray="4 3" />
+              ))
             })}
-          </ToggleGroup>
-        </div>
-      )}
 
-      <ScrollArea className="flex-1" onClick={() => onSelectionChange(null)}>
-        <div className="relative w-full" style={{ minHeight: svgH }}>
-          <svg className="absolute left-0 top-0" style={{ width: '100%', height: svgH, pointerEvents: 'none', overflow: 'visible' }}>
-            {visible.length > 0 && (
-              <>
-                {/* Top extension: dashed line up to the controls area */}
-                <line 
-                  x1={metrics.AX} y1={0} x2={metrics.AX} y2={metrics.TP - 10} 
-                  stroke="currentColor" strokeOpacity={0.2} strokeWidth={1.5} strokeDasharray="4 4"
-                />
-                {/* Main axis line */}
-                <line 
-                  x1={metrics.AX} y1={metrics.TP - 10} x2={metrics.AX} y2={svgH - 20} 
-                  stroke="currentColor" strokeOpacity={0.3} strokeWidth={1.5} 
-                />
-                {rows.map(row => (
-                  <g key={row.idx}>
-                    <line 
-                      x1={metrics.AX - 4} y1={ry(row.idx)} x2={metrics.AX + 4} y2={ry(row.idx)} 
-                      stroke="currentColor" strokeOpacity={0.4} strokeWidth={1.5} 
-                    />
-                    <text 
-                      x={metrics.AX - 8} y={ry(row.idx) + 3} textAnchor="end" 
-                      fill="currentColor" fillOpacity={0.6} fontSize={12} fontFamily="monospace" fontWeight="bold"
-                    >
-                      {fmtDate(row.tsMs)}
+            {/* Horizontal tick lines + day labels — one per event row */}
+            {rows.map(row => {
+              const ti = threadIdx[row.ev.group || '__pvt__'] ?? 0
+              const x  = thX(ti)
+              return (
+                <g key={`tick-${row.ev.id}`}>
+                  <line
+                    x1={LP} y1={row.y} x2={svgW} y2={row.y}
+                    stroke="currentColor" strokeOpacity={0.07}
+                    strokeWidth={1} strokeDasharray="3 5" />
+                  {row.showDayLabel && (
+                    <text x={LP - 6} y={row.y + 3}
+                      textAnchor="end" fontSize={9} fontFamily="monospace"
+                      fill="currentColor" fillOpacity={0.45}>
+                      {fmtDay(row.day)}
                     </text>
-                  </g>
-                ))}
-                {renderInheritanceLines()}
-              </>
-            )}
-
-            {/* Layer 1: 垂直轴线 (始终显示，位于最底层) */}
-            {threads.map((thread, ti) => {
-              const x = tx(ti)
-              const op = dimmedIds.has(thread.id) ? 0.1 : 1
-              const rowIndices = Object.keys(threadRowGroups[thread.id] || {}).map(Number).sort((a, b) => a - b)
-              if (rowIndices.length === 0) return null
-              const minR = rowIndices[0]
-              const maxR = rowIndices[rowIndices.length - 1]
-              return (
-                <line 
-                  key={`line-${thread.id}`} 
-                  x1={x} y1={ry(minR)} x2={x} y2={ry(maxR)} 
-                  stroke={thread.color} strokeWidth={2} strokeOpacity={0.9 * op} 
-                />
-              )
-            })}
-
-            {/* Layer 2: 普通事件点 (非悬停状态) */}
-            {threads.map((thread, ti) => {
-              const x = tx(ti)
-              const op = dimmedIds.has(thread.id) ? 0.1 : 1
-              const rowIndices = Object.keys(threadRowGroups[thread.id] || {}).map(Number).sort((a, b) => a - b)
-              if (rowIndices.length === 0) return null
-              
-              return (
-                <g key={`dots-${thread.id}`} style={{ opacity: op }}>
-                  {rowIndices.map(rowIdx => {
-                    const group = threadRowGroups[thread.id][rowIdx]
-                    const baseY = ry(rowIdx)
-                    const isStackHovered = hoveredStack?.row === rowIdx && hoveredStack?.tid === thread.id
-                    
-                    // 仅当此堆叠未被悬停时，在此层渲染。悬停态移至 Top Layer 渲染。
-                    if (isStackHovered && group.length > 1) return null
-
-                    return (
-                      <g key={`${thread.id}-${rowIdx}`}>
-                        {group.map((ev, i) => {
-                          const offset = getDotOffset(i, group.length, false)
-                          if (!offset) return null
-
-                          const isHov = hoveredEventId === ev.id
-                          const isSel = selectedEventId === ev.id
-                          const isArchived = ev.status === 'archived'
-                          const r = metrics.NR
-                          const finalR = ev.is_locked ? r * 1.2 : r
-                          
-                          return (
-                            <g key={ev.id}>
-                              <circle
-                                cx={x + offset.x} cy={baseY + offset.y} r={Math.max(2, finalR)}
-                                fill={isHov || isSel || ev.is_locked ? thread.color : 'var(--background)'}
-                                stroke={thread.color} strokeWidth={ev.is_locked || isSel ? 2.5 : 1.8}
-                                strokeDasharray={isArchived ? "2,1" : undefined}
-                                style={{ 
-                                  transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)', 
-                                  opacity: isArchived ? 0.5 : (offset.isMore ? 0.4 : 1),
-                                  filter: offset.isMore ? 'blur(1px)' : undefined
-                                }}
-                              />
-                              {ev.is_locked && !offset.isMore && (
-                                <circle 
-                                  cx={x + offset.x} cy={baseY + offset.y} r={Math.max(1, finalR / 3)} 
-                                  fill="white" pointerEvents="none"
-                                  style={{ transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }} 
-                                />
-                              )}
-                              {offset.isMore && (
-                                <text
-                                  x={x + offset.x} y={baseY + 3}
-                                  textAnchor="middle"
-                                  fill="currentColor"
-                                  fontSize={10}
-                                  fontWeight="bold"
-                                  className="pointer-events-none"
-                                  style={{ transition: 'opacity 0.3s ease', opacity: 1 }}
-                                >
-                                  +{group.length - 2}
-                                </text>
-                              )}
-                            </g>
-                          )
-                        })}
-                      </g>
-                    )
-                  })}
+                  )}
                 </g>
               )
             })}
 
-            {/* Top Layer: 仅渲染当前悬停展开的堆叠，确保遮盖所有其他轴 */}
-            {hoveredStack && (() => {
-              const thread = threads.find(t => t.id === hoveredStack.tid)
+            {/* Event nodes */}
+            {rows.map(row => {
+              const key    = row.ev.group || '__pvt__'
+              const ti     = threadIdx[key] ?? 0
+              const thread = threads[ti]
               if (!thread) return null
-              const group = threadRowGroups[thread.id][hoveredStack.row]
-              if (!group || group.length <= 1) return null
-              
-              const x = tx(threads.indexOf(thread))
-              const baseY = ry(hoveredStack.row)
-              const box = getStackBoundingBox(group, true)
+              const x      = thX(ti)
+              const dim    = dimmedIds.has(thread.id)
+              const isHov  = hoveredEvId === row.ev.id
+              const isSel  = selectedEventId === row.ev.id
+              const isArc  = row.ev.status === 'archived'
+              const isLock = row.ev.is_locked
+              const r      = NR * (isHov || isSel ? 1.35 : 1)
+              const op     = dim ? 0.08 : 1
 
+              if (isArc) {
+                return (
+                  <path key={row.ev.id} d={diamond(x, row.y, r)}
+                    fill="none" stroke={thread.color}
+                    strokeWidth={isSel ? 1.8 : 1.2} strokeOpacity={0.5 * op}
+                    strokeDasharray="3 2"
+                    style={{ transition: 'all 0.2s ease' }} />
+                )
+              }
               return (
-                <g key="top-layer-expanded" className="animate-in fade-in zoom-in-95 duration-200">
-                  {/* Expansion Card Background */}
-                  <rect
-                    x={x + box.x}
-                    y={baseY + box.y}
-                    width={box.w}
-                    height={box.h}
-                    rx={12}
-                    fill="var(--card)"
+                <g key={row.ev.id} style={{ opacity: op }}>
+                  {row.ev.salience > 0.8 && !isSel && (
+                    <circle cx={x} cy={row.y} r={r + 4}
+                      fill="none" stroke={thread.color}
+                      strokeWidth={0.8} strokeOpacity={0.25} />
+                  )}
+                  <circle cx={x} cy={row.y} r={Math.max(2, r)}
+                    fill={isHov || isSel || isLock ? thread.color : 'var(--background)'}
                     stroke={thread.color}
-                    strokeWidth={1.5}
-                    strokeOpacity={0.6}
-                    style={{ 
-                      filter: 'drop-shadow(0 10px 15px rgba(0,0,0,0.1))',
-                      transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
-                    }}
-                  />
-                  
-                  {group.map((ev, i) => {
-                    const offset = getDotOffset(i, group.length, true)
-                    if (!offset) return null
-
-                    const isHov = hoveredEventId === ev.id
-                    const isSel = selectedEventId === ev.id
-                    const isArchived = ev.status === 'archived'
-                    const r = isHov || isSel ? metrics.NR * 1.5 : metrics.NR
-                    const finalR = ev.is_locked ? r * 1.2 : r
-                    
-                    return (
-                      <g key={`expanded-${ev.id}`}>
-                        <circle
-                          cx={x + offset.x} cy={baseY + offset.y} r={Math.max(2, finalR)}
-                          fill={isHov || isSel || ev.is_locked ? thread.color : 'var(--background)'}
-                          stroke={thread.color} strokeWidth={ev.is_locked || isSel ? 2.5 : 1.8}
-                          strokeDasharray={isArchived ? "2,1" : undefined}
-                          style={{ 
-                            transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                            opacity: isArchived ? 0.6 : 1
-                          }}
-                        />
-                        {ev.is_locked && (
-                          <circle 
-                            cx={x + offset.x} cy={baseY + offset.y} r={Math.max(1, finalR / 3)} 
-                            fill="white" pointerEvents="none"
-                          />
-                        )}
-                      </g>
-                    )
-                  })}
+                    strokeWidth={isSel ? 2 : isLock ? 1.8 : 1.3}
+                    style={{ transition: 'all 0.2s cubic-bezier(0.34,1.56,0.64,1)' }} />
+                  {isLock && (
+                    <circle cx={x} cy={row.y} r={Math.max(1, r * 0.3)}
+                      fill="white" pointerEvents="none" />
+                  )}
                 </g>
               )
-            })()}
+            })}
           </svg>
 
-          {threads.map((thread, ti) => {
-            const x = tx(ti)
-            const rowIndices = Object.keys(threadRowGroups[thread.id] || {}).map(Number)
-            return rowIndices.map(rowIdx => {
-              const group = threadRowGroups[thread.id][rowIdx]
-              const baseY = ry(rowIdx)
-              const isStackHovered = hoveredStack?.row === rowIdx && hoveredStack?.tid === thread.id
-              
-              const box = getStackBoundingBox(group, isStackHovered)
-
-              return (
-                <div
-                  key={`${thread.id}-${rowIdx}`} className="absolute transition-all"
-                  style={{ 
-                    left: x + box.x, 
-                    top: baseY + box.y, 
-                    width: box.w, 
-                    height: box.h, 
-                    zIndex: isStackHovered ? 100 : 20 
-                  }}
-                  onMouseEnter={() => { clearHoverTimer(); setHoveredStack({ row: rowIdx, tid: thread.id }) }}
-                  onMouseLeave={() => scheduleHoverClear(() => { setHoveredStack(null); setHoveredEventId(null) })}
-                >
-                   <div className="relative size-full">
-                     {group.map((ev, i) => {
-                       const offset = getDotOffset(i, group.length, isStackHovered)
-                       if (!offset || offset.isMore) return null
-
-                       return (
-                         <div
-                           key={ev.id} className="absolute cursor-pointer rounded-full"
-                           style={{ 
-                             left: -box.x + offset.x - 12, 
-                             top: -box.y + offset.y - 12, 
-                             width: 24, height: 24, zIndex: 30, 
-                             transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' 
-                           }}
-                           onMouseEnter={(e) => { e.stopPropagation(); clearHoverTimer(); setHoveredEventId(ev.id) }}
-                           onMouseLeave={() => scheduleHoverClear(() => setHoveredEventId(null))}
-                           onClick={(e) => { 
-                             e.stopPropagation(); 
-                             if (selectedEventId === ev.id) onSelectionChange(null);
-                             else { onSelectionChange(ev.id); onEventClick(ev); }
-                           }}
-                         />
-                       )
-                     })}
-                   </div>
-                </div>
-              )
-            })
+          {/* ── Thread header toggle buttons ── */}
+          {threads.map((th, ti) => {
+            const x = thX(ti); const dim = dimmedIds.has(th.id)
+            return (
+              <button key={`btn-${th.id}`}
+                className="absolute flex items-center justify-center transition-opacity"
+                style={{ left: x - tcw / 2 + 2, top: 2, width: tcw - 4, height: HEADER_H - 4, zIndex: 25, opacity: dim ? 0.35 : 1 }}
+                onClick={e => { e.stopPropagation(); setDimmedIds(prev => { const n = new Set(prev); if (n.has(th.id)) n.delete(th.id); else n.add(th.id); return n }) }}
+                title={dim ? '显示此会话' : '隐藏此会话'}>
+                <span className="font-mono text-[10px] font-semibold truncate px-1" style={{ color: th.color }}>
+                  {th.label.length > 10 ? th.label.slice(0, 9) + '…' : th.label}
+                </span>
+              </button>
+            )
           })}
 
-          {(hoveredEventId || hoveredBubbleId) && (() => {
-            const activeId = hoveredEventId ?? hoveredBubbleId
-            const ev = visible.find(e => e.id === activeId)
-            if (!ev) return null
-            const rowIdx = erm[ev.id]
-            if (rowIdx === undefined) return null
-            const thread = threads.find(t => t.id === (ev.group || '__pvt__'))
+          {/* ── Event hotspots ── */}
+          {rows.map(row => {
+            const key    = row.ev.group || '__pvt__'
+            const ti     = threadIdx[key] ?? 0
+            const thread = threads[ti]
             if (!thread) return null
-            const ti = threads.findIndex(t => t.id === thread.id)
-            if (ti === -1) return null
-            const group = threadRowGroups[thread.id][rowIdx] || []
-            const i = group.findIndex(e => e.id === ev.id)
-            const isStackHovered = hoveredStack?.row === rowIdx && hoveredStack?.tid === thread.id
-            const offset = getDotOffset(i, group.length, isStackHovered)
-            if (!offset) return null
-
-            const x = tx(ti)
-            const bubbleGap = metrics.NR + metrics.BG
+            const x   = thX(ti)
+            const dim = dimmedIds.has(thread.id)
             return (
-              <div
-                className="absolute z-50"
-                style={{
-                  top: ry(rowIdx) + offset.y - 20,
-                  left: x + offset.x,
-                  paddingLeft: bubbleGap,
-                  animation: 'tlBubbleIn 0.15s cubic-bezier(0.16, 1, 0.3, 1)',
-                }}
-                onMouseEnter={() => { clearHoverTimer(); setHoveredBubbleId(ev.id) }}
+              <div key={`hs-${row.ev.id}`}
+                className="absolute cursor-pointer rounded-full"
+                style={{ left: x - 12, top: row.y - 12, width: 24, height: 24, zIndex: 20, opacity: dim ? 0.08 : 1 }}
+                onMouseEnter={e => { e.stopPropagation(); clearHover(); setHoveredEvId(row.ev.id) }}
+                onMouseLeave={() => scheduleHoverClear(() => setHoveredEvId(null))}
+                onClick={e => {
+                  e.stopPropagation()
+                  if (selectedEventId === row.ev.id) onSelectionChange(null)
+                  else { onSelectionChange(row.ev.id); onEventClick(row.ev) }
+                }} />
+            )
+          })}
+
+          {/* ── Hover tooltip ── */}
+          {activeRow && activeThread && (() => {
+            const { ev } = activeRow
+            const ex = thX(activeTi)
+            const ey = activeRow.y
+            const flipLeft = activeTi >= threads.length / 2
+            return (
+              <div className="absolute z-50 pointer-events-auto"
+                style={{ left: flipLeft ? ex - BG : ex + BG, top: ey, animation: 'tlBubbleIn 0.12s ease-out' }}
+                onMouseEnter={() => { clearHover(); setBubbleEvId(ev.id) }}
                 onMouseLeave={() => {
-                  setHoveredBubbleId(null); setHoveredEventId(null)
-                  if (bubbleArchiveTimerRef.current) clearTimeout(bubbleArchiveTimerRef.current)
-                  setPendingArchiveBubbleId(null)
-                }}
-              >
-              <div
-                className="min-w-48 max-w-64 rounded-lg border bg-card p-3 shadow-xl ring-1 ring-black/5"
-                style={{ borderLeftColor: thread.color, borderLeftWidth: 3 }}
-              >
-                <p className="mb-1 text-sm font-semibold leading-tight flex items-center gap-1.5">
-                  {ev.content || ev.topic || ev.id}
-                  {ev.is_locked && <Lock className="size-3 text-amber-500" />}
-                </p>
-                <p className="mb-2 font-mono text-[10px] text-muted-foreground">{fmtTime(ev.start)}</p>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {(ev.tags ?? []).slice(0, 4).map(tag => {
-                    const tagColor = getTagColor(tag)
-                    return (
-                      <Badge
-                        key={tag}
-                        variant="secondary"
-                        className="rounded px-1.5 py-0 text-[10px] font-medium"
-                        style={{
-                          background: `color-mix(in srgb, ${tagColor} 12%, transparent)`,
-                          color: tagColor
-                        }}
-                      >
-                        #{tag}
-                      </Badge>
-                    )
-                  })}
-                </div>
-                <div className="mt-2.5 pt-2 border-t flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Salience</span>
-                    <span className="font-mono text-xs font-bold" style={{ color: ev.salience > 0.8 ? 'var(--color-chart-2)' : 'inherit' }}>
-                      {(ev.salience * 100).toFixed(0)}%
+                  setBubbleEvId(null); setHoveredEvId(null)
+                  if (archiveTimerRef.current) clearTimeout(archiveTimerRef.current)
+                  setPendingArchiveId(null)
+                }}>
+                <div
+                  className={`${flipLeft ? '-translate-x-full' : ''} -translate-y-1/2 min-w-48 max-w-64 rounded-lg border bg-card p-3 shadow-xl ring-1 ring-black/5`}
+                  style={{ borderLeftColor: activeThread.color, borderLeftWidth: 3 }}>
+                  <p className="mb-1 text-sm font-semibold leading-snug flex items-center gap-1.5">
+                    {ev.content || ev.topic || ev.id}
+                    {ev.is_locked && <Lock className="size-3 text-amber-500 shrink-0" />}
+                  </p>
+                  <p className="mb-2 font-mono text-[10px] text-muted-foreground">{fmtTime(ev.start)}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(ev.tags ?? []).slice(0, 4).map(tag => {
+                      const c = getTagColor(tag)
+                      return (
+                        <Badge key={tag} variant="secondary" className="rounded px-1.5 py-0 text-[10px]"
+                          style={{ background: `color-mix(in srgb,${c} 12%,transparent)`, color: c }}>
+                          #{tag}
+                        </Badge>
+                      )
+                    })}
+                  </div>
+                  <div className="mt-2 pt-2 border-t flex items-center justify-between">
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      {(ev.salience * 100).toFixed(0)}% salience
                     </span>
-                  </div>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); onEdit(ev) }}>
-                      <Pencil className="size-3" />
-                    </Button>
-                    {onArchive && (
-                      <Button
-                        variant="ghost" size="icon"
-                        className={`h-6 w-6 ${pendingArchiveBubbleId === ev.id ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
-                        title={pendingArchiveBubbleId === ev.id ? i18n.common.confirm : i18n.events.archive}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (pendingArchiveBubbleId !== ev.id) {
-                            setPendingArchiveBubbleId(ev.id)
-                            if (bubbleArchiveTimerRef.current) clearTimeout(bubbleArchiveTimerRef.current)
-                            bubbleArchiveTimerRef.current = setTimeout(() => setPendingArchiveBubbleId(null), 3000)
-                          } else {
-                            if (bubbleArchiveTimerRef.current) clearTimeout(bubbleArchiveTimerRef.current)
-                            setPendingArchiveBubbleId(null)
-                            onArchive(ev)
-                          }
-                        }}
-                      >
-                        <Archive className="size-3" />
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon" className="h-6 w-6"
+                        onClick={e => { e.stopPropagation(); onEdit(ev) }}>
+                        <Pencil className="size-3" />
                       </Button>
-                    )}
-                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); onDelete(ev) }}>
-                      <Trash2 className="size-3" />
-                    </Button>
+                      {onArchive && (
+                        <Button variant="ghost" size="icon"
+                          className={`h-6 w-6 ${pendingArchiveId === ev.id ? 'bg-amber-500 text-white' : ''}`}
+                          title={pendingArchiveId === ev.id ? i18n.common.confirm : i18n.events.archive}
+                          onClick={e => {
+                            e.stopPropagation()
+                            if (pendingArchiveId !== ev.id) {
+                              setPendingArchiveId(ev.id)
+                              if (archiveTimerRef.current) clearTimeout(archiveTimerRef.current)
+                              archiveTimerRef.current = setTimeout(() => setPendingArchiveId(null), 3000)
+                            } else {
+                              if (archiveTimerRef.current) clearTimeout(archiveTimerRef.current)
+                              setPendingArchiveId(null); onArchive(ev)
+                            }
+                          }}>
+                          <Archive className="size-3" />
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive"
+                        onClick={e => { e.stopPropagation(); onDelete(ev) }}>
+                        <Trash2 className="size-3" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
               </div>
             )
           })()}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   )
 }

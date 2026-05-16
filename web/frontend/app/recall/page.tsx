@@ -79,8 +79,10 @@ export default function RecallPage() {
   return (
     <div className="flex w-full flex-1 h-full flex-col min-w-0 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
+        variant="loom"
+        loomIssue="ΑΡΧΕΙΟ"
+          loomWindow={i18n.page.recall.loomWindow}
         title={i18n.page.recall.title}
-        description={i18n.page.recall.description}
         actions={actions}
         globalActions={globalActions}
       />

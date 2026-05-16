@@ -541,8 +541,10 @@ export default function ConfigPage() {
   return (
     <div className="flex w-full flex-1 flex-col min-w-0 animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
+        variant="loom"
+        loomIssue="ΡΥΘΜΙΣΗ"
+          loomWindow={i18n.page.config.loomWindow}
         title={i18n.page.config.title}
-        description={i18n.page.config.description}
         actions={actions}
         globalActions={globalActions}
       />

@@ -310,8 +310,10 @@ export default function GraphPage() {
     return (
       <div className="flex h-screen flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
         <PageHeader
+          variant="loom"
+          loomIssue="ΓΡΑΦΟΣ"
+          loomWindow={i18n.page.graph.loomWindow}
           title={i18n.page.graph.title}
-          description={i18n.graph.groupCount.replace('{count}', String(groupCards.length))}
           actions={listActions}
           globalActions={globalActions}
         />
@@ -395,7 +397,8 @@ export default function GraphPage() {
   if (relationEnabled === false) {
     return (
       <div className="flex h-screen flex-col overflow-hidden animate-in fade-in duration-500">
-        <PageHeader title={i18n.page.graph.title} description={i18n.page.graph.description} />
+        <PageHeader variant="loom" loomIssue="ΓΡΑΦΟΣ"
+          loomWindow={i18n.page.graph.loomWindow} title={i18n.page.graph.title} />
         <EmptyState
           icon={Share2}
           title={i18n.page.graph.disabledTitle}
@@ -408,8 +411,10 @@ export default function GraphPage() {
   return (
     <div className="flex h-screen flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-400 ease-out fill-mode-both">
       <PageHeader
+        variant="loom"
+        loomIssue="ΓΡΑΦΟΣ"
+          loomWindow={i18n.page.graph.loomWindow}
         title={currentGroup?.name ?? i18n.page.graph.title}
-        description={`${i18n.graph.nodeCount} ${activeNodes.length} · ${i18n.graph.edgePairCount} ${activePairs.length}`}
         actions={
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2" onClick={handleBackToList}>

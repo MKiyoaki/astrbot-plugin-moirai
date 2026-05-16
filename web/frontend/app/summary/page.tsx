@@ -207,8 +207,10 @@ export default function SummaryPage() {
   return (
     <div className="flex w-full flex-1 h-full flex-col min-w-0 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
+        variant="loom"
+        loomIssue="ΠΕΡΙΛΗΨΗ"
+          loomWindow={i18n.page.summary.loomWindow}
         title={i18n.page.summary.title}
-        description={i18n.page.summary.description}
         actions={actions}
         globalActions={globalActions}
       />

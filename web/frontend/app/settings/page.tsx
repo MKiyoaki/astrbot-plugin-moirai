@@ -94,8 +94,10 @@ export default function SettingsPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
+        variant="loom"
+        loomIssue="ΡΥΘΜΙΣΕΙΣ"
+          loomWindow={i18n.page.settings.loomWindow}
         title={i18n.page.settings.title}
-        description={i18n.page.settings.description}
       />
 
       <div className="flex-1 overflow-y-auto">

@@ -811,7 +811,7 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
     <div 
       onClick={() => !isFocused && onSelect?.()}
       className={cn(
-        "relative flex flex-col gap-3 rounded-xl border bg-card p-5 transition-all duration-300",
+        "relative flex flex-col gap-3 rounded-xl border bg-card p-5 transition-all duration-300 min-w-0 max-w-full overflow-hidden",
         isFocused ? "ring-2 ring-primary shadow-lg scale-[1.01] z-10" : "opacity-70 hover:opacity-100 cursor-pointer hover:border-primary/30",
         isArchived && "opacity-60 grayscale-[0.5]"
       )}
@@ -824,7 +824,7 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
         )} 
       />
 
-      <div className="flex items-start justify-between gap-4 pl-2">
+      <div className="flex items-start justify-between gap-2 pl-2 min-w-0">
         <div className="flex-1 min-w-0">
           <h4 className="font-bold text-base truncate flex items-center gap-2">
             {event.content || event.topic || event.id}
@@ -841,7 +841,7 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
         )}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-xs pl-2 bg-muted/30 p-3 rounded-lg">
+      <div className="grid grid-cols-3 gap-3 text-xs pl-2 bg-muted/30 p-3 rounded-lg">
         {[
           [i18n.events.id,         event.id.slice(0, 8) + '…'],
           [i18n.events.end,        new Date(event.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })],

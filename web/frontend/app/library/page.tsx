@@ -453,8 +453,10 @@ function LibraryContent() {
   return (
     <div className="flex h-full flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
+        variant="loom"
+        loomIssue="ΒΙΒΛΙΟΘΗΚΗ"
+          loomWindow={i18n.page.library.loomWindow}
         title={i18n.page.library.title}
-        description={i18n.page.library.description}
         actions={actions}
         globalActions={globalActions}
       />

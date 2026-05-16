@@ -19,12 +19,14 @@ interface DateRangePickerProps {
   value: DateRange | undefined
   onChange: (range: DateRange | undefined) => void
   className?: string
+  buttonClassName?: string
 }
 
 export function DateRangePicker({
   value,
   onChange,
   className,
+  buttonClassName,
 }: DateRangePickerProps) {
   const { rawEvents, i18n } = useApp()
   const t = i18n.common.datePicker || { selectDate: 'Select Date', selectRange: 'Select Range' }
@@ -65,7 +67,8 @@ export function DateRangePicker({
             variant={'outline'}
             className={cn(
               'h-9 justify-start text-left font-normal text-xs px-2.5 min-w-[200px] w-auto transition-all',
-              !value && 'text-muted-foreground'
+              !value && 'text-muted-foreground',
+              buttonClassName
             )}
           >
             <CalendarIcon className="mr-2 h-3.5 w-3.5 opacity-60" />

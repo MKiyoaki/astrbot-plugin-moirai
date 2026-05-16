@@ -66,12 +66,14 @@ export const zh = {
   page: {
     events: {
       title: '事件流',
+      loomWindow: '时序记录 · 对话溯源',
       description: '按时间轴查看所有对话事件，支持搜索、新建、编辑和事件回收站。',
       noEvents: '暂无记忆事件',
       noResults: '没有找到符合条件的事件',
     },
     graph: {
       title: '关系图',
+      loomWindow: '知识图谱 · 关联探索',
       description: '可视化人格节点与印象关系，支持点击查看证据事件并跳转时间线。',
       disabledTitle: '关系图功能已关闭',
       disabledDescription: '社交关系推断（relation_enabled）当前已禁用。如需启用，请前往「插件配置」页面将 relation_enabled 设为开启，重启后生效。',
@@ -81,26 +83,32 @@ export const zh = {
     },
     summary: {
       title: '摘要记忆',
+      loomWindow: '对话摘要 · 记忆压缩',
       description: '按群组和日期浏览定期生成的摘要，支持在线编辑。',
     },
     recall: {
       title: '记忆召回',
+      loomWindow: '归档检索 · 时序溯源',
       description: '全文搜索检索历史事件，预览召回效果与匹配算法结果。',
     },
     library: {
       title: '信息库',
+      loomWindow: '记忆库 · 语义检索',
       description: '管理标签、人格、群组和时间数据的统一视图。',
     },
     settings: {
       title: '设置与管理',
+      loomWindow: '显示偏好 · 语言配置',
       description: '配置界面主题、认证、后台任务和第三方面板。',
     },
     config: {
       title: '插件配置',
+      loomWindow: '系统参数 · 后端配置',
       description: '配置插件运行参数（检索、边界检测、任务间隔等），修改后重启插件生效。',
     },
     stats: {
       title: '数据统计',
+      loomWindow: '系统状态 · 记忆覆盖率',
       description: '查看记忆库的运行状态与数据洞察。',
     },
   },
@@ -766,12 +774,14 @@ export const ja = {
   page: {
     events: {
       title: 'イベントフロー',
+      loomWindow: '時系列記録 · 対話の溯及',
       description: 'タイムライン形式で対話イベントを表示。検索、作成、編集、イベントゴミ箱に対応。',
       noEvents: '記憶イベントがまだありません',
       noResults: '条件に一致するイベントが見つかりませんでした',
     },
     graph: {
       title: '関係図',
+      loomWindow: '知識グラフ · 関連探索',
       description: 'パーソナノードと印象关系を可视化。クリックで証拠イベントを确认しタイムラインへジャンプ。',
       disabledTitle: 'グラフ機能は無効です',
       disabledDescription: '社会的関係推論（relation_enabled）が現在無効になっています。「プラグイン設定」で有効にして再起動してください。',
@@ -782,26 +792,32 @@ export const ja = {
 
     summary: {
       title: '記憶の要約',
+      loomWindow: '対話要約 · 記憶圧縮',
       description: 'グループと日付ごとに定期生成された要約を閲覧。オンライン編集に対応。',
     },
     recall: {
       title: '記憶の想起',
+      loomWindow: 'アーカイブ検索 · 時系列溯及',
       description: '過去のイベントを全文検索。想起結果とマッチングアルゴリズムのプレビュー。',
     },
     library: {
       title: '情報ライブラリ',
+      loomWindow: '記憶ライブラリ · 意味検索',
       description: 'タグ、パーソナ、グループ、時間的手がかりを統合管理。',
     },
     settings: {
       title: '設定と管理',
+      loomWindow: '表示設定 · 言語構成',
       description: 'UIテーマ、認証、バックグラウンドタスク、サードパーティパネルの設定。',
     },
     config: {
       title: 'プラグイン構成',
+      loomWindow: 'システム設定 · バックエンド構成',
       description: 'プラグインの動作パラメータを設定。変更を保存して再起動すると反映されます。',
     },
     stats: {
       title: 'データ統計',
+      loomWindow: 'システム状態 · 記憶カバレッジ',
       description: '記憶バンクの実行ステータスとデータインサイトを表示します。',
     },
   },
@@ -1446,12 +1462,14 @@ export const en = {
   page: {
     events: {
       title: 'Event Flow',
+      loomWindow: 'Timeline · Conversation Trace',
       description: 'View dialogue events on a timeline. Supports search, creation, editing, and event recycle bin.',
       noEvents: 'No memory events yet',
       noResults: 'No events matching your filters',
     },
     graph: {
       title: 'Relationship Graph',
+      loomWindow: 'Knowledge Graph · Association Explorer',
       description: 'Visualize persona nodes and impression relationships. Click to view evidence and jump to timeline.',
       disabledTitle: 'Graph Disabled',
       disabledDescription: 'Social relationship inference (relation_enabled) is currently disabled. Enable it in "Plugin Config" and restart the plugin.',
@@ -1461,26 +1479,32 @@ export const en = {
     },
     summary: {
       title: 'Summaries',
+      loomWindow: 'Dialogue Summaries · Memory Compression',
       description: 'Browse regularly generated summaries by group and date. Supports online editing.',
     },
     recall: {
       title: 'Memory Recall',
+      loomWindow: 'Archive Search · Temporal Trace',
       description: 'Full-text search of historical events. Preview recall results and matching algorithms.',
     },
     library: {
       title: 'Information Library',
+      loomWindow: 'Memory Library · Semantic Search',
       description: 'Unified view for managing tags, personas, groups, and temporal clues.',
     },
     settings: {
       title: 'Settings & Admin',
+      loomWindow: 'Display Preferences · Language Config',
       description: 'Configure UI theme, auth, background tasks, and third-party panels.',
     },
     config: {
       title: 'Plugin Config',
+      loomWindow: 'System Parameters · Backend Config',
       description: 'Configure plugin parameters (retrieval, boundaries, tasks). Restart required after changes.',
     },
     stats: {
       title: 'Statistics',
+      loomWindow: 'System Status · Memory Coverage',
       description: 'View the operational status and data insights of the memory bank.',
     },
   },
