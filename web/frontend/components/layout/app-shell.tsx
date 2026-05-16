@@ -1,13 +1,17 @@
 'use client'
 
-import { useCallback, useEffect, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { Activity, Search, Settings } from 'lucide-react'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from './app-sidebar'
 import { Toaster } from '@/components/shared/toaster'
 import { LoginScreen } from '@/components/shared/login-screen'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { useApp } from '@/lib/store'
 import { getStored } from '@/lib/safe-storage'
 import { routeIsActive } from '@/lib/navigation'
@@ -27,7 +31,12 @@ const MOBILE_TABS = [
 
 function MobileTabBar() {
   const pathname = usePathname()
-  const { lang } = useApp()
+  const router = useRouter()
+  const app = useApp()
+  const { lang, i18n } = app
+
+  const [showExitDialog, setShowExitDialog] = useState(false)
+  const [pendingUrl, setPendingUrl] = useState('')
 
   const label = (tab: typeof MOBILE_TABS[number]) => {
     if (lang === 'en') return tab.labelEn
@@ -35,7 +44,22 @@ function MobileTabBar() {
     return tab.labelZh
   }
 
+  const handleNavClick = (e: React.MouseEvent, href: string) => {
+    if (app.isDirty) {
+      e.preventDefault()
+      setPendingUrl(href)
+      setShowExitDialog(true)
+    }
+  }
+
+  const confirmExit = () => {
+    app.setIsDirty(false)
+    setShowExitDialog(false)
+    router.push(pendingUrl)
+  }
+
   return (
+    <>
     <nav
       data-testid="mobile-tab-bar"
       className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex items-stretch border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
@@ -47,6 +71,7 @@ function MobileTabBar() {
           <Link
             key={tab.href}
             href={tab.href}
+            onClick={e => handleNavClick(e, tab.href)}
             className={cn(
               'flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-mono uppercase tracking-[0.12em] transition-colors',
               active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
@@ -58,6 +83,22 @@ function MobileTabBar() {
         )
       })}
     </nav>
+
+    <AlertDialog open={showExitDialog} onOpenChange={setShowExitDialog}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{i18n.summary.regenerateConfirmTitle}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {lang === 'zh' ? '您有未保存的更改。确定要离开吗？' : lang === 'ja' ? '未保存の変更があります。退出してもよろしいですか？' : 'You have unsaved changes. Are you sure you want to leave?'}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{i18n.common.cancel}</AlertDialogCancel>
+          <AlertDialogAction onClick={confirmExit}>{i18n.common.confirm}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }
 

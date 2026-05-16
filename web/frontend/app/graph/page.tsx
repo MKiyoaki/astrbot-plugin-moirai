@@ -316,6 +316,7 @@ export default function GraphPage() {
           title={i18n.page.graph.title}
           actions={listActions}
           globalActions={globalActions}
+          noToolbarBorder={true}
         />
         <FilterBar 
           tags={tagList} 

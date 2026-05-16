@@ -131,44 +131,52 @@
       "hint": "Only used when the provider is API."
     },
     "embedding.embedding_batch_size": {
-      "description": "Embedding Batch Size",
-      "hint": "Number of messages processed in a single batch."
+      "description": "DB Read Batch Size",
+      "hint": "Number of messages to read from the database per batch. Larger values increase peak memory usage. Default: 50."
     },
     "embedding_batch_size": {
-      "description": "Embedding Batch Size",
-      "hint": "Number of messages processed in a single batch."
+      "description": "DB Read Batch Size",
+      "hint": "Number of messages to read from the database per batch. Larger values increase peak memory usage. Default: 50."
+    },
+    "embedding.embedding_request_batch_size": {
+      "description": "Embedding API Batch Size",
+      "hint": "Number of texts included in a single Embedding API request. Default: 16."
+    },
+    "embedding_request_batch_size": {
+      "description": "Embedding API Batch Size",
+      "hint": "Number of texts included in a single Embedding API request. Default: 16."
     },
     "embedding.embedding_concurrency": {
-      "description": "Maximum Embedding Concurrency",
-      "hint": "Number of embedding requests or batches that may run at the same time."
+      "description": "Embedding Concurrency",
+      "hint": "Maximum internal concurrency for batch embedding requests. Default: 1."
     },
     "embedding_concurrency": {
-      "description": "Maximum Embedding Concurrency",
-      "hint": "Number of embedding requests or batches that may run at the same time."
+      "description": "Embedding Concurrency",
+      "hint": "Maximum internal concurrency for batch embedding requests. Default: 1."
     },
     "embedding.embedding_batch_interval_ms": {
       "description": "Batch Read Interval (ms)",
-      "hint": "Delay before reading the next batch after one batch finishes."
+      "hint": "Delay between reading consecutive batches from the database. Default: 5000 (5s)."
     },
     "embedding_batch_interval_ms": {
       "description": "Batch Read Interval (ms)",
-      "hint": "Delay before reading the next batch after one batch finishes."
+      "hint": "Delay between reading consecutive batches from the database. Default: 5000 (5s)."
     },
     "embedding.embedding_request_interval_ms": {
-      "description": "Request Interval (ms)",
-      "hint": "Minimum wait time between two network requests."
+      "description": "API Request Interval (ms)",
+      "hint": "Wait time between individual Embedding API sub-requests. Default: 5000 (5s)."
     },
     "embedding_request_interval_ms": {
-      "description": "Request Interval (ms)",
-      "hint": "Minimum wait time between two network requests."
+      "description": "API Request Interval (ms)",
+      "hint": "Wait time between individual Embedding API sub-requests. Default: 5000 (5s)."
     },
     "embedding.embedding_failure_tolerance_ratio": {
-      "description": "Allowed Failure Ratio",
-      "hint": "Maximum ratio of failed messages allowed in a batch (0.0-1.0)."
+      "description": "Failure Tolerance Ratio",
+      "hint": "Maximum allowable ratio of failed messages within a single batch (0.0-1.0). Default: 0.02."
     },
     "embedding_failure_tolerance_ratio": {
-      "description": "Allowed Failure Ratio",
-      "hint": "Maximum ratio of failed messages allowed in a batch (0.0-1.0)."
+      "description": "Failure Tolerance Ratio",
+      "hint": "Maximum allowable ratio of failed messages within a single batch (0.0-1.0). Default: 0.02."
     },
     "embedding.embedding_retry_max": {
       "description": "Maximum Retry Attempts",
@@ -179,24 +187,32 @@
       "hint": "Maximum number of attempts when an embedding request fails."
     },
     "embedding.embedding_retry_delay_ms": {
-      "description": "Retry Delay (ms)",
-      "hint": "Wait time before retrying."
+      "description": "Retry Wait Time (ms)",
+      "hint": "Base exponential backoff wait time after an embedding batch failure. Default: 30000 (30s)."
     },
     "embedding_retry_delay_ms": {
-      "description": "Retry Delay (ms)",
-      "hint": "Wait time before retrying."
+      "description": "Retry Wait Time (ms)",
+      "hint": "Base exponential backoff wait time after an embedding batch failure. Default: 30000 (30s)."
     },
     "retrieval": {
       "description": "Memory Retrieval",
       "hint": "Controls how memories are retrieved from the database and injected into prompts."
     },
     "retrieval.retrieval_top_k": {
-      "description": "Maximum Retrieved Events to Inject",
-      "hint": "Final number of events kept before prompt injection. Higher values provide richer context but consume more tokens."
+      "description": "Single Recall Count",
+      "hint": "Number of the most relevant memory items to return per retrieval. Select 0 to automatically skip recall and injection."
     },
     "retrieval_top_k": {
-      "description": "Maximum Retrieved Events to Inject",
-      "hint": "Final number of events kept before prompt injection. Higher values provide richer context but consume more tokens."
+      "description": "Single Recall Count",
+      "hint": "Number of the most relevant memory items to return per retrieval. Select 0 to automatically skip recall and injection."
+    },
+    "retrieval.retrieval_active_top_k": {
+      "description": "Active Retrieval Max Count",
+      "hint": "Maximum number of memory items allowed to be returned when the agent actively calls the long-term memory retrieval tool."
+    },
+    "retrieval_active_top_k": {
+      "description": "Active Retrieval Max Count",
+      "hint": "Maximum number of memory items allowed to be returned when the agent actively calls the long-term memory retrieval tool."
     },
     "retrieval.retrieval_token_budget": {
       "description": "Memory Injection Token Budget",
@@ -205,6 +221,38 @@
     "retrieval_token_budget": {
       "description": "Memory Injection Token Budget",
       "hint": "When over budget, memories are greedily truncated by importance, freshness, and relevance."
+    },
+    "retrieval.retrieval_salience_weight": {
+      "description": "Salience Weight",
+      "hint": "Proportion of memory salience in the hybrid scoring. Larger values prioritize memories with higher salience."
+    },
+    "retrieval_salience_weight": {
+      "description": "Salience Weight",
+      "hint": "Proportion of memory salience in the hybrid scoring. Larger values prioritize memories with higher salience."
+    },
+    "retrieval.retrieval_rrf_k": {
+      "description": "RRF Fusion Constant",
+      "hint": "Sets the RRF parameter k for the retrieval fusion strategy. Smaller values emphasize top-ranked results, while larger values lead to smoother fusion. Default: 60."
+    },
+    "retrieval_rrf_k": {
+      "description": "RRF Fusion Constant",
+      "hint": "Sets the RRF parameter k for the retrieval fusion strategy. Smaller values emphasize top-ranked results, while larger values lead to smoother fusion. Default: 60."
+    },
+    "retrieval.injection_position": {
+      "description": "Injection Position",
+      "hint": "Select where to inject the retrieved memory content. 'fake_tool_call' simulates a tool call returning the memory."
+    },
+    "injection_position": {
+      "description": "Injection Position",
+      "hint": "Select where to inject the retrieved memory content. 'fake_tool_call' simulates a tool call returning the memory."
+    },
+    "retrieval.injection_auto_clear": {
+      "description": "Auto-Clear Old Memory Injections",
+      "hint": "When enabled, old injected memory snippets in the historical context will be automatically deleted before injecting new ones to prevent context bloat."
+    },
+    "injection_auto_clear": {
+      "description": "Auto-Clear Old Memory Injections",
+      "hint": "When enabled, old injected memory snippets in the historical context will be automatically deleted before injecting new ones to prevent context bloat."
     },
     "retrieval.memory_isolation_enabled": {
       "description": "Enable Memory Isolation by Group ID",
@@ -265,6 +313,22 @@
     "context_window_size": {
       "description": "Context Window Size",
       "hint": "Maximum number of historical messages passed to the LLM for event summarization."
+    },
+    "vcm.context_max_history_messages": {
+      "description": "Max History Messages per Session",
+      "hint": "Maximum number of historical messages to keep in the database for each session. Oldest messages will be pruned in batches when exceeded. Recommended: 500-2000."
+    },
+    "context_max_history_messages": {
+      "description": "Max History Messages per Session",
+      "hint": "Maximum number of historical messages to keep in the database for each session. Oldest messages will be pruned in batches when exceeded. Recommended: 500-2000."
+    },
+    "vcm.context_cleanup_batch_size": {
+      "description": "History Cleanup Batch Size",
+      "hint": "Minimum number of old summarized messages to attempt to delete when the history limit is exceeded."
+    },
+    "context_cleanup_batch_size": {
+      "description": "History Cleanup Batch Size",
+      "hint": "Minimum number of old summarized messages to attempt to delete when the history limit is exceeded."
     },
     "soul": {
       "description": "Emotion Four-Dimensional State (Soul Layer)",
@@ -574,6 +638,14 @@
       "description": "Importance Decay Task Interval (hours)",
       "hint": "How many hours between salience time-decay runs over all events. Default is once per day."
     },
+    "relation.decay_lambda": {
+      "description": "Per-Cycle Decay Rate",
+      "hint": "Sets the salience decay proportion per cycle based on the decay task interval. Default: 0.01 (1%)."
+    },
+    "decay_lambda": {
+      "description": "Per-Cycle Decay Rate",
+      "hint": "Sets the salience decay proportion per cycle based on the decay task interval. Default: 0.01 (1%)."
+    },
     "relation.persona_synthesis_enabled": {
       "description": "Enable Persona Profile Synthesis",
       "hint": "When enabled, periodically synthesizes user persona profile files (PROFILE.md) from conversation history."
@@ -621,6 +693,26 @@
     "migration_auto_backup": {
       "description": "Automatically Back Up Database Before Migration",
       "hint": "When pending migration scripts are detected on plugin startup, automatically backs up the database as core.db.bak before running them. When disabled, skips backup."
+    },
+    "backup": {
+      "description": "Automatic Backup",
+      "hint": "Periodically back up the database file to prevent data loss."
+    },
+    "backup.backup_enabled": {
+      "description": "Enable Daily Auto-Backup",
+      "hint": "When enabled, the database file will be backed up daily."
+    },
+    "backup_enabled": {
+      "description": "Enable Daily Auto-Backup",
+      "hint": "When enabled, the database file will be backed up daily."
+    },
+    "backup.backup_retention_days": {
+      "description": "Backup Retention Days",
+      "hint": "Old backups exceeding this number of days will be automatically deleted."
+    },
+    "backup_retention_days": {
+      "description": "Backup Retention Days",
+      "hint": "Old backups exceeding this number of days will be automatically deleted."
     }
   }
 }

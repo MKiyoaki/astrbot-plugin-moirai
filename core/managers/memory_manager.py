@@ -52,12 +52,15 @@ class MemoryManager(BaseMemoryManager):
         retriever: HybridRetriever,
         encoder: Encoder,
         decay_config: DecayConfig | None = None,
+        context_config: ContextConfig | None = None,
     ) -> None:
         from ..config import DecayConfig as _DC
+        from ..config import ContextConfig as _CC
         self._repo = event_repo
         self._retriever = retriever
         self._encoder = encoder
         self._decay_cfg = decay_config or _DC()
+        self._context_cfg = context_config or _CC()
 
     # ------------------------------------------------------------------
     # Event CRUD
@@ -70,6 +73,13 @@ class MemoryManager(BaseMemoryManager):
         vec = embedding if embedding is not None else await self._encode(event)
         if vec:
             await self._repo.upsert_vector(event.event_id, vec)
+        
+        # Step 3: Prune old history for this group if limits exceeded.
+        await self._repo.prune_group_history(
+            group_id=event.group_id,
+            max_messages=self._context_cfg.max_history_messages,
+            batch_size=self._context_cfg.cleanup_batch_size,
+        )
 
     async def get_event(self, event_id: str) -> Event | None:
         return await self._repo.get(event_id)

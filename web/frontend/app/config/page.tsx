@@ -22,8 +22,8 @@ const FIELD_DEPENDENCIES: Record<string, string> = {
   // Embedding
   'embedding_provider': 'embedding_enabled',
   'embedding_model': 'embedding_enabled',
-  'embedding_api_url': 'embedding_enabled',
-  'embedding_api_key': 'embedding_enabled',
+  'embedding_api_url': 'embedding_provider',
+  'embedding_api_key': 'embedding_provider',
   'embedding_batch_size': 'embedding_enabled',
   'embedding_concurrency': 'embedding_enabled',
   'embedding_batch_interval_ms': 'embedding_enabled',
@@ -98,6 +98,8 @@ function ConfigField({
   const tooltip = localized?.tooltip
 
   const isSelectProvider = (schema as any)._special === 'select_provider'
+  const hasOptions = !!(schema.options && schema.options.length > 0)
+  const isSelect = schema.type === 'select' || isSelectProvider || hasOptions
 
   return (
     <div className={cn("transition-all duration-300", disabled && "opacity-40 grayscale-[0.5] pointer-events-none")}>
@@ -135,7 +137,7 @@ function ConfigField({
         </div>
       )}
 
-      {(schema.type === 'select' || isSelectProvider) && (
+      {isSelect && (
         <div className="py-3 min-w-0">
           <div className="flex items-center gap-1.5 mb-1.5">
             <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal">
@@ -242,7 +244,7 @@ function ConfigField({
         </div>
       )}
 
-      {(schema.type === 'int' || schema.type === 'string') && !isSelectProvider && (
+      {(schema.type === 'int' || schema.type === 'string') && !isSelectProvider && !hasOptions && (
         <div className="py-3 min-w-0">
           <div className="flex items-center gap-1.5 mb-1.5">
             <Label htmlFor={id} className="text-sm font-medium break-words whitespace-normal">
@@ -282,7 +284,7 @@ function ConfigField({
 }
 
 export default function ConfigPage() {
-  const { i18n, sudo, toast } = useApp()
+  const { i18n, sudo, toast, setIsDirty } = useApp()
   const [schema, setSchema] = useState<Record<string, api.ConfSchemaField>>({})
   const [values, setValues] = useState<Record<string, unknown>>({})
   const [dirty, setDirty] = useState<Record<string, unknown>>({})
@@ -299,6 +301,7 @@ export default function ConfigPage() {
       label: i18n.config.sections.webui,
       keys: [
         'llm_provider', 
+        'llm_concurrency',
         'webui_enabled',
         'webui_port', 
         'webui_auth_enabled', 
@@ -317,6 +320,7 @@ export default function ConfigPage() {
         'embedding_api_url', 
         'embedding_api_key',
         'embedding_batch_size',
+        'embedding_request_batch_size',
         'embedding_concurrency',
         'embedding_batch_interval_ms',
         'embedding_request_interval_ms',
@@ -330,11 +334,16 @@ export default function ConfigPage() {
       label: i18n.config.sections.retrieval,
       keys: [
         'retrieval_top_k', 
+        'retrieval_active_top_k',
         'retrieval_token_budget', 
+        'retrieval_salience_weight',
+        'retrieval_rrf_k',
         'retrieval_active_only', 
         'memory_isolation_enabled', 
         'retrieval_weighted_random', 
-        'retrieval_sampling_temperature'
+        'retrieval_sampling_temperature',
+        'injection_position',
+        'injection_auto_clear'
       ],
     },
     {
@@ -344,7 +353,9 @@ export default function ConfigPage() {
         'vcm_enabled', 
         'context_max_sessions', 
         'context_session_idle_seconds', 
-        'context_window_size'
+        'context_window_size',
+        'context_max_history_messages',
+        'context_cleanup_batch_size'
       ],
     },
     {
@@ -392,6 +403,7 @@ export default function ConfigPage() {
         'boundary_time_gap_minutes', 
         'boundary_max_messages', 
         'boundary_max_duration_minutes', 
+        'summary_trigger_rounds',
         'boundary_topic_drift_enabled',
         'boundary_topic_drift_threshold',
         'boundary_topic_drift_min_messages',
@@ -419,6 +431,7 @@ export default function ConfigPage() {
         'show_system_prompt',
         'show_injection_summary',
         'decay_enabled',
+        'decay_lambda',
         'decay_interval_hours',
         'persona_synthesis_enabled',
         'persona_synthesis_interval_hours', 
@@ -426,6 +439,14 @@ export default function ConfigPage() {
         'impression_aggregation_interval_hours', 
         'file_watcher_poll_seconds',
         'migration_auto_backup'
+      ],
+    },
+    {
+      id: 'backup',
+      label: i18n.config.sections.backup,
+      keys: [
+        'backup_enabled',
+        'backup_retention_days'
       ],
     },
   ], [i18n])
@@ -437,6 +458,7 @@ export default function ConfigPage() {
       setSchema(confData.schema)
       setValues(confData.values)
       setDirty({})
+      setIsDirty(false)
       
       try {
         const provData = await api.pluginConfig.providers()
@@ -453,6 +475,10 @@ export default function ConfigPage() {
   }
 
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    return () => setIsDirty(false)
+  }, [setIsDirty])
 
   // Intersection Observer for Scroll Spy
   useEffect(() => {
@@ -483,9 +509,21 @@ export default function ConfigPage() {
     return () => observer.disconnect()
   }, [loading, SECTIONS])
 
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (Object.keys(dirty).length > 0) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [dirty])
+
   const handleChange = (key: string, val: unknown) => {
     setDirty(prev => ({ ...prev, [key]: val }))
     setValues(prev => ({ ...prev, [key]: val }))
+    setIsDirty(true)
   }
 
   const handleSave = async () => {
@@ -496,6 +534,7 @@ export default function ConfigPage() {
       await api.pluginConfig.update(dirty)
       toast(i18n.config.saved)
       setDirty({})
+      setIsDirty(false)
     } catch (e: unknown) {
       toast(`${i18n.config.saveError}：${(e as api.ApiError).body}`, 'destructive', 4000)
     } finally {
@@ -595,6 +634,8 @@ export default function ConfigPage() {
                             isParentOff = !parentVal
                           } else if (parentKey === 'extraction_strategy') {
                             isParentOff = parentVal !== 'semantic'
+                          } else if (parentKey === 'embedding_provider') {
+                            isParentOff = parentVal !== 'api' || !values['embedding_enabled']
                           }
                         }
 

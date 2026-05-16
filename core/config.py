@@ -88,8 +88,14 @@ DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
 
 @dataclass
 class DecayConfig:
-    lambda_: float = 0.01         # exp(-0.01) ≈ 0.99; half-life ≈ 69 days
-    archive_threshold: float = 0.05  # events below this salience are archived
+    lambda_: float = 0.01             # Per-pass decay rate (e.g. 0.01 = 1%)
+    archive_threshold: float = 0.05   # Status='archived' if salience falls below this
+
+
+@dataclass
+class BackupConfig:
+    enabled: bool = True
+    retention_days: int = 7
 
 
 _DEFAULT_PERSONA_SYSTEM_PROMPT = (
@@ -179,9 +185,10 @@ class SummaryConfig:
 class RetrievalConfig:
     bm25_limit: int = 20              # BM25 candidate pool size
     vec_limit: int = 20               # Vector candidate pool size
-    final_limit: int = 10             # Results after fusion
-    rrf_k: int = 60                   # RRF k (original paper default)
-    salience_weight: float = 0.3      # Weight for event.salience in final score
+    final_limit: int = 3              # Results after fusion
+    active_limit: int = 5             # Max results for active retrieval tool
+    rrf_k: int = 60                   # RRF k (original paper default is 60)
+    salience_weight: float = 0.1      # Weight for event.salience in final score
     recency_weight: float = 0.2       # Weight for recency decay in final score
     relevance_weight: float = 0.5     # Weight for normalised RRF score
     recency_half_life_days: float = 30.0  # Half-life for recency exponential decay
@@ -260,6 +267,8 @@ class ContextConfig:
     max_sessions: int = 100
     session_idle_seconds: int = 3600
     window_size: int = 50
+    max_history_messages: int = 1000
+    cleanup_batch_size: int = 50
 
 
 @dataclass
@@ -276,13 +285,14 @@ class EmbeddingConfig:
     model: str = "BAAI/bge-small-zh-v1.5"
     api_url: str = ""
     api_key: str = ""
-    batch_size: int = 1
+    batch_size: int = 50
+    request_batch_size: int = 16
     concurrency: int = 1
-    batch_interval_ms: int = 0
-    request_interval_ms: int = 0
-    failure_tolerance_ratio: float = 0.0
+    batch_interval_ms: int = 5000
+    request_interval_ms: int = 5000
+    failure_tolerance_ratio: float = 0.02
     retry_max: int = 3
-    retry_delay_ms: int = 1000
+    retry_delay_ms: int = 30000
 
 
 class PluginConfig:
@@ -378,6 +388,7 @@ class PluginConfig:
             max_messages=self._int("boundary_max_messages", 50),
             max_duration_minutes=self._float(
                 "boundary_max_duration_minutes", 60.0),
+            summary_trigger_rounds=self._int("summary_trigger_rounds", 30),
             drift_detection_enabled=self._bool(
                 "boundary_topic_drift_enabled", True),
             drift_threshold=self._float("boundary_topic_drift_threshold", 0.6),
@@ -390,6 +401,12 @@ class PluginConfig:
         return DecayConfig(
             lambda_=self._float("decay_lambda", 0.01),
             archive_threshold=self._float("decay_archive_threshold", 0.05),
+        )
+
+    def get_backup_config(self) -> BackupConfig:
+        return BackupConfig(
+            enabled=self._bool("backup_enabled", True),
+            retention_days=self._int("backup_retention_days", 7),
         )
 
     def get_synthesis_config(self) -> SynthesisConfig:
@@ -428,9 +445,10 @@ class PluginConfig:
         return RetrievalConfig(
             bm25_limit=self._int("retrieval_bm25_limit", 20),
             vec_limit=self._int("retrieval_vec_limit", 20),
-            final_limit=self._int("retrieval_top_k", 10),
+            final_limit=self._int("retrieval_top_k", 3),
+            active_limit=self._int("retrieval_active_top_k", 5),
             rrf_k=self._int("retrieval_rrf_k", 60),
-            salience_weight=self._float("retrieval_salience_weight", 0.3),
+            salience_weight=self._float("retrieval_salience_weight", 0.1),
             recency_weight=self._float("retrieval_recency_weight", 0.2),
             relevance_weight=self._float("retrieval_relevance_weight", 0.5),
             recency_half_life_days=self._float(
@@ -515,6 +533,8 @@ class PluginConfig:
             session_idle_seconds=self._int(
                 "context_session_idle_seconds", 3600),
             window_size=self._int("context_window_size", 50),
+            max_history_messages=self._int("context_max_history_messages", 1000),
+            cleanup_batch_size=self._int("context_cleanup_batch_size", 50),
         )
 
     def get_cleanup_config(self) -> CleanupConfig:
@@ -531,14 +551,15 @@ class PluginConfig:
             model=self._str("embedding_model", "BAAI/bge-small-zh-v1.5"),
             api_url=self._str("embedding_api_url", ""),
             api_key=self._str("embedding_api_key", ""),
-            batch_size=self._int("embedding_batch_size", 1),
+            batch_size=self._int("embedding_batch_size", 50),
+            request_batch_size=self._int("embedding_request_batch_size", 16),
             concurrency=self._int("embedding_concurrency", 1),
-            batch_interval_ms=self._int("embedding_batch_interval_ms", 0),
-            request_interval_ms=self._int("embedding_request_interval_ms", 0),
+            batch_interval_ms=self._int("embedding_batch_interval_ms", 5000),
+            request_interval_ms=self._int("embedding_request_interval_ms", 5000),
             failure_tolerance_ratio=self._float(
                 "embedding_failure_tolerance_ratio", 0.02),
             retry_max=self._int("embedding_retry_max", 3),
-            retry_delay_ms=self._int("embedding_retry_delay_ms", 1000),
+            retry_delay_ms=self._int("embedding_retry_delay_ms", 30000),
         )
 
     # ------------------------------------------------------------------

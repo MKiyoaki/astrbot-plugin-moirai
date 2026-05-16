@@ -39,11 +39,11 @@
       "hint": "启用后可在浏览器访问 Moirai 三轴记忆面板"
     },
     "webui.webui_enabled": {
-      "description": "启用 Moirai 记忆管理面板",
+      "description": "启用 Moirai 记忆 management 面板",
       "hint": "开启后可在浏览器访问 Moirai 三轴记忆面板（事件流 / 关系图 / 摘要）"
     },
     "webui_enabled": {
-      "description": "启用 Moirai 记忆管理面板",
+      "description": "启用 Moirai 记忆 management 面板",
       "hint": "开启后可在浏览器访问 Moirai 三轴记忆面板（事件流 / 关系图 / 摘要）"
     },
     "webui.webui_port": {
@@ -131,44 +131,52 @@
       "hint": "仅在提供者为 API 时有效"
     },
     "embedding.embedding_batch_size": {
-      "description": "Embedding 批次大小",
-      "hint": "单个批次同时处理的消息数量"
+      "description": "读取批量",
+      "hint": "每批从数据库读取的消息条数，越大内存峰值越高。默认 50。"
     },
     "embedding_batch_size": {
-      "description": "Embedding 批次大小",
-      "hint": "单个批次同时处理的消息数量"
+      "description": "读取批量",
+      "hint": "每批从数据库读取的消息条数，越大内存峰值越高。默认 50。"
+    },
+    "embedding.embedding_request_batch_size": {
+      "description": "Embedding 批量",
+      "hint": "单次 Embedding API 请求包含的文本数量。默认 16。"
+    },
+    "embedding_request_batch_size": {
+      "description": "Embedding 批量",
+      "hint": "单次 Embedding API 请求包含的文本数量。默认 16。"
     },
     "embedding.embedding_concurrency": {
-      "description": "Embedding 最大并发数",
-      "hint": "同时进行的 Embedding 请求（批次）数量"
+      "description": "Embedding 并发",
+      "hint": "批量 Embedding 内部并发上限。默认 1。"
     },
     "embedding_concurrency": {
-      "description": "Embedding 最大并发数",
-      "hint": "同时进行的 Embedding 请求（批次）数量"
+      "description": "Embedding 并发",
+      "hint": "批量 Embedding 内部并发上限。默认 1。"
     },
     "embedding.embedding_batch_interval_ms": {
-      "description": "批次读取间隔（毫秒）",
-      "hint": "处理完一个批次后等待多久读取下一个批次"
+      "description": "读取批次间隔 (ms)",
+      "hint": "处理完一个批次后等待多久读取下一个批次。默认 5000 (5s)。"
     },
     "embedding_batch_interval_ms": {
-      "description": "批次读取间隔（毫秒）",
-      "hint": "处理完一个批次后等待多久读取下一个批次"
+      "description": "读取批次间隔 (ms)",
+      "hint": "处理完一个批次后等待多久读取下一个批次。默认 5000 (5s)。"
     },
     "embedding.embedding_request_interval_ms": {
-      "description": "请求间隔（毫秒）",
-      "hint": "两次网络请求之间的最小等待时间"
+      "description": "Embedding 请求间隔 (ms)",
+      "hint": "每个 Embedding API 子请求之间的等待时间。默认 5000 (5s)。"
     },
     "embedding_request_interval_ms": {
-      "description": "请求间隔（毫秒）",
-      "hint": "两次网络请求之间的最小等待时间"
+      "description": "Embedding 请求间隔 (ms)",
+      "hint": "每个 Embedding API 子请求之间的等待时间。默认 5000 (5s)。"
     },
     "embedding.embedding_failure_tolerance_ratio": {
       "description": "允许失败比例",
-      "hint": "一个批次中允许失败的消息比例上限 (0.0-1.0)"
+      "hint": "一个批次中允许失败的消息比例上限 (0.0-1.0)。默认 0.02。"
     },
     "embedding_failure_tolerance_ratio": {
       "description": "允许失败比例",
-      "hint": "一个批次中允许失败的消息比例上限 (0.0-1.0)"
+      "hint": "一个批次中允许失败的消息比例上限 (0.0-1.0)。默认 0.02。"
     },
     "embedding.embedding_retry_max": {
       "description": "最大重试次数",
@@ -179,24 +187,32 @@
       "hint": "Embedding 请求失败时的最大尝试次数"
     },
     "embedding.embedding_retry_delay_ms": {
-      "description": "重试等待时间（毫秒）",
-      "hint": "重试前的等待时间"
+      "description": "重试等待时间 (ms)",
+      "hint": "Embedding 批次失败后的指数退避基础等待时间。默认 30000 (30s)。"
     },
     "embedding_retry_delay_ms": {
-      "description": "重试等待时间（毫秒）",
-      "hint": "重试前的等待时间"
+      "description": "重试等待时间 (ms)",
+      "hint": "Embedding 批次失败后的指数退避基础等待时间。默认 30000 (30s)。"
     },
     "retrieval": {
       "description": "记忆检索",
       "hint": "控制记忆如何从数据库检索并注入 Prompt"
     },
     "retrieval.retrieval_top_k": {
-      "description": "检索注入的最大事件数",
-      "hint": "注入 Prompt 前最终保留的事件数量，值越大 context 越丰富但消耗 token 越多"
+      "description": "单条召回数量",
+      "hint": "每次检索返回的最相关记忆条数，选择 0 可自动跳过召回和注入"
     },
     "retrieval_top_k": {
-      "description": "检索注入的最大事件数",
-      "hint": "注入 Prompt 前最终保留的事件数量，值越大 context 越丰富但消耗 token 越多"
+      "description": "单条召回数量",
+      "hint": "每次检索返回的最相关记忆条数，选择 0 可自动跳过召回和注入"
+    },
+    "retrieval.retrieval_active_top_k": {
+      "description": "主动检索的最大数量",
+      "hint": "Agent 主动调用长期记忆检索工具时允许返回的最大记忆条数"
+    },
+    "retrieval_active_top_k": {
+      "description": "主动检索的最大数量",
+      "hint": "Agent 主动调用长期记忆检索工具时允许返回的最大记忆条数"
     },
     "retrieval.retrieval_token_budget": {
       "description": "记忆注入的 Token 上限",
@@ -205,6 +221,38 @@
     "retrieval_token_budget": {
       "description": "记忆注入的 Token 上限",
       "hint": "超出上限时按「重要度 × 新鲜度 × 相关度」贪心截断"
+    },
+    "retrieval.retrieval_salience_weight": {
+      "description": "重要性权重",
+      "hint": "混合评分中记忆重要性的占比，值越大，重要性高的记忆就越优先被召回"
+    },
+    "retrieval_salience_weight": {
+      "description": "重要性权重",
+      "hint": "混合评分中记忆重要性的占比，值越大，重要性高的记忆就越优先被召回"
+    },
+    "retrieval.retrieval_rrf_k": {
+      "description": "RRF 融合常数",
+      "hint": "设定检索融合策略的 RRF 参数 k。值越小越强调排名靠前的结果，值越大融合越平滑。默认 60。"
+    },
+    "retrieval_rrf_k": {
+      "description": "RRF 融合常数",
+      "hint": "设定检索融合策略的 RRF 参数 k。值越小越强调排名靠前的结果，值越大融合越平滑。默认 60。"
+    },
+    "retrieval.injection_position": {
+      "description": "记忆注入位置",
+      "hint": "选择将检索到的记忆内容注入到哪个位置。fake_tool_call 会模拟工具调用返回记忆。"
+    },
+    "injection_position": {
+      "description": "记忆注入位置",
+      "hint": "选择将检索到的记忆内容注入到哪个位置。fake_tool_call 会模拟工具调用返回记忆。"
+    },
+    "retrieval.injection_auto_clear": {
+      "description": "自动清除旧记忆注入片段",
+      "hint": "开启后，注入新历史前会自动删除历史上下文中已经注入过的旧记忆片段，防止 context 膨胀。"
+    },
+    "injection_auto_clear": {
+      "description": "自动清除旧记忆注入片段",
+      "hint": "开启后，注入新历史前会自动删除历史上下文中已经注入过的旧记忆片段，防止 context 膨胀。"
     },
     "retrieval.memory_isolation_enabled": {
       "description": "启用记忆隔离（按群组 ID 隔离检索）",
@@ -265,6 +313,22 @@
     "context_window_size": {
       "description": "上下文窗口大小",
       "hint": "传给 LLM 进行事件总结的最大历史消息条数"
+    },
+    "vcm.context_max_history_messages": {
+      "description": "单会话最大历史消息数",
+      "hint": "数据库中每个会话保留的历史消息上限，超过后将按批次清理最旧的消息。建议 500-2000。"
+    },
+    "context_max_history_messages": {
+      "description": "单会话最大历史消息数",
+      "hint": "数据库中每个会话保留的历史消息上限，超过后将按批次清理最旧的消息。建议 500-2000。"
+    },
+    "vcm.context_cleanup_batch_size": {
+      "description": "历史消息批量清理数量",
+      "hint": "会话历史超出上限后，每次至少尝试删除的旧已总结消息数量。"
+    },
+    "context_cleanup_batch_size": {
+      "description": "历史消息批量清理数量",
+      "hint": "会话历史超出上限后，每次至少尝试删除的旧已总结消息数量。"
     },
     "soul": {
       "description": "情绪四维 (Soul Layer)",
@@ -574,6 +638,14 @@
       "description": "重要度衰减任务间隔（小时）",
       "hint": "每隔多少小时对所有事件执行一次 salience 时间衰减，默认每天一次"
     },
+    "relation.decay_lambda": {
+      "description": "每周期衰减率",
+      "hint": "基于衰减任务间隔设定每周期重要性衰减比例。默认 0.01，即每周期降低 1%。"
+    },
+    "decay_lambda": {
+      "description": "每周期衰减率",
+      "hint": "基于衰减任务间隔设定每周期重要性衰减比例。默认 0.01，即每周期降低 1%。"
+    },
     "relation.persona_synthesis_enabled": {
       "description": "启用人格档案合成",
       "hint": "开启后将定期根据对话记录合成用户的人设档案（PROFILE.md）"
@@ -621,6 +693,26 @@
     "migration_auto_backup": {
       "description": "迁移前自动备份数据库文件",
       "hint": "插件启动时若检测到待执行迁移脚本，在运行前自动将数据库备份为 core.db.bak；关闭则跳过备份"
+    },
+    "backup": {
+      "description": "自动备份",
+      "hint": "定期自动备份数据库文件，防止数据丢失"
+    },
+    "backup.backup_enabled": {
+      "description": "启用每日自动备份",
+      "hint": "开启后将每日自动备份数据库文件"
+    },
+    "backup_enabled": {
+      "description": "启用每日自动备份",
+      "hint": "开启后将每日自动备份数据库文件"
+    },
+    "backup.backup_retention_days": {
+      "description": "备份保留天数",
+      "hint": "超过该天数的旧备份将被自动删除"
+    },
+    "backup_retention_days": {
+      "description": "备份保留天数",
+      "hint": "超过该天数的旧备份将被自动删除"
     }
   }
 }

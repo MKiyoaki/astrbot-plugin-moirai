@@ -215,6 +215,11 @@ export const zh = {
     archiveSuccess: '已归档',
     unarchiveSuccess: '已恢复为活跃',
     archiveBinLoadError: '归档事件加载失败',
+    legend: {
+      event: '事件',
+      locked: '锁定',
+      archived: '封存',
+    },
   },
   graph: {
     search: '搜索人格、关系…',
@@ -513,6 +518,7 @@ export const zh = {
       summaries: '摘要记忆',
       relation: '社会关系',
       tasks: '后台任务',
+      backup: '自动备份',
     },
     fields: {
       llm_provider: { 
@@ -614,6 +620,19 @@ export const zh = {
       tag_normalization_threshold: { label: '标签归一化阈值', hint: '提取标签时，若与现有标签相似度超过此值，则自动归并。' },
       tag_seeds: { label: '标签种子词表', hint: '用英文逗号分隔。定义系统记忆的宏观分类。' },
       persona_default_confidence: { label: '人格默认置信度', hint: '新建人格时赋予的初始置信值（由模型推断后自动更新）' },
+      llm_concurrency: { label: '后台 LLM 最大并发数', hint: '整个插件同时进行的后台 LLM 请求的最大数量。推荐 1-3。' },
+      embedding_request_batch_size: { label: 'Embedding 批量', hint: '单次 Embedding API 请求包含的文本数量。默认 16。' },
+      retrieval_active_top_k: { label: '主动检索的最大数量', hint: 'Agent 主动调用长期记忆检索工具时允许返回的最大记忆条数' },
+      retrieval_rrf_k: { label: 'RRF 融合常数', hint: '设定检索融合策略的 RRF 参数 k。值越小越强调排名靠前的结果。' },
+      retrieval_salience_weight: { label: '重要性权重', hint: '混合评分中记忆重要性的占比，值越大，重要性高的记忆就越优先被召回' },
+      injection_position: { label: '记忆注入位置', hint: '选择将检索到的记忆内容注入到哪个位置。' },
+      injection_auto_clear: { label: '自动清除旧记忆注入片段', hint: '开启后，注入新历史前会自动删除历史上下文中的旧片段。' },
+      context_max_history_messages: { label: '单会话最大历史消息数', hint: '数据库中每个会话保留的历史消息上限' },
+      context_cleanup_batch_size: { label: '历史消息批量清理数量', hint: '会话历史超出上限后，每次至少尝试删除的消息数量。' },
+      summary_trigger_rounds: { label: '总结触发轮次', hint: '累计对话达到该轮次后（一问一答为一轮）自动触发 LLM 总结' },
+      decay_lambda: { label: '每周期衰减率', hint: '基于衰减任务间隔设定每周期重要性衰减比例。' },
+      backup_enabled: { label: '启用每日自动备份', hint: '开启后将每日自动备份数据库文件' },
+      backup_retention_days: { label: '备份保留天数', hint: '超过该天数的旧备份将被自动删除' },
     },
   },
   common: {
@@ -924,6 +943,11 @@ export const ja = {
     archiveSuccess: 'アーカイブしました',
     unarchiveSuccess: 'アクティブに復元しました',
     archiveBinLoadError: 'アーカイブイベントの読み込みに失敗しました',
+    legend: {
+      event: 'イベント',
+      locked: 'ロック',
+      archived: 'アーカイブ',
+    },
   },
   graph: {
     search: 'パーソナ、関係を検索...',
@@ -1222,6 +1246,7 @@ export const ja = {
       summaries: '要約記憶',
       relation: '社会的関係',
       tasks: 'バックグラウンドタスク',
+      backup: '自動バックアップ',
     },
     fields: {
       llm_provider: { 
@@ -1303,6 +1328,19 @@ export const ja = {
       tag_normalization_threshold: { label: 'タグ正規化しきい値', hint: '既存のタグとの類似度がこれを超えると自動的に統合されます。' },
       tag_seeds: { label: 'タグシードリスト', hint: 'コンマ区切り。システムの記憶の抽象的な階層を定義します。' },
       persona_default_confidence: { label: 'パーソナデフォルト信頼度', hint: '新規パーソナ作成時の初期信頼値' },
+      llm_concurrency: { label: 'LLM 最大並列数', hint: 'プラグインが同時に実行できる LLM リクエストの最大数' },
+      embedding_request_batch_size: { label: 'Embedding バッチ', hint: '単一の Embedding API リクエストに含まれるテキスト数' },
+      retrieval_active_top_k: { label: 'アクティブ検索最大数', hint: 'エージェントがアクティブに検索した際に返される最大件数' },
+      retrieval_rrf_k: { label: 'RRF 融合定数 (k)', hint: '検索結果の融合パラメータ k。小さいほど上位結果を重視。' },
+      retrieval_salience_weight: { label: '重要度ウェイト', hint: 'ハイブリッドスコアリングにおける重要度の割合' },
+      injection_position: { label: '注入位置', hint: '想起された記憶をリクエストのどこに注入するか' },
+      injection_auto_clear: { label: '古い注入の自動クリア', hint: '新しい記憶を注入する前に、履歴内の古い記憶断片を自動削除' },
+      context_max_history_messages: { label: 'セッション最大履歴数', hint: 'セッションごとにデータベースに保持される最大メッセージ数' },
+      context_cleanup_batch_size: { label: 'クリーンアップバッチ数', hint: '履歴上限を超えた際に一度に削除されるメッセージ数' },
+      summary_trigger_rounds: { label: '要約トリガーラウンド数', hint: '指定した対話回数ごとに LLM 要約と記憶への書き込みを実行' },
+      decay_lambda: { label: '周期減衰率', hint: '重要度減衰タスクごとに重要度が減衰する割合' },
+      backup_enabled: { label: '毎日自動バックアップを有効化', hint: '毎日データベースファイルを自動バックアップ' },
+      backup_retention_days: { label: 'バックアップ保持日数', hint: '指定した日数を超えたバックアップを自動削除' },
     },
       },
       common: {
@@ -1611,6 +1649,11 @@ export const en = {
     archiveSuccess: 'Archived',
     unarchiveSuccess: 'Restored to active',
     archiveBinLoadError: 'Failed to load archived events',
+    legend: {
+      event: 'Event',
+      locked: 'Locked',
+      archived: 'Archived',
+    },
   },
   graph: {
     search: 'Search personas, relations...',
@@ -1909,6 +1952,7 @@ export const en = {
       summaries: 'Summaries',
       relation: 'Social Relations',
       tasks: 'Background Tasks',
+      backup: 'Automatic Backup',
     },
     fields: {
       llm_provider: { 
@@ -2010,6 +2054,19 @@ export const en = {
       tag_normalization_threshold: { label: 'Tag Normalization', hint: 'Automatically merge tags if similarity exceeds this threshold.' },
       tag_seeds: { label: 'Tag Seed List', hint: 'Comma-separated keywords defining memory taxonomy.' },
       persona_default_confidence: { label: 'Default Confidence', hint: 'Initial confidence for new personas' },
+      llm_concurrency: { label: 'LLM Concurrency', hint: 'Max concurrent LLM requests for background tasks' },
+      embedding_request_batch_size: { label: 'Embedding Batch', hint: 'Number of texts per single Embedding API request' },
+      retrieval_active_top_k: { label: 'Active Retrieval Max', hint: 'Max memory items returned for active search' },
+      retrieval_rrf_k: { label: 'RRF Constant (k)', hint: 'RRF fusion parameter k. Lower values emphasize top results.' },
+      retrieval_salience_weight: { label: 'Salience Weight', hint: 'Weight of memory importance in scoring' },
+      injection_position: { label: 'Injection Position', hint: 'Where to inject memories into the request' },
+      injection_auto_clear: { label: 'Auto-Clear Old Injections', hint: 'Delete old memory fragments before injecting new ones' },
+      context_max_history_messages: { label: 'Max History Messages', hint: 'Max messages kept in database per session' },
+      context_cleanup_batch_size: { label: 'Cleanup Batch Size', hint: 'Messages deleted when history limit is exceeded' },
+      summary_trigger_rounds: { label: 'Summary Trigger Rounds', hint: 'Trigger LLM summary after this many dialogue rounds' },
+      decay_lambda: { label: 'Decay Rate', hint: 'Proportion of salience decay per pass' },
+      backup_enabled: { label: 'Enable Daily Backup', hint: 'Automatically back up database daily' },
+      backup_retention_days: { label: 'Backup Retention Days', hint: 'Days to keep old backups before deletion' },
     },
   },
   common: {

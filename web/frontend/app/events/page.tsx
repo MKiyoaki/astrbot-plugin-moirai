@@ -1,39 +1,24 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Plus, Trash2, Archive, Search, SlidersHorizontal, X, MessageSquareOff } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Plus, Trash2, Archive, Search, X, MessageSquareOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Slider } from '@/components/ui/slider'
 import { PageHeader } from '@/components/layout/page-header'
 import { EventTimeline } from '@/components/events/event-timeline'
 import { FilterBar } from '@/components/shared/filter-bar'
-import { DateRangePicker } from '@/components/shared/date-range-picker'
 import { DetailPanel } from '@/components/events/detail-panel'
 import {
   CreateEventDialog, EditEventDialog, RecycleBinDialog, ArchiveEventsDialog, type EventFormData,
 } from '@/components/events/event-dialogs'
-import {
-  Popover, PopoverTrigger, PopoverContent,
-} from '@/components/ui/popover'
 import { RefreshButton } from '@/components/shared/refresh-button'
 import { EmptyState } from '@/components/shared/empty-state'
+import { TimeGapSelector } from '@/components/shared/time-gap-selector'
 import { useApp } from '@/lib/store'
 import { getStored, removeStored } from '@/lib/safe-storage'
 import * as api from '@/lib/api'
 import { DateRange } from 'react-day-picker'
-
-// ── Gap options ────────────────────────────────────────────────────────────────
-
-const GAP_OPTIONS = [
-  { label: '30m', value: 1800000 },
-  { label: '1h',  value: 3600000 },
-  { label: '2h',  value: 7200000 },
-  { label: '4h',  value: 14400000 },
-  { label: '8h',  value: 28800000 },
-  { label: '24h', value: 86400000 },
-  { label: '7d',  value: 604800000 },
-]
 
 // ── Loom legend ────────────────────────────────────────────────────────────────
 
@@ -66,28 +51,28 @@ function LoomLegend() {
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function EventsPage() {
-  const app = useApp()
-  const { i18n } = app
+  const { i18n, ...app } = useApp()
+  const router = useRouter()
 
-  const [search, setSearch]           = useState('')
-  const [timeGap, setTimeGap]         = useState(7200000)
-  const [dateRange, setDateRange]     = useState<DateRange | undefined>()
-  const [activeTags, setActiveTags]   = useState<Set<string>>(new Set())
-  const [tagList, setTagList]         = useState<{ name: string; count: number }[]>([])
-  const [highlightIds, setHighlightIds]     = useState<Set<string>>(new Set())
-  const [detailEvent, setDetailEvent]       = useState<api.ApiEvent | null>(null)
-  const [isRefreshing, setIsRefreshing]     = useState(false)
+  const [search, setSearch]             = useState('')
+  const [timeGap, setTimeGap]           = useState(7200000) // Default 2h
+  const [dateRange, setDateRange]       = useState<DateRange | undefined>()
+  const [activeTags, setActiveTags]     = useState<Set<string>>(new Set())
+  const [tagList, setTagList]           = useState<{ name: string; count: number }[]>([])
+  const [tagSuggestions, setTagSuggestions]   = useState<string[]>([])
+  const [highlightIds, setHighlightIds]       = useState<Set<string>>(new Set())
+  const [detailEvent, setDetailEvent]         = useState<api.ApiEvent | null>(null)
+  const [isRefreshing, setIsRefreshing]       = useState(false)
 
   // CRUD dialogs
   const [createOpen, setCreateOpen]           = useState(false)
   const [editEvent, setEditEvent]             = useState<api.ApiEvent | null>(null)
   const [binOpen, setBinOpen]                 = useState(false)
-  const [binItems, setBinItems]               = useState<(api.ApiEvent & { deleted_at?: string })[]>([])
+  const [binItems, setBinItems]               = useState<api.ApiEvent[]>([])
   const [binLoading, setBinLoading]           = useState(false)
   const [archiveBinOpen, setArchiveBinOpen]   = useState(false)
   const [archiveBinItems, setArchiveBinItems] = useState<api.ApiEvent[]>([])
   const [archiveBinLoading, setArchiveBinLoading] = useState(false)
-  const [tagSuggestions, setTagSuggestions]   = useState<string[]>([])
 
   // ── Data loading ───────────────────────────────────────────────────────────
 
@@ -101,7 +86,7 @@ export default function EventsPage() {
     } finally {
       setTimeout(() => setIsRefreshing(false), 600)
     }
-  }, [app.setRawEvents, app.toast])
+  }, [app, i18n.events.loadError])
 
   useEffect(() => {
     loadEvents()
@@ -109,8 +94,7 @@ export default function EventsPage() {
       setTagList(r.tags)
       setTagSuggestions(r.tags.map(t => t.name))
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [loadEvents])
 
   // Restore focus from sessionStorage
   const hasHandledFocusRef = useRef(false)
@@ -151,8 +135,9 @@ export default function EventsPage() {
       }
       if (dateRange?.from) {
         const start = new Date(ev.start).getTime()
-        if (start < dateRange.from.getTime()) return false
-        if (dateRange.to && start > dateRange.to.getTime() + 86400000) return false
+        const from = dateRange.from.getTime()
+        const to = dateRange.to ? dateRange.to.getTime() + 86400000 : from + 86400000
+        if (start < from || start > to) return false
       }
       if (activeTags.size > 0) {
         if (!(ev.tags ?? []).some(t => activeTags.has(t))) return false
@@ -170,81 +155,62 @@ export default function EventsPage() {
       .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
   }, [app.rawEvents, detailEvent])
 
-  // ── CRUD helpers ───────────────────────────────────────────────────────────
+  // ── CRUD handlers ───────────────────────────────────────────────────────────
 
-  const findSiblingEvent = (ev: api.ApiEvent): api.ApiEvent | null => {
-    const inGroup = app.rawEvents
-      .filter(e => e.group === ev.group)
-      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
-    const idx = inGroup.findIndex(e => e.id === ev.id)
-    const siblings = inGroup.filter(e => e.id !== ev.id)
-    if (!siblings.length) return null
-    return siblings[idx] ?? siblings[idx - 1] ?? null
+  const handleCreate = async (data: EventFormData) => {
+    await api.events.create({
+      ...data,
+      start_time: Math.floor(new Date(data.start_time).getTime() / 1000),
+      end_time:   Math.floor(new Date(data.end_time).getTime() / 1000),
+      confidence: 0.9,
+    })
+    app.toast(i18n.events.createSuccess)
+    setCreateOpen(false)
+    loadEvents(); app.refreshStats()
+  }
+
+  const handleUpdate = async (id: string, data: EventFormData) => {
+    await api.events.update(id, {
+      ...data,
+      start_time: Math.floor(new Date(data.start_time).getTime() / 1000),
+      end_time:   Math.floor(new Date(data.end_time).getTime() / 1000),
+      confidence: editEvent?.confidence ?? 0.8,
+    })
+    app.toast(i18n.common.updateOk)
+    setEditEvent(null); loadEvents()
   }
 
   const handleDelete = async (ev: api.ApiEvent) => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
     if (!confirm(i18n.events.deleteConfirm.replace('{name}', ev.content || ev.topic || ev.id))) return
-    const sibling = findSiblingEvent(ev)
     try {
       await api.events.delete(ev.id)
-      setDetailEvent(prev => prev?.id === ev.id ? sibling : prev)
       app.toast(i18n.events.moveBinSuccess)
-      await loadEvents()
-    } catch (e: unknown) {
-      app.toast(i18n.events.deleteFailed + '：' + (e as api.ApiError).body, 'destructive')
+      if (detailEvent?.id === ev.id) setDetailEvent(null)
+      loadEvents(); app.refreshStats()
+    } catch (e: any) {
+      app.toast(e?.body || e?.message || i18n.common.deleteFailed, 'destructive')
     }
-  }
-
-  const handleCreate = async (data: EventFormData) => {
-    if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    await api.events.create({
-      topic: data.topic, summary: data.summary, group_id: data.group_id || null,
-      start_time: Math.floor(new Date(data.start_time).getTime() / 1000),
-      end_time:   Math.floor(new Date(data.end_time).getTime() / 1000),
-      salience: data.salience, chat_content_tags: data.tags,
-      participants: data.participants, inherit_from: data.inherit_from,
-    })
-    app.toast(i18n.events.createSuccess)
-    await loadEvents(); await app.refreshStats()
-  }
-
-  const handleUpdate = async (id: string, data: EventFormData) => {
-    if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    await api.events.update(id, {
-      topic: data.topic, summary: data.summary, group_id: data.group_id || null,
-      start_time: Math.floor(new Date(data.start_time).getTime() / 1000),
-      end_time:   Math.floor(new Date(data.end_time).getTime() / 1000),
-      salience: data.salience, chat_content_tags: data.tags,
-      participants: data.participants, inherit_from: data.inherit_from,
-      is_locked: data.is_locked, status: data.status,
-    })
-    app.toast(i18n.common.updateOk)
-    setDetailEvent(null); await loadEvents()
   }
 
   const handleLockToggle = async (ev: api.ApiEvent) => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
     try {
-      const res = await api.events.update(ev.id, { is_locked: !ev.is_locked }) as any
-      const updatedEvent = res.event || ev
-      app.toast((updatedEvent.is_locked ? i18n.events.lock : i18n.events.unlock) + ' ' + i18n.common.success)
-      if (detailEvent?.id === ev.id) setDetailEvent(updatedEvent)
-      app.setRawEvents(app.rawEvents.map(e => e.id === ev.id ? updatedEvent : e))
-    } catch (e: unknown) {
-      app.toast(i18n.common.updateFailed + '：' + (e as api.ApiError).body, 'destructive')
+      await api.events.update(ev.id, { is_locked: !ev.is_locked })
+      app.toast((ev.is_locked ? i18n.events.unlock : i18n.events.lock) + ' ' + i18n.common.success)
+      loadEvents(); app.refreshStats()
+    } catch (e: any) {
+      app.toast(i18n.common.updateFailed + '：' + (e?.body || e?.message), 'destructive')
     }
   }
 
   const handleArchive = async (ev: api.ApiEvent) => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    const sibling = findSiblingEvent(ev)
     try {
       await api.events.archive(ev.id)
       app.toast(i18n.events.archiveSuccess)
-      setDetailEvent(prev => prev?.id === ev.id ? sibling : prev)
-      app.setRawEvents(app.rawEvents.filter(e => e.id !== ev.id))
-      app.refreshStats()
+      if (detailEvent?.id === ev.id) setDetailEvent(null)
+      loadEvents()
     } catch (e: any) {
       app.toast(e?.body || e?.message || i18n.common.updateFailed, 'destructive')
     }
@@ -289,90 +255,75 @@ export default function EventsPage() {
     } catch (e: any) { app.toast(e?.body || e?.message || i18n.common.updateFailed, 'destructive') }
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Actions ─────────────────────────────────────────────────────────────────
+
+  const listActions = (
+    <div className="flex items-center gap-2">
+      <div className="relative hidden md:block">
+        <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
+        <Input
+          className="h-7 w-36 pl-8 text-xs lg:w-48"
+          placeholder={i18n.common.searchPlaceholder}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+      </div>
+
+      <TimeGapSelector value={timeGap} onChange={setTimeGap} />
+
+      <div className="h-4 w-px bg-border mx-1 hidden sm:block" />
+
+      <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2" onClick={openArchiveBin}>
+        <Archive className="size-3.5" />
+        <span className="hidden md:inline text-xs">{i18n.events.archivedBin}</span>
+      </Button>
+      <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2" onClick={openBin}>
+        <Trash2 className="size-3.5" />
+        <span className="hidden md:inline text-xs">{i18n.events.recycleBin}</span>
+      </Button>
+      <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo} className="h-7">
+        <Plus className="mr-1 size-3.5" />
+        <span className="hidden sm:inline">{i18n.common.create}</span>
+      </Button>
+
+      {hasActiveFilters && (
+        <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+          onClick={() => { setSearch(''); setActiveTags(new Set()); setDateRange(undefined) }}>
+          <X className="size-3" />{i18n.common.clearHighlight}
+        </Button>
+      )}
+
+      <div className="ml-auto">
+        <RefreshButton onClick={loadEvents} loading={isRefreshing} />
+      </div>
+    </div>
+  )
 
   return (
     <div className="flex h-svh flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
-
-      {/* Loom editorial header */}
-      <PageHeader
-        variant="loom"
-        title={i18n.page.events.title}
-        loomIssue="ΑΡΓΑΛΕΙΟΣ"
-        loomWindow={i18n.page.events.loomWindow}
-        loomLegend={<LoomLegend />}
-        externalToolbar
-      />
-
-      {/* ── Toolbar ── */}
+      {/* 
+        Container A: PageHeader + FilterBar
+        We remove double borders by:
+        1. PageHeader noToolbarBorder={true} (removes its internal toolbar bottom border)
+        2. Container div border-b (provides the single clean line)
+      */}
       <div className="flex flex-col border-b bg-muted/5 shrink-0">
-        {/* Row A: search · gap · crud · refresh */}
-        <div className="flex items-center gap-2 px-4 py-2 flex-wrap">
-          <div className="relative">
-            <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
-            <Input
-              className="h-7 w-36 pl-8 text-xs lg:w-48"
-              placeholder={i18n.common.searchPlaceholder}
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </div>
-
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2">
-                <SlidersHorizontal className="size-3.5" />
-                <span className="text-xs">{GAP_OPTIONS.find(o => o.value === timeGap)?.label}</span>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-52 p-4" align="start">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase font-bold tracking-tight">
-                  <span>{i18n.events.threadScale}</span>
-                  <span className="text-primary">{GAP_OPTIONS.find(o => o.value === timeGap)?.label}</span>
-                </div>
-                <Slider
-                  value={[GAP_OPTIONS.findIndex(o => o.value === timeGap)]}
-                  min={0} max={GAP_OPTIONS.length - 1} step={1}
-                  onValueChange={([val]) => setTimeGap(GAP_OPTIONS[val].value)}
-                />
-              </div>
-            </PopoverContent>
-          </Popover>
-
-          <div className="h-4 w-px bg-border mx-1 hidden sm:block" />
-
-          <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2" onClick={openArchiveBin}>
-            <Archive className="size-3.5" />
-            <span className="hidden md:inline text-xs">{i18n.events.archivedBin}</span>
-          </Button>
-          <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2" onClick={openBin}>
-            <Trash2 className="size-3.5" />
-            <span className="hidden md:inline text-xs">{i18n.events.recycleBin}</span>
-          </Button>
-          <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo} className="h-7">
-            <Plus className="mr-1 size-3.5" />
-            <span className="hidden sm:inline">{i18n.common.create}</span>
-          </Button>
-
-          {hasActiveFilters && (
-            <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground"
-              onClick={() => { setSearch(''); setActiveTags(new Set()); setDateRange(undefined) }}>
-              <X className="size-3" />{i18n.common.clearHighlight}
-            </Button>
-          )}
-
-          <div className="ml-auto">
-            <RefreshButton onClick={loadEvents} loading={isRefreshing} />
-          </div>
-        </div>
-
+        <PageHeader
+          variant="loom"
+          title={i18n.page.events.title}
+          loomIssue="ΑΡΓΑΛΕΙΟΣ"
+          loomWindow={i18n.page.events.loomWindow}
+          loomLegend={<LoomLegend />}
+          actions={listActions}
+          noToolbarBorder={true}
+        />
         <FilterBar
           tags={tagList}
           activeTags={activeTags}
           onTagsChange={setActiveTags}
           dateRange={dateRange}
           onDateRangeChange={setDateRange}
+          className="border-none" // Remove FilterBar's own border
         />
       </div>
 
@@ -414,7 +365,7 @@ export default function EventsPage() {
           )}
         </div>
 
-        {/* Right panel — always visible, shows stats or detail */}
+        {/* Right Detail Panel */}
         <DetailPanel
           focusedEvent={detailEvent}
           axisEvents={axisEvents}

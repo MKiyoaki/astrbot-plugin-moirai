@@ -688,6 +688,65 @@ class SQLiteEventRepository(EventRepository):
         await self._db.commit()
         return count
 
+    async def prune_group_history(self, group_id: str | None, max_messages: int, batch_size: int) -> int:
+        """Prune oldest non-locked events in a group until total message count is <= max_messages."""
+        # Get all events for the group with their message counts, oldest first
+        async with self._db.execute(
+            "SELECT event_id, json_array_length(interaction_flow) as msg_count "
+            "FROM events WHERE group_id IS ? AND is_locked = 0 "
+            "ORDER BY start_time ASC",
+            (group_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        
+        if not rows:
+            return 0
+            
+        total_messages = sum(r["msg_count"] for r in rows)
+        if total_messages <= max_messages:
+            return 0
+            
+        target_messages = max_messages - batch_size
+        deleted_count = 0
+        ids_to_delete = []
+        
+        current_messages = total_messages
+        for r in rows:
+            if current_messages <= target_messages:
+                break
+            ids_to_delete.append(r["event_id"])
+            current_messages -= r["msg_count"]
+            deleted_count += 1
+            
+        if not ids_to_delete:
+            return 0
+            
+        # Delete the identified events
+        await self._db.execute("BEGIN IMMEDIATE")
+        try:
+            for eid in ids_to_delete:
+                try:
+                    await self._db.execute(
+                        "DELETE FROM events_vec WHERE rowid = "
+                        "(SELECT rowid FROM events WHERE event_id = ?)",
+                        (eid,),
+                    )
+                except Exception:
+                    pass
+                await self._db.execute(
+                    "DELETE FROM events WHERE event_id = ?", (eid,)
+                )
+            await self._db.commit()
+            logger.info(
+                "[SQLiteEventRepository] Pruned %d old events for group %s (%d messages removed)",
+                deleted_count, group_id, total_messages - current_messages
+            )
+        except Exception:
+            await self._db.rollback()
+            raise
+            
+        return deleted_count
+
     async def get_rowid(self, event_id: str) -> int | None:
         async with self._db.execute(
             "SELECT rowid FROM events WHERE event_id = ?", (event_id,)

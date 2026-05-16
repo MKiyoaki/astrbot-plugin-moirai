@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import {
   Activity, Share2, BookOpen, Search, Database, Settings, SlidersHorizontal,
@@ -21,6 +21,10 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { routeIsActive } from '@/lib/navigation'
@@ -41,6 +45,7 @@ const NAV_ADMIN = [
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const router = useRouter()
   const app = useApp()
   const { i18n, lang } = app
 
@@ -48,7 +53,24 @@ export function AppSidebar() {
   const [sudoDialogOpen, setSudoDialogOpen] = useState(false)
   const [sudoPassword, setSudoPassword] = useState('')
 
+  const [showExitDialog, setShowExitDialog] = useState(false)
+  const [pendingUrl, setPendingUrl] = useState('')
+
   const effectiveSudoAlways = !app.authEnabled
+
+  const handleNavClick = (e: React.MouseEvent, href: string) => {
+    if (app.isDirty) {
+      e.preventDefault()
+      setPendingUrl(href)
+      setShowExitDialog(true)
+    }
+  }
+
+  const confirmExit = () => {
+    app.setIsDirty(false)
+    setShowExitDialog(false)
+    router.push(pendingUrl)
+  }
 
   const handleSudoClick = async () => {
     if (app.sudo) {
@@ -107,7 +129,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link href="/">
+              <Link href="/" onClick={e => handleNavClick(e, '/')}>
                 <div className="grid flex-1 text-left leading-tight ml-2">
                   <span className="truncate font-serif text-xl font-bold tracking-tighter text-primary">{i18n.app.name}</span>
                   <span className="text-muted-foreground truncate text-[9px] font-mono uppercase tracking-[0.18em] opacity-60">
@@ -129,7 +151,7 @@ export function AppSidebar() {
                 const active = routeIsActive(pathname, item.href)
                 return (
                   <SidebarMenuItem key={item.href}>
-                    <Link href={item.href} className="flex w-full">
+                    <Link href={item.href} className="flex w-full" onClick={e => handleNavClick(e, item.href)}>
                       <SidebarMenuButton isActive={active} tooltip={navLabel(item.labelKey)} className="w-full cursor-pointer">
                         <item.icon />
                         <span>{navLabel(item.labelKey)}</span>
@@ -152,7 +174,7 @@ export function AppSidebar() {
                 const active = routeIsActive(pathname, item.href)
                 return (
                   <SidebarMenuItem key={item.href}>
-                    <Link href={item.href} className="flex w-full">
+                    <Link href={item.href} className="flex w-full" onClick={e => handleNavClick(e, item.href)}>
                       <SidebarMenuButton isActive={active} tooltip={navLabel(item.labelKey)} className="w-full cursor-pointer">
                         <item.icon />
                         <span>{navLabel(item.labelKey)}</span>
@@ -175,7 +197,7 @@ export function AppSidebar() {
                 const active = routeIsActive(pathname, item.href)
                 return (
                   <SidebarMenuItem key={item.href}>
-                    <Link href={item.href} className="flex w-full">
+                    <Link href={item.href} className="flex w-full" onClick={e => handleNavClick(e, item.href)}>
                       <SidebarMenuButton isActive={active} tooltip={navLabel(item.labelKey)} className="w-full cursor-pointer">
                         <item.icon />
                         <span>{navLabel(item.labelKey)}</span>
@@ -217,7 +239,7 @@ export function AppSidebar() {
           </SidebarMenuItem>
 
           <SidebarMenuItem>
-            <Link href="/settings" className="flex w-full">
+            <Link href="/settings" className="flex w-full" onClick={e => handleNavClick(e, '/settings')}>
               <SidebarMenuButton isActive={routeIsActive(pathname, '/settings')} tooltip={i18n.nav.settings} className="cursor-pointer">
                 <Settings />
                 <span>{i18n.nav.settings}</span>
@@ -274,6 +296,21 @@ export function AppSidebar() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={showExitDialog} onOpenChange={setShowExitDialog}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{i18n.summary.regenerateConfirmTitle}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {lang === 'zh' ? '您有未保存的更改。确定要离开吗？' : lang === 'ja' ? '未保存の変更があります。退出してもよろしいですか？' : 'You have unsaved changes. Are you sure you want to leave?'}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{i18n.common.cancel}</AlertDialogCancel>
+          <AlertDialogAction onClick={confirmExit}>{i18n.common.confirm}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </>
   )
 }

@@ -51,6 +51,7 @@ from .sync.watcher import FileWatcher
 from .utils.frontend_build import build_frontend, write_redirect_page
 from .utils.version import get_plugin_version
 from .tasks.cleanup import run_memory_cleanup
+from .tasks.backup import run_database_backup
 from .tasks.scheduler import TaskScheduler
 from .tasks.summary import run_group_summary
 from .tasks.synthesis import run_consolidated_maintenance, run_impression_recalculation, run_persona_synthesis
@@ -221,6 +222,7 @@ class PluginInitializer:
             retriever=retriever,
             encoder=self.embedding_manager,  # Use manager
             decay_config=cfg.get_decay_config(),
+            context_config=cfg.get_context_config(),
         )
 
         self.persona_repo = persona_repo
@@ -309,6 +311,20 @@ class PluginInitializer:
             interval=cfg.decay_interval_seconds,
             fn=_daily_maintenance,
         )
+
+        backup_cfg = cfg.get_backup_config()
+        if backup_cfg.enabled:
+            async def _backup_task() -> None:
+                await run_database_backup(
+                    db_path=data_dir / "db" / "core.db",
+                    backup_dir=data_dir / "backups",
+                    retention_days=backup_cfg.retention_days,
+                )
+            self.scheduler.register(
+                "database_backup",
+                interval=86400,  # Daily
+                fn=_backup_task,
+            )
 
         async def _context_cleanup() -> None:
             if self.context_manager:

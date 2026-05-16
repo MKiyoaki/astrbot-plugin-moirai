@@ -459,6 +459,7 @@ function LibraryContent() {
         title={i18n.page.library.title}
         actions={actions}
         globalActions={globalActions}
+        noToolbarBorder={true}
       />
 
       <FilterBar

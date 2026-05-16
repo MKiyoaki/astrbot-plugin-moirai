@@ -23,6 +23,11 @@ interface PageHeaderProps {
    * When false/absent, a compact toolbar row is auto-rendered inside PageHeader.
    */
   externalToolbar?: boolean
+  /**
+   * loom: when true, the compact toolbar row (Row 3) will NOT have a bottom border.
+   * Useful when another toolbar (like FilterBar) follows immediately.
+   */
+  noToolbarBorder?: boolean
 }
 
 export function PageHeader({
@@ -36,6 +41,7 @@ export function PageHeader({
   loomIssue,
   loomLegend,
   externalToolbar = false,
+  noToolbarBorder = false,
 }: PageHeaderProps) {
   if (variant === 'loom') {
     const hasToolbar = !externalToolbar && (actions || globalActions)
@@ -73,12 +79,13 @@ export function PageHeader({
           <h1 className="text-2xl font-bold tracking-tight leading-none">{title}</h1>
         </div>
 
-        <Separator />
-
         {/* Row 3 (optional): compact toolbar — only when page doesn't manage its own */}
         {hasToolbar && (
           <>
-            <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/5 shrink-0">
+            <div className={cn(
+              "flex items-center gap-2 px-4 py-2 bg-muted/5 shrink-0",
+              !noToolbarBorder && "border-b"
+            )}>
               {actions && <div className="flex items-center gap-2 flex-wrap">{actions}</div>}
               {globalActions && <div className="ml-auto flex items-center gap-2">{globalActions}</div>}
             </div>

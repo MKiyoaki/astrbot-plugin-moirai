@@ -25,6 +25,8 @@ interface AppState {
   rawGraph: api.GraphData
   // Events data
   rawEvents: api.ApiEvent[]
+  // Dirty state for navigation guard
+  isDirty: boolean
   // Toast
   toasts: ToastMessage[]
 }
@@ -37,6 +39,7 @@ interface AppActions {
   refreshStats: () => Promise<void>
   setRawGraph: (g: api.GraphData) => void
   setRawEvents: (e: api.ApiEvent[]) => void
+  setIsDirty: (v: boolean) => void
   toast: (msg: string, variant?: 'default' | 'destructive', ms?: number) => void
   dismissToast: (id: string) => void
 }
@@ -70,6 +73,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [stats, setStats] = useState<api.Stats>(DEFAULT_STATS)
   const [rawGraph, setRawGraph] = useState<api.GraphData>({ nodes: [], edges: [] })
   const [rawEvents, setRawEvents] = useState<api.ApiEvent[]>([])
+  const [isDirty, setIsDirty] = useState(false)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
   // i18n - Initialise with 'zh' to match SSR default
@@ -150,20 +154,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAuthenticated,
     defaultPersonaConfidence,
     lang, i18n,
-    stats, rawGraph, rawEvents, toasts,
+    stats, rawGraph, rawEvents, isDirty, toasts,
     setDefaultPersonaConfidence,
     setLang,
     refreshStats,
     setRawGraph,
     setRawEvents,
+    setIsDirty,
     toast,
     dismissToast,
   }), [
     sudo, authEnabled, authenticated, authLoading, preAuthVersion,
     defaultPersonaConfidence,
     lang, i18n,
-    stats, rawGraph, rawEvents, toasts,
-    refreshStats, setDefaultPersonaConfidence, setLang, toast, dismissToast
+    stats, rawGraph, rawEvents, isDirty, toasts,
+    refreshStats, setDefaultPersonaConfidence, setLang, setIsDirty, toast, dismissToast
   ])
 
   return <AppContext.Provider value={ctx}>{children}</AppContext.Provider>

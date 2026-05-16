@@ -192,7 +192,7 @@ class RecallManager(BaseRecallManager):
         """Return all active soul states as a dict of dicts."""
         return {sid: state.__dict__.copy() for sid, state in self._soul_states.items()}
 
-    async def recall(self, query: str, group_id: str | None = None) -> list[Event]:
+    async def recall(self, query: str, group_id: str | None = None, limit: int | None = None) -> list[Event]:
         """Return re-ranked events for injection.
 
         Uses a two-tier hierarchical strategy when narrative events exist:
@@ -203,17 +203,21 @@ class RecallManager(BaseRecallManager):
         from ..utils.perf import performance_timer
         cfg = self._rcfg
         granularity = _classify_granularity(query)
+        final_limit = limit if limit is not None else cfg.final_limit
+
+        if final_limit <= 0:
+            return []
 
         # Determine per-tier limits based on granularity
         if granularity == "macro":
-            narrative_limit = min(4, cfg.final_limit)
-            episode_limit = max(cfg.final_limit - 2, 1)
+            narrative_limit = min(4, final_limit)
+            episode_limit = max(final_limit - 2, 1)
         elif granularity == "micro":
             narrative_limit = 1
-            episode_limit = cfg.final_limit
+            episode_limit = final_limit
         else:  # "both"
-            narrative_limit = min(2, cfg.final_limit)
-            episode_limit = cfg.final_limit
+            narrative_limit = min(2, final_limit)
+            episode_limit = final_limit
 
         async with performance_timer("recall_search"):
             # Parallel searches for each tier
@@ -324,6 +328,9 @@ class RecallManager(BaseRecallManager):
         async with performance_timer("recall"):
             if self._icfg.auto_clear:
                 self.clear_previous_injection(req)
+
+            if self._rcfg.final_limit <= 0:
+                return 0
 
             events = await self.recall(query, group_id=group_id)
             await tracker.record_hit("recall", len(events))

@@ -167,6 +167,14 @@ class EventRepository(ABC):
         ...
 
     @abstractmethod
+    async def prune_group_history(self, group_id: str | None, max_messages: int, batch_size: int) -> int:
+        """Prune oldest non-locked events in a group until total message count is <= max_messages.
+        batch_size is the minimum number of messages to attempt to free if exceeded.
+        Returns count of deleted events.
+        """
+        ...
+
+    @abstractmethod
     async def get_rowid(self, event_id: str) -> int | None:
         """Return the SQLite integer rowid for an event (used for FTS5/vec joins)."""
         ...

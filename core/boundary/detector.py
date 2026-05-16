@@ -25,6 +25,7 @@ class BoundaryConfig:
     time_gap_minutes: float = 30.0
     max_messages: int = 50
     max_duration_minutes: float = 60.0
+    summary_trigger_rounds: int = 30
     drift_detection_enabled: bool = True
     drift_threshold: float = 0.6
     drift_min_messages: int = 20
@@ -60,9 +61,12 @@ class EventBoundaryDetector:
             
         if window.duration_seconds >= cfg.max_duration_minutes * 60:
             return True, "max_duration"
-            
-        # If no encoder is provided, treat max_messages as a hard cap for backward compatibility
-        if not self._encoder or self._encoder.dim == 0:
+
+        # Round-based trigger (1 round = 2 messages: user + bot)
+        if window.message_count >= cfg.summary_trigger_rounds * 2:
+            return True, "summary_trigger_rounds"
+
+        # If no encoder is provided, treat max_messages as a hard cap for backward compatibility        if not self._encoder or self._encoder.dim == 0:
             if window.message_count >= cfg.max_messages:
                 return True, "max_messages"
 

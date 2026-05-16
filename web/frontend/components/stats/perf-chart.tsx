@@ -18,16 +18,16 @@ interface PerfChartProps {
 }
 
 const COLORS = [
-  'hsl(var(--primary))',
-  'hsl(var(--accent-foreground))',
-  '#3b82f6',
-  '#10b981',
-  '#f59e0b',
-  '#ef4444',
-  '#8b5cf6',
-  '#ec4899',
-  '#06b6d4',
-  '#84cc16',
+  'var(--primary)',
+  'var(--accent-foreground)',
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+  'var(--chart-5)',
+  'var(--chart-6)',
+  'var(--chart-7)',
+  'var(--chart-8)',
 ]
 
 export function PerfChart({ perfData, totalTime }: PerfChartProps) {
@@ -123,7 +123,7 @@ export function PerfChart({ perfData, totalTime }: PerfChartProps) {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <div className="w-12 h-0.5 bg-muted rounded-full overflow-hidden">
-                      <div className="h-full bg-accent-foreground/60" style={{ width: `${(p.value / totalTime) * 100}%` }} />
+                      <div className="h-full opacity-70" style={{ width: `${(p.value / totalTime) * 100}%`, backgroundColor: COLORS[i % COLORS.length] }} />
                     </div>
                     <span className="text-[11px] font-mono font-bold w-14 text-right">{p.value.toFixed(3)}s</span>
                   </div>

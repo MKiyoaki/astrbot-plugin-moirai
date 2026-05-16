@@ -165,7 +165,13 @@ class MoiraiPlugin(Star):
             yield event.plain_result("记忆系统未初始化。")
             return
         group_id = event.get_group_id() if hasattr(event, "get_group_id") else None
-        results = await self._initializer.recall.recall(query, group_id=group_id)
+        
+        limit = self._initializer.cfg.get_retrieval_config().active_limit
+        if limit <= 0:
+            yield event.plain_result("检索已被配置禁用。")
+            return
+            
+        results = await self._initializer.recall.recall(query, group_id=group_id, limit=limit)
         if not results:
             yield event.plain_result("未找到相关记忆。")
             return
