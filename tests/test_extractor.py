@@ -147,6 +147,38 @@ def test_fallback_empty_window() -> None:
     assert result[0]["topic"] == "（无内容）"
 
 
+def test_fallback_topic_uses_first_meaningful() -> None:
+    """When the literal first message is blank, topic should come from the
+    first non-empty message — not fall through to '（无内容）'."""
+    w = make_window([
+        ("u1", "Alice", "   "),     # whitespace-only
+        ("u1", "Alice", ""),         # empty
+        ("u2", "Bob", "主题文本"),
+        ("u2", "Bob", "更多内容"),
+    ])
+    result = fallback_extraction(w)
+    assert result[0]["topic"] == "主题文本"
+    assert "（无内容）" not in result[0]["summary"]
+
+
+def test_fallback_tag_filters_pollution() -> None:
+    """Fallback tag extraction must drop @-prefixed strings, pure numbers,
+    and overly long tokens that would otherwise come from napcat residue."""
+    w = make_window([
+        ("u1", "卢比鹏", "@卢比鹏(1783088492) 在群里说话"),
+        ("u2", "Alice", "@卢比鹏(1783088492) 我在"),
+        ("u1", "卢比鹏", "@卢比鹏(1783088492) 还在"),
+    ])
+    result = fallback_extraction(w)
+    tags = result[0]["chat_content_tags"]
+    for t in tags:
+        assert not t.startswith("@"), f"tag {t!r} leaked @-prefix"
+        assert not t.startswith("#"), f"tag {t!r} leaked #-prefix"
+        assert "1783088492" not in t, f"tag {t!r} leaked QQ number"
+        assert not t.isdigit(), f"tag {t!r} is pure numeric"
+        assert len(t) <= 12, f"tag {t!r} exceeds max length"
+
+
 # ---------------------------------------------------------------------------
 # build_user_prompt tests
 # ---------------------------------------------------------------------------
@@ -156,6 +188,19 @@ def test_build_user_prompt_includes_indices() -> None:
     prompt = build_user_prompt(w)
     assert "[0] Alice: hello" in prompt
     assert "[1] Bob: hi" in prompt
+
+
+def test_build_user_prompt_disambiguates_homonyms() -> None:
+    """Two distinct uids sharing the same display name must receive distinct labels."""
+    w = make_window([
+        ("u1", "卢比鹏", "我说话"),
+        ("u2", "卢比鹏", "我也说话"),
+        ("u1", "卢比鹏", "继续说"),
+    ])
+    prompt = build_user_prompt(w)
+    assert "卢比鹏: 我说话" in prompt
+    assert "卢比鹏#2: 我也说话" in prompt
+    assert "卢比鹏: 继续说" in prompt  # same uid keeps original label
 
 
 # ---------------------------------------------------------------------------

@@ -17,12 +17,26 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import time as _time
 
 from typing import TYPE_CHECKING
 from ..embedding.encoder import NullEncoder
 from .parser import fallback_extraction, parse_llm_output, parse_single_item
 from .prompts import build_user_prompt, build_distillation_prompt
 from .partitioner import LlmPartitioner, SemanticPartitioner, Partition
+
+_NO_PROVIDER_WARN_INTERVAL = 60.0
+_last_no_provider_warn_ts: float = 0.0
+
+
+def _warn_no_provider() -> None:
+    global _last_no_provider_warn_ts
+    now = _time.monotonic()
+    if now - _last_no_provider_warn_ts >= _NO_PROVIDER_WARN_INTERVAL:
+        _last_no_provider_warn_ts = now
+        logger.warning(
+            "[EventExtractor] LLM provider is None; falling back to rule-based extraction"
+        )
 
 if TYPE_CHECKING:
     from ..boundary.window import MessageWindow
@@ -323,14 +337,21 @@ class EventExtractor:
     async def _extract_batch(self, window: MessageWindow, existing_tags: list[str] | None = None, bot_persona_desc: str | None = None) -> list[dict]:
         provider = self._provider_getter()
         if provider is None:
+            _warn_no_provider()
+            logger.warning(
+                "[EventExtractor] event fell back to rule extraction: reason=provider_none, "
+                "session=%s, message_count=%d",
+                window.session_id, window.message_count,
+            )
             return fallback_extraction(window)
 
         prompt = build_user_prompt(
-            window, 
-            self._max_context_messages, 
+            window,
+            self._max_context_messages,
             bot_persona_desc=bot_persona_desc,
             existing_tags=existing_tags
         )
+        fallback_reason = "parse_error"
         try:
             if self._llm_manager:
                 resp = await self._llm_manager.run(
@@ -347,9 +368,18 @@ class EventExtractor:
             result = parse_llm_output(resp.completion_text, len(window.messages) - 1)
             if result is not None:
                 return result
+        except asyncio.TimeoutError:
+            fallback_reason = "timeout"
+            logger.warning("[EventExtractor] LLM batch extraction timed out after %.1fs", self._llm_timeout)
         except Exception as exc:
+            fallback_reason = "exception"
             logger.warning("[EventExtractor] LLM batch extraction failed: %s", exc)
 
+        logger.warning(
+            "[EventExtractor] event fell back to rule extraction: reason=%s, "
+            "session=%s, message_count=%d",
+            fallback_reason, window.session_id, window.message_count,
+        )
         return fallback_extraction(window)
 
     async def _distill(self, messages: list, existing_tags: list[str] | None = None, bot_persona_desc: str | None = None) -> dict:

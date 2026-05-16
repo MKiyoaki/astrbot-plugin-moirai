@@ -410,11 +410,12 @@ class EventHandler:
         router = self._init.router
         if router is None:
             return
+        from .adapters.message_normalizer import normalize_message_text, normalize_display_name
         await router.process(
             platform=event.get_platform_name(),
             physical_id=event.get_sender_id(),
-            display_name=event.get_sender_name(),
-            text=event.message_str,
+            display_name=normalize_display_name(event.get_sender_name()),
+            text=normalize_message_text(event.message_str),
             raw_group_id=event.get_group_id() or None,
             now=event.created_at,
         )
@@ -428,13 +429,14 @@ class EventHandler:
         if router is None or not text:
             return
 
+        from .adapters.message_normalizer import normalize_message_text
         # Use a special internal UID for the bot to distinguish it from users.
         # router.process will handle get_or_create_uid.
         await router.process(
             platform="internal",
             physical_id="bot",
             display_name="Bot",
-            text=text,
+            text=normalize_message_text(text),
             raw_group_id=event.get_group_id() or None,
         )
 

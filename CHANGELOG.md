@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## [v0.10.14] — 2026-05-16
+
+### napcat 事件异常 + SQLite 并发事务嵌套修复
+
+**Bug Fix — napcat / OneBot v11 适配**
+
+- 修复事件标题 "（无内容）"：`fallback_extraction` 改为找首个非空消息文本，避免首条消息仅含 CQ 段被剥离后触发占位
+- 新增消息规范化层（`core/adapters/message_normalizer.py`）：在 adapter 边界统一处理 CQ 码与 napcat 显示名残留
+  - `[CQ:at,...]` → `@用户`；图片/表情/语音/视频/卡片各有占位符；`[CQ:reply,...]` 等删除
+  - `@昵称(QQ号)` → `@昵称`，保留语义、剥离数字 ID
+  - sender display name 同样剥离尾部 `(数字)`
+- fallback 标签过滤：跳过纯数字、`@`/`#`/`http(s)`/`qq=` 前缀、超长 token 与常见虚词，防止 `#@卢比鹏(1783088492)` 这类污染再到达 UI / 向量索引
+- LLM 提示词重名消歧：同一窗口里同名不同 uid 自动加 `#2`/`#3` 后缀
+- LLM fallback 触发可观测性：写结构化 warning（reason=provider_none/timeout/exception/parse_error），节流避免高活跃群刷屏
+
+**Bug Fix — 数据库**
+
+- 修复 `cannot start a transaction within a transaction`：单一共享 `aiosqlite.Connection` + 多并发协程导致 `BEGIN IMMEDIATE` 嵌套报错
+- 在 connection 上挂 `asyncio.Lock`（三个 repo 共享），引入 `_txn` 上下文管理器串行化所有写事务；读操作不变
+
+**Tests**
+
+- 新增 `tests/test_message_normalizer.py`（CQ 段规范化 22 用例）
+- 新增 `tests/test_sqlite_concurrency.py`（50 并发 upsert、跨 repo 并发、rollback 后续事务）
+- 扩展 `tests/test_extractor.py`（首条非空、tag 防污染、重名消歧）
+- 扩展 `tests/test_message_router.py`（端到端验证规范化文本不再带 CQ/QQ 号）
+
+
 ## [v0.10.13] — 2026-05-16
 
 ### 配置系统与备份功能升级

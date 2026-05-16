@@ -9,6 +9,26 @@ if TYPE_CHECKING:
     from ..boundary.window import MessageWindow, RawMessage
 
 
+def _assign_unique_labels(messages: list) -> dict[str, str]:
+    """Build uid → label map, disambiguating duplicate display names with #2/#3 suffix."""
+    uid_label: dict[str, str] = {}
+    used_labels: set[str] = set()
+    counter = 1
+    for m in messages:
+        if m.uid in uid_label:
+            continue
+        base = m.display_name.strip() if m.display_name.strip() else f"用户{counter}"
+        label = base
+        suffix = 2
+        while label in used_labels:
+            label = f"{base}#{suffix}"
+            suffix += 1
+        uid_label[m.uid] = label
+        used_labels.add(label)
+        counter += 1
+    return uid_label
+
+
 def build_user_prompt(
     window: MessageWindow,
     max_messages: int = 20,
@@ -19,14 +39,7 @@ def build_user_prompt(
     messages = window.messages[-max_messages:]
     duration_min = math.ceil(window.duration_seconds / 60)
 
-    # Map uids to short readable labels for the prompt
-    uid_label: dict[str, str] = {}
-    counter = 1
-    for m in messages:
-        if m.uid not in uid_label:
-            name = m.display_name.strip() if m.display_name.strip() else f"用户{counter}"
-            uid_label[m.uid] = name
-            counter += 1
+    uid_label = _assign_unique_labels(messages)
 
     header_parts = []
     if bot_persona_desc:
@@ -79,8 +92,9 @@ def build_distillation_prompt(
         f"{persona_line}以下是一组语义高度相关的对话记录（共{len(messages)}条）：",
         "",
     ]
+    uid_label = _assign_unique_labels(messages)
     for i, m in enumerate(messages):
-        lines.append(f"[{i}] {m.display_name or m.uid}: {m.text}")
+        lines.append(f"[{i}] {uid_label.get(m.uid, m.display_name or m.uid)}: {m.text}")
 
     lines.append(
         "\n请为这段对话提炼结构化信息，输出单个 JSON 对象，包含以下字段：\n"

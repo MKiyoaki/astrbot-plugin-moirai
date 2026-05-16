@@ -1,5 +1,55 @@
 # CHANGELOG
 
+## [v0.10.14] — 2026-05-16
+
+### napcat 事件异常 + SQLite 并发事务嵌套修复
+
+**Bug Fix — napcat / OneBot v11 适配**
+
+- **修复事件标题渲染为 "（无内容）"** (`core/extractor/parser.py`)
+  - `fallback_extraction` 之前只看 `window.first_text`，napcat 把首条消息里 CQ 段剥离后变空串，直接触发占位文案
+  - 改为遍历找首个非空 `text`，仅当所有消息均为空时才落到 "（无内容）"
+  - 保留 `test_fallback_empty_window` 兜底语义
+
+- **修复事件标签被 napcat @某人 污染** (`core/adapters/message_normalizer.py` 新增, `core/event_handler.py`)
+  - 现象：`#@卢比鹏(1783088492)`、`#qq=...` 等含 QQ 号的标签出现在 web UI，同时污染向量索引
+  - 新增 `normalize_message_text` / `normalize_display_name` 规范化层，在 adapter 边界统一剥离：
+    - `[CQ:at,...]` → `@用户`；`[CQ:image/face/record/video/json/xml/rich,...]` → `[图片]/[表情]/[语音]/[视频]/[卡片]`；`[CQ:reply,...]` 与其它未知 CQ 段直接删除
+    - napcat 显示名残留 `@昵称(QQ号)` → `@昵称`（保留语义，剥离数字 ID）
+    - sender display name 末尾 `(\d{5,})` 同样剥离
+  - `EventHandler.handle_message` 和 `handle_llm_response` 在调用 `router.process(...)` 前对 `text` 和 `display_name` 都过一次规范化
+
+- **fallback 标签提取加防污染过滤** (`core/extractor/parser.py`)
+  - 新增 `_TAG_STOPWORDS` / `_TAG_STOP_PREFIXES` / `_TAG_MAX_LEN`，跳过纯数字、`@`/`#`/`http(s)`/`qq=` 开头、长度 > 12 或常见虚词
+  - 即使未来 napcat 升级出现新格式，污染也无法到达 UI / 向量索引
+
+- **LLM 提示词重名消歧** (`core/extractor/prompts.py`)
+  - 抽取 `_assign_unique_labels`，`build_user_prompt` 与 `build_distillation_prompt` 共用
+  - 同一窗口里两个不同 uid 共用一个 display_name 时，第二个自动加 `#2` / `#3` 后缀，避免 LLM 把不同人的发言混作一人
+
+- **LLM 提取失败的可观测性** (`core/extractor/extractor.py`, `core/adapters/astrbot.py`)
+  - 之前 fallback 是静默触发的（截图里 confidence=0.2 是唯一线索），现在每次都写结构化 warning：`event fell back to rule extraction: reason=provider_none|timeout|exception|parse_error, session=..., message_count=N`
+  - provider 缺失的告警节流到 60 秒一条，避免高活跃群刷屏
+  - `MessageRouter._process_brain_async` 异常从 `logger.debug` 提升到 `logger.warning`，带 session_id / msg_idx
+  - 实机搜 `fell back to rule extraction` 即可一眼判断"LLM 没生效"的原因
+
+**Bug Fix — 数据库**
+
+- **修复 "cannot start a transaction within a transaction"** (`core/repository/sqlite.py`)
+  - 现象：`on_message` 钩子在 QQ 群高活跃场景下抛 `sqlite3.OperationalError`，消息处理链路阻塞
+  - 根因：单一共享 `aiosqlite.Connection` + 三个 repo 类 + 多并发协程（主流程 persona upsert / brain task / extractor on_event_close），任意两个 `BEGIN IMMEDIATE` 在 db worker thread 队列里交错时第二个必报此错
+  - 修复：在 connection 上挂一把 `asyncio.Lock`（同连接的所有 repo 共享），引入 `@asynccontextmanager _txn(db, lock)` 串行化 "BEGIN → DML* → COMMIT" 序列；所有写方法（Persona/Event/Impression 三个 repo）改用 `_txn`，统一处理 commit/rollback
+  - 读方法（SELECT）不上锁，不影响并发查询性能
+
+**Tests**
+
+- **新增** `tests/test_message_normalizer.py` —— 22 条 parametrized 用例覆盖 CQ 段映射、`@昵称(QQ号)` 还原、display name 清洗
+- **新增** `tests/test_sqlite_concurrency.py` —— 50 并发 persona upsert、persona × event 跨 repo 并发、rollback 后 lock 释放正确性
+- **扩展** `tests/test_extractor.py` —— `test_fallback_topic_uses_first_meaningful`、`test_fallback_tag_filters_pollution`、`test_build_user_prompt_disambiguates_homonyms`
+- **扩展** `tests/test_message_router.py` —— `test_normalized_text_propagates_through_router_to_fallback_event` 端到端验证
+
+---
+
 ## [v0.10.10] — 2026-05-15
 
 ### WebUI 登录页视觉升级

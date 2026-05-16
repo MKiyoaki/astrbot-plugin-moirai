@@ -15,6 +15,36 @@ _BATCH_REQUIRED = _REQUIRED | {"start_idx", "end_idx"}
 # Strip markdown code fences if the model wraps output in ```json ... ```
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
+# Fallback tag pollution filters
+_TAG_MAX_LEN = 12
+_TAG_STOP_PREFIXES = ("@", "#", "http://", "https://", "qq=")
+_TAG_STOPWORDS = frozenset({
+    "[图片]", "[表情]", "[语音]", "[视频]", "[卡片]", "@用户",
+    "这个", "那个", "什么", "怎么", "可以", "已经", "还是", "但是",
+    "因为", "所以", "如果", "或者", "我们", "你们", "他们",
+})
+_TAG_NUMERIC_RE = re.compile(r"^\d+$")
+
+
+def _is_valid_fallback_tag(w: str) -> bool:
+    if len(w) < 2 or len(w) > _TAG_MAX_LEN:
+        return False
+    if w in _TAG_STOPWORDS:
+        return False
+    if _TAG_NUMERIC_RE.match(w):
+        return False
+    if any(w.startswith(p) for p in _TAG_STOP_PREFIXES):
+        return False
+    return True
+
+
+def _first_meaningful_text(window: MessageWindow) -> str:
+    for m in window.messages:
+        t = (m.text or "").strip()
+        if t:
+            return t
+    return ""
+
 
 def parse_llm_output(text: str, max_idx: int) -> list[dict] | None:
     """Parse and validate JSON Array from LLM completion text."""
@@ -105,12 +135,13 @@ def parse_single_item(text: str) -> dict | None:
 
 def fallback_extraction(window: MessageWindow) -> list[dict]:
     """Rule-based extraction used when the LLM call fails or is unavailable."""
-    topic = window.first_text[:30] if window.first_text else "（无内容）"
+    first_text = _first_meaningful_text(window)
+    topic = first_text[:30] if first_text else "（无内容）"
     summary = f"对话包含 {window.message_count} 条消息，始于 '{topic}'。"
 
     # Collect all words, pick the most frequent (rough approximation)
     all_text = " ".join(m.text for m in window.messages)
-    words = [w for w in re.split(r"[\s，。！？、,!?]+", all_text) if len(w) >= 2]
+    words = [w for w in re.split(r"[\s，。！？、,!?]+", all_text) if _is_valid_fallback_tag(w)]
     freq: dict[str, int] = {}
     for w in words:
         freq[w] = freq.get(w, 0) + 1
