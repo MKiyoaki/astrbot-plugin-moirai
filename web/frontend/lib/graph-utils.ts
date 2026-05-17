@@ -195,6 +195,7 @@ export function mockCluster(
   edgePairs: EdgePair[],
   _resolution = 1.0,
 ): Record<string, number> {
+  void _resolution
   const adj = new Map<string, Set<string>>()
   for (const n of nodes) adj.set(n.data.id, new Set())
   for (const p of edgePairs) {

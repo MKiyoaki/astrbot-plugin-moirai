@@ -32,16 +32,9 @@ async def run_memory_cleanup(
 
     total = 0
     try:
-        # Phase 1: demote low-salience active events to archived.
-        archived = await event_repo.archive_low_salience_events(cleanup_config.threshold)
-        if archived > 0:
-            logger.info(
-                "[CleanupTask] archived %d low-salience events (threshold=%.2f)",
-                archived, cleanup_config.threshold,
-            )
-        total += archived
-
-        # Phase 2: permanently delete archived events past the retention window.
+        # Phase 1: permanently delete archived events that were already past
+        # the retention window before this cleanup cycle began. New archives
+        # from this run should get at least one cycle of visibility.
         cutoff_ts = time.time() - cleanup_config.retention_days * 86400.0
         deleted = await event_repo.delete_old_archived_events(cutoff_ts)
         if deleted > 0:
@@ -50,6 +43,15 @@ async def run_memory_cleanup(
                 deleted, cleanup_config.retention_days,
             )
         total += deleted
+
+        # Phase 2: demote low-salience active events to archived.
+        archived = await event_repo.archive_low_salience_events(cleanup_config.threshold)
+        if archived > 0:
+            logger.info(
+                "[CleanupTask] archived %d low-salience events (threshold=%.2f)",
+                archived, cleanup_config.threshold,
+            )
+        total += archived
 
     except Exception as exc:
         logger.error("[CleanupTask] failed: %s", exc)

@@ -16,7 +16,10 @@ function getInitials(name: string): string {
 }
 
 export function FirstLaunchPersonaPicker() {
-  const { i18n, firstLaunchDone, setCurrentPersona, setFirstLaunchDone, authenticated } = useApp()
+  const {
+    i18n, firstLaunchDone, currentPersonaName, scopeMode,
+    setCurrentPersona, setFirstLaunchDone, authenticated, personaConfig,
+  } = useApp()
   const t = i18n.personaSelector
   const [bots, setBots] = useState<api.BotPersonaItem[]>([])
   const [selected, setSelected] = useState<{ name: string | null; mode: 'single' | 'all' }>({
@@ -25,23 +28,58 @@ export function FirstLaunchPersonaPicker() {
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
-    if (!authenticated || firstLaunchDone) return
+    if (!authenticated) return
+    if (!personaConfig.loaded) return  // wait until /api/config arrives
+
+    // Master switch: isolation disabled → force 'all' and never show picker.
+    if (!personaConfig.isolationEnabled) {
+      if (scopeMode !== 'all' || currentPersonaName !== null) {
+        setCurrentPersona(null, 'all')
+      }
+      if (!firstLaunchDone) setFirstLaunchDone(true)
+      return
+    }
+
+    const mode = personaConfig.defaultViewMode
+    // 'remember' + already chosen → respect and skip picker
+    if (mode === 'remember' && firstLaunchDone) return
+    // 'all' mode → silently set scope to 'all' and mark done
+    if (mode === 'all') {
+      setCurrentPersona(null, 'all')
+      setFirstLaunchDone(true)
+      return
+    }
+
+    // 'remember' (first time) or 'force_pick' → fetch bots and decide
     api.graph.listBots().then(r => {
       const items = r.items
-      // Only show picker if there are multiple distinct bot personas
-      if (items.length > 1 || (items.length === 1 && items[0].name !== null)) {
+      const hasMultiple = items.length > 1 || (items.length === 1 && items[0].name !== null)
+      if (hasMultiple) {
         setBots(items)
         setOpen(true)
-      } else {
-        // Single or no personas — skip picker, mark done
+      } else if (mode === 'remember') {
+        // No bots to pick from — auto-skip (only for remember mode; force_pick should still show)
         setFirstLaunchDone(true)
+      } else {
+        // force_pick with no bots — still open dialog so user sees the "All" option
+        setBots(items)
+        setOpen(true)
       }
-    }).catch(() => setFirstLaunchDone(true))
-  }, [authenticated, firstLaunchDone, setFirstLaunchDone])
+    }).catch(() => {
+      if (mode === 'remember') setFirstLaunchDone(true)
+    })
+  }, [
+    authenticated, firstLaunchDone, currentPersonaName, scopeMode,
+    personaConfig.loaded, personaConfig.isolationEnabled, personaConfig.defaultViewMode,
+    setFirstLaunchDone, setCurrentPersona,
+  ])
 
   const handleConfirm = () => {
     setCurrentPersona(selected.name, selected.mode)
-    setFirstLaunchDone(true)
+    // 'force_pick' mode: always re-prompt on next launch → don't latch firstLaunchDone
+    if (personaConfig.defaultViewMode !== 'force_pick') {
+      setFirstLaunchDone(true)
+    }
     setOpen(false)
   }
 

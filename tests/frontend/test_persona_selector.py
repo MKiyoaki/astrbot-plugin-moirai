@@ -103,6 +103,15 @@ class TestApi:
         src = _read("lib/api.ts")
         assert "get: (persona?" in src
 
+    def test_legacy_persona_token_exported(self):
+        src = _read("lib/api.ts")
+        assert "LEGACY_PERSONA_TOKEN" in src
+
+    def test_impression_delete_api_exists(self):
+        src = _read("lib/api.ts")
+        assert "deleteImpression" in src
+        assert "deleteImpressionsByScope" in src
+
 
 # ── i18n.ts ──────────────────────────────────────────────────────────────────
 
@@ -250,7 +259,30 @@ class TestGraphPage:
 
     def test_persona_filter_in_usecallback_deps(self):
         src = _read("app/graph/page.tsx")
-        assert "personaFilter])" in src
+        assert "personaFilter" in src
+        assert "scopeMode" in src
+
+    def test_renders_persona_supernodes(self):
+        src = _read("app/graph/page.tsx")
+        assert "PersonaSupernodeGrid" in src
+        assert "api.graph.listBots" in src
+
+    def test_deletes_impression_with_persona_filter(self):
+        src = _read("app/graph/page.tsx")
+        assert "api.graph.deleteImpression" in src
+        assert "personaFilter" in src
+
+    def test_bulk_deletes_scope_impressions(self):
+        src = _read("app/graph/page.tsx")
+        assert "deleteImpressionsByScope" in src
+        assert "GROUP_ID_PRIVATE" in src
+
+
+class TestGraphParamsPanel:
+    def test_clear_scope_button_exists(self):
+        src = _read("components/graph/params-panel.tsx")
+        assert "clearScopeImpressions" in src
+        assert "onClearScope" in src
 
 
 class TestLibraryPage:

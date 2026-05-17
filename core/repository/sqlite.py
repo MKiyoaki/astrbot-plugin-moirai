@@ -80,6 +80,86 @@ async def _txn(db: aiosqlite.Connection, lock: asyncio.Lock) -> AsyncIterator[No
             raise
 
 
+async def preview_bot_persona_merge(
+    db: aiosqlite.Connection, src: str, target: str,
+) -> dict[str, int]:
+    """Return the row counts that would be moved/dropped by a src→target merge.
+
+    impressions_dropped counts rows that share an (observer, subject, scope)
+    tuple with an existing target row — those rows are deleted during merge
+    because the (observer, subject, scope, ifnull(bot_persona_name, '')) unique
+    index would otherwise be violated. "target wins" policy.
+    """
+    async with db.execute(
+        "SELECT COUNT(*) FROM events WHERE bot_persona_name = ?", (src,)
+    ) as cur:
+        events_n = (await cur.fetchone())[0]
+    async with db.execute(
+        "SELECT COUNT(*) FROM impressions WHERE bot_persona_name = ?", (src,)
+    ) as cur:
+        imps_total = (await cur.fetchone())[0]
+    async with db.execute(
+        "SELECT COUNT(*) FROM impressions s WHERE s.bot_persona_name = ? "
+        "AND EXISTS (SELECT 1 FROM impressions t "
+        "WHERE t.observer_uid = s.observer_uid "
+        "AND t.subject_uid = s.subject_uid "
+        "AND t.scope = s.scope "
+        "AND ifnull(t.bot_persona_name, '') = ifnull(?, ''))",
+        (src, target),
+    ) as cur:
+        imps_conflicts = (await cur.fetchone())[0]
+    async with db.execute(
+        "SELECT COUNT(*) FROM personas WHERE bot_persona_name = ?", (src,)
+    ) as cur:
+        personas_n = (await cur.fetchone())[0]
+    return {
+        "events_moved": events_n,
+        "impressions_moved": imps_total - imps_conflicts,
+        "impressions_dropped": imps_conflicts,
+        "personas_moved": personas_n,
+    }
+
+
+async def merge_bot_persona(
+    db: aiosqlite.Connection, src: str, target: str,
+) -> dict[str, int]:
+    """Re-assign every row owned by bot persona `src` to `target` atomically.
+
+    Returns the same shape as preview_bot_persona_merge(), measured after the
+    transaction commits. "target wins" — src impressions that collide with an
+    existing target row on (observer, subject, scope) are deleted.
+    """
+    counts = await preview_bot_persona_merge(db, src, target)
+    lock = _get_db_lock(db)
+    async with _txn(db, lock):
+        # 1. Drop src impressions that conflict with target on (obs, subj, scope)
+        await db.execute(
+            "DELETE FROM impressions WHERE bot_persona_name = ? "
+            "AND EXISTS (SELECT 1 FROM impressions t "
+            "WHERE t.observer_uid = impressions.observer_uid "
+            "AND t.subject_uid = impressions.subject_uid "
+            "AND t.scope = impressions.scope "
+            "AND ifnull(t.bot_persona_name, '') = ifnull(?, ''))",
+            (src, target),
+        )
+        # 2. Re-key remaining src impressions to target
+        await db.execute(
+            "UPDATE impressions SET bot_persona_name = ? WHERE bot_persona_name = ?",
+            (target, src),
+        )
+        # 3. Re-key events (event_id PK guarantees no conflicts)
+        await db.execute(
+            "UPDATE events SET bot_persona_name = ? WHERE bot_persona_name = ?",
+            (target, src),
+        )
+        # 4. Re-key personas (uid PK; bot_persona_name here is just a tag)
+        await db.execute(
+            "UPDATE personas SET bot_persona_name = ? WHERE bot_persona_name = ?",
+            (target, src),
+        )
+    return counts
+
+
 async def _try_load_sqlite_vec(db: aiosqlite.Connection, dim: int = 512) -> bool:
     """Load the sqlite-vec extension and create virtual tables.
 
@@ -246,6 +326,8 @@ def _persona_where(
     """
     if bot_persona_name is None:
         return "", []
+    if bot_persona_name == "":
+        return "bot_persona_name IS NULL", []
     if include_legacy:
         return "(bot_persona_name = ? OR bot_persona_name IS NULL)", [bot_persona_name]
     return "bot_persona_name = ?", [bot_persona_name]
@@ -350,7 +432,7 @@ class SQLitePersonaRepository(PersonaRepository):
 _EVENT_COLS = (
     "event_id, group_id, start_time, end_time, participants, "
     "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
-    "inherit_from, last_accessed_at, status, is_locked, event_type"
+    "inherit_from, last_accessed_at, status, is_locked, bot_persona_name, event_type"
 )
 
 _EVENT_SELECT_COLS = (
@@ -972,7 +1054,9 @@ class SQLiteImpressionRepository(ImpressionRepository):
             where.append("scope = ?")
             params.append(scope)
         if bot_persona_name is not None:
-            if include_legacy:
+            if bot_persona_name == "":
+                where.append("bot_persona_name IS NULL")
+            elif include_legacy:
                 where.append("(bot_persona_name = ? OR bot_persona_name IS NULL)")
                 params.append(bot_persona_name)
             else:
@@ -993,7 +1077,9 @@ class SQLiteImpressionRepository(ImpressionRepository):
             where.append("scope = ?")
             params.append(scope)
         if bot_persona_name is not None:
-            if include_legacy:
+            if bot_persona_name == "":
+                where.append("bot_persona_name IS NULL")
+            elif include_legacy:
                 where.append("(bot_persona_name = ? OR bot_persona_name IS NULL)")
                 params.append(bot_persona_name)
             else:
@@ -1036,11 +1122,48 @@ class SQLiteImpressionRepository(ImpressionRepository):
                 ),
             )
 
-    async def delete(self, observer_uid: str, subject_uid: str, scope: str) -> bool:
+    async def delete(
+        self, observer_uid: str, subject_uid: str, scope: str,
+        bot_persona_name: str | None = None,
+    ) -> bool:
         async with _txn(self._db, self._lock):
-            cursor = await self._db.execute(
-                "DELETE FROM impressions WHERE observer_uid=? AND subject_uid=? AND scope=?",
-                (observer_uid, subject_uid, scope),
-            )
+            if bot_persona_name is None:
+                cursor = await self._db.execute(
+                    "DELETE FROM impressions WHERE observer_uid=? AND subject_uid=? AND scope=?",
+                    (observer_uid, subject_uid, scope),
+                )
+            elif bot_persona_name == "":
+                cursor = await self._db.execute(
+                    "DELETE FROM impressions "
+                    "WHERE observer_uid=? AND subject_uid=? AND scope=? AND bot_persona_name IS NULL",
+                    (observer_uid, subject_uid, scope),
+                )
+            else:
+                cursor = await self._db.execute(
+                    "DELETE FROM impressions "
+                    "WHERE observer_uid=? AND subject_uid=? AND scope=? AND bot_persona_name=?",
+                    (observer_uid, subject_uid, scope, bot_persona_name),
+                )
             rowcount = cursor.rowcount
         return rowcount > 0
+
+    async def delete_by_scope(
+        self, scope: str, bot_persona_name: str | None = None,
+    ) -> int:
+        async with _txn(self._db, self._lock):
+            if bot_persona_name is None:
+                cursor = await self._db.execute(
+                    "DELETE FROM impressions WHERE scope=?",
+                    (scope,),
+                )
+            elif bot_persona_name == "":
+                cursor = await self._db.execute(
+                    "DELETE FROM impressions WHERE scope=? AND bot_persona_name IS NULL",
+                    (scope,),
+                )
+            else:
+                cursor = await self._db.execute(
+                    "DELETE FROM impressions WHERE scope=? AND bot_persona_name=?",
+                    (scope, bot_persona_name),
+                )
+            return cursor.rowcount

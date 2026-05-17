@@ -1,5 +1,64 @@
 # CHANGELOG
 
+## [v0.12.0] — 2026-05-17
+
+### Persona 隔离总收口：多 Bot Persona、汇总视图、合并与 Graph 管理
+
+**Feature — Persona 隔离与配置**
+
+- 以 `bot_persona_name` 做行级隔离，不拆 sqlite db；`events` / `impressions` / `personas` 保留 legacy/default `NULL` 语义
+- 接入 `persona_isolation_enabled`、`persona_isolation_legacy_visible`、`persona_default_view_mode`、`persona_merge_audit_enabled`
+- `impressions` 唯一约束升级为 `(observer, subject, scope, ifnull(bot_persona_name, ''))`，支持不同 bot persona 下的同一关系 tuple 并存
+
+**Feature — 写入链路、Repository 与 API**
+
+- `Extractor` / `SocialOrientationAnalyzer` 将当前 bot persona 透传到 event 与 impression 写入
+- `sqlite` / `memory` repository 支持 persona 过滤、legacy 兼容、精确删除和按 scope 批量删除
+- `/api/events`、`/api/archived_events`、`/api/graph`、`/api/recall` 支持 `?persona=...`
+- 新增 `GET /api/personas/bots`、`GET /api/personas/merge/preview`、`POST /api/personas/merge`
+
+**Feature — WebUI Persona 上下文**
+
+- 前端 store 新增 `currentPersonaName`、`scopeMode`、`firstLaunchDone` 并持久化到 localStorage
+- Sidebar 接入 `PersonaSelector`，首次进入接入 `FirstLaunchPersonaPicker`
+- 支持 `remember` / `all` / `force_pick` 首次视图策略
+- `__legacy__` token 明确区分 legacy/default NULL 视图和 All Personas 汇总视图
+
+**Feature — Persona 合并**
+
+- Persona 合并支持 preview、事务转移、target wins 冲突处理、审计日志和前端二次确认
+- 修复 `_EVENT_COLS` 缺少 `bot_persona_name` 导致读取事件后丢失 persona 归属的问题
+
+**Deferred**
+
+- 不按 bot persona 拆 Partitioner 窗口；不改为每 persona 独立 sqlite db
+- `core/adapters/identity.py` 与 MD sync 的 persona 写入语义继续 defer
+- Library 页暂不新增 impression 直接删除入口，当前删除入口集中在 Graph
+
+**Feature — All Personas 超级节点视图**
+
+- Graph 页在 All Personas 模式下新增按 bot persona 聚合的超级节点入口，点击后进入对应 bot persona 子图
+- 新增 `__legacy__` 查询 token，区分默认/历史数据视图与 All Personas 汇总视图
+
+**Feature — Graph CRUD**
+
+- 新增单条 impression 删除接口，并支持 `?persona=` 精确隔离
+- 新增按 scope 批量删除 impressions 的后端接口和 Graph 参数面板入口
+- Graph 边详情侧栏支持直接删除单条 directed impression
+
+**Feature — Events Loom**
+
+- Events 页接入 `SourcePanel` + `DetailPanel` 三栏结构
+- `EventTimeline` 支持由 SourcePanel 控制 source 线程显隐
+
+**Fix**
+
+- `run_memory_cleanup` 先清理本轮开始前已过期的 archived events，再归档本轮新发现的低显著度 events，避免新归档事件在同一轮被硬删除
+
+**Tests**
+
+- `python -m pytest`：533 passed
+
 ## [v0.11.2] — 2026-05-17
 
 ### Phase 3c — Bot Persona 选择器

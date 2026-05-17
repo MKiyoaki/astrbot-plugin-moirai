@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronLeft, Pencil } from 'lucide-react'
+import { ChevronLeft, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -17,6 +17,7 @@ interface EdgeDetailProps {
   onBack: () => void
   onEditForward: (edge: ImpressionEdge) => void
   onEditBackward: (edge: ImpressionEdge) => void
+  onDelete: (edge: ImpressionEdge) => void
   onJumpToEvent: (eventId: string) => void
   sudoMode: boolean
 }
@@ -28,6 +29,7 @@ export function EdgeDetail({
   onBack,
   onEditForward,
   onEditBackward,
+  onDelete,
   onJumpToEvent,
   sudoMode,
 }: EdgeDetailProps) {
@@ -85,6 +87,7 @@ export function EdgeDetail({
             label={`${srcLabel} → ${tgtLabel}`}
             edge={pair.fwd}
             onEdit={sudoMode ? () => onEditForward(pair.fwd) : undefined}
+            onDelete={sudoMode ? () => onDelete(pair.fwd) : undefined}
             onJumpToEvent={onJumpToEvent}
             t={t}
             i18n={i18n}
@@ -98,6 +101,7 @@ export function EdgeDetail({
                 label={`${tgtLabel} → ${srcLabel}`}
                 edge={pair.bwd}
                 onEdit={sudoMode ? () => onEditBackward(pair.bwd!) : undefined}
+                onDelete={sudoMode ? () => onDelete(pair.bwd!) : undefined}
                 onJumpToEvent={onJumpToEvent}
                 t={t}
                 i18n={i18n}
@@ -133,6 +137,7 @@ function ImpressionSection({
   label,
   edge,
   onEdit,
+  onDelete,
   onJumpToEvent,
   t,
   i18n,
@@ -140,6 +145,7 @@ function ImpressionSection({
   label: string
   edge: ImpressionEdge
   onEdit?: () => void
+  onDelete?: () => void
   onJumpToEvent: (eventId: string) => void
   t: any
   i18n: any
@@ -154,11 +160,18 @@ function ImpressionSection({
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-medium truncate">{label}</p>
-        {onEdit && (
-          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={onEdit}>
-            <Pencil className="h-3 w-3" />
-          </Button>
-        )}
+        <div className="flex shrink-0 items-center gap-1">
+          {onEdit && (
+            <Button variant="ghost" size="icon" className="size-5" onClick={onEdit}>
+              <Pencil className="size-3" />
+            </Button>
+          )}
+          {onDelete && (
+            <Button variant="ghost" size="icon" className="size-5" onClick={onDelete}>
+              <Trash2 className="size-3" />
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">

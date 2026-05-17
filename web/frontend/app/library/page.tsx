@@ -33,8 +33,8 @@ import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 
 function LibraryContent() {
-  const { i18n, lang, refreshStats, setRawEvents, setRawGraph, toast, sudo, currentPersonaName, scopeMode } = useApp()
-  const personaFilter = scopeMode === 'single' ? currentPersonaName : null
+  const { i18n, lang, refreshStats, setRawGraph, toast, sudo, currentPersonaName, scopeMode } = useApp()
+  const personaFilter = scopeMode === 'single' ? (currentPersonaName ?? api.LEGACY_PERSONA_TOKEN) : null
   const router = useRouter()
 
   const L = useMemo(() => ({
@@ -203,7 +203,7 @@ function LibraryContent() {
     } finally {
       setTimeout(() => setIsRefreshing(false), 600)
     }
-  }, [refreshStats, setRawEvents, setRawGraph, toast, i18n, personaFilter])
+  }, [setRawGraph, i18n.events.privateChat, personaFilter])
 
   useEffect(() => { setTimeout(() => loadData(), 0) }, [loadData])
 

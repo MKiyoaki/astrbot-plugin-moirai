@@ -10,7 +10,7 @@ interface TopTagsProps {
 }
 
 export function TopTags({ events }: TopTagsProps) {
-  const { i18n, lang } = useApp()
+  const { i18n } = useApp()
 
   const topTags = useMemo(() => {
     const freq: Record<string, number> = {}

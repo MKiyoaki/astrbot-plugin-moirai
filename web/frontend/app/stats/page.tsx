@@ -21,7 +21,7 @@ import {
 
 export default function StatsPage() {
   const { i18n, stats, lang, refreshStats, currentPersonaName, scopeMode } = useApp()
-  const personaFilter = scopeMode === 'single' ? currentPersonaName : null
+  const personaFilter = scopeMode === 'single' ? (currentPersonaName ?? api.LEGACY_PERSONA_TOKEN) : null
   const [events, setEvents] = useState<api.ApiEvent[]>([])
   const [graph, setGraph] = useState<api.GraphData | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)

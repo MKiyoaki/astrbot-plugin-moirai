@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useTheme } from 'next-themes'
-import { Eye, EyeOff, Moon, Sun, Languages } from 'lucide-react'
+import { Eye, EyeOff, Moon, Sun, Languages, Loader2, AlertCircle } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useApp } from '@/lib/store'
@@ -44,6 +44,8 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
   const [showPwd, setShowPwd] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  // Speed up the silk animation while the password field is focused.
+  const [passwordFocused, setPasswordFocused] = useState(false)
 
   const [colorScheme, setColorScheme] = useState(() =>
     getStored('em_color_scheme', 'moirai') || 'moirai'
@@ -85,6 +87,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
       forgot: '忘记？',
       forgotTip: '在 AstrBot 面板查看插件日志中的随机 Token，或在插件配置中手动设置密码。',
       enter: '进入控制台',
+      verifying: '验证中…',
       tagline: <>AstrBot AI Agent 的<br /><span style={{ color: 'var(--color-primary, oklch(0.53 0.130 295))' }}>长期记忆</span>与社交关系管理面板。</>,
     },
     en: {
@@ -97,6 +100,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
       forgot: 'Forgot?',
       forgotTip: 'Check the random token in the AstrBot panel plugin logs, or set a password manually in plugin config.',
       enter: 'Enter Console',
+      verifying: 'Verifying…',
       tagline: <>Long-term <span style={{ color: 'var(--color-primary, oklch(0.53 0.130 295))' }}>memory</span> &amp; social relationship<br />management panel for AstrBot AI Agent.</>,
     },
     ja: {
@@ -109,6 +113,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
       forgot: '忘れた？',
       forgotTip: 'AstrBot パネルのプラグインログでランダムトークンを確認するか、プラグイン設定でパスワードを手動設定してください。',
       enter: 'コンソールへ',
+      verifying: '認証中…',
       tagline: <>AstrBot AI Agent の<span style={{ color: 'var(--color-primary, oklch(0.53 0.130 295))' }}>長期記憶</span>と<br />ソーシャル関係管理パネル。</>,
     },
   }
@@ -137,6 +142,11 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                 .thread-accent {
                   stroke-dasharray: 320 120;
                   animation: silk-flow 7s linear infinite, silk-shimmer 4s ease-in-out infinite;
+                  transition: stroke-width 0.4s ease-out;
+                }
+                .thread-accent.silk-fast {
+                  animation: silk-flow 4.6s linear infinite, silk-shimmer 2.8s ease-in-out infinite;
+                  stroke-width: 0.9;
                 }
               `}</style>
             </defs>
@@ -151,7 +161,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
 
             {/* Accent silk thread — animated flow */}
             <path
-              className="thread-accent"
+              className={passwordFocused ? 'thread-accent silk-fast' : 'thread-accent'}
               d="M-10,265 Q60,252 140,270 Q220,288 310,260 Q360,247 410,268"
               fill="none"
               stroke="var(--color-primary, oklch(0.53 0.130 295))"
@@ -182,7 +192,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
 
           {/* Cover logo + tagline */}
           <div className="relative z-10">
-            <h1 className="font-serif text-6xl font-bold tracking-tight leading-none mb-6">
+            <h1 className="font-serif text-6xl font-bold tracking-tight leading-none mb-6 transition-transform duration-500 ease-out hover:-translate-y-0.5">
               <span className="text-foreground">Moí</span>
               <span style={{ color: 'var(--color-primary, oklch(0.53 0.130 295))' }}>π</span>
               <span className="text-foreground">αι</span>
@@ -200,14 +210,23 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
         </div>
 
         {/* Right panel — login form */}
-        <div className="flex-1 flex flex-col justify-between p-8 md:p-12 max-w-lg mx-auto w-full">
+        <div className="flex-1 flex flex-col justify-between p-8 md:p-12 max-w-lg mx-auto w-full relative">
+          {/* Radial halo behind form — subtle primary tint, intensifies when input is focused */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 transition-opacity duration-700 ease-out"
+            style={{
+              background: 'radial-gradient(ellipse at center, color-mix(in srgb, var(--color-primary, oklch(0.53 0.130 295)) 7%, transparent) 0%, transparent 62%)',
+              opacity: passwordFocused ? 1 : 0.55,
+            }}
+          />
           {/* Form top label */}
-          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground/50 mb-8">
+          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground/50 mb-8 relative">
             {copy.enterArchive}
           </div>
 
           {/* Form body */}
-          <div className="flex-1 flex flex-col justify-center gap-6">
+          <div className="flex-1 flex flex-col justify-center gap-6 relative">
             <div>
               <h2 className="font-serif text-4xl font-bold tracking-tight text-foreground mb-1">
                 {copy.welcome}
@@ -246,6 +265,8 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') submit() }}
+                  onFocus={() => setPasswordFocused(true)}
+                  onBlur={() => setPasswordFocused(false)}
                   className="border-0 border-none shadow-none rounded-none bg-transparent px-0 py-2 text-base focus-visible:ring-0 focus-visible:outline-none"
                   placeholder="• • • • • • • • • • •"
                 />
@@ -258,7 +279,13 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                 </button>
               </div>
               {error && (
-                <p className="text-xs text-destructive font-mono tracking-wide">{error}</p>
+                <div
+                  key={error}
+                  className="animate-in slide-in-from-top-2 fade-in duration-300 flex items-center gap-1.5 text-xs text-destructive font-mono tracking-wide"
+                >
+                  <AlertCircle className="size-3 shrink-0 animate-pulse" />
+                  <span>{error}</span>
+                </div>
               )}
             </div>
 
@@ -266,9 +293,16 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
             <Button
               onClick={submit}
               disabled={loading || !password}
-              className="w-full rounded-none h-12 font-mono text-sm uppercase tracking-[0.15em]"
+              className="w-full rounded-none h-12 font-mono text-sm uppercase tracking-[0.15em] transition-all duration-200 disabled:opacity-60 active:scale-[0.99]"
             >
-              {loading ? '…' : `${copy.enter} →`}
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="size-3.5 animate-spin" />
+                  {copy.verifying}
+                </span>
+              ) : (
+                `${copy.enter} →`
+              )}
             </Button>
 
           </div>

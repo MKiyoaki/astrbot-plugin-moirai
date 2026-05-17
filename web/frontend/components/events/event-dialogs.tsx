@@ -67,7 +67,7 @@ function GroupPicker({
     setSearch('')
   }
 
-  const useCustom = () => {
+  const handleUseCustom = () => {
     if (search.trim()) {
       onChange(search.trim())
       setOpen(false)
@@ -106,13 +106,13 @@ function GroupPicker({
           onChange={e => setSearch(e.target.value)}
           placeholder="输入或搜索群组 ID"
           className="mb-2"
-          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); useCustom() } }}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleUseCustom() } }}
         />
         {search.trim() && !knownGroups.includes(search.trim()) && (
           <Button
             variant="ghost"
             className="mb-1 w-full justify-start gap-2 h-9 px-2"
-            onClick={useCustom}
+            onClick={handleUseCustom}
           >
             <Plus className="shrink-0 size-4" />
             <span>使用 &ldquo;{search}&rdquo;</span>

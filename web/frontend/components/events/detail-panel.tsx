@@ -195,7 +195,7 @@ function DetailBody({
       focusedCardRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
     }, 300)
     return () => clearTimeout(id)
-  }, [focusedEvent?.id])
+  }, [focusedEvent])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

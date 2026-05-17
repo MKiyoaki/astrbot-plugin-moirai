@@ -100,6 +100,15 @@ AstrBot 消息 → MessageRouter → MessageWindow
 - [x] `web/server.py` — 同步上述改动（dev/tests 路径）
 - [x] 测试：150 tests pass（含 test_webui, test_graph_scope, test_sqlite_repo 等）
 
+**Phase 3 闭合补丁（G1 / G2 / G3 — ✅ 完成）**
+- [x] G1: `web/frontend/app/recall/page.tsx` 串 persona — `api.recall.query` 加 4th 参数；前后端两处 `_handle_recall` 加 `?persona=` 读取 + 结果过滤（NULL 或匹配 persona 才保留）
+- [x] G2a: `persona_isolation_legacy_visible` 接到后端 `include_legacy` 参数 — `plugin_routes.py` + `server.py` 的 `events_data` / `graph_data` 加 `_persona_iso_enabled` / `_persona_legacy_visible` 两个 property 从 `self._initial_config` 读
+- [x] G2b: `persona_isolation_enabled` 主开关 — `store.tsx` 加 `personaConfig: { isolationEnabled, legacyVisible, defaultViewMode, loaded }`，在 auth resolved 后调一次 `/api/config`；`PersonaSelector` 关闭时返回 null；`FirstLaunchPersonaPicker` 关闭时强制 setCurrentPersona(null,'all') + setFirstLaunchDone(true)
+- [x] G3: `FirstLaunchPersonaPicker` 按 `persona_default_view_mode` 区分行为 — `remember`(已 done 跳过) / `all`(静默置 'all' 并 done) / `force_pick`(每次弹，确认时不 latch done)
+- [x] G2c: `persona_merge_audit_enabled` 已在 Phase 4 接入
+
+**G1/G2/G3 验证**：backend 132 tests pass（webui/graph_scope/sqlite/memory/config_sync）；frontend 49 persona-selector 结构测试 pass。
+
 **Phase 3c — 前端 store + API + UI 组件（✅ 完成 v0.11.2）**
 - [x] `web/frontend/lib/store.tsx` — `currentPersonaName` / `scopeMode` / `firstLaunchDone`，localStorage 持久化，纳入 useMemo 依赖
 - [x] `web/frontend/lib/api.ts` — `withPersona()` 工具、`BotPersonaItem`、`graph.listBots()`；`events.list` / `events.listArchived` / `graph.get` 接受 `persona?`
@@ -311,14 +320,23 @@ persona: {
 4. Sidebar 顶部切到"全部 Persona" → 数据汇总显示
 5. devtools Network 面板：选了 persona 时 `/api/events` 带 `?persona=Alice`
 6. 刷新页面：选项保持不变（localStorage 起效）
-7. 配置页关闭 `persona_isolation_enabled`：刷新后**不**弹 picker，全部使用汇总视图（**TODO 待落实**：当前 store 没有读这个开关，要在 store 初始化时读 `/api/config` 的 values；可放到 Phase 3c 末尾或推迟到 Phase 4）
+7. 配置页关闭 `persona_isolation_enabled`：刷新后**不**弹 picker，全部使用汇总视图（✅ 已落实：`store.tsx` 在 auth resolved 后读取 `/api/config` 的 values，并由 `FirstLaunchPersonaPicker` / `PersonaSelector` 统一尊重主开关）
 
-### Phase 4 — Persona 合并 / 转移
-- [ ] 后端 `POST /api/personas/{src}/merge/{target}` — 事务内更新 events/impressions/personas，可选写 `audit/persona_merge.jsonl`
-- [ ] 后端 `GET /api/personas/{src}/merge/{target}/preview` — 返回影响行数
-- [ ] `web/frontend/components/library/merge-persona-dialog.tsx` — 新建对话框（带预览 + 二次确认 + sudo 限制）
-- [ ] `web/frontend/components/library/persona-row.tsx` — 加 "🔀 转移到…" 按钮
-- [ ] 合并后自动把 store 的 `currentPersonaName` 切到 target
+### Phase 4 — Persona 合并 / 转移（✅ 完成）
+- [x] 后端 `core/repository/sqlite.py` 加 `preview_bot_persona_merge` / `merge_bot_persona` 共享工具 — 事务内 DELETE 冲突 impressions + UPDATE events/impressions/personas (target wins 策略)
+- [x] 后端 `POST /api/personas/merge` body `{src, target}` — `plugin_routes.py` + `server.py` 双服务实现，包 `sudo` wrap
+- [x] 后端 `GET /api/personas/merge/preview?src=&target=` — 返回 4 项 counts
+- [x] 接 `persona_merge_audit_enabled`：写 `data_dir/audit/persona_merge.jsonl`（每行 JSON）
+- [x] `web/frontend/lib/api.ts` — `graph.mergePersonas(src, target)` + `graph.mergePersonasPreview(src, target)` + `PersonaMergePreview` 接口
+- [x] `web/frontend/components/shared/merge-persona-dialog.tsx` — 新建（目标 select + 自动 preview + 二次确认 + sudo gate + destructive 警告）
+- [x] `PersonaSelector` 每个 bot 行加 GitMerge 小按钮（sudo 限制），打开 dialog
+- [x] 合并后：currentPersonaName === src 时自动切到 target；refreshKey 刷新 bots 列表
+- [x] `web/frontend/lib/i18n.ts` 三语 (zh/ja/en) 加 `mergeAction` / `mergeTitle` / `mergeDesc` / 4 项 stat label / 二次确认提示
+- [x] 测试 `tests/test_persona_merge.py` — 6 个场景（happy path / target wins 冲突 / personas re-key / preview 一致性 / 空 src no-op / NULL 不被 '' 匹配）
+
+**修复的 Phase 2 遗漏**：`_EVENT_COLS` 漏了 `bot_persona_name` 列（SELECT 时不读但 `_row_to_event` 期望读，导致 list_all 返回的 events 永远是 `bot_persona_name=None`）— 在 Phase 4 测试中暴露并修复
+
+**验证**：483 backend tests pass（含新增 6 个 merge 测试）；49 frontend structure tests pass
 
 #### Phase 4 技术实现（交接细节）
 
@@ -542,16 +560,18 @@ const handleMerged = (target: string) => {
   - 冲突 impressions 数量正确报告
   - 审计日志生成 / 关闭开关时不生成
 
-### Phase 5 — 登录界面 polish（保留布局）
-- [ ] 右侧表单加 `radial-gradient` 背景光晕
-- [ ] 密码 input 聚焦时丝线动画提速 1.5×
-- [ ] 错误提示加 `slide-in-from-top-2 fade-in` + 红色脉冲
-- [ ] 提交加载态加渐进文案 `login.verifying`（三语 i18n）
-- [ ] 品牌 logo 微悬浮（仅桌面）
+### Phase 5 — 登录界面 polish（✅ 完成）
+- [x] 右侧表单加 `radial-gradient` 背景光晕 — 用 `color-mix(in srgb, var(--color-primary) 7%, transparent)` 椭圆径向；input 失焦时 opacity 0.55，聚焦时 1.0，700ms 过渡
+- [x] 密码 input 聚焦时丝线动画提速 1.5× — 加 `.thread-accent.silk-fast { animation-duration: 4.6s; stroke-width: 0.9 }`；React `passwordFocused` state 控制 className
+- [x] 错误提示加 `slide-in-from-top-2 fade-in` + 红色脉冲 — `key={error}` 强制重挂载使动画每次重放；`AlertCircle` 图标 `animate-pulse`
+- [x] 提交加载态加渐进文案 `login.verifying` 三语 — zh "验证中…" / en "Verifying…" / ja "認証中…"；按钮内 `Loader2` 旋转图标 + 文案；按钮加 `active:scale-[0.99]` + `disabled:opacity-60`
+- [x] 品牌 logo 微悬浮（仅桌面）— h1 加 `transition-transform duration-500 hover:-translate-y-0.5`（位于 `hidden md:flex` 左面板内，仅桌面生效）
+- [x] 验证：483 backend tests pass、49 frontend structure tests pass
 
-### Phase 6 —"全 Persona 主界面"图谱（可选 / 后续）
-- [ ] graph 在 `scopeMode === 'all'` 时把每个 bot persona 渲染为超级节点
-- [ ] 点击超级节点下钻到该 persona 的子图
+### Phase 6 —"全 Persona 主界面"图谱（✅ 完成）
+- [x] graph 在 `scopeMode === 'all'` 时把每个 bot persona 渲染为超级节点（前端展示层聚合，不新增核心数据模型）
+- [x] 点击超级节点下钻到该 persona 的子图（通过全局 persona store 切换到 `single` scope 后重新加载图谱）
+- [x] 修复 legacy/default persona 查询歧义：前端用 `__legacy__` token，后端映射为仅查询 `bot_persona_name IS NULL`
 
 ### 主动 defer / 不在范围
 - ❌ Partitioner 按 bot_persona 拆窗（实测窗口本就单 persona，价值低，不做）
@@ -560,14 +580,18 @@ const handleMerged = (target: string) => {
 
 ---
 
-### 插件多语言支持（i18n）
+### 插件多语言支持（i18n）（✅ 完成）
 在 `.astrbot-plugin/i18n/` 下创建 `zh-CN.json` 和 `en-US.json`，覆盖：
 - `metadata.yaml` 的 `display_name`、`desc`
 - `_conf_schema.json` 所有字段的 `description`、`hint`、`labels`
 
-不动源码，只新增两个 JSON 文件。
+不动源码，只新增两个 JSON 文件。（当前 `.astrbot-plugin/i18n/zh-CN.json` 与 `en-US.json` 已存在）
 
-### 前端对于archieved事件的相关管理显示和支持功能
+### 前端对于 archived 事件的相关管理显示和支持功能（✅ 基础能力完成）
+- [x] `/api/archived_events` 列表
+- [x] `/api/events/{event_id}/archive` 手动归档
+- [x] `/api/events/{event_id}/unarchive` 恢复为活跃
+- [x] Events / Library 页面归档事件弹窗与恢复入口
 
 ---
 
@@ -621,10 +645,10 @@ const handleMerged = (target: string) => {
 
 **背景**：目前缺少对关系数据的精细化管理入口。
 
-**合理的操作（待实现）**：
-- 删除单条 impression：`DELETE /api/impressions/{observer}/{subject}/{scope}`
-- 按 group 批量清除 impression（加确认弹窗）
-- WebUI Library 页面对 impression 的直接删除入口
+**合理的操作（当前状态）**：
+- [x] 删除单条 impression：`DELETE /api/impressions/{observer}/{subject}/{scope}`，支持 `?persona=` 精确删除隔离域
+- [x] 按 group 批量清除 impression：`POST /api/impressions/bulk-delete`，Graph 参数面板提供当前 group 的确认删除入口
+- [ ] WebUI Library 页面对 impression 的直接删除入口（Library 当前主要管理事件/人格/群组；如后续增加 impression 表视图再接入）
 
 **不合理的操作（不做）**：
 - 手动新建 persona（无行为依据，产生"无根"节点）
@@ -647,9 +671,7 @@ const handleMerged = (target: string) => {
 当前实现：关键词计数投票（`_MACRO_KWS` / `_MICRO_KWS`）。
 待评估：接入轻量 embedding 相似度或 LLM 分类提升精度，但需权衡延迟开销。
 
-### [可选优化] `run_memory_cleanup` 返回值 double-counting
-`core/tasks/cleanup.py` 中 `total += archived` + `total += deleted` 会对同一次运行中
-先被归档、后被永久删除的事件计数两次（测试失败：`test_memory_cleanup.py::test_cleanup_locked_event_not_deleted`）。
-数据安全不受影响（`is_locked` 保护正常），仅影响返回值统计语义。
-修复方案：只 `return deleted`，或改为返回 `{"archived": archived, "deleted": deleted}`。
+### ✅ [可选优化] `run_memory_cleanup` 同轮归档/硬删语义
+已修复：`core/tasks/cleanup.py` 现在先删除进入本轮前已经超过保留期的 archived 事件，再归档本轮新发现的低显著度 active 事件。
+这样新归档事件至少保留一个 cleanup 周期，不会同一轮被硬删并造成统计语义混淆。新增回归测试覆盖该场景。
 

@@ -69,6 +69,7 @@ def make_impression(
     affect: float = 0.5,
     scope: str = "global",
     evidence: list[str] | None = None,
+    bot_persona_name: str | None = None,
 ) -> Impression:
     return Impression(
         observer_uid=observer,
@@ -82,6 +83,7 @@ def make_impression(
         scope=scope,
         evidence_event_ids=evidence or [],
         last_reinforced_at=NOW,
+        bot_persona_name=bot_persona_name,
     )
 
 
@@ -444,6 +446,32 @@ async def test_impression_delete() -> None:
     await repo.upsert(imp)
     assert await repo.delete(imp.observer_uid, imp.subject_uid, imp.scope) is True
     assert await repo.get(imp.observer_uid, imp.subject_uid, imp.scope) is None
+
+
+@pytest.mark.asyncio
+async def test_impression_delete_can_target_bot_persona() -> None:
+    repo = InMemoryImpressionRepository()
+    await repo.upsert(make_impression(bot_persona_name="Alice", affect=0.2))
+    await repo.upsert(make_impression(bot_persona_name="Bob", affect=0.8))
+
+    assert await repo.delete("uid-bot", "uid-a", "global", bot_persona_name="Alice") is True
+    assert await repo.get("uid-bot", "uid-a", "global", bot_persona_name="Alice") is None
+    bob = await repo.get("uid-bot", "uid-a", "global", bot_persona_name="Bob")
+    assert bob is not None
+    assert bob.benevolence == pytest.approx(0.8)
+
+
+@pytest.mark.asyncio
+async def test_impression_delete_by_scope_can_target_bot_persona() -> None:
+    repo = InMemoryImpressionRepository()
+    await repo.upsert(make_impression(scope="grp-1", bot_persona_name="Alice"))
+    await repo.upsert(make_impression(scope="grp-1", bot_persona_name="Bob"))
+    await repo.upsert(make_impression(scope="grp-2", bot_persona_name="Alice"))
+
+    assert await repo.delete_by_scope("grp-1", bot_persona_name="Alice") == 1
+    assert await repo.get("uid-bot", "uid-a", "grp-1", bot_persona_name="Alice") is None
+    assert await repo.get("uid-bot", "uid-a", "grp-1", bot_persona_name="Bob") is not None
+    assert await repo.get("uid-bot", "uid-a", "grp-2", bot_persona_name="Alice") is not None
 
 
 @pytest.mark.asyncio

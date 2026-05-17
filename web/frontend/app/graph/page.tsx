@@ -13,12 +13,12 @@ import { ParamsPanel } from '@/components/graph/params-panel'
 import { NodeDetail } from '@/components/graph/node-detail'
 import { EdgeDetail } from '@/components/graph/edge-detail'
 import { GroupCardList } from '@/components/graph/group-card-list'
+import { PersonaSupernodeGrid } from '@/components/graph/persona-supernode-grid'
 import { RefreshButton } from '@/components/shared/refresh-button'
 import { EmptyState } from '@/components/shared/empty-state'
 import { useApp } from '@/lib/store'
 import { getStored, removeStored, setStored } from '@/lib/safe-storage'
 import * as api from '@/lib/api'
-import { cn } from '@/lib/utils'
 import {
   DEFAULT_PHYSICS_PARAMS,
   DEFAULT_VISUAL_PARAMS,
@@ -27,14 +27,14 @@ import {
   type ViewMode,
   type GroupCard,
 } from '@/lib/graph-types'
-import { buildGroupCards } from '@/lib/graph-utils'
+import { buildGroupCards, GROUP_ID_GLOBAL, GROUP_ID_PRIVATE } from '@/lib/graph-utils'
 import { useForceSimulation } from '@/hooks/use-force-simulation'
 import { useRouter } from 'next/navigation'
 
 export default function GraphPage() {
   const app = useApp()
-  const { i18n, currentPersonaName, scopeMode } = app
-  const personaFilter = scopeMode === 'single' ? currentPersonaName : null
+  const { i18n, currentPersonaName, scopeMode, setRawGraph, toast } = app
+  const personaFilter = scopeMode === 'single' ? (currentPersonaName ?? api.LEGACY_PERSONA_TOKEN) : null
   const router = useRouter()
 
   // ── Tag & Date filter ──────────────────────────────────────────────────────
@@ -47,6 +47,7 @@ export default function GraphPage() {
 
   // ── Group / view state ──────────────────────────────────────────────────────
   const [groupCards, setGroupCards] = useState<GroupCard[]>([])
+  const [botSupernodes, setBotSupernodes] = useState<api.BotPersonaItem[]>([])
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -81,44 +82,44 @@ export default function GraphPage() {
     try {
       const [data, cfg] = await Promise.all([
         api.graph.get(personaFilter),
-        api.pluginConfig.get()
+        api.pluginConfig.get(),
       ])
+      const bots = scopeMode === 'all' ? await api.graph.listBots() : { items: [] }
       if (data.enabled === false) {
         setRelationEnabled(false)
         return
       }
       setRelationEnabled(true)
-      app.setRawGraph(data)
+      setBotSupernodes(bots.items)
+      setRawGraph(data)
       setDefaultConfidence(cfg.values.persona_default_confidence as number ?? 0.5)
       const cards = buildGroupCards(data.nodes, data.edges, physics.biWeight, data.group_members)
       setGroupCards(cards)
     } catch {
-      app.toast(i18n.graph.loadError, 'destructive')
+      toast(i18n.graph.loadError, 'destructive')
     } finally {
       setLoading(false)
       setTimeout(() => setIsRefreshing(false), 600)
     }
-  }, [app.setRawGraph, app.toast, physics.biWeight, i18n.graph.loadError, personaFilter])
+  }, [setRawGraph, toast, physics.biWeight, i18n.graph.loadError, personaFilter, scopeMode])
+
+  const pendingFocusRef = useRef<string | null>(null)
 
   useEffect(() => {
     loadGraph().then(() => {
       const focusId = getStored('em_focus_persona', null, 'session')
       if (focusId) {
         removeStored('em_focus_persona', 'session')
-        // Open the first group that contains the node
-        const card = groupCards.find(g => g.nodes.some(n => n.data.id === focusId))
-        if (card) {
-          setExpandedGroupId(card.group_id)
-          setFocusNodeId(focusId)
-        }
+        pendingFocusRef.current = focusId
       }
     })
+  }, [loadGraph])
+
+  useEffect(() => {
     api.tags.list().then(r => setTagList(r.tags)).catch(() => {})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // After group cards are available, handle pending sessionStorage focus
-  const pendingFocusRef = useRef<string | null>(null)
   useEffect(() => {
     if (groupCards.length > 0 && pendingFocusRef.current) {
       const focusId = pendingFocusRef.current
@@ -200,6 +201,14 @@ export default function GraphPage() {
     return gs
   }, [groupCards, activeTags, dateRange, search])
 
+  const filteredSupernodes = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return botSupernodes
+    return botSupernodes.filter(item =>
+      (item.name ?? i18n.personaSelector.defaultPersona).toLowerCase().includes(q)
+    )
+  }, [botSupernodes, search, i18n.personaSelector.defaultPersona])
+
   // ── Open group ──────────────────────────────────────────────────────────────
   const handleOpenGroup = (groupId: string) => {
     setExpandedGroupId(groupId)
@@ -268,10 +277,51 @@ export default function GraphPage() {
   const handleUpdateImpression = async (
     observer: string, subject: string, scope: string, data: Record<string, unknown>,
   ) => {
-    await api.graph.updateImpression(observer, subject, scope, data)
+    await api.graph.updateImpression(observer, subject, scope, data, personaFilter)
     app.toast(i18n.graph.impressionUpdateSuccess)
     setEditEdge(null)
     await loadGraph()
+  }
+
+  const handleOpenSupernode = (name: string | null) => {
+    app.setCurrentPersona(name, 'single')
+    setExpandedGroupId(null)
+    setSelectedNodeId(null)
+    setSelectedPairKey(null)
+    setFocusNodeId(null)
+  }
+
+  const handleDeleteImpression = async (edge: api.ImpressionEdge) => {
+    if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
+    if (!confirm(i18n.graph.deleteImpressionConfirm)) return
+    try {
+      await api.graph.deleteImpression(
+        edge.data.source, edge.data.target, edge.data.scope, personaFilter,
+      )
+      setSelectedPairKey(null)
+      app.toast(i18n.graph.impressionDeleteSuccess)
+      await loadGraph()
+      await app.refreshStats()
+    } catch (e: unknown) {
+      app.toast(i18n.common.deleteFailed + '：' + (e as api.ApiError).body, 'destructive')
+    }
+  }
+
+  const handleClearCurrentScopeImpressions = async () => {
+    if (!currentGroup) return
+    if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
+    const scope = currentGroup.group_id === GROUP_ID_PRIVATE ? 'global' : currentGroup.group_id
+    if (!confirm(i18n.graph.clearScopeImpressionsConfirm.replace('{name}', currentGroup.name))) return
+    try {
+      const result = await api.graph.deleteImpressionsByScope(scope, personaFilter)
+      setSelectedPairKey(null)
+      setSelectedNodeId(null)
+      app.toast(i18n.graph.clearScopeImpressionsSuccess.replace('{count}', String(result.deleted)))
+      await loadGraph()
+      await app.refreshStats()
+    } catch (e: unknown) {
+      app.toast(i18n.common.deleteFailed + '：' + (e as api.ApiError).body, 'destructive')
+    }
   }
 
   const handleJumpToEvent = (eventId: string) => {
@@ -327,12 +377,21 @@ export default function GraphPage() {
           onDateRangeChange={setDateRange}
         />
         <div className="flex-1 overflow-y-auto animate-in fade-in duration-700 delay-150 fill-mode-both">
-          <GroupCardList 
-            groups={filteredGroups} 
-            onOpen={handleOpenGroup} 
-            loading={loading} 
-            isFiltered={groupCards.length > 0 && (search !== '' || activeTags.size > 0 || !!dateRange?.from)}
-          />
+          {scopeMode === 'all' ? (
+            <PersonaSupernodeGrid
+              items={filteredSupernodes}
+              onOpen={handleOpenSupernode}
+              loading={loading}
+              isFiltered={botSupernodes.length > 0 && search !== ''}
+            />
+          ) : (
+            <GroupCardList 
+              groups={filteredGroups} 
+              onOpen={handleOpenGroup} 
+              loading={loading} 
+              isFiltered={groupCards.length > 0 && (search !== '' || activeTags.size > 0 || !!dateRange?.from)}
+            />
+          )}
         </div>
 
         <CreatePersonaDialog
@@ -370,6 +429,7 @@ export default function GraphPage() {
           onBack={() => setSelectedPairKey(null)}
           onEditForward={edge => { if (app.sudo) setEditEdge(edge); else app.toast(i18n.common.needSudo, 'destructive') }}
           onEditBackward={edge => { if (app.sudo) setEditEdge(edge); else app.toast(i18n.common.needSudo, 'destructive') }}
+          onDelete={handleDeleteImpression}
           onJumpToEvent={handleJumpToEvent}
           sudoMode={app.sudo}
         />
@@ -392,6 +452,9 @@ export default function GraphPage() {
         onRefreshLayout={refreshLayout}
         svgEl={svgRef.current}
         groupName={currentGroup?.name}
+        onClearScope={handleClearCurrentScopeImpressions}
+        canClearScope={!!currentGroup && currentGroup.group_id !== GROUP_ID_GLOBAL}
+        sudoMode={app.sudo}
       />
     )
   })()

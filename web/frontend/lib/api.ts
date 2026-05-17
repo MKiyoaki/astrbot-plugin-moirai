@@ -89,6 +89,8 @@ export const soul = {
 }
 
 // ── Persona scope helper ──────────────────────────────────────────────────
+export const LEGACY_PERSONA_TOKEN = '__legacy__'
+
 export function withPersona(url: string, persona: string | null | undefined): string {
   if (!persona) return url
   const sep = url.includes('?') ? '&' : '?'
@@ -166,22 +168,57 @@ export interface ImpressionEdge {
     r_squared: number
     confidence: number
     scope: string
+    bot_persona_name?: string | null
     evidence_event_ids: string[]
     last_reinforced_at: string
     msg_count?: number
   }
 }
 export interface GraphData { enabled?: boolean; nodes: PersonaNode[]; edges: ImpressionEdge[]; group_members?: Record<string, string[]> }
+export interface PersonaMergePreview {
+  events_moved: number
+  impressions_moved: number
+  impressions_dropped: number
+  personas_moved: number
+}
+
 export const graph = {
   get: (persona?: string | null) => request<GraphData>(withPersona('/api/graph', persona)),
   listBots: () => request<{ items: BotPersonaItem[] }>('/api/personas/bots'),
+  mergePersonasPreview: (src: string, target: string) =>
+    request<PersonaMergePreview>(
+      `/api/personas/merge/preview?src=${encodeURIComponent(src)}&target=${encodeURIComponent(target)}`
+    ),
+  mergePersonas: (src: string, target: string) =>
+    request<{ ok: boolean } & PersonaMergePreview>('/api/personas/merge', {
+      method: 'POST',
+      body: JSON.stringify({ src, target }),
+    }),
   createPersona: (data: Record<string, unknown>) =>
     request('/api/personas', { method: 'POST', body: JSON.stringify(data) }),
   updatePersona: (uid: string, data: Record<string, unknown>) =>
     request(`/api/personas/${uid}`, { method: 'PUT', body: JSON.stringify(data) }),
   deletePersona: (uid: string) => request(`/api/personas/${uid}`, { method: 'DELETE' }),
-  updateImpression: (observer: string, subject: string, scope: string, data: Record<string, unknown>) =>
-    request(`/api/impressions/${observer}/${subject}/${scope}`, { method: 'PUT', body: JSON.stringify(data) }),
+  updateImpression: (
+    observer: string, subject: string, scope: string, data: Record<string, unknown>,
+    persona?: string | null,
+  ) =>
+    request(withPersona(
+      `/api/impressions/${encodeURIComponent(observer)}/${encodeURIComponent(subject)}/${encodeURIComponent(scope)}`,
+      persona,
+    ), { method: 'PUT', body: JSON.stringify(data) }),
+  deleteImpression: (
+    observer: string, subject: string, scope: string, persona?: string | null,
+  ) =>
+    request(withPersona(
+      `/api/impressions/${encodeURIComponent(observer)}/${encodeURIComponent(subject)}/${encodeURIComponent(scope)}`,
+      persona,
+    ), { method: 'DELETE' }),
+  deleteImpressionsByScope: (scope: string, persona?: string | null) =>
+    request<{ ok: boolean; deleted: number }>('/api/impressions/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ scope, persona }),
+    }),
 }
 
 // ── Summaries ─────────────────────────────────────────────────────────────
@@ -203,9 +240,10 @@ export const summaries = {
 // ── Recall ────────────────────────────────────────────────────────────────
 export interface RecallResult { items: ApiEvent[]; count: number; algorithm: string }
 export const recall = {
-  query: (q: string, limit = 5, sessionId?: string) => {
+  query: (q: string, limit = 5, sessionId?: string, persona?: string | null) => {
     const params = new URLSearchParams({ q, limit: String(limit) })
     if (sessionId) params.set('session_id', sessionId)
+    if (persona) params.set('persona', persona)
     return request<RecallResult>(`/api/recall?${params}`)
   },
 }

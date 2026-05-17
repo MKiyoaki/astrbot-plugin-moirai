@@ -209,7 +209,7 @@ export function NetworkGraph({
     if (avg > 0.3) return EDGE_POS_COLOR
     if (avg < -0.1) return EDGE_NEG_COLOR
     return EDGE_NEU_COLOR
-  }, [params.sentimentEnabled, params.sentimentAxis, pickAxis])
+  }, [params.sentimentEnabled, pickAxis])
 
   const edgeWidth = useCallback((pair: EdgePair): number => {
     const base = params.defaultEdgeWidth

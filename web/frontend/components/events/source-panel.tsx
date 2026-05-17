@@ -60,7 +60,7 @@ export function SourcePanel({
       {/* Panel header — shows live counts */}
       <div className="px-4 py-3 border-b shrink-0">
         <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground/60">
-          {threads.length} SOURCES · {totalEvents} EVENTS
+          {threads.length} SOURCES · {totalEvents} EVENTS{totalConversations != null ? ` · ${totalConversations} THREADS` : ''}
         </p>
       </div>
 

@@ -59,6 +59,35 @@ async def test_memory_cleanup(event_repo):
     assert e2 is not None and e2.status == EventStatus.ARCHIVED
     assert e3 is not None and e3.status == EventStatus.ACTIVE
 
+async def test_cleanup_newly_archived_event_survives_current_cycle(event_repo):
+    old_low = Event(
+        event_id="old-low", group_id="g1", start_time=100, end_time=200,
+        participants=["u1"], interaction_flow=[], topic="Old Low",
+        summary="Old low summary",
+        chat_content_tags=[], salience=0.1, confidence=1.0,
+        inherit_from=[], last_accessed_at=200, status=EventStatus.ACTIVE,
+        is_locked=False
+    )
+    old_archived = Event(
+        event_id="old-archived", group_id="g1", start_time=100, end_time=200,
+        participants=["u1"], interaction_flow=[], topic="Old Archived",
+        summary="Old archived summary",
+        chat_content_tags=[], salience=0.1, confidence=1.0,
+        inherit_from=[], last_accessed_at=200, status=EventStatus.ARCHIVED,
+        is_locked=False
+    )
+    await event_repo.upsert(old_low)
+    await event_repo.upsert(old_archived)
+
+    cfg = CleanupConfig(enabled=True, threshold=0.3, interval_days=7, retention_days=1)
+    affected = await run_memory_cleanup(event_repo, cfg)
+
+    assert affected == 2
+    assert await event_repo.get("old-archived") is None
+    newly_archived = await event_repo.get("old-low")
+    assert newly_archived is not None
+    assert newly_archived.status == EventStatus.ARCHIVED
+
 async def test_set_locked(event_repo):
     e = Event(
         event_id="e1", group_id="g1", start_time=100, end_time=200,

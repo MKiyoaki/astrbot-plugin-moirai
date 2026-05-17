@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 _STATIC_DIR = Path(__file__).parent.parent / "pages" / "moirai" / "_app"
 _DEFAULT_PORT = 2655
 _SESSION_COOKIE = "em_session"
+_LEGACY_PERSONA_TOKEN = "__legacy__"
 
 def _ts_to_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
@@ -39,6 +40,12 @@ def _json(data: Any, *, status: int = 200) -> web.Response:
         content_type="application/json",
         status=status,
     )
+
+def _persona_query(request: web.Request) -> str | None:
+    value = request.rel_url.query.get("persona") or None
+    if value == _LEGACY_PERSONA_TOKEN:
+        return ""
+    return value
 
 def event_to_dict(event: Event) -> dict[str, Any]:
     return {
@@ -81,7 +88,7 @@ def persona_to_node(persona: Persona) -> dict[str, Any]:
 def impression_to_edge(imp: Impression) -> dict[str, Any]:
     return {
         "data": {
-            "id": f"{imp.observer_uid}--{imp.subject_uid}--{imp.scope}",
+            "id": f"{imp.observer_uid}--{imp.subject_uid}--{imp.scope}--{imp.bot_persona_name or 'legacy'}",
             "source": imp.observer_uid,
             "target": imp.subject_uid,
             "label": imp.ipc_orientation,
@@ -91,6 +98,7 @@ def impression_to_edge(imp: Impression) -> dict[str, Any]:
             "r_squared": round(imp.r_squared, 3),
             "confidence": round(imp.confidence, 3),
             "scope": imp.scope,
+            "bot_persona_name": imp.bot_persona_name,
             "evidence_event_ids": imp.evidence_event_ids,
             "last_reinforced_at": _ts_to_iso(imp.last_reinforced_at),
         }
@@ -231,10 +239,14 @@ class WebuiServer:
         app.router.add_post("/api/events/{event_id}/archive", self._wrap("sudo", self._handle_archive_event))
         app.router.add_post("/api/events/{event_id}/unarchive", self._wrap("sudo", self._handle_unarchive_event))
         app.router.add_get("/api/personas/bots", self._wrap("auth", self._handle_bot_personas_list))
+        app.router.add_get("/api/personas/merge/preview", self._wrap("auth", self._handle_persona_merge_preview))
+        app.router.add_post("/api/personas/merge", self._wrap("sudo", self._handle_persona_merge))
         app.router.add_post("/api/personas", self._wrap("sudo", self._handle_create_persona))
         app.router.add_put("/api/personas/{uid}", self._wrap("sudo", self._handle_update_persona))
         app.router.add_delete("/api/personas/{uid}", self._wrap("sudo", self._handle_delete_persona))
         app.router.add_put("/api/impressions/{observer}/{subject}/{scope}", self._wrap("sudo", self._handle_update_impression_guarded))
+        app.router.add_delete("/api/impressions/{observer}/{subject}/{scope}", self._wrap("sudo", self._handle_delete_impression_guarded))
+        app.router.add_post("/api/impressions/bulk-delete", self._wrap("sudo", self._handle_bulk_delete_impressions_guarded))
         app.router.add_get("/api/tags", self._wrap("auth", self._handle_tags))
         app.router.add_get("/api/config", self._wrap("auth", self._handle_get_config))
         app.router.add_put("/api/config", self._wrap("sudo", self._handle_update_config))
@@ -315,13 +327,25 @@ class WebuiServer:
                 return _json({"error": str(exc)}, status=500)
         return wrapped
 
+    @property
+    def _persona_iso_enabled(self) -> bool:
+        return bool(self._initial_config.get("persona_isolation_enabled", True))
+
+    @property
+    def _persona_legacy_visible(self) -> bool:
+        return bool(self._initial_config.get("persona_isolation_legacy_visible", True))
+
     async def events_data(
         self, group_id: str | None, limit: int,
         bot_persona_name: str | None = None,
     ) -> dict[str, Any]:
+        if not self._persona_iso_enabled:
+            bot_persona_name = None
+        include_legacy = self._persona_legacy_visible
         if group_id:
             events = await self._event_repo.list_by_group(
-                group_id, limit=limit, bot_persona_name=bot_persona_name,
+                group_id, limit=limit,
+                bot_persona_name=bot_persona_name, include_legacy=include_legacy,
             )
         else:
             group_ids = await self._event_repo.list_group_ids()
@@ -330,13 +354,17 @@ class WebuiServer:
             events = []
             for gid in group_ids:
                 events.extend(await self._event_repo.list_by_group(
-                    gid, limit=per_group, bot_persona_name=bot_persona_name,
+                    gid, limit=per_group,
+                    bot_persona_name=bot_persona_name, include_legacy=include_legacy,
                 ))
             events = events[:limit]
         events = [e for e in events if e.status == "active"]
         return {"items": [event_to_dict(e) for e in events], "total": len(events)}
 
     async def graph_data(self, bot_persona_name: str | None = None) -> dict[str, Any]:
+        if not self._persona_iso_enabled:
+            bot_persona_name = None
+        include_legacy = self._persona_legacy_visible
         personas = await self._persona_repo.list_all()
         uid_msg_counts = await self._event_repo.count_messages_by_uid_bulk()
         nodes = []
@@ -347,7 +375,8 @@ class WebuiServer:
         edges = []
         for persona in personas:
             imps = await self._impression_repo.list_by_observer(
-                persona.uid, bot_persona_name=bot_persona_name,
+                persona.uid,
+                bot_persona_name=bot_persona_name, include_legacy=include_legacy,
             )
             for imp in imps:
                 edge = impression_to_edge(imp)
@@ -356,19 +385,31 @@ class WebuiServer:
         group_members = {}
         for gid in await self._event_repo.list_group_ids():
             events = await self._event_repo.list_by_group(
-                gid, limit=1000, bot_persona_name=bot_persona_name,
+                gid, limit=1000,
+                bot_persona_name=bot_persona_name, include_legacy=include_legacy,
             )
             uids = {uid for event in events for uid in (event.participants or [])}
             if uids: group_members[gid] = sorted(uids)
         return {"nodes": nodes, "edges": edges, "group_members": group_members}
 
     async def bot_personas_data(self) -> dict[str, Any]:
-        async with self._event_repo._db.execute(  # type: ignore[attr-defined]
-            "SELECT COALESCE(bot_persona_name, '') AS name, COUNT(*) AS n "
-            "FROM events GROUP BY COALESCE(bot_persona_name, '') ORDER BY n DESC"
-        ) as cur:
-            rows = await cur.fetchall()
-        return {"items": [{"name": (r[0] or None), "event_count": r[1]} for r in rows]}
+        db = getattr(self._event_repo, "_db", None)
+        if db is not None:
+            async with db.execute(
+                "SELECT COALESCE(bot_persona_name, '') AS name, COUNT(*) AS n "
+                "FROM events GROUP BY COALESCE(bot_persona_name, '') ORDER BY n DESC"
+            ) as cur:
+                rows = await cur.fetchall()
+            return {"items": [{"name": (r[0] or None), "event_count": r[1]} for r in rows]}
+
+        counts: dict[str | None, int] = {}
+        for event in await self._event_repo.list_all(limit=1_000_000):
+            counts[event.bot_persona_name] = counts.get(event.bot_persona_name, 0) + 1
+        items = [
+            {"name": name, "event_count": count}
+            for name, count in sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        ]
+        return {"items": items}
 
     async def summaries_data(self) -> list[dict[str, str | None]]:
         result = []
@@ -462,7 +503,7 @@ class WebuiServer:
         return _json({"ok": True})
 
     async def _handle_events(self, request: web.Request) -> web.Response:
-        persona = request.rel_url.query.get("persona") or None
+        persona = _persona_query(request)
         return _json(await self.events_data(
             request.rel_url.query.get("group_id"),
             int(request.rel_url.query.get("limit", "100")),
@@ -471,7 +512,7 @@ class WebuiServer:
 
     async def _handle_graph_guarded(self, request: web.Request) -> web.Response:
         if not self._relation_enabled: return _json({"enabled": False, "nodes": [], "edges": []})
-        persona = request.rel_url.query.get("persona") or None
+        persona = _persona_query(request)
         return _json(await self.graph_data(bot_persona_name=persona))
 
     async def _handle_bot_personas_list(self, _: web.Request) -> web.Response:
@@ -527,13 +568,18 @@ class WebuiServer:
     async def _handle_recall(self, request: web.Request) -> web.Response:
         q = request.rel_url.query.get("q", "").strip()
         if not q: return _json({"error": "q required"}, status=400)
+        persona = _persona_query(request)
+        limit = int(request.rel_url.query.get("limit", "5"))
+        fetch = limit * 3 if persona else limit
         if self._recall_manager:
             results = await self._recall_manager.recall(q, group_id=request.rel_url.query.get("session_id"))
-            results = results[:int(request.rel_url.query.get("limit", "5"))]
             algorithm = "hybrid"
         else:
-            results = await self._event_repo.search_fts(q, limit=int(request.rel_url.query.get("limit", "5")))
+            results = await self._event_repo.search_fts(q, limit=fetch)
             algorithm = "fts5"
+        if persona:
+            results = [e for e in results if e.bot_persona_name == persona or e.bot_persona_name is None]
+        results = results[:limit]
         return _json({"items": [event_to_dict(e) for e in results], "algorithm": algorithm, "query": q, "count": len(results)})
 
     async def _handle_create_event(self, request: web.Request) -> web.Response:
@@ -624,13 +670,85 @@ class WebuiServer:
         if not await self._persona_repo.delete(request.match_info["uid"]): return _json({"error": "not found"}, status=404)
         return _json({"ok": True})
 
+    async def _handle_persona_merge_preview(self, request: web.Request) -> web.Response:
+        src = (request.rel_url.query.get("src") or "").strip()
+        target = (request.rel_url.query.get("target") or "").strip()
+        if not src or not target:
+            return _json({"error": "src and target required"}, status=400)
+        if src == target:
+            return _json({"error": "src must differ from target"}, status=400)
+        db = getattr(self._event_repo, "_db", None)
+        if db is None:
+            return _json({"error": "merge requires SQLite repository"}, status=501)
+        from core.repository.sqlite import preview_bot_persona_merge
+        try:
+            counts = await preview_bot_persona_merge(db, src, target)
+        except Exception as exc:
+            return _json({"error": str(exc)}, status=500)
+        return _json(counts)
+
+    async def _handle_persona_merge(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        src = (body.get("src") or "").strip()
+        target = (body.get("target") or "").strip()
+        if not src or not target:
+            return _json({"error": "src and target required"}, status=400)
+        if src == target:
+            return _json({"error": "src must differ from target"}, status=400)
+        db = getattr(self._event_repo, "_db", None)
+        if db is None:
+            return _json({"error": "merge requires SQLite repository"}, status=501)
+        from core.repository.sqlite import merge_bot_persona
+        try:
+            counts = await merge_bot_persona(db, src, target)
+        except Exception as exc:
+            return _json({"error": str(exc)}, status=500)
+        if bool(self._initial_config.get("persona_merge_audit_enabled", True)):
+            try:
+                audit_path = self._data_dir / "audit" / "persona_merge.jsonl"
+                audit_path.parent.mkdir(parents=True, exist_ok=True)
+                with audit_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "ts": time.time(),
+                        "src": src,
+                        "target": target,
+                        **counts,
+                    }, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+        return _json({"ok": True, **counts})
+
     async def _handle_update_impression_guarded(self, request: web.Request) -> web.Response:
         if not self._relation_enabled: return _json({"error": "disabled"}, status=403)
         obs, sub, scope = request.match_info["observer"], request.match_info["subject"], request.match_info["scope"]
-        existing = await self._impression_repo.get(obs, sub, scope); body = await request.json()
-        imp = Impression(observer_uid=obs, subject_uid=sub, ipc_orientation=body.get("relation_type", existing.ipc_orientation if existing else "友好"), benevolence=float(body.get("affect", existing.benevolence if existing else 0.0)), power=float(body.get("power", existing.power if existing else 0.0)), affect_intensity=float(body.get("intensity", existing.affect_intensity if existing else 0.5)), r_squared=float(body.get("r_squared", existing.r_squared if existing else 0.7)), confidence=float(body.get("confidence", existing.confidence if existing else 0.7)), scope=scope, evidence_event_ids=body.get("evidence_event_ids", existing.evidence_event_ids if existing else []), last_reinforced_at=time.time())
+        bot_persona_name = _persona_query(request)
+        existing = await self._impression_repo.get(obs, sub, scope, bot_persona_name=bot_persona_name); body = await request.json()
+        imp = Impression(observer_uid=obs, subject_uid=sub, ipc_orientation=body.get("relation_type", existing.ipc_orientation if existing else "友好"), benevolence=float(body.get("affect", existing.benevolence if existing else 0.0)), power=float(body.get("power", existing.power if existing else 0.0)), affect_intensity=float(body.get("intensity", existing.affect_intensity if existing else 0.5)), r_squared=float(body.get("r_squared", existing.r_squared if existing else 0.7)), confidence=float(body.get("confidence", existing.confidence if existing else 0.7)), scope=scope, evidence_event_ids=body.get("evidence_event_ids", existing.evidence_event_ids if existing else []), last_reinforced_at=time.time(), bot_persona_name=bot_persona_name)
         await self._impression_repo.upsert(imp)
         return _json({"ok": True, "impression": impression_to_edge(imp)["data"]})
+
+    async def _handle_delete_impression_guarded(self, request: web.Request) -> web.Response:
+        if not self._relation_enabled: return _json({"error": "disabled"}, status=403)
+        obs, sub, scope = request.match_info["observer"], request.match_info["subject"], request.match_info["scope"]
+        bot_persona_name = _persona_query(request)
+        ok = await self._impression_repo.delete(obs, sub, scope, bot_persona_name=bot_persona_name)
+        if not ok:
+            return _json({"error": "not found"}, status=404)
+        return _json({"ok": True})
+
+    async def _handle_bulk_delete_impressions_guarded(self, request: web.Request) -> web.Response:
+        if not self._relation_enabled: return _json({"error": "disabled"}, status=403)
+        body = await request.json()
+        scope = body.get("scope")
+        if not isinstance(scope, str) or not scope:
+            return _json({"error": "scope required"}, status=400)
+        bot_persona_name = body.get("persona")
+        if bot_persona_name == _LEGACY_PERSONA_TOKEN:
+            bot_persona_name = ""
+        if not isinstance(bot_persona_name, str):
+            bot_persona_name = None
+        deleted = await self._impression_repo.delete_by_scope(scope, bot_persona_name=bot_persona_name)
+        return _json({"ok": True, "deleted": deleted})
 
     async def _handle_tags(self, _: web.Request) -> web.Response:
         counts = {}

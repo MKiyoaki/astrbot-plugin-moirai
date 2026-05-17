@@ -362,20 +362,49 @@ class InMemoryImpressionRepository(ImpressionRepository):
         )
         self._store[key] = deepcopy(impression)
 
-    async def delete(self, observer_uid: str, subject_uid: str, scope: str) -> bool:
-        # Remove every row matching the (observer, subject, scope) tuple
-        # regardless of bot_persona_name.
-        keys = [k for k in self._store if k[0] == observer_uid and k[1] == subject_uid and k[2] == scope]
+    async def delete(
+        self, observer_uid: str, subject_uid: str, scope: str,
+        bot_persona_name: str | None = None,
+    ) -> bool:
+        keys = [
+            k for k in self._store
+            if k[0] == observer_uid
+            and k[1] == subject_uid
+            and k[2] == scope
+            and (
+                bot_persona_name is None
+                or k[3] == bot_persona_name
+                or (bot_persona_name == "" and k[3] == "")
+            )
+        ]
         if not keys:
             return False
         for k in keys:
             del self._store[k]
         return True
 
+    async def delete_by_scope(
+        self, scope: str, bot_persona_name: str | None = None,
+    ) -> int:
+        keys = [
+            k for k in self._store
+            if k[2] == scope
+            and (
+                bot_persona_name is None
+                or k[3] == bot_persona_name
+                or (bot_persona_name == "" and k[3] == "")
+            )
+        ]
+        for k in keys:
+            del self._store[k]
+        return len(keys)
+
 
 def _persona_matches(row_persona: str | None, filter_persona: str | None, include_legacy: bool) -> bool:
     if filter_persona is None:
         return True
+    if filter_persona == "":
+        return row_persona is None
     if row_persona == filter_persona:
         return True
     return include_legacy and row_persona is None

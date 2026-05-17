@@ -1,5 +1,72 @@
 # CHANGELOG
 
+## [v0.12.0] — 2026-05-17
+
+### Persona 隔离总收口：多 Bot Persona、汇总视图、合并与 Graph 管理
+
+- **配置与数据模型**
+  - 将 persona 隔离相关配置纳入 `relation` 配置组：`persona_isolation_enabled`、`persona_isolation_legacy_visible`、`persona_default_view_mode`、`persona_merge_audit_enabled`
+  - 采用行级隔离方案，不拆 sqlite db：`events` / `impressions` / `personas` 使用 `bot_persona_name` 标记所属 bot persona
+  - 保留 `NULL` 作为 legacy/default persona 语义，保证旧版本数据无需迁移即可继续读取
+  - `impressions` 唯一约束升级为 `(observer, subject, scope, ifnull(bot_persona_name, ''))`，允许不同 bot persona 下存在同一组关系边
+
+- **写入链路与 repository 隔离**
+  - `Extractor` 从当前 AstrBot bot persona 推断 `event.bot_persona_name`，并在事件关闭后透传到关系分析链路
+  - `SocialOrientationAnalyzer` 写入 `Impression` 时保留 `bot_persona_name`
+  - `sqlite` / `memory` repository 统一支持 `bot_persona_name` 与 `include_legacy` 过滤
+  - 修复 `_EVENT_COLS` 缺少 `bot_persona_name` 导致事件读取后丢失 persona 归属的问题
+  - 新增针对 NULL / legacy / Alice / Bob 并存、精确匹配、scope 删除和 merge 冲突的 repository 测试
+
+- **API 与 WebUI 透传**
+  - `/api/events`、`/api/archived_events`、`/api/graph`、`/api/recall` 等读取接口支持 `?persona=...`
+  - 新增 `GET /api/personas/bots`，返回出现过的 bot persona 及事件计数
+  - 前端 store 新增 `currentPersonaName`、`scopeMode`、`firstLaunchDone`，并通过 localStorage 持久化
+  - Sidebar 接入 `PersonaSelector`，首次进入接入 `FirstLaunchPersonaPicker`
+  - `persona_isolation_enabled` 关闭时前端回退到 All Personas 汇总视图，不弹 picker
+  - `persona_default_view_mode` 支持 `remember` / `all` / `force_pick`
+
+- **Legacy 与 All Personas 语义修复**
+  - 新增 `__legacy__` 查询 token，明确区分“只看 legacy/default NULL 行”和“不带 persona 的 All Personas 汇总”
+  - Events / Library / Recall / Stats / Graph 页面按 `scopeMode` 统一生成 `personaFilter`
+  - `scopeMode === 'all'` 时 Graph 以 bot persona 聚合为超级节点展示入口
+  - 点击超级节点后切换到对应 bot persona 的 single scope 并重新加载子图
+
+- **Persona 合并 / 转移**
+  - 新增 `GET /api/personas/merge/preview` 与 `POST /api/personas/merge`
+  - 合并时对 `events` / `impressions` / `personas` 执行事务内转移
+  - `impressions` 冲突采用 target wins：目标 persona 已存在同 `(observer, subject, scope)` 时删除源 persona 冲突行，再迁移剩余行
+  - 接入 `persona_merge_audit_enabled`，按配置写入 `data_dir/audit/persona_merge.jsonl`
+  - 前端新增 persona 合并弹窗，包含 preview、二次确认、sudo gate 与合并后自动切换当前 persona
+
+- **Defer / 不在本次范围**
+  - 不按 bot persona 拆 Partitioner 窗口，当前窗口本身已是单 persona 语义
+  - 不改为每 persona 独立 sqlite db，避免破坏 All Personas 汇总视图
+  - `core/adapters/identity.py` 暂不为共享 Persona 实体填 `bot_persona_name`
+  - MD sync 旁路暂不改造 persona 写入语义
+  - Library 页暂不新增 impression 直接删除入口，当前删除入口集中在 Graph
+
+- **All Personas 超级节点视图** (`web/frontend/app/graph/page.tsx`, `components/graph/persona-supernode-grid.tsx`)
+  - `scopeMode === 'all'` 时以 bot persona 聚合节点展示入口
+  - 点击超级节点切换到对应 bot persona 子图
+  - 新增 `__legacy__` 查询 token，修复默认/旧数据视图和 All Personas 汇总视图的语义歧义
+
+- **Graph CRUD**
+  - 新增单条 impression 删除：`DELETE /api/impressions/{observer}/{subject}/{scope}`，支持 `?persona=` 精确隔离
+  - 新增按 scope 批量删除：`POST /api/impressions/bulk-delete`
+  - Graph 详情侧栏支持删除单条 impression；参数面板支持清除当前 group 的 impressions
+
+- **Events Loom 布局闭合**
+  - Events 页接入 `SourcePanel` + `DetailPanel` 三栏结构
+  - `EventTimeline` 支持 `externalDimmedIds`，由 SourcePanel 控制 source 线程显隐
+
+- **Cleanup 语义修复**
+  - `run_memory_cleanup` 先硬删进入本轮前已过期的 archived 事件，再归档本轮新发现的低显著度事件
+  - 避免新归档事件在同一轮被硬删，新增回归测试覆盖
+
+- **文档与测试**
+  - `docs/TODO.md` 同步已完成项和剩余未完成项
+  - `python -m pytest`：533 passed
+
 ## [v0.10.14] — 2026-05-16
 
 ### napcat 事件异常 + SQLite 并发事务嵌套修复

@@ -129,16 +129,17 @@ interface EventTimelineProps {
   onEdit: (ev: ApiEvent) => void
   onDelete: (ev: ApiEvent) => void
   onArchive?: (ev: ApiEvent) => void
+  externalDimmedIds?: Set<string>
 }
 
 export function EventTimeline({
   events, timeGap, highlightIds,
   onEventClick, selectedEventId, onSelectionChange,
-  onEdit, onDelete, onArchive,
+  onEdit, onDelete, onArchive, externalDimmedIds,
 }: EventTimelineProps) {
   const { i18n } = useApp()
 
-  const [dimmedIds, setDimmedIds]             = useState<Set<string>>(new Set())
+  const [internalDimmedIds, setInternalDimmedIds] = useState<Set<string>>(new Set())
   const [hoveredEvId, setHoveredEvId]         = useState<string | null>(null)
   const [bubbleEvId, setBubbleEvId]           = useState<string | null>(null)
   const [pendingArchiveId, setPendingArchiveId] = useState<string | null>(null)
@@ -148,6 +149,7 @@ export function EventTimeline({
   const outerRef        = useRef<HTMLDivElement>(null)
   const [outerW, setOuterW] = useState(0)
   const [scrollH, setScrollH] = useState(0)
+  const dimmedIds = externalDimmedIds ?? internalDimmedIds
 
   useEffect(() => {
     const el = outerRef.current; if (!el) return
@@ -329,8 +331,6 @@ export function EventTimeline({
 
             {/* Horizontal tick lines + day labels — one per event row */}
             {rows.map(row => {
-              const ti = threadIdx[row.ev.group || '__pvt__'] ?? 0
-              const x  = thX(ti)
               return (
                 <g key={`tick-${row.ev.id}`}>
                   <line
@@ -358,23 +358,24 @@ export function EventTimeline({
               const dim    = dimmedIds.has(thread.id)
               const isHov  = hoveredEvId === row.ev.id
               const isSel  = selectedEventId === row.ev.id
+              const isHigh = highlightIds?.has(row.ev.id) ?? false
               const isArc  = row.ev.status === 'archived'
               const isLock = row.ev.is_locked
-              const r      = NR * (isHov || isSel ? 1.35 : 1)
+              const r      = NR * (isHov || isSel || isHigh ? 1.35 : 1)
               const op     = dim ? 0.08 : 1
 
               if (isArc) {
                 return (
                   <path key={row.ev.id} d={diamond(x, row.y, r)}
                     fill="none" stroke={thread.color}
-                    strokeWidth={isSel ? 1.8 : 1.2} strokeOpacity={0.5 * op}
+                    strokeWidth={isSel || isHigh ? 1.8 : 1.2} strokeOpacity={0.5 * op}
                     strokeDasharray="3 2"
                     style={{ transition: 'all 0.2s ease' }} />
                 )
               }
               return (
                 <g key={row.ev.id} style={{ opacity: op }}>
-                  {row.ev.salience > 0.8 && !isSel && (
+                  {(row.ev.salience > 0.8 || isHigh) && !isSel && (
                     <circle cx={x} cy={row.y} r={r + 4}
                       fill="none" stroke={thread.color}
                       strokeWidth={0.8} strokeOpacity={0.25} />
@@ -382,7 +383,7 @@ export function EventTimeline({
                   <circle cx={x} cy={row.y} r={Math.max(2, r)}
                     fill={isHov || isSel || isLock ? thread.color : 'var(--background)'}
                     stroke={thread.color}
-                    strokeWidth={isSel ? 2 : isLock ? 1.8 : 1.3}
+                    strokeWidth={isSel || isHigh ? 2 : isLock ? 1.8 : 1.3}
                     style={{ transition: 'all 0.2s cubic-bezier(0.34,1.56,0.64,1)' }} />
                   {isLock && (
                     <circle cx={x} cy={row.y} r={Math.max(1, r * 0.3)}
@@ -394,13 +395,13 @@ export function EventTimeline({
           </svg>
 
           {/* ── Thread header toggle buttons ── */}
-          {threads.map((th, ti) => {
+          {!externalDimmedIds && threads.map((th, ti) => {
             const x = thX(ti); const dim = dimmedIds.has(th.id)
             return (
               <button key={`btn-${th.id}`}
                 className="absolute flex items-center justify-center transition-opacity"
                 style={{ left: x - tcw / 2 + 2, top: 2, width: tcw - 4, height: HEADER_H - 4, zIndex: 25, opacity: dim ? 0.35 : 1 }}
-                onClick={e => { e.stopPropagation(); setDimmedIds(prev => { const n = new Set(prev); if (n.has(th.id)) n.delete(th.id); else n.add(th.id); return n }) }}
+                onClick={e => { e.stopPropagation(); setInternalDimmedIds(prev => { const n = new Set(prev); if (n.has(th.id)) n.delete(th.id); else n.add(th.id); return n }) }}
                 title={dim ? '显示此会话' : '隐藏此会话'}>
                 <span className="font-mono text-[10px] font-semibold truncate px-1" style={{ color: th.color }}>
                   {th.label.length > 10 ? th.label.slice(0, 9) + '…' : th.label}

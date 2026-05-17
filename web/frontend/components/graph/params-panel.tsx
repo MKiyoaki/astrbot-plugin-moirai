@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { RotateCcw, Download, Maximize2 } from 'lucide-react'
+import { RotateCcw, Download, Maximize2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
@@ -34,6 +34,9 @@ interface ParamsPanelProps {
   onRefreshLayout: () => void
   svgEl?: SVGSVGElement | null
   groupName?: string
+  onClearScope?: () => void
+  canClearScope?: boolean
+  sudoMode?: boolean
 }
 
 export function ParamsPanel({
@@ -52,6 +55,9 @@ export function ParamsPanel({
   onRefreshLayout,
   svgEl,
   groupName,
+  onClearScope,
+  canClearScope = false,
+  sudoMode = false,
 }: ParamsPanelProps) {
   const { i18n } = useApp()
   const t = i18n.graph.params
@@ -470,6 +476,17 @@ export function ParamsPanel({
             <Button size="sm" variant="outline" className="w-full text-xs h-8" onClick={handleFullscreen}>
               <Maximize2 className="mr-1.5 h-3 w-3" />
               {t.fullscreen}
+            </Button>
+            <Separator />
+            <Button
+              size="sm"
+              variant="destructive"
+              className="w-full text-xs h-8"
+              disabled={!sudoMode || !canClearScope || !onClearScope}
+              onClick={onClearScope}
+            >
+              <Trash2 className="mr-1.5 h-3 w-3" />
+              {t.clearScopeImpressions}
             </Button>
           </TabsContent>
         </ScrollArea>

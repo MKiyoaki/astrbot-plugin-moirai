@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 _PLUGIN_NAME = "moirai"
 _CONF_SCHEMA_PATH = Path(__file__).parent.parent / "_conf_schema.json"
+_LEGACY_PERSONA_TOKEN = "__legacy__"
 
 
 def _ts_to_iso(ts: float) -> str:
@@ -56,6 +57,13 @@ def _query(request: Any, key: str, default: str = "") -> str:
     if args is not None:
         return args.get(key, default)
     return default
+
+
+def _persona_query(request: Any) -> str | None:
+    value = _query(request, "persona") or None
+    if value == _LEGACY_PERSONA_TOKEN:
+        return ""
+    return value
 
 
 def _match(request: Any, key: str) -> str:
@@ -120,7 +128,7 @@ def _persona_to_node(persona: Persona) -> dict[str, Any]:
 def _impression_to_edge(imp: Impression) -> dict[str, Any]:
     return {
         "data": {
-            "id": f"{imp.observer_uid}--{imp.subject_uid}--{imp.scope}",
+            "id": f"{imp.observer_uid}--{imp.subject_uid}--{imp.scope}--{imp.bot_persona_name or 'legacy'}",
             "source": imp.observer_uid,
             "target": imp.subject_uid,
             "label": imp.ipc_orientation,
@@ -130,6 +138,7 @@ def _impression_to_edge(imp: Impression) -> dict[str, Any]:
             "r_squared": round(imp.r_squared, 3),
             "confidence": round(imp.confidence, 3),
             "scope": imp.scope,
+            "bot_persona_name": imp.bot_persona_name,
             "evidence_event_ids": imp.evidence_event_ids,
             "last_reinforced_at": _ts_to_iso(imp.last_reinforced_at),
         }
@@ -221,6 +230,8 @@ class PluginRoutes:
             (f"/api/tags",                     self._handle_tags,                    ["GET"],         "List tags"),
             # Personas
             (f"/api/personas/bots",            self._handle_bot_personas_list,       ["GET"],         "List bot personas"),
+            (f"/api/personas/merge",           self._handle_persona_merge,           ["POST"],        "Merge bot persona src→target"),
+            (f"/api/personas/merge/preview",   self._handle_persona_merge_preview,   ["GET"],         "Preview bot persona merge impact"),
             (f"/api/personas",                 self._handle_create_persona,          ["POST"],        "Create persona"),
             (f"/api/personas/{{uid}}",         self._handle_update_persona,          ["PUT"],         "Update persona"),
             (f"/api/personas/{{uid}}/update",  self._handle_update_persona,          ["POST"],        "Update persona"),
@@ -234,10 +245,22 @@ class PluginRoutes:
                 "Update impression",
             ),
             (
+                f"/api/impressions/{{observer}}/{{subject}}/{{scope}}",
+                self._handle_delete_impression_guarded,
+                ["DELETE"],
+                "Delete impression",
+            ),
+            (
                 f"/api/impressions/{{observer}}/{{subject}}/{{scope}}/update",
                 self._handle_update_impression_guarded,
                 ["POST"],
                 "Update impression",
+            ),
+            (
+                f"/api/impressions/bulk-delete",
+                self._handle_bulk_delete_impressions_guarded,
+                ["POST"],
+                "Bulk delete impressions",
             ),
             # Recycle bin
             (f"/api/recycle_bin",              self._handle_recycle_bin_list,        ["GET"],         "Recycle bin list"),
@@ -276,13 +299,26 @@ class PluginRoutes:
     # Data construction helpers (async, independently testable)
     # ------------------------------------------------------------------
 
+    @property
+    def _persona_iso_enabled(self) -> bool:
+        return bool(self._initial_config.get("persona_isolation_enabled", True))
+
+    @property
+    def _persona_legacy_visible(self) -> bool:
+        return bool(self._initial_config.get("persona_isolation_legacy_visible", True))
+
     async def events_data(
         self, group_id: str | None, limit: int,
         bot_persona_name: str | None = None,
     ) -> dict[str, Any]:
+        # Master switch: if persona isolation is disabled, ignore filter entirely.
+        if not self._persona_iso_enabled:
+            bot_persona_name = None
+        include_legacy = self._persona_legacy_visible
         if group_id is not None:
             events = await self._event_repo.list_by_group(
-                group_id, limit=limit, bot_persona_name=bot_persona_name,
+                group_id, limit=limit,
+                bot_persona_name=bot_persona_name, include_legacy=include_legacy,
             )
         else:
             group_ids = await self._event_repo.list_group_ids()
@@ -292,12 +328,16 @@ class PluginRoutes:
             events: list[Event] = []
             for gid in group_ids:
                 events.extend(await self._event_repo.list_by_group(
-                    gid, limit=per_group, bot_persona_name=bot_persona_name,
+                    gid, limit=per_group,
+                    bot_persona_name=bot_persona_name, include_legacy=include_legacy,
                 ))
             events = events[:limit]
         return {"items": [_event_to_dict(e) for e in events], "total": len(events)}
 
     async def graph_data(self, bot_persona_name: str | None = None) -> dict[str, Any]:
+        if not self._persona_iso_enabled:
+            bot_persona_name = None
+        include_legacy = self._persona_legacy_visible
         personas = await self._persona_repo.list_all()
         uid_msg_counts = await self._event_repo.count_messages_by_uid_bulk()
 
@@ -310,7 +350,8 @@ class PluginRoutes:
         edges: list[dict[str, Any]] = []
         for persona in personas:
             imps = await self._impression_repo.list_by_observer(
-                persona.uid, bot_persona_name=bot_persona_name,
+                persona.uid,
+                bot_persona_name=bot_persona_name, include_legacy=include_legacy,
             )
             for imp in imps:
                 edge = _impression_to_edge(imp)
@@ -324,7 +365,8 @@ class PluginRoutes:
         group_ids = await self._event_repo.list_group_ids()
         for gid in group_ids:
             events = await self._event_repo.list_by_group(
-                gid, limit=1000, bot_persona_name=bot_persona_name,
+                gid, limit=1000,
+                bot_persona_name=bot_persona_name, include_legacy=include_legacy,
             )
             uids: set[str] = set()
             for event in events:
@@ -344,15 +386,22 @@ class PluginRoutes:
         legacy (bot_persona_name IS NULL) rows so users can still target
         pre-migration data.
         """
-        async with self._event_repo._db.execute(  # type: ignore[attr-defined]
-            "SELECT COALESCE(bot_persona_name, '') AS name, COUNT(*) AS n "
-            "FROM events GROUP BY COALESCE(bot_persona_name, '') ORDER BY n DESC"
-        ) as cur:
-            rows = await cur.fetchall()
-        items: list[dict[str, Any]] = []
-        for row in rows:
-            name = row[0] or None
-            items.append({"name": name, "event_count": row[1]})
+        db = getattr(self._event_repo, "_db", None)
+        if db is not None:
+            async with db.execute(
+                "SELECT COALESCE(bot_persona_name, '') AS name, COUNT(*) AS n "
+                "FROM events GROUP BY COALESCE(bot_persona_name, '') ORDER BY n DESC"
+            ) as cur:
+                rows = await cur.fetchall()
+            return {"items": [{"name": (row[0] or None), "event_count": row[1]} for row in rows]}
+
+        counts: dict[str | None, int] = {}
+        for event in await self._event_repo.list_all(limit=1_000_000):
+            counts[event.bot_persona_name] = counts.get(event.bot_persona_name, 0) + 1
+        items = [
+            {"name": name, "event_count": count}
+            for name, count in sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        ]
         return {"items": items}
 
     async def summaries_data(self) -> list[dict[str, str | None]]:
@@ -415,7 +464,7 @@ class PluginRoutes:
     async def _handle_events(self, request: web.Request) -> web.Response:
         group_id = _query(request, "group_id") or None
         limit = int(_query(request, "limit", "100"))
-        persona = _query(request, "persona") or None
+        persona = _persona_query(request)
         return _json(await self.events_data(group_id, limit, bot_persona_name=persona))
 
     async def _handle_create_event(self, request: web.Request) -> web.Response:
@@ -513,7 +562,7 @@ class PluginRoutes:
         guard = self._relation_disabled_response()
         if guard is not None:
             return guard
-        persona = _query(request, "persona") or None
+        persona = _persona_query(request)
         return _json(await self.graph_data(bot_persona_name=persona))
 
     async def _handle_bot_personas_list(self, request: web.Request) -> web.Response:
@@ -529,7 +578,10 @@ class PluginRoutes:
         observer = _match(request, "observer")
         subject = _match(request, "subject")
         scope = _match(request, "scope")
-        existing = await self._impression_repo.get(observer, subject, scope)
+        bot_persona_name = _persona_query(request)
+        existing = await self._impression_repo.get(
+            observer, subject, scope, bot_persona_name=bot_persona_name,
+        )
         body = await _request_json(request)
         now = time.time()
         try:
@@ -545,11 +597,43 @@ class PluginRoutes:
                 scope=scope,
                 evidence_event_ids=body.get("evidence_event_ids", existing.evidence_event_ids if existing else []),
                 last_reinforced_at=now,
+                bot_persona_name=bot_persona_name,
             )
         except (ValueError, TypeError) as exc:
             return _json({"error": str(exc)}, status=400)
         await self._impression_repo.upsert(impression)
         return _json({"ok": True, "impression": _impression_to_edge(impression)["data"]})
+
+    async def _handle_delete_impression_guarded(self, request: web.Request) -> web.Response:
+        guard = self._relation_disabled_response()
+        if guard is not None:
+            return guard
+        observer = _match(request, "observer")
+        subject = _match(request, "subject")
+        scope = _match(request, "scope")
+        bot_persona_name = _persona_query(request)
+        ok = await self._impression_repo.delete(
+            observer, subject, scope, bot_persona_name=bot_persona_name,
+        )
+        if not ok:
+            return _json({"error": "not found"}, status=404)
+        return _json({"ok": True})
+
+    async def _handle_bulk_delete_impressions_guarded(self, request: web.Request) -> web.Response:
+        guard = self._relation_disabled_response()
+        if guard is not None:
+            return guard
+        body = await _request_json(request)
+        scope = body.get("scope")
+        if not isinstance(scope, str) or not scope:
+            return _json({"error": "scope required"}, status=400)
+        bot_persona_name = body.get("persona")
+        if bot_persona_name == _LEGACY_PERSONA_TOKEN:
+            bot_persona_name = ""
+        if not isinstance(bot_persona_name, str):
+            bot_persona_name = None
+        deleted = await self._impression_repo.delete_by_scope(scope, bot_persona_name=bot_persona_name)
+        return _json({"ok": True, "deleted": deleted})
 
     # ------------------------------------------------------------------
     # Handlers: summaries
@@ -617,15 +701,23 @@ class PluginRoutes:
         q = _query(request, "q", "").strip()
         limit = min(int(_query(request, "limit", "5")), 50)
         session_id = _query(request, "session_id", "").strip() or None
+        persona = _persona_query(request)
         if not q:
             return _json({"error": "q required"}, status=400)
         try:
             if self._recall_manager:
+                # Over-fetch when filtering so the post-filter slice still hits the limit.
+                fetch_limit = limit * 3 if persona else limit
                 results = await self._recall_manager.recall(q, group_id=session_id)
+                if persona:
+                    results = [e for e in results if e.bot_persona_name == persona or e.bot_persona_name is None]
                 results = results[:limit]
                 algorithm = "hybrid (rrf)"
             else:
-                results = await self._event_repo.search_fts(q, limit=limit)
+                results = await self._event_repo.search_fts(q, limit=limit * 3 if persona else limit)
+                if persona:
+                    results = [e for e in results if e.bot_persona_name == persona or e.bot_persona_name is None]
+                results = results[:limit]
                 algorithm = "fts5"
         except Exception as exc:
             logger.exception("Recall failed")
@@ -720,6 +812,59 @@ class PluginRoutes:
         if not ok:
             return _json({"error": "not found"}, status=404)
         return _json({"ok": True})
+
+    async def _handle_persona_merge_preview(self, request: web.Request) -> web.Response:
+        src = _query(request, "src", "").strip()
+        target = _query(request, "target", "").strip()
+        if not src or not target:
+            return _json({"error": "src and target required"}, status=400)
+        if src == target:
+            return _json({"error": "src must differ from target"}, status=400)
+        db = getattr(self._event_repo, "_db", None)
+        if db is None:
+            return _json({"error": "merge requires SQLite repository"}, status=501)
+        from core.repository.sqlite import preview_bot_persona_merge
+        try:
+            counts = await preview_bot_persona_merge(db, src, target)
+        except Exception as exc:
+            logger.exception("Merge preview failed")
+            return _json({"error": str(exc)}, status=500)
+        return _json(counts)
+
+    async def _handle_persona_merge(self, request: web.Request) -> web.Response:
+        body = await _request_json(request)
+        src = (body.get("src") or "").strip()
+        target = (body.get("target") or "").strip()
+        if not src or not target:
+            return _json({"error": "src and target required"}, status=400)
+        if src == target:
+            return _json({"error": "src must differ from target"}, status=400)
+        db = getattr(self._event_repo, "_db", None)
+        if db is None:
+            return _json({"error": "merge requires SQLite repository"}, status=501)
+        from core.repository.sqlite import merge_bot_persona
+        try:
+            counts = await merge_bot_persona(db, src, target)
+        except Exception as exc:
+            logger.exception("Persona merge failed")
+            return _json({"error": str(exc)}, status=500)
+
+        # Audit log (gated by persona_merge_audit_enabled)
+        if bool(self._initial_config.get("persona_merge_audit_enabled", True)):
+            try:
+                audit_path = self._data_dir / "audit" / "persona_merge.jsonl"
+                audit_path.parent.mkdir(parents=True, exist_ok=True)
+                with audit_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "ts": time.time(),
+                        "src": src,
+                        "target": target,
+                        **counts,
+                    }, ensure_ascii=False) + "\n")
+            except Exception as exc:
+                logger.warning("Failed to write persona_merge audit log: %s", exc)
+
+        return _json({"ok": True, **counts})
 
     # ------------------------------------------------------------------
     # Handlers: recycle bin

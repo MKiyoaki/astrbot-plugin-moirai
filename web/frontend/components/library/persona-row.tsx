@@ -29,7 +29,6 @@ export function PersonaRow({
   node, expanded, editMode, selected, sudoMode, activeTags,
   onToggleExpand, onToggleSelect, onEdit, onDelete, onGoToGraph, onTagClick,
 }: PersonaRowProps) {
-  const { i18n } = useApp()
   const d = node.data
   const bigFiveSummary = d.attrs?.big_five
     ? (['O', 'C', 'E', 'A', 'N'] as const)

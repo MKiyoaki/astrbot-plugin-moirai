@@ -294,12 +294,23 @@ class ImpressionRepository(ABC):
         ...
 
     @abstractmethod
-    async def delete(self, observer_uid: str, subject_uid: str, scope: str) -> bool:
+    async def delete(
+        self, observer_uid: str, subject_uid: str, scope: str,
+        bot_persona_name: str | None = None,
+    ) -> bool:
         """Return False if not found.
 
-        Deletes ALL rows matching the (observer, subject, scope) tuple,
-        regardless of bot_persona_name. Scope-level removal is the only
-        granularity available in this interface; use upsert/get with
-        bot_persona_name for finer-grained mutation.
+        When bot_persona_name is None, deletes ALL rows matching the
+        (observer, subject, scope) tuple for backward compatibility. When a
+        bot persona is provided, deletes only that isolated row.
+        """
+        ...
+
+    @abstractmethod
+    async def delete_by_scope(
+        self, scope: str, bot_persona_name: str | None = None,
+    ) -> int:
+        """Delete impressions in one scope. If bot_persona_name is provided,
+        only rows for that bot persona are removed. Returns count deleted.
         """
         ...

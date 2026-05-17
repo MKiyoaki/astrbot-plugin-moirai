@@ -1,13 +1,12 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
 import { Plus, Trash2, Archive, Search, X, MessageSquareOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/layout/page-header'
 import { EventTimeline } from '@/components/events/event-timeline'
-import { FilterBar } from '@/components/shared/filter-bar'
+import { SourcePanel, buildThreads } from '@/components/events/source-panel'
 import { DetailPanel } from '@/components/events/detail-panel'
 import {
   CreateEventDialog, EditEventDialog, RecycleBinDialog, ArchiveEventsDialog, type EventFormData,
@@ -55,16 +54,14 @@ export default function EventsPage() {
   const { i18n } = appCtx
   // Destructure stable callbacks so loadEvents doesn't depend on the whole app object
   // (app object identity changes on every stats poll, which would re-trigger loadEvents)
-  const { toast: appToast, setRawEvents, refreshStats: appRefreshStats, currentPersonaName, scopeMode } = appCtx
+  const { toast: appToast, setRawEvents, currentPersonaName, scopeMode } = appCtx
   const app = appCtx
-  const personaFilter = scopeMode === 'single' ? currentPersonaName : null
-  const router = useRouter()
+  const personaFilter = scopeMode === 'single' ? (currentPersonaName ?? api.LEGACY_PERSONA_TOKEN) : null
 
   const [search, setSearch]             = useState('')
   const [timeGap, setTimeGap]           = useState(7200000) // Default 2h
   const [dateRange, setDateRange]       = useState<DateRange | undefined>()
   const [activeTags, setActiveTags]     = useState<Set<string>>(new Set())
-  const [tagList, setTagList]           = useState<{ name: string; count: number }[]>([])
   const [tagSuggestions, setTagSuggestions]   = useState<string[]>([])
   const [highlightIds, setHighlightIds]       = useState<Set<string>>(new Set())
   const [detailEvent, setDetailEvent]         = useState<api.ApiEvent | null>(null)
@@ -79,6 +76,7 @@ export default function EventsPage() {
   const [archiveBinOpen, setArchiveBinOpen]   = useState(false)
   const [archiveBinItems, setArchiveBinItems] = useState<api.ApiEvent[]>([])
   const [archiveBinLoading, setArchiveBinLoading] = useState(false)
+  const [dimmedSourceIds, setDimmedSourceIds] = useState<Set<string>>(new Set())
 
   // ── Data loading ───────────────────────────────────────────────────────────
 
@@ -97,7 +95,6 @@ export default function EventsPage() {
   useEffect(() => {
     loadEvents()
     api.tags.list().then(r => {
-      setTagList(r.tags)
       setTagSuggestions(r.tags.map(t => t.name))
     })
   }, [loadEvents])
@@ -148,11 +145,27 @@ export default function EventsPage() {
       if (activeTags.size > 0) {
         if (!(ev.tags ?? []).some(t => activeTags.has(t))) return false
       }
+      const sourceId = ev.group || '__pvt__'
+      if (dimmedSourceIds.has(sourceId)) return false
       return true
     })
-  }, [app.rawEvents, search, dateRange, activeTags])
+  }, [app.rawEvents, search, dateRange, activeTags, dimmedSourceIds])
 
   const hasActiveFilters = search || activeTags.size > 0 || !!dateRange
+
+  const sourceThreads = useMemo(
+    () => buildThreads(app.rawEvents, i18n.events.privateChat),
+    [app.rawEvents, i18n.events.privateChat],
+  )
+
+  const toggleSource = useCallback((id: string) => {
+    setDimmedSourceIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   const axisEvents = useMemo(() => {
     if (!detailEvent) return []
@@ -256,7 +269,7 @@ export default function EventsPage() {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
     try {
       await api.events.unarchive(id); app.toast(i18n.events.unarchiveSuccess)
-      await loadEvents(); const d = await api.events.listArchived(); setArchiveBinItems(d.items)
+      await loadEvents(); const d = await api.events.listArchived(personaFilter); setArchiveBinItems(d.items)
       app.refreshStats()
     } catch (e: any) { app.toast(e?.body || e?.message || i18n.common.updateFailed, 'destructive') }
   }
@@ -307,12 +320,7 @@ export default function EventsPage() {
 
   return (
     <div className="flex h-svh flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
-      {/* 
-        Container A: PageHeader + FilterBar
-        We remove double borders by:
-        1. PageHeader noToolbarBorder={true} (removes its internal toolbar bottom border)
-        2. Container div border-b (provides the single clean line)
-      */}
+      {/* Header band: PageHeader owns the toolbar; the wrapper provides one clean border. */}
       <div className="flex flex-col border-b bg-muted/5 shrink-0">
         <PageHeader
           variant="loom"
@@ -323,18 +331,17 @@ export default function EventsPage() {
           actions={listActions}
           noToolbarBorder={true}
         />
-        <FilterBar
-          tags={tagList}
-          activeTags={activeTags}
-          onTagsChange={setActiveTags}
-          dateRange={dateRange}
-          onDateRangeChange={setDateRange}
-          className="border-none" // Remove FilterBar's own border
-        />
       </div>
 
       {/* ── Main area ── */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden" data-testid="loom-layout">
+        <SourcePanel
+          threads={sourceThreads}
+          dimmedIds={dimmedSourceIds}
+          onToggle={toggleSource}
+          totalEvents={app.rawEvents.length}
+          totalConversations={sourceThreads.length}
+        />
         <div className="flex flex-1 flex-col overflow-hidden">
           {app.rawEvents.length === 0 ? (
             <EmptyState
@@ -367,6 +374,7 @@ export default function EventsPage() {
               onEdit={ev => { if (app.sudo) setEditEvent(ev); else app.toast(i18n.common.needSudo, 'destructive') }}
               onDelete={handleDelete}
               onArchive={handleArchive}
+              externalDimmedIds={dimmedSourceIds}
             />
           )}
         </div>

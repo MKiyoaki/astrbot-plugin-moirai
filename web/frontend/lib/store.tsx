@@ -8,6 +8,15 @@ import { getStored, setStored } from './safe-storage'
 // ── Types ─────────────────────────────────────────────────────────────────
 export interface ToastMessage { id: string; message: string; variant?: 'default' | 'destructive' }
 
+export type PersonaViewMode = 'remember' | 'all' | 'force_pick'
+
+export interface PersonaConfig {
+  isolationEnabled: boolean       // persona_isolation_enabled master switch
+  legacyVisible: boolean          // persona_isolation_legacy_visible (info only on frontend)
+  defaultViewMode: PersonaViewMode // persona_default_view_mode
+  loaded: boolean                  // false until /api/config fetched
+}
+
 interface AppState {
   sudo: boolean
   authEnabled: boolean
@@ -20,6 +29,8 @@ interface AppState {
   currentPersonaName: string | null   // null only when scopeMode='all'
   scopeMode: 'single' | 'all'
   firstLaunchDone: boolean
+  // Persona-related plugin config values (fetched from /api/config)
+  personaConfig: PersonaConfig
   // i18n
   lang: 'zh' | 'en' | 'ja'
   i18n: i18n_lib.I18n
@@ -130,6 +141,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return getStored('em_first_launch_done') === '1'
   })
 
+  // Persona-related plugin config — fetched after auth resolves
+  const [personaConfig, setPersonaConfig] = useState<PersonaConfig>({
+    isolationEnabled: true,
+    legacyVisible: true,
+    defaultViewMode: 'remember',
+    loaded: false,
+  })
+
+  useEffect(() => {
+    if (!authenticated || authLoading) return
+    let cancelled = false
+    api.pluginConfig.get().then(r => {
+      if (cancelled) return
+      const v = r.values || {}
+      const mode = v.persona_default_view_mode
+      const validMode: PersonaViewMode =
+        mode === 'all' || mode === 'force_pick' ? mode : 'remember'
+      setPersonaConfig({
+        isolationEnabled: v.persona_isolation_enabled !== false,
+        legacyVisible: v.persona_isolation_legacy_visible !== false,
+        defaultViewMode: validMode,
+        loaded: true,
+      })
+    }).catch(() => {
+      // Fall back to defaults on error — still mark loaded so picker can fire
+      if (!cancelled) setPersonaConfig(s => ({ ...s, loaded: true }))
+    })
+    return () => { cancelled = true }
+  }, [authenticated, authLoading])
+
   const setCurrentPersona = useCallback((name: string | null, mode: 'single' | 'all') => {
     _setCurrentPersonaName(name)
     _setScopeMode(mode)
@@ -189,6 +230,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     currentPersonaName,
     scopeMode,
     firstLaunchDone,
+    personaConfig,
     lang, i18n,
     stats, rawGraph, rawEvents, isDirty, toasts,
     setDefaultPersonaConfidence,
@@ -205,6 +247,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     sudo, authEnabled, authenticated, authLoading, preAuthVersion,
     defaultPersonaConfidence,
     currentPersonaName, scopeMode, firstLaunchDone,
+    personaConfig,
     lang, i18n,
     stats, rawGraph, rawEvents, isDirty, toasts,
     refreshStats, setDefaultPersonaConfidence, setCurrentPersona, setFirstLaunchDone,

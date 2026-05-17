@@ -13,12 +13,12 @@ import { PageHeader } from '@/components/layout/page-header'
 import { RefreshButton } from '@/components/shared/refresh-button'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
-import { cn } from '@/lib/utils'
 
-interface RecallItem extends api.ApiEvent {}
+type RecallItem = api.ApiEvent
 
 export default function RecallPage() {
-  const { i18n, toast, lang } = useApp()
+  const { i18n, toast, lang, currentPersonaName, scopeMode } = useApp()
+  const personaFilter = scopeMode === 'all' ? null : (currentPersonaName ?? api.LEGACY_PERSONA_TOKEN)
   const [query, setQuery] = useState('')
   const [limit, setLimit] = useState(5)
   const [sessionId, setSessionId] = useState('')
@@ -32,7 +32,7 @@ export default function RecallPage() {
     if (!query.trim()) { toast(i18n.recall.queryRequired, 'destructive'); return }
     setSearching(true)
     try {
-      const data = await api.recall.query(query.trim(), limit, sessionId.trim() || undefined)
+      const data = await api.recall.query(query.trim(), limit, sessionId.trim() || undefined, personaFilter)
       setResults(data.items || [])
       setMeta({ count: data.count, algorithm: data.algorithm })
       setSearched(true)

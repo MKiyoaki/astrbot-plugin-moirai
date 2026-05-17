@@ -40,6 +40,7 @@ def make_event(
     topic: str = "test",
     group_id: str | None = "g1",
     uid: str = "u1",
+    bot_persona_name: str | None = None,
 ) -> Event:
     return Event(
         event_id=event_id,
@@ -55,6 +56,7 @@ def make_event(
         confidence=0.8,
         inherit_from=[],
         last_accessed_at=1_700_001_000.0,
+        bot_persona_name=bot_persona_name,
     )
 
 
@@ -188,6 +190,23 @@ async def test_graph_data_empty(tmp_path: Path) -> None:
     srv = _server(tmp_path)
     data = await srv.graph_data()
     assert data == {"nodes": [], "edges": [], "group_members": {}}
+
+
+async def test_bot_personas_data_with_memory_repo(tmp_path: Path) -> None:
+    er = InMemoryEventRepository()
+    await er.upsert(make_event("e1", bot_persona_name=None))
+    await er.upsert(make_event("e2", bot_persona_name="Alice"))
+    await er.upsert(make_event("e3", bot_persona_name="Alice"))
+    await er.upsert(make_event("e4", bot_persona_name="Bob"))
+    srv = _server(tmp_path, er=er)
+
+    data = await srv.bot_personas_data()
+
+    assert data["items"] == [
+        {"name": "Alice", "event_count": 2},
+        {"name": None, "event_count": 1},
+        {"name": "Bob", "event_count": 1},
+    ]
 
 
 async def test_summaries_data_group_files(tmp_path: Path) -> None:

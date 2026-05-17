@@ -8,7 +8,7 @@ interface SessionWindowsProps {
   stats: PluginStats
 }
 
-function SessionRow({ session, lang, i18n }: { session: SessionWindowInfo; lang: string; i18n: any }) {
+function SessionRow({ session, i18n }: { session: SessionWindowInfo; i18n: any }) {
   const { current_rounds, trigger_rounds, message_count, session_id, group_id } = session
   const pct = Math.min(100, Math.round((current_rounds / trigger_rounds) * 100))
 
@@ -52,7 +52,7 @@ function SessionRow({ session, lang, i18n }: { session: SessionWindowInfo; lang:
 }
 
 export function SessionWindows({ stats }: SessionWindowsProps) {
-  const { i18n, lang } = useApp()
+  const { i18n } = useApp()
   const sessions = stats.active_sessions ?? []
 
   return (
@@ -71,7 +71,7 @@ export function SessionWindows({ stats }: SessionWindowsProps) {
         ) : (
           <div className="space-y-4">
             {sessions.map((s) => (
-              <SessionRow key={s.session_id} session={s} lang={lang} i18n={i18n} />
+              <SessionRow key={s.session_id} session={s} i18n={i18n} />
             ))}
           </div>
         )}
