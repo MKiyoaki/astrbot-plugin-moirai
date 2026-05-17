@@ -80,7 +80,9 @@ def _load_local_web_attr(module_name: str, attr_name: str):
 
     qualified = f"{package_name}.{module_name}"
     if qualified in sys.modules:
-        return getattr(sys.modules[qualified], attr_name)
+        module = sys.modules[qualified]
+        importlib.reload(module)
+        return getattr(module, attr_name)
 
     spec = importlib.util.spec_from_file_location(
         qualified,
