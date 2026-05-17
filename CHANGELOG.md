@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [v0.12.4] — 2026-05-17
+
+### 配置分级 + 文档重构
+
+**Feature — WebUI 配置分级**
+
+- `_conf_schema.json` 全部 70+ 字段新增 `level: basic | advanced` 属性，基础字段描述加 🟢 前缀，各 section hint 末尾补充约定说明
+- WebUI 配置页工具栏新增「显示进阶设置」Switch（默认开），关闭后过滤所有 `advanced` 字段；空 section 自动隐藏；开关状态持久化至 localStorage
+- `ConfSchemaField` 类型定义新增 `level?: 'basic' | 'advanced'`，i18n 补充三语 `showAdvanced` / `showAdvancedHint` 键
+
+**Docs — README 重构**
+
+- 中文 README 按「是什么 → 快速开始 → 使用指南 → 高级配置与调优 → 技术架构 → 致谢」Progressive Framework 重写：核心亮点改为可视化 / 高度可定制 / 轻量热路径 / 可靠降级四点，标题去 emoji，措辞工具箱向，补充「验证插件生效」子节与常见问题 FAQ
+- 英文 README 同步按 Progressive Framework 结构重写，内容与中文版对齐
+- 版本 badge 更新至 `v0.12.4`
+
+**Version**
+
+- 更新版本到 `v0.12.4`
+
 ## [v0.12.3] — 2026-05-17
 
 ### UI 修复与数据质量改进（8 项）

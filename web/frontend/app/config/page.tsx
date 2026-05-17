@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo, useRef } from 'react'
-import { Save, Info, AlertTriangle } from 'lucide-react'
+import { Save, Info, AlertTriangle, Code2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,6 +18,7 @@ import { PersonaOwnershipManager } from '@/components/config/persona-ownership-m
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { getStored, setStored } from '@/lib/safe-storage'
 
 const FIELD_DEPENDENCIES: Record<string, string> = {
   // Embedding
@@ -296,7 +297,15 @@ export default function ConfigPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [activeSection, setActiveSection] = useState<string>('')
-  
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(
+    () => (getStored('em_show_advanced_config') ?? '1') !== '0'
+  )
+
+  const handleToggleAdvanced = (v: boolean) => {
+    setShowAdvanced(v)
+    setStored('em_show_advanced_config', v ? '1' : '0')
+  }
+
   const scrollAreaRef = useRef<HTMLDivElement>(null)
 
   const SECTIONS = useMemo(() => [
@@ -631,7 +640,18 @@ export default function ConfigPage() {
       {/* Sticky toolbar — outside PageHeader so it sticks within the document scroll */}
       <div className="sticky top-0 z-20 flex items-center gap-2 px-4 py-2 border-b bg-background/95 backdrop-blur-sm">
         <div className="flex items-center gap-2 flex-wrap">{actions}</div>
-        <div className="ml-auto flex items-center gap-2">{globalActions}</div>
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant={showAdvanced ? "default" : "outline"}
+            size="sm"
+            className="h-8 gap-1.5 px-3 transition-all"
+            onClick={() => handleToggleAdvanced(!showAdvanced)}
+          >
+            <Code2 className="size-3.5" />
+            <span className="hidden sm:inline">{(i18n.config as any).showAdvanced}</span>
+          </Button>
+          {globalActions}
+        </div>
       </div>
 
       <TooltipProvider delayDuration={0}>
@@ -653,7 +673,11 @@ export default function ConfigPage() {
             </div>
           ) : (
             SECTIONS.map(section => {
-              const fields = section.keys.filter(k => schema[k])
+              const fields = section.keys.filter(k => {
+                if (!schema[k]) return false
+                if (!showAdvanced && schema[k].level === 'advanced') return false
+                return true
+              })
               if (!fields.length) return null
               return (
                 <div key={section.id} id={section.id} className="scroll-mt-20 transition-all">

@@ -277,6 +277,7 @@ export interface ConfSchemaField {
   min?: number
   max?: number
   step?: number
+  level?: 'basic' | 'advanced'
 }
 export interface PluginConfigResponse {
   schema: Record<string, ConfSchemaField>

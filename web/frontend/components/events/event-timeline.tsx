@@ -309,7 +309,7 @@ export function EventTimeline({
                 <line key={`vl-${th.id}`}
                   x1={x} y1={HEADER_H} x2={x} y2={svgH}
                   stroke={th.color} strokeWidth={1.5} strokeOpacity={dim ? 0.05 : 0.25}
-                  strokeDasharray="5 15"
+                  strokeDasharray="4 8"
                   className="loom-axis-flow"
                   style={{ animationDelay: `${ti * 0.6}s` }} />
               )

@@ -6,7 +6,7 @@
 
 **Three-Axis Long-Term Memory & Data Visualisation Plugin for AstrBot**
 
-[![version](https://img.shields.io/badge/version-v0.12.3-blueviolet)](metadata.yaml)
+[![version](https://img.shields.io/badge/version-v0.12.4-blueviolet)](metadata.yaml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![license](https://img.shields.io/badge/license-APGL-green)](LICENSE)
 [![zh](https://img.shields.io/badge/中文-README.md-red)](README.md)
@@ -19,13 +19,26 @@ Made with ♥ by MKiyoaki & Gariton
 
 ---
 
-## ⚡ Quick Start
+## What is this
 
-### Step 1: Install
+Moirai adds three-axis persistent memory to AstrBot: conversations are automatically segmented into **episodic events**, interactions between participants accumulate as **social impressions**, and daily activity is distilled into **narrative summaries**. All three axes are retrieved and injected into context at response time — no manual management required.
+
+Highlights:
+
+- **Visualised memory management**: 7 WebUI pages covering the full data lifecycle — event timeline, interactive social graph, narrative summary reader, hybrid recall debugger, persona library, and live statistics. All data is browsable and editable in-browser.
+- **Highly configurable**: 70+ config keys; each subsystem (social graph, summaries, Soul Layer, VCM) can be toggled independently. Retrieval strategy, event boundary thresholds, and decay rates are all tunable per deployment.
+- **Memory recall costs zero extra LLM calls**: Retrieving and injecting memory on every message requires no LLM calls — no added API cost, no added latency. BM25 keyword and vector semantic search run in parallel, fused via RRF, then filled to a configurable token budget.
+- **Graceful degradation**: Falls back to BM25 when the embedding model is unavailable. Social graph, summaries, and Soul Layer are fully isolated — a failure in one module does not affect the memory injection hot path.
+
+---
+
+## Quick Start
+
+### Installation
 
 **Option A: AstrBot Plugin Marketplace** (recommended)
 
-Search for `astrbot_plugin_moirai` in the AstrBot plugin marketplace and click Install.
+Search for `astrbot_plugin_moirai` in the AstrBot plugin marketplace and click Install. Restart AstrBot after installation.
 
 **Option B: Manual Clone**
 
@@ -34,45 +47,103 @@ cd <astrbot_data_dir>/plugins
 git clone https://github.com/MKiyoaki/astrbot-plugin-moirai
 ```
 
-Restart AstrBot after installation. The plugin performs automatic schema migration on first run.
+Restart AstrBot. The plugin performs automatic schema migration on first run.
 
-> **Recommended extras** (optional but strongly advised):
-> ```bash
-> pip install sentence-transformers bcrypt
-> ```
-> - `sentence-transformers`: enables semantic vector search (~100 MB model, auto-downloaded on first run)
-> - `bcrypt`: secure WebUI password hashing (degrades to SHA-256 with a warning if missing)
+**Recommended extras** (optional but advised):
 
-### Step 2: Set a WebUI Password
+```bash
+pip install sentence-transformers bcrypt
+```
 
-Go to AstrBot admin panel → Plugin Config → Moirai → set `webui_password`. Leave blank for auto-generation (check AstrBot logs for the generated password).
+- `sentence-transformers`: enables semantic vector search (~100 MB model, auto-downloaded on first run)
+- `bcrypt`: secure WebUI password hashing (degrades to SHA-256 with a warning if missing)
 
-### Step 3: Open the WebUI
+### Basic Configuration
 
-Navigate to `http://<your-server-ip>:2655` in your browser, log in, and explore the full memory dashboard.
+In the AstrBot admin panel → Plugin Config → Moirai, set:
 
-> Default port is `2655`, configurable via `webui_port`.
+| Key | Description |
+|-----|-------------|
+| `webui_password` | WebUI login password. Leave blank for auto-generation (check AstrBot logs). |
+| `webui_port` | WebUI port, default `2655` |
+
+### Verify the Plugin is Working
+
+1. Open `http://<your-server-ip>:2655` in a browser and log in
+2. Chat with the bot in AstrBot, then send `/mrm status`
+3. If `active_sessions` is non-empty and the `events` count is growing, the memory pipeline is running correctly
 
 ---
 
-## ✨ Features
+## User Guide
 
-Moirai uses a **three-axis memory architecture**, modelling conversation history along three independent dimensions:
+### What the Plugin Does Automatically
 
-| Axis | Entity | Description |
-|------|--------|-------------|
-| **Episodic** | `Event` | Discrete conversation windows with topics, summaries, tags, and salience scores |
-| **Social** | `Impression` | Directed interpersonal relationships on the Interpersonal Circumplex (IPC) plane |
-| **Narrative** | `Summary` | Daily group digests (`YYYY-MM-DD.md`) capturing mood dynamics and key interactions |
+| When | Action |
+|------|--------|
+| Every message | Retrieve historical events and inject into context; append message to the current event window; compute vector embedding in background |
+| Conversation idle / topic drift | Close the current event window; trigger async extraction (topic, summary, tags, Big Five) |
+| Daily | Salience decay · Group narrative summaries · Low-salience event cleanup |
+| Weekly | Persona synthesis · Social impression aggregation |
 
-**Core capabilities:**
+### /mrm Command Reference
 
-- **Hybrid Retrieval**: Parallel BM25 (FTS5) + vector search (sqlite-vec), RRF fusion, greedy fill within token budget
-- **Event Boundary Detection**: Heuristic-only (no LLM) — idle time, topic drift, message count
-- **WebUI Dashboard**: 7 visualization pages for full memory management
-- **Soul Layer** (experimental, off by default): 4D emotional state vector that modulates reply style
+All commands require **admin-level** AstrBot permissions. Send `/mrm language en` to switch responses to English.
 
-**Module toggles:**
+**Info Queries**
+
+| Command | Description |
+|---------|-------------|
+| `/mrm status` | Plugin runtime status (tasks, active sessions, WebUI state) |
+| `/mrm recall <keywords>` | Manual hybrid memory retrieval with scores |
+| `/mrm persona <PlatID>` | User persona profile (description, Big Five scores, evidence events) |
+| `/mrm soul` | Current session emotional state across 4 dimensions (requires Soul Layer) |
+
+**Action Commands**
+
+| Command | Description |
+|---------|-------------|
+| `/mrm flush` | Clear current session context window (database unaffected) |
+| `/mrm webui on\|off` | Start or stop the WebUI HTTP server |
+| `/mrm language <cn\|en\|ja>` | Switch command response language (persisted) |
+| `/mrm run decay` | Manually trigger salience decay |
+| `/mrm run synthesis` | Manually trigger persona synthesis |
+| `/mrm run summary` | Manually trigger group summary generation for all groups |
+| `/mrm run cleanup` | Manually trigger low-salience event cleanup |
+| `/mrm help` | Show help |
+
+**Reset Commands ⚠️**
+
+> **2-step confirmation required**: first send returns a warning; **re-send the same command within 30 s** to execute.
+
+| Command | Scope |
+|---------|-------|
+| `/mrm reset here` | All events and summaries for the current group |
+| `/mrm reset event <group_id>` | All events and summaries for a specific group |
+| `/mrm reset event all` | All event records globally |
+| `/mrm reset persona <PlatID>` | One user's persona profile |
+| `/mrm reset persona all` | All persona profiles |
+| `/mrm reset all` | All plugin data (events, personas, projection files) |
+
+### WebUI Pages
+
+| Page | Route | Description |
+|------|-------|-------------|
+| Events | `/events` | Event timeline with search, tag filters, inline editing, recycle bin |
+| Graph | `/graph` | Interactive relationship graph (nodes = personas, edges = impressions); click nodes to view evidence events |
+| Summary | `/summary` | Group narrative summaries by date (Main Topics · Event List · Mood Dynamics) |
+| Recall | `/recall` | Ad-hoc hybrid memory search with configurable result limit and RRF scores |
+| Library | `/library` | Tabbed browser: Personas · Events-per-person · Impressions · Tags |
+| Stats | `/stats` | Counts, tag distribution, temporal charts, pipeline performance |
+| Settings | `/settings` | Theme, language, password, manual task launcher |
+
+The WebUI uses two-tier auth: **Login** (password at `data_dir/.webui_password`) + **Sudo** (re-enter password for write operations). Set `webui_auth_enabled: false` for local-only deployments.
+
+---
+
+## Advanced Configuration & Tuning
+
+### Module Toggles
 
 | Feature | Config Key | Default |
 |---------|------------|---------|
@@ -88,156 +159,54 @@ Moirai uses a **three-axis memory architecture**, modelling conversation history
 | Markdown Projection | `markdown_projection_enabled` | ✅ on |
 | VCM State Machine | `vcm_enabled` | ✅ on |
 
----
+### Memory Quality Tuning
 
-## 📋 /mrm Command Reference
+The parameters below have the most impact on memory quality; defaults are appropriate for most deployments.
 
-All management commands require **admin-level** AstrBot permissions.
-
-> Use `/mrm language en` to switch command responses to English.
-
-### Info Queries
-
-| Command | Description |
-|---------|-------------|
-| `/mrm status` | Plugin runtime status (tasks, active sessions, WebUI state) |
-| `/mrm persona <PlatID>` | User persona profile (description, Big Five scores, evidence events) |
-| `/mrm soul` | Current session emotional state across 4 dimensions |
-| `/mrm recall <keywords>` | Manual hybrid memory retrieval with scores |
-
-### Action Commands
-
-| Command | Description |
-|---------|-------------|
-| `/mrm webui on\|off` | Start or stop the WebUI HTTP server |
-| `/mrm flush` | Clear current session context window (database unaffected) |
-| `/mrm language <cn\|en\|ja>` | Switch command response language (persisted) |
-| `/mrm run decay` | Manually trigger salience decay |
-| `/mrm run synthesis` | Manually trigger persona synthesis |
-| `/mrm run summary` | Manually trigger group summary generation for all groups |
-| `/mrm run cleanup` | Manually trigger low-salience event cleanup |
-| `/mrm help` | Show help |
-
-### Reset Commands ⚠️
-
-> **2-step confirmation required**: first send returns a warning; **re-send the same command within 30 s** to execute.
-
-| Command | Scope |
-|---------|-------|
-| `/mrm reset here` | All events and summaries for the current group |
-| `/mrm reset event <group_id>` | All events and summaries for a specific group |
-| `/mrm reset event all` | All event records globally |
-| `/mrm reset persona <PlatID>` | One user's persona profile |
-| `/mrm reset persona all` | All persona profiles |
-| `/mrm reset all` | All plugin data (events, personas, projection files) |
-
----
-
-## ⚙️ Configuration Quick Reference
-
-Adjust in AstrBot plugin config panel or `_conf_schema.json`. Most common options:
+**Retrieval & Injection**
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `webui_port` | `2655` | WebUI HTTP port |
-| `webui_auth_enabled` | `true` | Require login to access WebUI |
-| `embedding_enabled` | `true` | Disable to use BM25 only |
-| `embedding_provider` | `"local"` | `"local"` or `"api"` |
 | `retrieval_top_k` | `10` | Max memory events injected per prompt |
 | `retrieval_token_budget` | `800` | Token ceiling for memory injection |
-| `boundary_time_gap_minutes` | `30` | Idle time threshold to close an event window |
-| `summary_interval_hours` | `24` | Group summary generation frequency |
-| `relation_enabled` | `true` | Build social relationship graph |
-| `soul_enabled` | `false` | Enable emotional state (experimental) |
+| `retrieval_active_only` | `true` | Exclude archived events from search |
 
-<details>
-<summary>📖 Full Configuration Reference (expand)</summary>
-
-### Embedding
+**Event Boundaries**
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `embedding_model` | `"BAAI/bge-small-zh-v1.5"` | HuggingFace model ID or API model name |
+| `boundary_time_gap_minutes` | `30` | Idle time threshold to close an event window |
+| `boundary_max_messages` | `50` | Hard cap on messages per event |
+| `boundary_topic_drift_threshold` | `0.6` | Cosine distance threshold for topic drift (lower = more sensitive) |
+
+**Embedding (API mode)**
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `embedding_provider` | `"local"` | `"local"` or `"api"` |
 | `embedding_api_url` | `""` | API endpoint URL |
 | `embedding_api_key` | `""` | API authentication key |
-| `embedding_batch_size` | `1` | Messages per encoding batch |
-| `embedding_retry_max` | `3` | Max retry attempts on failure |
+| `embedding_model` | `"BAAI/bge-small-zh-v1.5"` | HuggingFace model ID or API model name |
 
-### Retrieval
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `retrieval_weighted_random` | `false` | Softmax sampling instead of Top-K |
-| `retrieval_sampling_temperature` | `1.0` | Sampling temperature (weighted random only) |
-| `retrieval_active_only` | `true` | Exclude archived events from search |
-| `retrieval_recency_half_life_days` | `30.0` | Recency decay half-life in days |
-
-### Event Boundary
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `boundary_max_messages` | `50` | Hard cap on messages per event |
-| `boundary_max_duration_minutes` | `60` | Hard cap on event duration (minutes) |
-| `boundary_topic_drift_threshold` | `0.6` | Cosine distance threshold for topic drift |
-| `boundary_topic_drift_min_messages` | `20` | Min messages before drift detection activates |
-
-### Social Relations
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `impression_update_alpha` | `0.4` | EMA smoothing factor (higher = faster response to new data) |
-| `impression_event_trigger_threshold` | `5` | Shared events needed to trigger impression update |
-| `impression_aggregation_interval_hours` | `168` | Impression aggregation frequency (default: weekly) |
-
-### Decay & Cleanup
+**Decay & Cleanup**
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `decay_lambda` | `0.01` | Decay rate (half-life ≈ 69 days) |
-| `decay_archive_threshold` | `0.05` | Salience below this → archived |
 | `memory_cleanup_threshold` | `0.3` | Salience below this → permanently deleted |
-| `memory_cleanup_interval_days` | `7` | Cleanup task frequency (days) |
 | `memory_cleanup_retention_days` | `30` | Retention period for archived events before permanent deletion |
 
-### Soul Layer
+### FAQ
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `soul_decay_rate` | `0.1` | Per-turn decay rate (0.1 = 10%) |
-| `soul_recall_depth_init` | `0.0` | Memory retrieval drive initial value (−20 to +20) |
-| `soul_impression_depth_init` | `0.0` | Social attention initial value (−20 to +20) |
-| `soul_expression_desire_init` | `0.0` | Expression drive initial value (−20 to +20) |
-| `soul_creativity_init` | `0.0` | Creativity initial value (−20 to +20) |
+**WebUI is unreachable**
 
-</details>
+Check: ① `webui_enabled` is `true`; ② port `webui_port` (default 2655) is open in the firewall; ③ no WebUI startup errors in AstrBot logs.
 
----
+**Embedding model download fails**
 
-## 🖥️ WebUI Pages
+The local model is downloaded from HuggingFace on first start and may time out on restricted networks. Solutions: switch to `embedding_provider: "api"` with a remote provider, or set the `HF_ENDPOINT` environment variable to a mirror.
 
-| Page | Route | Description |
-|------|-------|-------------|
-| **Events** | `/events` | Event timeline with search, tag filters, inline editing, recycle bin |
-| **Graph** | `/graph` | Cytoscape.js interactive relationship graph (nodes = personas, edges = impressions) |
-| **Summary** | `/summary` | Group narrative summaries by date (Main Topics · Event List · Mood Dynamics) |
-| **Recall** | `/recall` | Ad-hoc hybrid memory search with configurable result limit |
-| **Library** | `/library` | Tabbed browser: Personas · Events-per-person · Impressions · Tags |
-| **Stats** | `/stats` | Counts, tag distribution, temporal charts, pipeline performance |
-| **Settings** | `/settings` | Theme, language, password, manual task launcher |
-
-> The WebUI uses two-tier auth: **Login** (password at `data_dir/.webui_password`) + **Sudo** (re-enter password for write operations). Set `webui_auth_enabled: false` for local-only deployments.
-
----
-
-## 🛡️ Reliability & Limitations
-
-**Reliability:**
-- Single-file persistence: SQLite WAL + auto pre-migration backup; corpus portable in one file
-- Graceful degradation: falls back to BM25 if embedding model unavailable
-- Modular isolation: social graph, summaries, Soul Layer failures don't affect hot-path retrieval
-- Two-step confirmation: all `/mrm reset` commands require re-send within 30 s
-
-**Known Limitations:**
+### Known Limitations
 
 | Area | Limitation |
 |------|-----------|
@@ -251,10 +220,17 @@ Adjust in AstrBot plugin config panel or `_conf_schema.json`. Most common option
 
 ---
 
-<details>
-<summary>🔧 Technical Implementation (Developers / Advanced Users)</summary>
+## Technical Architecture (Developers)
 
-### Architecture Overview
+### Three-Axis Memory Model
+
+| Axis | Entity | Description |
+|------|--------|-------------|
+| Episodic | `Event` | Discrete conversation windows with topics, summaries, tags, and salience scores |
+| Social | `Impression` | Directed interpersonal relationships on the Interpersonal Circumplex (IPC) plane |
+| Narrative | `Summary` | Daily group digests (`YYYY-MM-DD.md`) capturing mood dynamics and key interactions |
+
+### Data Flow & RAG Pipeline
 
 ```
 AstrBot Message Stream
@@ -282,6 +258,17 @@ AstrBot Message Stream
         │  Weekly: Persona synthesis · Impression aggregation
 ```
 
+**LLM Call Budget**
+
+| Trigger | Task | LLM Calls |
+|---------|------|-----------|
+| Per message (hot path) | Retrieval + injection | **0** |
+| Per event close | Core extraction | **1** |
+| Per event (social) | Big Five scoring | **0** (unified extraction hit) or **1** |
+| Weekly | Persona synthesis | **1 per active user** |
+| Daily/Weekly | Group summary | **≤ 2 per active group** |
+| Periodic | Impression aggregation | **0** (pure math) |
+
 ### Storage Layout
 
 ```
@@ -301,18 +288,9 @@ data/plugins/<plugin_name>/data/
     └── BOT_PERSONA.md
 ```
 
-### LLM Call Budget
+Single-file persistence: SQLite WAL + automatic pre-migration backup; the entire corpus is portable in one file.
 
-| Trigger | Task | LLM Calls |
-|---------|------|-----------|
-| Per message (hot path) | Retrieval + injection | **0** |
-| Per event close | Core extraction | **1** |
-| Per event (social) | Big Five scoring | **0** (unified extraction hit) or **1** |
-| Weekly | Persona synthesis | **1 per active user** |
-| Daily/Weekly | Group summary | **≤ 2 per active group** |
-| Periodic | Impression aggregation | **0** (pure math) |
-
-### IPC Social Inference Formula
+### Social Inference (IPC Model)
 
 Big Five scores (O/C/E/A/N) are mapped to IPC coordinates:
 
@@ -323,11 +301,7 @@ Power       = 0.70 × Extraversion  + 0.35 × Conscientiousness − 0.15 × Neur
 
 Impressions are updated via EMA (configurable α) and classified into eight octants (亲和 / 活跃 / 掌控 / 高傲 / 冷淡 / 孤避 / 顺应 / 谦让).
 
-### Cross-Platform Identity
-
 All entities use a stable internal `uid`. The mapping `(platform, physical_id) → uid` is maintained at the adapter boundary, enabling cross-platform persona merging.
-
-</details>
 
 ---
 

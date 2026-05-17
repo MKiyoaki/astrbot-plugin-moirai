@@ -1,283 +1,322 @@
 {
     "general": {
         "description": "基础设置",
-        "hint": "插件语言与 LLM 提供者配置",
+        "hint": "🟢 标注的设置项为基础项，其余为进阶项，新手可只关注基础项。插件语言与 LLM 提供者配置（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
         "type": "object",
         "items": {
             "language": {
-                "description": "插件语言 (Plugin Language)",
+                "description": "🟢 插件语言 (Plugin Language)",
                 "type": "string",
                 "options": ["zh", "en", "ja"],
                 "default": "zh",
-                "hint": "设置插件后端生成内容的语言（如摘要标题、Markdown 文件头等）。WebUI 语言可在界面右下角独立设置。"
+                "hint": "设置插件后端生成内容的语言（如摘要标题、Markdown 文件头等）。WebUI 语言可在界面右下角独立设置。",
+                "level": "basic"
             },
             "llm_provider": {
-                "description": "总结与提取 LLM 提供者",
+                "description": "🟢 总结与提取 LLM 提供者",
                 "type": "string",
                 "_special": "select_provider",
-                "hint": "选择用于事件提取、人格合成、叙事摘要等后台任务的 LLM 提供者。留空则使用 AstrBot 默认提供者。"
+                "hint": "选择用于事件提取、人格合成、叙事摘要等后台任务的 LLM 提供者。留空则使用 AstrBot 默认提供者。",
+                "level": "basic"
             },
             "llm_concurrency": {
                 "description": "后台 LLM 最大并发数",
                 "type": "int",
                 "hint": "整个插件同时进行的后台 LLM 请求（如事件提取、人设合成、摘要生成）的最大数量。推荐 1-3，防止触发 API 频控。",
-                "default": 2
+                "default": 2,
+                "level": "advanced"
             }
         }
     },
     "webui": {
         "description": "WebUI 面板",
-        "hint": "启用后可在浏览器访问 Moirai 三轴记忆面板",
+        "hint": "启用后可在浏览器访问 Moirai 三轴记忆面板（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
         "type": "object",
         "items": {
             "webui_enabled": {
-                "description": "启用 Moirai 记忆管理面板",
+                "description": "🟢 启用 Moirai 记忆管理面板",
                 "type": "bool",
                 "hint": "开启后可在浏览器访问 Moirai 三轴记忆面板（事件流 / 关系图 / 摘要）",
-                "default": true
+                "default": true,
+                "level": "basic"
             },
             "webui_port": {
-                "description": "WebUI 端口号",
+                "description": "🟢 WebUI 端口号",
                 "type": "int",
                 "hint": "WebUI HTTP 服务绑定的本机端口，默认 2655，修改后需重启",
-                "default": 2655
+                "default": 2655,
+                "level": "basic"
+            },
+            "webui_password": {
+                "description": "🟢 WebUI 访问密码",
+                "type": "string",
+                "hint": "手动配置 WebUI 访问密码。留空则启动时自动生成随机访问 Token 并在控制台打印。",
+                "default": "",
+                "level": "basic"
             },
             "webui_auth_enabled": {
                 "description": "启用 WebUI 密码认证",
                 "type": "bool",
                 "hint": "开启后首次访问需设置管理密码；关闭则任何人可访问 WebUI（仅本机部署且无外网映射时建议关闭）",
-                "default": true
+                "default": true,
+                "level": "advanced"
             },
             "webui_session_hours": {
                 "description": "WebUI 登录会话时长（小时）",
                 "type": "int",
                 "hint": "登录后多少小时无操作自动失效",
-                "default": 24
+                "default": 24,
+                "level": "advanced"
             },
             "webui_sudo_minutes": {
                 "description": "WebUI Sudo 模式时长（分钟）",
                 "type": "int",
                 "hint": "进入 Sudo 后多少分钟自动退出，超时后写操作需重新输密码",
-                "default": 30
-            },
-            "webui_password": {
-                "description": "WebUI 访问密码",
-                "type": "string",
-                "hint": "手动配置 WebUI 访问密码。留空则启动时自动生成随机访问 Token 并在控制台打印。",
-                "default": ""
+                "default": 30,
+                "level": "advanced"
             }
         }
     },
     "embedding": {
         "description": "向量嵌入",
-        "hint": "语义检索所需的 Embedding 模型配置",
+        "hint": "语义检索所需的 Embedding 模型配置（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
         "type": "object",
         "items": {
             "embedding_enabled": {
-                "description": "启用向量语义检索",
+                "description": "🟢 启用向量语义检索",
                 "type": "bool",
                 "hint": "需要本地 Sentence Transformer 模型（约 100 MB），禁用后退回纯 BM25 关键词检索",
-                "default": true
+                "default": true,
+                "level": "basic"
             },
             "embedding_provider": {
-                "description": "向量嵌入提供者",
+                "description": "🟢 向量嵌入提供者",
                 "type": "string",
                 "options": [
                     "local",
                     "api"
                 ],
                 "hint": "选择使用本地模型还是远程 API",
-                "default": "local"
+                "default": "local",
+                "level": "basic"
             },
             "embedding_model": {
                 "description": "向量嵌入模型名称",
                 "type": "string",
                 "hint": "HuggingFace 模型 ID (Local) 或 API 模型名 (API)",
-                "default": "BAAI/bge-small-zh-v1.5"
+                "default": "BAAI/bge-small-zh-v1.5",
+                "level": "advanced"
             },
             "embedding_api_url": {
                 "description": "Embedding API 地址",
                 "type": "string",
                 "hint": "仅在提供者为 API 时有效，例如 https://api.openai.com/v1/embeddings",
-                "default": ""
+                "default": "",
+                "level": "advanced"
             },
             "embedding_api_key": {
                 "description": "Embedding API 密钥",
                 "type": "string",
                 "hint": "仅在提供者为 API 时有效",
-                "default": ""
+                "default": "",
+                "level": "advanced"
             },
             "embedding_batch_size": {
                 "description": "读取批量",
                 "type": "int",
                 "hint": "每批从数据库读取的消息条数，越大内存峰值越高。默认 50。",
-                "default": 50
+                "default": 50,
+                "level": "advanced"
             },
             "embedding_request_batch_size": {
                 "description": "Embedding 批量",
                 "type": "int",
                 "hint": "单词 Embedding API 请求包含的文本数量。默认 16。",
-                "default": 16
+                "default": 16,
+                "level": "advanced"
             },
             "embedding_concurrency": {
                 "description": "Embedding 并发",
                 "type": "int",
                 "hint": "批量 Embedding 内部并发上限。默认 1。",
-                "default": 1
+                "default": 1,
+                "level": "advanced"
             },
             "embedding_batch_interval_ms": {
                 "description": "读取批次间隔 (ms)",
                 "type": "int",
                 "hint": "处理完一个批次后等待多久读取下一个批次。默认 5000 (5s)。",
-                "default": 5000
+                "default": 5000,
+                "level": "advanced"
             },
             "embedding_request_interval_ms": {
                 "description": "Embedding 请求间隔 (ms)",
                 "type": "int",
                 "hint": "每个 Embedding API 子请求之间的等待时间。默认 5000 (5s)。",
-                "default": 5000
+                "default": 5000,
+                "level": "advanced"
             },
             "embedding_failure_tolerance_ratio": {
                 "description": "允许失败比例",
                 "type": "float",
                 "hint": "一个批次中允许失败的消息比例上限 (0.0-1.0)。默认 0.02。",
-                "default": 0.02
+                "default": 0.02,
+                "level": "advanced"
             },
             "embedding_retry_max": {
                 "description": "最大重试次数",
                 "type": "int",
                 "hint": "Embedding 请求失败时的最大尝试次数",
-                "default": 3
+                "default": 3,
+                "level": "advanced"
             },
             "embedding_retry_delay_ms": {
                 "description": "重试等待时间 (ms)",
                 "type": "int",
                 "hint": "Embedding 批次失败后的指数退避基础等待时间。默认 30000 (30s)。",
-                "default": 30000
+                "default": 30000,
+                "level": "advanced"
             }
         }
     },
     "retrieval": {
         "description": "记忆检索",
-        "hint": "控制记忆如何从数据库检索并注入 Prompt",
+        "hint": "控制记忆如何从数据库检索并注入 Prompt（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
         "type": "object",
         "items": {
             "retrieval_top_k": {
                 "description": "单条召回数量",
                 "type": "int",
                 "hint": "每次检索返回的最相关记忆条数，选择 0 可自动跳过召回和注入",
-                "default": 3
+                "default": 3,
+                "level": "advanced"
             },
             "retrieval_active_top_k": {
                 "description": "主动检索的最大数量",
                 "type": "int",
                 "hint": "Agent 主动调用长期记忆检索工具时允许返回的最大记忆条数",
-                "default": 5
+                "default": 5,
+                "level": "advanced"
             },
             "retrieval_token_budget": {
                 "description": "记忆注入的 Token 上限",
                 "type": "int",
                 "hint": "超出上限时按「重要度 × 新鲜度 × 相关度」贪心截断",
-                "default": 800
+                "default": 800,
+                "level": "advanced"
             },
             "retrieval_salience_weight": {
                 "description": "重要性权重",
                 "type": "float",
                 "hint": "混合评分中记忆重要性的占比，值越大，重要性高的记忆就越优先被召回",
-                "default": 0.1
+                "default": 0.1,
+                "level": "advanced"
             },
             "retrieval_rrf_k": {
                 "description": "RRF 融合常数",
                 "type": "int",
                 "hint": "设定检索融合策略的 RRF 参数 k。值越小越强调排名靠前的结果，值越大融合越平滑。默认 60。",
-                "default": 60
+                "default": 60,
+                "level": "advanced"
             },
             "injection_position": {
                 "description": "记忆注入位置",
                 "type": "string",
                 "options": ["system_prompt", "user_message_before", "user_message_after", "fake_tool_call"],
                 "hint": "选择将检索到的记忆内容注入到哪个位置。fake_tool_call 会模拟工具调用返回记忆。",
-                "default": "system_prompt"
+                "default": "system_prompt",
+                "level": "advanced"
             },
             "injection_auto_clear": {
                 "description": "自动清除旧记忆注入片段",
                 "type": "bool",
                 "hint": "开启后，注入新历史前会自动删除历史上下文中已经注入过的旧记忆片段，防止 context 膨胀。",
-                "default": true
+                "default": true,
+                "level": "advanced"
             },
             "memory_isolation_enabled": {
                 "description": "启用记忆隔离（按群组 ID 隔离检索）",
                 "type": "bool",
                 "hint": "开启后私聊与各群组的记忆检索互不干扰；关闭则跨 group_id 全局检索",
-                "default": true
+                "default": true,
+                "level": "advanced"
             },
             "retrieval_weighted_random": {
                 "description": "启用加权随机检索",
                 "type": "bool",
                 "hint": "开启后将使用 Softmax 采样替代确定性 Top-K 截断，使记忆表现更自然（偶尔想起低分事件）",
-                "default": false
+                "default": false,
+                "level": "advanced"
             },
             "retrieval_sampling_temperature": {
                 "description": "检索采样温度 (Temperature)",
                 "type": "float",
                 "hint": "仅在加权随机模式下生效。1.0 为标准采样，数值越低越接近确定性排名，数值越高随机性越强。",
-                "default": 1.0
+                "default": 1.0,
+                "level": "advanced"
             }
         }
     },
     "vcm": {
         "description": "上下文管理 (VCM)",
-        "hint": "虚拟上下文管理器：控制活跃会话缓存与上下文窗口大小",
+        "hint": "虚拟上下文管理器：控制活跃会话缓存与上下文窗口大小（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
         "type": "object",
         "items": {
             "vcm_enabled": {
-                "description": "启用 VCM 状态机",
+                "description": "🟢 启用 VCM 状态机",
                 "type": "bool",
                 "hint": "开启后将启用虚拟上下文管理状态机（Focused/Recall/Eviction/Drift）",
-                "default": true
+                "default": true,
+                "level": "basic"
             },
             "context_max_sessions": {
                 "description": "最大缓存会话数",
                 "type": "int",
                 "hint": "在内存中同时保留的最大活跃会话（MessageWindow）数量",
-                "default": 100
+                "default": 100,
+                "level": "advanced"
             },
             "context_session_idle_seconds": {
                 "description": "会话空闲过期时间（秒）",
                 "type": "int",
                 "hint": "会话超过此时长无新消息后，将自动从内存中移除以节省资源",
-                "default": 3600
+                "default": 3600,
+                "level": "advanced"
             },
             "context_window_size": {
                 "description": "上下文窗口大小",
                 "type": "int",
                 "hint": "传给 LLM 进行事件总结的最大历史消息条数",
-                "default": 50
+                "default": 50,
+                "level": "advanced"
             },
             "context_max_history_messages": {
                 "description": "单会话最大历史消息数",
                 "type": "int",
                 "hint": "数据库中每个会话保留的历史消息上限，超过后将按批次清理最旧的消息。建议 500-2000。",
-                "default": 1000
+                "default": 1000,
+                "level": "advanced"
             },
             "context_cleanup_batch_size": {
                 "description": "历史消息批量清理数量",
                 "type": "int",
                 "hint": "会话历史超出上限后，每次至少尝试删除的旧已总结消息数量。",
-                "default": 50
+                "default": 50,
+                "level": "advanced"
             }
         }
     },
     "soul": {
         "description": "情绪四维 (Soul Layer)",
-        "hint": "动态情绪状态，随对话变化并注入 system prompt 以影响回复风格",
+        "hint": "动态情绪状态，随对话变化并注入 system prompt 以影响回复风格（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
         "type": "object",
         "items": {
             "soul_enabled": {
-                "description": "启用情绪四维状态 (Soul Layer)",
+                "description": "🟢 启用情绪四维状态 (Soul Layer)",
                 "type": "bool",
                 "hint": "开启后，RecallDepth / ImpressionDepth / ExpressionDesire / Creativity 四维情绪状态将随对话动态更新，并注入 system prompt 以影响回复风格。",
-                "default": false
+                "default": false,
+                "level": "basic"
             },
             "soul_decay_rate": {
                 "description": "情绪衰减率（每轮）",
@@ -286,7 +325,8 @@
                 "default": 0.1,
                 "min": 0.0,
                 "max": 1.0,
-                "step": 0.01
+                "step": 0.01,
+                "level": "advanced"
             },
             "soul_recall_depth_init": {
                 "description": "记忆检索驱动初始值",
@@ -295,7 +335,8 @@
                 "default": 0.0,
                 "min": -20.0,
                 "max": 20.0,
-                "step": 0.5
+                "step": 0.5,
+                "level": "advanced"
             },
             "soul_impression_depth_init": {
                 "description": "社交关注度初始值",
@@ -304,7 +345,8 @@
                 "default": 0.0,
                 "min": -20.0,
                 "max": 20.0,
-                "step": 0.5
+                "step": 0.5,
+                "level": "advanced"
             },
             "soul_expression_desire_init": {
                 "description": "表达欲初始值",
@@ -313,7 +355,8 @@
                 "default": 0.0,
                 "min": -20.0,
                 "max": 20.0,
-                "step": 0.5
+                "step": 0.5,
+                "level": "advanced"
             },
             "soul_creativity_init": {
                 "description": "创意度初始值",
@@ -322,336 +365,383 @@
                 "default": 0.0,
                 "min": -20.0,
                 "max": 20.0,
-                "step": 0.5
+                "step": 0.5,
+                "level": "advanced"
             }
         }
     },
     "cleanup": {
         "description": "记忆清理",
-        "hint": "定期清理重要度衰减到阈值以下的旧记忆，控制数据库规模",
+        "hint": "定期清理重要度衰减到阈值以下的旧记忆，控制数据库规模（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
         "type": "object",
         "items": {
             "memory_cleanup_enabled": {
-                "description": "启用记忆自动清理",
+                "description": "🟢 启用记忆自动清理",
                 "type": "bool",
                 "hint": "开启后将定期清理重要度低于阈值的记忆",
-                "default": true
+                "default": true,
+                "level": "basic"
             },
             "memory_cleanup_threshold": {
                 "description": "记忆清理阈值",
                 "type": "float",
                 "hint": "重要度（salience）低于此值的非锁定记忆将被自动清理",
-                "default": 0.3
+                "default": 0.3,
+                "level": "advanced"
             },
             "memory_cleanup_interval_days": {
                 "description": "记忆清理周期（天）",
                 "type": "int",
                 "hint": "每隔多少天执行一次自动清理任务",
-                "default": 7
+                "default": 7,
+                "level": "advanced"
             },
             "memory_cleanup_retention_days": {
                 "description": "归档保留期（天）",
                 "type": "int",
                 "hint": "已归档事件在真正删除前保留的天数，超过后才会被永久清除",
-                "default": 30
+                "default": 30,
+                "level": "advanced"
             }
         }
     },
     "summaries": {
         "description": "叙事摘要",
-        "hint": "定期为活跃群组生成每日叙事摘要（叙事轴记忆）",
+        "hint": "定期为活跃群组生成每日叙事摘要（叙事轴记忆）（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
         "type": "object",
         "items": {
             "summary_enabled": {
-                "description": "启用每日叙事摘要",
+                "description": "🟢 启用每日叙事摘要",
                 "type": "bool",
                 "hint": "开启后将定期为活跃群组生成每日摘要 Markdown 文件（叙事轴记忆）",
-                "default": true
+                "default": true,
+                "level": "basic"
             },
             "summary_interval_hours": {
                 "description": "摘要生成频率",
                 "type": "string",
                 "options": ["1", "2", "3", "4", "8", "12", "24", "48"],
                 "default": "24",
-                "hint": "每隔多少小时为每个活跃群组生成一次叙事摘要 Markdown"
+                "hint": "每隔多少小时为每个活跃群组生成一次叙事摘要 Markdown",
+                "level": "advanced"
             },
             "summary_word_limit": {
                 "description": "摘要字数限制",
                 "type": "int",
                 "default": 300,
-                "hint": "生成的每日摘要正文字数上限（200-500字之间）"
+                "hint": "生成的每日摘要正文字数上限（200-500字之间）",
+                "level": "advanced"
             },
             "summary_mood_source": {
                 "description": "情感动态数据源",
                 "type": "string",
                 "options": ["llm", "impression_db"],
                 "default": "llm",
-                "hint": "决定每日摘要中 [情感动态] 区块的生成方式。数据库模式基于真实社交模型数据聚合。"
+                "hint": "决定每日摘要中 [情感动态] 区块的生成方式。数据库模式基于真实社交模型数据聚合。",
+                "level": "advanced"
             }
         }
     },
     "boundary": {
         "description": "事件边界 & 提取",
-        "hint": "控制对话如何被切分为事件，以及事件提取策略与标签系统",
+        "hint": "控制对话如何被切分为事件，以及事件提取策略与标签系统（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
         "type": "object",
         "items": {
             "persona_influenced_summary": {
                 "description": "根据当前性格记忆事件",
                 "type": "bool",
                 "hint": "开启后在提取事件摘要时注入 Bot 人格描述，使摘要带有 Bot 当前性格的视角",
-                "default": false
+                "default": false,
+                "level": "advanced"
             },
             "extraction_strategy": {
                 "description": "事件划分策略",
                 "type": "string",
                 "options": ["llm", "semantic"],
                 "default": "llm",
-                "hint": "LLM 划分语义更精准但较慢；Semantic 聚类速度快且能处理话题交织。"
+                "hint": "LLM 划分语义更精准但较慢；Semantic 聚类速度快且能处理话题交织。",
+                "level": "advanced"
             },
             "semantic_clustering_eps": {
                 "description": "语义聚类敏感度 (Eps)",
                 "type": "float",
                 "default": 0.45,
-                "hint": "仅在 Semantic 策略下生效。数值越小，划分的话题越细。建议 0.4-0.6 之间。"
+                "hint": "仅在 Semantic 策略下生效。数值越小，划分的话题越细。建议 0.4-0.6 之间。",
+                "level": "advanced"
             },
             "semantic_clustering_min_samples": {
                 "description": "语义聚类最小消息数",
                 "type": "int",
                 "default": 2,
-                "hint": "仅在 Semantic 策略下生效。话题包含的最少消息数量，设为 2 可避免生成大量单条消息事件。"
+                "hint": "仅在 Semantic 策略下生效。话题包含的最少消息数量，设为 2 可避免生成大量单条消息事件。",
+                "level": "advanced"
             },
             "tag_normalization_threshold": {
                 "description": "标签归一化阈值",
                 "type": "float",
                 "default": 0.85,
-                "hint": "0-1 之间的向量相似度。提取标签时，若与现有标签相似度超过此值，则自动归并到现有标签下。"
+                "hint": "0-1 之间的向量相似度。提取标签时，若与现有标签相似度超过此值，则自动归并到现有标签下。",
+                "level": "advanced"
             },
             "tag_seeds": {
                 "description": "标签种子词表（定义记忆抽象层级）",
                 "type": "string",
                 "default": "社交,日常,技术,知识,工作,娱乐,艺术,情感,资讯",
-                "hint": "用英文逗号分隔。这些词定义了系统记忆的宏观分类。LLM 会模仿这些词的抽象高度进行打标。"
+                "hint": "用英文逗号分隔。这些词定义了系统记忆的宏观分类。LLM 会模仿这些词的抽象高度进行打标。",
+                "level": "advanced"
             },
             "boundary_time_gap_minutes": {
                 "description": "事件边界：空闲时间阈值（分钟）",
                 "type": "int",
                 "hint": "消息间隔超过此值时自动关闭当前事件窗口，开始新事件",
-                "default": 30
+                "default": 30,
+                "level": "advanced"
             },
             "boundary_max_messages": {
                 "description": "事件边界：最大消息数（硬上限）",
                 "type": "int",
                 "hint": "单个事件窗口内消息数量达到上限时强制关闭，防止事件过大",
-                "default": 50
+                "default": 50,
+                "level": "advanced"
             },
             "boundary_max_duration_minutes": {
                 "description": "事件边界：最大持续时长（分钟）",
                 "type": "int",
                 "hint": "单个事件窗口超过此时长时强制关闭",
-                "default": 60
+                "default": 60,
+                "level": "advanced"
             },
             "summary_trigger_rounds": {
                 "description": "总结触发轮次",
                 "type": "int",
                 "hint": "累计对话达到该轮次后（一问一答为一轮）自动触发 LLM 总结并写入记忆。建议 20-50。",
-                "default": 30
+                "default": 30,
+                "level": "advanced"
             },
             "boundary_topic_drift_enabled": {
                 "description": "启用话题漂移检测",
                 "type": "bool",
                 "hint": "开启后将通过向量余弦距离检测话题切换，动态关闭事件。计算开销较高，若感觉对话变卡建议关闭。",
-                "default": true
+                "default": true,
+                "level": "advanced"
             },
             "boundary_topic_drift_threshold": {
                 "description": "事件边界：话题漂移阈值",
                 "type": "float",
                 "hint": "0–1 之间的余弦距离值，超过此值时触发话题切换检测（需启用向量检索）",
-                "default": 0.6
+                "default": 0.6,
+                "level": "advanced"
             },
             "boundary_topic_drift_min_messages": {
                 "description": "事件边界：漂移检测最小消息数",
                 "type": "int",
                 "hint": "单个事件窗口内消息数量达到此值后才开始进行话题漂移检测",
-                "default": 20
+                "default": 20,
+                "level": "advanced"
             },
             "boundary_topic_drift_interval": {
                 "description": "事件边界：话题漂移检测步进",
                 "type": "int",
                 "hint": "每隔多少条消息进行一次话题漂移检测。设为 1 则每条消息都检测，设为 5 则每 5 条检测一次。推荐 3-10。",
-                "default": 5
+                "default": 5,
+                "level": "advanced"
             }
         }
     },
     "relation": {
         "description": "社会关系与印象",
-        "hint": "Bot 人格隔离、社交关系推断与印象触发策略",
+        "hint": "Bot 人格隔离、社交关系推断与印象触发策略（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
         "type": "object",
         "items": {
             "relation_enabled": {
-                "description": "启用社会关系推断",
+                "description": "🟢 启用社会关系推断",
                 "type": "bool",
                 "hint": "禁用后仅保留情节记忆（Event Flow），不执行 Impression 推断和关系图构建",
-                "default": true
+                "default": true,
+                "level": "basic"
             },
             "persona_default_confidence": {
                 "description": "人格默认置信度",
                 "type": "float",
                 "hint": "新建人格时赋予的初始置信值（由模型推断后自动更新）",
-                "default": 0.5
+                "default": 0.5,
+                "level": "advanced"
             },
             "persona_isolation_enabled": {
                 "description": "启用 Bot 人格数据隔离",
                 "type": "bool",
                 "hint": "开启后 WebUI 与查询路径会按当前选中的 bot_persona_name 过滤事件 / 印象 / 人格，使不同 Bot 人格互不串记忆。关闭则回退为汇总视图（与旧版行为一致）。",
-                "default": true
+                "default": true,
+                "level": "advanced"
             },
             "persona_isolation_legacy_visible": {
                 "description": "在单 persona 视图中保留遗留数据可见",
                 "type": "bool",
                 "hint": "开启后选择具体 persona 时仍会看到 bot_persona_name 为 NULL 的旧数据；关闭则严格隔离，旧数据只在「全部 persona」视图下出现",
-                "default": true
+                "default": true,
+                "level": "advanced"
             },
             "persona_merge_audit_enabled": {
                 "description": "记录 Persona 合并审计日志",
                 "type": "bool",
                 "hint": "执行 Persona A → B 合并时，是否在 data_dir/audit/persona_merge.jsonl 中追加一行 JSON 记录",
-                "default": true
+                "default": true,
+                "level": "advanced"
             },
             "persona_default_view_mode": {
                 "description": "WebUI 首次进入的默认 Persona 视图模式",
                 "type": "string",
                 "options": ["remember", "all", "force_pick"],
                 "default": "remember",
-                "hint": "remember：记住上次选择，首次启动弹窗选择；all：默认全部 persona 汇总视图；force_pick：每次启动都强制选择一个 persona。"
+                "hint": "remember：记住上次选择，首次启动弹窗选择；all：默认全部 persona 汇总视图；force_pick：每次启动都强制选择一个 persona。",
+                "level": "advanced"
             },
             "impression_event_trigger_enabled": {
                 "description": "启用事件数量触发印象更新",
                 "type": "bool",
                 "hint": "每次事件关闭后，若参与者间共享事件数达到阈值则自动触发规则式印象更新（不消耗 LLM token）",
-                "default": true
+                "default": true,
+                "level": "advanced"
             },
             "impression_event_trigger_threshold": {
                 "description": "印象触发所需最少共享事件数",
                 "type": "int",
                 "hint": "两人在同一 scope 内的共享事件数达到此值时才触发印象更新",
-                "default": 5
+                "default": 5,
+                "level": "advanced"
             },
             "impression_trigger_debounce_hours": {
                 "description": "印象触发防抖时间（小时）",
                 "type": "float",
                 "hint": "上次更新距今不足此时长则跳过本次触发，避免高频刷新",
-                "default": 1.0
+                "default": 1.0,
+                "level": "advanced"
             },
             "impression_update_alpha": {
                 "description": "印象更新平滑系数 (Alpha)",
                 "type": "float",
                 "hint": "数值越大则越快接受新印象，数值越小越倾向于维持旧印象。0.4 表示新信息占比 40%，旧记忆占比 60%。",
-                "default": 0.4
+                "default": 0.4,
+                "level": "advanced"
             },
             "impression_aggregation_interval_hours": {
                 "description": "印象字段重算间隔（小时）",
                 "type": "int",
                 "hint": "每隔多少小时根据最新数据重算社交取向（IPC）衍生字段并对齐依据事件。纯算法执行，不消耗 LLM token。",
-                "default": 168
+                "default": 168,
+                "level": "advanced"
             }
         }
     },
     "scheduled": {
         "description": "后台周期任务",
-        "hint": "定时跑的衰减、合成、投影、监听等后台任务的开关与频率",
+        "hint": "定时跑的衰减、合成、投影、监听等后台任务的开关与频率（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
         "type": "object",
         "items": {
             "decay_enabled": {
-                "description": "启用重要度衰减",
+                "description": "🟢 启用重要度衰减",
                 "type": "bool",
                 "hint": "开启后将定期衰减事件的重要度。禁用后记忆将不再随时间淡化。",
-                "default": true
+                "default": true,
+                "level": "basic"
             },
             "decay_lambda": {
                 "description": "每周期衰减率",
                 "type": "float",
                 "hint": "基于衰减任务间隔设定每周期重要性衰减比例。默认 0.01，即每周期降低 1%。",
-                "default": 0.01
+                "default": 0.01,
+                "level": "advanced"
             },
             "decay_interval_hours": {
                 "description": "重要度衰减任务间隔（小时）",
                 "type": "int",
                 "hint": "每隔多少小时对所有事件执行一次 salience 时间衰减，默认每天一次",
-                "default": 24
+                "default": 24,
+                "level": "advanced"
             },
             "persona_synthesis_enabled": {
-                "description": "启用人格档案合成",
+                "description": "🟢 启用人格档案合成",
                 "type": "bool",
                 "hint": "开启后将定期根据对话记录合成用户的人设档案（PROFILE.md）",
-                "default": true
+                "default": true,
+                "level": "basic"
             },
             "persona_synthesis_interval_hours": {
                 "description": "人设合成间隔（小时）",
                 "type": "int",
                 "hint": "每隔多少小时通过 LLM 合成一次用户人设档案（PROFILE.md），默认每周一次",
-                "default": 168
+                "default": 168,
+                "level": "advanced"
             },
             "markdown_projection_enabled": {
-                "description": "启用 Markdown 投影生成",
+                "description": "🟢 启用 Markdown 投影生成",
                 "type": "bool",
                 "hint": "开启后将数据库中的记忆投影为可读的 Markdown 文件。禁用后仍可使用 WebUI，但 data/ 目录下将不再生成 .md 文件。",
-                "default": true
+                "default": true,
+                "level": "basic"
             },
             "file_watcher_poll_seconds": {
                 "description": "Markdown 文件监听轮询间隔（秒）",
                 "type": "int",
                 "hint": "检测用户编辑 IMPRESSIONS.md 的轮询频率，值越小响应越快但 I/O 开销越高",
-                "default": 30
+                "default": 30,
+                "level": "advanced"
             },
             "migration_auto_backup": {
                 "description": "迁移前自动备份数据库文件",
                 "type": "bool",
                 "hint": "插件启动时若检测到待执行迁移脚本，在运行前自动将数据库备份为 core.db.bak；关闭则跳过备份",
-                "default": true
+                "default": true,
+                "level": "advanced"
             }
         }
     },
     "debug_display": {
         "description": "调试与注入显示",
-        "hint": "开发可观测开关，不影响核心逻辑",
+        "hint": "开发可观测开关，不影响核心逻辑（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
         "type": "object",
         "items": {
             "show_thinking_process": {
                 "description": "显示记忆检索过程",
                 "type": "bool",
                 "default": false,
-                "hint": "开启后将在每条回复前附加记忆检索调试信息（查询词、分类策略、召回事件列表、注入方式），便于理解记忆系统行为"
+                "hint": "开启后将在每条回复前附加记忆检索调试信息（查询词、分类策略、召回事件列表、注入方式），便于理解记忆系统行为",
+                "level": "advanced"
             },
             "show_system_prompt": {
                 "description": "显示 System Prompt",
                 "type": "bool",
                 "default": false,
-                "hint": "开启后，回复前将附加本次请求的 System Prompt（已过滤记忆注入块），便于检查提示词拼接效果"
+                "hint": "开启后，回复前将附加本次请求的 System Prompt（已过滤记忆注入块），便于检查提示词拼接效果",
+                "level": "advanced"
             },
             "show_injection_summary": {
                 "description": "显示 Moirai 实际注入内容摘要",
                 "type": "bool",
                 "default": false,
-                "hint": "开启后，回复前将附加 Moirai 本轮实际注入内容的安全摘要（记忆、用户画像、Soul 状态），不会显示完整内部提示词或证据原文"
+                "hint": "开启后，回复前将附加 Moirai 本轮实际注入内容的安全摘要（记忆、用户画像、Soul 状态），不会显示完整内部提示词或证据原文",
+                "level": "advanced"
             }
         }
     },
     "backup": {
         "description": "自动备份",
-        "hint": "定期自动备份数据库文件，防止数据丢失",
+        "hint": "定期自动备份数据库文件，防止数据丢失（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
         "type": "object",
         "items": {
             "backup_enabled": {
-                "description": "启用每日自动备份",
+                "description": "🟢 启用每日自动备份",
                 "type": "bool",
                 "hint": "开启后将每日自动备份数据库文件",
-                "default": true
+                "default": true,
+                "level": "basic"
             },
             "backup_retention_days": {
                 "description": "备份保留天数",
                 "type": "int",
                 "hint": "超过该天数的旧备份将被自动删除",
-                "default": 7
+                "default": 7,
+                "level": "advanced"
             }
         }
     }

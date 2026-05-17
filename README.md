@@ -6,7 +6,7 @@
 
 **AstrBot 三轴长期记忆与数据可视化插件**
 
-[![version](https://img.shields.io/badge/版本-v0.12.3-blueviolet)](metadata.yaml)
+[![version](https://img.shields.io/badge/版本-v0.12.4-blueviolet)](metadata.yaml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![license](https://img.shields.io/badge/license-APGL-green)](LICENSE)
 [![en](https://img.shields.io/badge/English-README__EN.md-blue)](README_EN.md)
@@ -19,13 +19,26 @@ Made with ♥ by MKiyoaki & Gariton
 
 ---
 
-## ⚡ 快速上手
+## 这是什么
 
-### 第一步：安装
+Moirai 为 AstrBot 增加三轴持久记忆：每段对话自动切分为**情节事件**，参与者间的互动积累为**社交印象**，每日活动凝练为**叙事摘要**。三轴数据在响应时混合检索注入上下文，无需手动管理。
+
+核心亮点：
+
+- **可视化记忆管理**：7 页 WebUI 覆盖完整数据生命周期——事件时间轴、交互式社交关系图、叙事摘要阅读器、混合检索调试、人格档案库与实时统计，所有数据均可在线查看和编辑
+- **高度可定制**：70+ 配置项，各子系统（社交图谱、摘要、Soul Layer、VCM）均可独立开关；检索策略、事件切分阈值、衰减速率均可按场景精细调节
+- **记忆召回不消耗额外 LLM**：每条消息的记忆检索与上下文注入零 LLM 调用，不增加 API 费用也不拉长响应链路；BM25 关键词与向量语义并行搜索，RRF 融合排序后按 Token 预算贪心填充
+- **可靠降级**：Embedding 不可用时自动退回 BM25；社交图谱、摘要、Soul Layer 各自独立，单模块故障不影响记忆注入主路径
+
+---
+
+## 快速开始
+
+### 安装
 
 **方式一：AstrBot 插件市场**（推荐）
 
-在 AstrBot 管理面板的插件市场中搜索 `astrbot_plugin_moirai`，点击安装。
+在 AstrBot 管理面板的插件市场中搜索 `astrbot_plugin_moirai`，点击安装后重启 AstrBot。
 
 **方式二：手动克隆**
 
@@ -34,45 +47,105 @@ cd <astrbot数据目录>/plugins
 git clone https://github.com/MKiyoaki/astrbot-plugin-moirai
 ```
 
-安装后重启 AstrBot，插件会自动完成数据库初始化。
+重启 AstrBot，插件首次运行时自动完成数据库初始化。
 
-> **推荐额外安装**（可选但强烈建议）：
-> ```bash
-> pip install sentence-transformers bcrypt
-> ```
-> - `sentence-transformers`：启用语义向量检索（约 100 MB 模型，首次运行自动下载）
-> - `bcrypt`：WebUI 密码安全加密（缺失时降级为 SHA-256 并输出警告）
+**推荐额外安装**（可选但建议）：
 
-### 第二步：设置 WebUI 密码
+```bash
+pip install sentence-transformers bcrypt
+```
 
-在 AstrBot 管理面板 → 插件配置 → Moirai 中，找到 `webui_password` 字段并填入密码。留空则自动生成，请查看 AstrBot 日志获取。
+- `sentence-transformers`：启用语义向量检索（约 100 MB 模型，首次运行自动下载）
+- `bcrypt`：WebUI 密码安全加密（缺失时降级为 SHA-256 并输出警告）
 
-### 第三步：打开 WebUI
+### 基础配置
 
-浏览器访问 `http://<你的服务器IP>:2655`，输入密码登录，即可看到完整的记忆管理面板。
+在 AstrBot 管理面板 → 插件配置 → Moirai 中设置：
 
-> 默认端口 `2655`，可在配置中通过 `webui_port` 修改。
+| 配置键 | 说明 |
+|--------|------|
+| `webui_password` | WebUI 登录密码，留空则自动生成（查看 AstrBot 日志获取） |
+| `webui_port` | WebUI 端口，默认 `2655` |
+
+### 验证插件生效
+
+1. 浏览器访问 `http://<服务器IP>:2655`，输入密码登录
+2. 在 AstrBot 中与机器人对话，几条消息后发送 `/mrm status`
+3. 返回结果中 `active_sessions` 不为空、`events` 计数递增，即表示记忆管线正常运行
 
 ---
 
-## ✨ 功能特性
+## 使用指南
 
-Moirai 采用**三轴记忆架构**，将对话历史沿三个独立维度建模：
+### 插件在做什么
 
-| 轴 | 数据实体 | 说明 |
-|----|---------|------|
-| **情节轴** | `Event` | 离散对话窗口，含主题、摘要、标签与显著度评分 |
-| **社交轴** | `Impression` | 基于人际环 (IPC) 模型的有向人际关系图谱 |
-| **叙事轴** | `Summary` | 每日群组摘要（`YYYY-MM-DD.md`），记录情绪动态与关键事件 |
+插件在后台自动完成以下流程，无需任何手动干预：
 
-**其他核心能力：**
+| 时机 | 行为 |
+|------|------|
+| 每条消息 | 检索历史事件注入上下文；消息写入当前事件窗口；后台计算向量 |
+| 对话静默 / 话题漂移 | 关闭当前事件窗口，触发异步提取（主题、摘要、标签、Big Five） |
+| 每日 | 显著度衰减 · 群组叙事摘要 · 低显著度事件清理 |
+| 每周 | 人格档案合成 · 社交印象聚合 |
 
-- **混合检索**：BM25 关键词搜索 + 向量语义搜索并行，RRF 融合，贪心填充至 Token 预算
-- **事件边界检测**：无需 LLM，依靠空闲时间、话题漂移、消息数量等启发式信号自动切分
-- **WebUI 管理面板**：7 个可视化页面，全面管理三轴记忆数据
-- **Soul Layer**（实验性，默认关闭）：四维情绪状态向量，影响回复风格
+### /mrm 指令速查
 
-**模块化开关：**
+所有指令需要 AstrBot **管理员权限**。发送 `/mrm language cn` 切换响应语言为中文。
+
+**常用查询**
+
+| 指令 | 说明 |
+|------|------|
+| `/mrm status` | 插件运行状态（任务、活跃会话、WebUI 状态） |
+| `/mrm recall <关键词>` | 手动触发混合记忆检索，返回匹配事件与评分 |
+| `/mrm persona <平台ID>` | 查看指定用户的人格档案（Big Five 评分、支撑事件） |
+| `/mrm soul` | 当前会话四维情绪状态（需启用 Soul Layer） |
+
+**操作指令**
+
+| 指令 | 说明 |
+|------|------|
+| `/mrm flush` | 清除当前会话上下文窗口（不影响数据库） |
+| `/mrm webui on\|off` | 启动或停止 WebUI 服务 |
+| `/mrm language <cn\|en\|ja>` | 切换指令响应语言（持久保存） |
+| `/mrm run decay` | 手动触发显著度衰减 |
+| `/mrm run synthesis` | 手动触发人格合成 |
+| `/mrm run summary` | 手动触发所有群组摘要生成 |
+| `/mrm run cleanup` | 手动触发低显著度事件清理 |
+| `/mrm help` | 显示帮助 |
+
+**重置指令 ⚠️**
+
+> 需要二步确认：首次发送后返回警告，**30 秒内再次发送同一指令**才会执行。
+
+| 指令 | 操作范围 |
+|------|---------|
+| `/mrm reset here` | 当前群组的所有事件与摘要 |
+| `/mrm reset event <群组ID>` | 指定群组的所有事件与摘要 |
+| `/mrm reset event all` | 全部事件记录 |
+| `/mrm reset persona <平台ID>` | 指定用户的人格档案 |
+| `/mrm reset persona all` | 全部人格档案 |
+| `/mrm reset all` | 全部插件数据（事件、人格、投影文件） |
+
+### WebUI 面板导览
+
+| 页面 | 路径 | 说明 |
+|------|------|------|
+| 事件流 | `/events` | 按时序浏览事件，支持搜索、标签过滤、内联编辑、回收站 |
+| 关系图谱 | `/graph` | 交互式人际关系图，节点为人格，边为印象，可查看证据事件 |
+| 叙事摘要 | `/summary` | 按群组与日期浏览每日摘要（话题 · 事件列表 · 情绪动态） |
+| 记忆检索 | `/recall` | 手动混合检索，查看命中事件与 RRF 评分 |
+| 数据库 | `/library` | 人格 · 人物事件 · 印象 · 标签 分标签浏览 |
+| 统计 | `/stats` | 事件/人格数量、标签分布、时序图、管线性能 |
+| 设置 | `/settings` | 主题 · 语言 · 密码 · 手动任务触发 |
+
+WebUI 采用双层认证：**登录**（密码存于 `data_dir/.webui_password`）+ **Sudo 提权**（写操作前重新输入密码）。纯本地部署可设 `webui_auth_enabled: false` 跳过。
+
+---
+
+## 高级配置与调优
+
+### 核心模块开关
 
 | 功能 | 配置键 | 默认 |
 |------|--------|------|
@@ -88,173 +161,78 @@ Moirai 采用**三轴记忆架构**，将对话历史沿三个独立维度建模
 | Markdown 投影 | `markdown_projection_enabled` | ✅ 开 |
 | VCM 状态机 | `vcm_enabled` | ✅ 开 |
 
----
+### 记忆质量调优
 
-## 📋 /mrm 指令参考
+以下参数对记忆质量影响最大，其余参数使用默认值即可。
 
-所有管理指令通过 `/mrm` 指令组发送，需要 AstrBot **管理员权限**。
-
-> 使用 `/mrm language cn` 可将指令响应切换为中文。
-
-### 信息查询
-
-| 指令 | 说明 |
-|------|------|
-| `/mrm status` | 查看插件运行状态（任务列表、活跃会话、WebUI 状态） |
-| `/mrm persona <平台ID>` | 查看指定用户的人格档案（描述、Big Five 评分、支撑事件） |
-| `/mrm soul` | 查看当前会话的四维情绪状态 |
-| `/mrm recall <关键词>` | 手动触发混合记忆检索，返回匹配事件与评分 |
-
-### 操作指令
-
-| 指令 | 说明 |
-|------|------|
-| `/mrm webui on\|off` | 启动或停止 WebUI 服务 |
-| `/mrm flush` | 清除当前会话上下文窗口（不影响数据库） |
-| `/mrm language <cn\|en\|ja>` | 切换指令响应语言（重启后保留） |
-| `/mrm run decay` | 手动触发显著度衰减任务 |
-| `/mrm run synthesis` | 手动触发人格合成任务 |
-| `/mrm run summary` | 手动触发所有群组摘要生成 |
-| `/mrm run cleanup` | 手动触发低显著度事件清理 |
-| `/mrm help` | 显示帮助文档 |
-
-### 重置指令 ⚠️
-
-> **需要二次确认**：首次发送后会返回警告，**30 秒内再次发送相同指令**才会执行。
-
-| 指令 | 操作范围 |
-|------|---------|
-| `/mrm reset here` | 删除当前群的所有事件与摘要文件 |
-| `/mrm reset event <群组ID>` | 删除指定群的所有事件与摘要文件 |
-| `/mrm reset event all` | 删除**全部**事件记录 |
-| `/mrm reset persona <平台ID>` | 删除指定用户的人格档案 |
-| `/mrm reset persona all` | 删除**全部**人格档案 |
-| `/mrm reset all` | 清空**全部**插件数据（事件、人格、投影文件） |
-
----
-
-## ⚙️ 配置项速查
-
-在 AstrBot 插件配置页或 `_conf_schema.json` 中调整，以下为最常用项：
+**检索注入**
 
 | 配置键 | 默认值 | 说明 |
 |--------|--------|------|
-| `webui_port` | `2655` | WebUI 端口 |
-| `webui_auth_enabled` | `true` | 是否启用登录验证 |
-| `embedding_enabled` | `true` | 关闭则仅用 BM25 关键词检索 |
-| `embedding_provider` | `"local"` | `"local"` 本地模型 / `"api"` 远程 API |
 | `retrieval_top_k` | `10` | 每次最多注入几条记忆事件 |
 | `retrieval_token_budget` | `800` | 注入记忆的 Token 上限 |
-| `boundary_time_gap_minutes` | `30` | 空闲多久后切分新事件 |
-| `summary_interval_hours` | `24` | 群组摘要生成频率（小时） |
-| `relation_enabled` | `true` | 是否构建社交关系图谱 |
-| `soul_enabled` | `false` | 是否启用情绪状态（实验性） |
-
-<details>
-<summary>📖 完整配置项参考（展开）</summary>
-
-### 向量嵌入
-
-| 配置键 | 默认值 | 说明 |
-|--------|--------|------|
-| `embedding_model` | `"BAAI/bge-small-zh-v1.5"` | 本地模型名称或 API 模型名 |
-| `embedding_api_url` | `""` | API 模式的端点地址 |
-| `embedding_api_key` | `""` | API 密钥 |
-| `embedding_batch_size` | `1` | 每批处理消息数 |
-| `embedding_retry_max` | `3` | 失败重试次数 |
-
-### 检索
-
-| 配置键 | 默认值 | 说明 |
-|--------|--------|------|
-| `retrieval_weighted_random` | `false` | 启用 Softmax 加权随机采样（替代确定性 Top-K） |
-| `retrieval_sampling_temperature` | `1.0` | 采样温度（仅加权随机模式生效） |
 | `retrieval_active_only` | `true` | 仅检索活跃事件，排除已归档 |
-| `retrieval_recency_half_life_days` | `30.0` | 时间衰减半衰期（天） |
 
-### 事件边界
+**事件切分**
 
 | 配置键 | 默认值 | 说明 |
 |--------|--------|------|
+| `boundary_time_gap_minutes` | `30` | 空闲多久后切分新事件 |
 | `boundary_max_messages` | `50` | 单事件消息数硬上限 |
-| `boundary_max_duration_minutes` | `60` | 单事件时长硬上限（分钟） |
-| `boundary_topic_drift_threshold` | `0.6` | 话题漂移触发阈值（余弦距离） |
-| `boundary_topic_drift_min_messages` | `20` | 启动漂移检测所需最少消息数 |
+| `boundary_topic_drift_threshold` | `0.6` | 话题漂移触发阈值（余弦距离，越小越敏感） |
 
-### 社交关系
+**向量嵌入（API 模式）**
 
 | 配置键 | 默认值 | 说明 |
 |--------|--------|------|
-| `impression_update_alpha` | `0.4` | EMA 平滑系数（越大越快响应新数据） |
-| `impression_event_trigger_threshold` | `5` | 共享事件数达到多少时触发印象更新 |
-| `impression_aggregation_interval_hours` | `168` | 印象聚合频率（默认每周） |
+| `embedding_provider` | `"local"` | `"local"` 本地模型 / `"api"` 远程 API |
+| `embedding_api_url` | `""` | API 端点地址 |
+| `embedding_api_key` | `""` | API 密钥 |
+| `embedding_model` | `"BAAI/bge-small-zh-v1.5"` | 本地模型名或 API 模型名 |
 
-### 记忆清理与衰减
+**记忆衰减与清理**
 
 | 配置键 | 默认值 | 说明 |
 |--------|--------|------|
 | `decay_lambda` | `0.01` | 衰减速率（半衰期约 69 天） |
-| `decay_archive_threshold` | `0.05` | 低于此显著度则归档 |
 | `memory_cleanup_threshold` | `0.3` | 低于此显著度则永久删除 |
-| `memory_cleanup_interval_days` | `7` | 清理任务执行频率（天） |
-| `memory_cleanup_retention_days` | `30` | 归档事件在永久删除前的保留期（天） |
+| `memory_cleanup_retention_days` | `30` | 归档事件在永久删除前的保留天数 |
 
-### Soul Layer（情绪状态）
+### 常见问题
 
-| 配置键 | 默认值 | 说明 |
-|--------|--------|------|
-| `soul_decay_rate` | `0.1` | 每轮衰减比例（0.1 = 10%） |
-| `soul_recall_depth_init` | `0.0` | 记忆检索驱动初始值（-20 ~ +20） |
-| `soul_impression_depth_init` | `0.0` | 社交关注度初始值（-20 ~ +20） |
-| `soul_expression_desire_init` | `0.0` | 表达欲初始值（-20 ~ +20） |
-| `soul_creativity_init` | `0.0` | 创造力初始值（-20 ~ +20） |
+**WebUI 无法连接**
 
-</details>
+检查：① `webui_enabled` 是否为 `true`；② 端口 `webui_port`（默认 2655）未被防火墙屏蔽；③ AstrBot 日志中无 WebUI 启动报错。
 
----
+**Embedding 模型下载失败**
 
-## 🖥️ WebUI 页面说明
+本地模型首次启动时从 HuggingFace 下载，国内网络可能超时。解决方案：配置 `embedding_provider: "api"` 使用远程 API，或设置 HuggingFace 镜像环境变量 `HF_ENDPOINT`。
 
-| 页面 | 路径 | 功能 |
-|------|------|------|
-| **事件流** | `/events` | 按时序浏览事件，支持搜索、标签过滤、内联编辑、回收站 |
-| **关系图谱** | `/graph` | Cytoscape.js 交互式人际关系图，节点为人格，边为印象 |
-| **叙事摘要** | `/summary` | 按群组与日期查看/编辑每日摘要（主要话题 · 事件列表 · 情绪动态） |
-| **记忆检索** | `/recall` | 手动触发混合检索，查看命中事件与评分 |
-| **数据库** | `/library` | 人格 · 人物事件 · 印象 · 标签 分标签浏览 |
-| **统计** | `/stats` | 事件/人格数量、标签分布、活跃时序图、流水线性能 |
-| **设置** | `/settings` | 主题 · 语言 · 密码 · 手动任务触发 |
-
-> WebUI 采用双层认证：**登录**（密码存于 `data_dir/.webui_password`）+ **Sudo 提权**（写操作前需重新输入密码）。纯本地部署可设 `webui_auth_enabled: false` 跳过。
-
----
-
-## 🛡️ 可靠性与已知局限
-
-**可靠性保障：**
-- 单文件持久化：SQLite WAL 模式 + 自动迁移前备份，语料库可单文件迁移
-- 优雅降级：Embedding 模型不可用时自动降级为 BM25，不中断对话
-- 故障隔离：社交图谱、摘要、Soul Layer 各自独立，一个失败不影响其他
-- 二步确认：所有 `/mrm reset` 指令需 30 秒内二次确认，防止误操作
-
-**已知局限：**
+### 已知局限
 
 | 领域 | 说明 |
 |------|------|
 | 并行对话 | 同群内并行对话视为单一事件，无回复链解缠（v2 规划） |
 | 事件层级 | 仅支持平铺结构，无嵌套事件（v2 规划） |
-| 嵌入模型 | 本地模型针对中文优化，英文为主的部署建议配置 API 嵌入提供商 |
-| 图谱规模 | 设计目标为消费级规模（< 500 节点），超大群组历史可能影响 UI 性能 |
+| 嵌入模型 | 本地模型针对中文优化，英文为主的部署建议配置 API 提供商 |
+| 图谱规模 | 设计目标 < 500 节点，超大群组历史可能影响 UI 性能 |
 | LLM 质量 | 话题标注、Big Five 评分、摘要质量取决于所配置 LLM 的能力 |
-| Soul Layer | 实验性功能，极端参数下行为可能异常 |
+| Soul Layer | 实验性，极端参数下行为可能异常 |
 | Token 上限 | 800 Token 注入为硬上限，高活跃群组中部分相关事件可能被截断 |
 
 ---
 
-<details>
-<summary>🔧 技术实现（开发者 / 高级用户）</summary>
+## 技术架构（开发者）
 
-### 架构总览
+### 三轴记忆模型
+
+| 轴 | 数据实体 | 说明 |
+|----|---------|------|
+| 情节轴 | `Event` | 离散对话窗口，含主题、摘要、标签与显著度评分 |
+| 社交轴 | `Impression` | 基于 IPC 人际环模型的有向人际关系图谱 |
+| 叙事轴 | `Summary` | 每日群组摘要（`YYYY-MM-DD.md`），记录情绪动态与关键事件 |
+
+### 数据流与 RAG 检索管线
 
 ```
 AstrBot 消息流
@@ -282,6 +260,17 @@ AstrBot 消息流
         │  每周：人格合成 · 印象聚合
 ```
 
+**LLM 调用预算**
+
+| 触发时机 | 任务 | 调用次数 |
+|---------|------|---------|
+| 每条消息（热路径） | 检索与注入 | **0** |
+| 每个事件关闭 | 核心提取 | **1** |
+| 每个事件（社交） | Big Five 评分 | **0**（命中统一提取）或 **1** |
+| 每周 | 人格合成 | **每活跃用户 1 次** |
+| 每日/每周 | 群组摘要 | **每活跃群组 ≤ 2 次** |
+| 周期 | 印象聚合 | **0**（纯数学） |
+
 ### 存储布局
 
 ```
@@ -301,18 +290,9 @@ data/plugins/<plugin_name>/data/
     └── BOT_PERSONA.md
 ```
 
-### LLM 调用预算
+单文件持久化：SQLite WAL 模式 + 自动迁移前备份，数据库可单文件迁移。
 
-| 触发时机 | 任务 | 调用次数 |
-|---------|------|---------|
-| 每条消息（热路径） | 检索与注入 | **0** |
-| 每个事件关闭 | 核心提取 | **1** |
-| 每个事件（社交） | Big Five 评分 | **0**（命中统一提取）或 **1** |
-| 每周 | 人格合成 | **每活跃用户 1 次** |
-| 每日/每周 | 群组摘要 | **每活跃群组 ≤ 2 次** |
-| 周期 | 印象聚合 | **0**（纯数学） |
-
-### 社交关系推断公式（IPC 模型）
+### 社交关系推断（IPC 模型）
 
 Big Five 评分（O/C/E/A/N）通过以下公式映射至 IPC 坐标：
 
@@ -321,13 +301,9 @@ Big Five 评分（O/C/E/A/N）通过以下公式映射至 IPC 坐标：
 权力感 = 0.70 × 外向性 + 0.35 × 尽责性 − 0.15 × 神经质
 ```
 
-印象以 EMA（指数移动平均，α 可配置）方式更新，并归入八象限标签（亲和 / 活跃 / 掌控 / 高傲 / 冷淡 / 孤避 / 顺应 / 谦让）。
-
-### 跨平台身份统一
+印象以 EMA（指数移动平均，α 可配置）方式更新，归入八象限标签（亲和 / 活跃 / 掌控 / 高傲 / 冷淡 / 孤避 / 顺应 / 谦让）。
 
 所有实体通过内部稳定 `uid` 关联（而非平台 ID）。映射 `(platform, physical_id) → uid` 在适配器边界维护，支持同一用户跨平台账号合并。
-
-</details>
 
 ---
 

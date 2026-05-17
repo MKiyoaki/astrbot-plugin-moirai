@@ -539,6 +539,8 @@ export const zh = {
     needSudo: '修改配置需要 Sudo 模式',
     modifiedItems: '{count} 项已修改',
     configCount: '{count} 项配置',
+    showAdvanced: '开发者设置',
+    showAdvancedHint: '关闭后仅显示基础配置项',
     sections: {
       webui: 'WebUI 设置',
       embedding: '向量检索与 Embedding',
@@ -1346,6 +1348,8 @@ export const ja = {
     needSudo: '保存にはSudoモードが必要です',
     modifiedItems: '{count} 件変更済み',
     configCount: '{count} 件の構成',
+    showAdvanced: '開発者設定',
+    showAdvancedHint: '基本設定のみ表示するには無効にします',
     sections: {
       webui: 'WebUI設定',
       embedding: 'ベクトル検索と埋め込み',
@@ -2131,6 +2135,8 @@ export const en = {
     needSudo: 'Sudo mode required to save',
     modifiedItems: '{count} items modified',
     configCount: '{count} items',
+    showAdvanced: 'Developer Settings',
+    showAdvancedHint: 'When off, only basic config items are shown',
     sections: {
       webui: 'WebUI Settings',
       embedding: 'Vector Search & Embedding',
