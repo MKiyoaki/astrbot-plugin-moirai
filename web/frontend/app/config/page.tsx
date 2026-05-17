@@ -533,6 +533,34 @@ export default function ConfigPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [dirty])
 
+  useEffect(() => {
+    if (loading) return
+    let timer: number | null = null
+    const scrollToTarget = (target: string) => {
+      sessionStorage.removeItem('em_config_scroll_target')
+      timer = window.setTimeout(() => {
+        document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 120)
+    }
+    const handleScrollTarget = (event: Event) => {
+      const target = (event as CustomEvent<string>).detail || 'persona-ownership'
+      scrollToTarget(target)
+    }
+    window.addEventListener('em_config_scroll_target', handleScrollTarget)
+
+    const hashTarget = window.location.hash === '#persona-ownership' ? 'persona-ownership' : null
+    const storedTarget = sessionStorage.getItem('em_config_scroll_target')
+    const target = storedTarget || hashTarget
+    if (target) {
+      scrollToTarget(target)
+    }
+
+    return () => {
+      window.removeEventListener('em_config_scroll_target', handleScrollTarget)
+      if (timer !== null) window.clearTimeout(timer)
+    }
+  }, [loading])
+
   const handleChange = (key: string, val: unknown) => {
     setDirty(prev => ({ ...prev, [key]: val }))
     setValues(prev => ({ ...prev, [key]: val }))
@@ -672,8 +700,8 @@ export default function ConfigPage() {
                         )
                       })}
                     </CardContent>
+                    {section.id === 'relation' && <PersonaOwnershipManager embedded />}
                   </Card>
-                  {section.id === 'relation' && <PersonaOwnershipManager />}
                 </div>
               )
             })

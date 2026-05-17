@@ -15,7 +15,7 @@ type PersonaChoice = string
 
 const CUSTOM = '__custom__'
 
-export function PersonaOwnershipManager() {
+export function PersonaOwnershipManager({ embedded = false }: { embedded?: boolean }) {
   const { i18n, sudo, toast, setCurrentPersona, currentPersonaName } = useApp()
   const t = i18n.config.ownership
   const [bots, setBots] = useState<api.BotPersonaItem[]>([])
@@ -109,98 +109,115 @@ export function PersonaOwnershipManager() {
     ? preview.events_moved + preview.impressions_moved + preview.personas_moved
     : 0
 
+  const header = (
+    <CardHeader className="border-b border-border/50 pb-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <CardTitle className="flex items-center gap-2 text-lg font-bold tracking-tight">
+            <GitMerge className="size-4" />
+            {t.title}
+          </CardTitle>
+          <CardDescription className="mt-1 text-xs">{t.description}</CardDescription>
+        </div>
+        <Button variant="outline" size="sm" onClick={loadBots}>
+          <RefreshCw className="size-3" />
+          {t.refresh}
+        </Button>
+      </div>
+    </CardHeader>
+  )
+
+  const content = (
+    <CardContent className="flex flex-col gap-4 px-6 py-4">
+      <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr] md:items-end">
+        <PersonaPicker
+          label={t.source}
+          value={source}
+          customValue={sourceCustom}
+          options={options}
+          customLabel={t.custom}
+          customPlaceholder={t.customSourcePlaceholder}
+          onValueChange={value => { setSource(value); resetPreview() }}
+          onCustomChange={value => { setSourceCustom(value); resetPreview() }}
+        />
+        <ArrowRight className="mx-auto mb-2 hidden size-4 text-muted-foreground md:block" />
+        <PersonaPicker
+          label={t.target}
+          value={target}
+          customValue={targetCustom}
+          options={options}
+          customLabel={t.custom}
+          customPlaceholder={t.customTargetPlaceholder}
+          onValueChange={value => { setTarget(value); resetPreview() }}
+          onCustomChange={value => { setTargetCustom(value); resetPreview() }}
+        />
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+        <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+          {t.mode}
+          <select
+            value={mode}
+            onChange={e => { setMode(e.target.value as api.PersonaMergeMode); resetPreview() }}
+            className="border-input bg-transparent rounded-md border px-2.5 py-2 text-sm text-foreground"
+          >
+            <option value="all">{t.modeAll}</option>
+            <option value="impressions_only">{t.modeImpressionsOnly}</option>
+          </select>
+        </label>
+        <Button onClick={handlePreview} disabled={!canPreview || previewLoading}>
+          {previewLoading && <Spinner data-icon="inline-start" />}
+          {t.preview}
+        </Button>
+      </div>
+
+      {sameTarget && (
+        <p className="text-xs text-destructive">{t.sameTarget}</p>
+      )}
+
+      {preview && (
+        <div className="rounded-md border bg-muted/20 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground">{t.previewResult}</span>
+            <Badge variant={movedTotal > 0 ? 'default' : 'secondary'}>{movedTotal}</Badge>
+          </div>
+          <div className="grid gap-2 text-sm sm:grid-cols-2">
+            <Stat label={t.eventsMoved} value={preview.events_moved} />
+            <Stat label={t.impressionsMoved} value={preview.impressions_moved} />
+            <Stat label={t.impressionsDropped} value={preview.impressions_dropped} destructive={preview.impressions_dropped > 0} />
+            <Stat label={t.personasMoved} value={preview.personas_moved} />
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap justify-end gap-2">
+        {!confirming ? (
+          <Button variant="destructive" disabled={!canSubmit} onClick={() => setConfirming(true)}>
+            {t.confirm}
+          </Button>
+        ) : (
+          <Button variant="destructive" disabled={!canSubmit || submitting} onClick={handleSubmit}>
+            {submitting && <Spinner data-icon="inline-start" />}
+            {t.confirmTwice}
+          </Button>
+        )}
+      </div>
+    </CardContent>
+  )
+
+  if (embedded) {
+    return (
+      <div id="persona-ownership" className="border-t border-border/50 bg-muted/10">
+        {header}
+        {content}
+      </div>
+    )
+  }
+
   return (
-    <Card className="mt-4 overflow-hidden border-muted/60 shadow-sm">
-      <CardHeader className="border-b border-border/50 pb-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-lg font-bold tracking-tight">
-              <GitMerge className="size-4" />
-              {t.title}
-            </CardTitle>
-            <CardDescription className="mt-1 text-xs">{t.description}</CardDescription>
-          </div>
-          <Button variant="outline" size="sm" onClick={loadBots}>
-            <RefreshCw className="size-3" />
-            {t.refresh}
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4 px-6 py-4">
-        <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr] md:items-end">
-          <PersonaPicker
-            label={t.source}
-            value={source}
-            customValue={sourceCustom}
-            options={options}
-            customLabel={t.custom}
-            customPlaceholder={t.customSourcePlaceholder}
-            onValueChange={value => { setSource(value); resetPreview() }}
-            onCustomChange={value => { setSourceCustom(value); resetPreview() }}
-          />
-          <ArrowRight className="mx-auto mb-2 hidden size-4 text-muted-foreground md:block" />
-          <PersonaPicker
-            label={t.target}
-            value={target}
-            customValue={targetCustom}
-            options={options}
-            customLabel={t.custom}
-            customPlaceholder={t.customTargetPlaceholder}
-            onValueChange={value => { setTarget(value); resetPreview() }}
-            onCustomChange={value => { setTargetCustom(value); resetPreview() }}
-          />
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-          <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-            {t.mode}
-            <select
-              value={mode}
-              onChange={e => { setMode(e.target.value as api.PersonaMergeMode); resetPreview() }}
-              className="border-input bg-transparent rounded-md border px-2.5 py-2 text-sm text-foreground"
-            >
-              <option value="all">{t.modeAll}</option>
-              <option value="impressions_only">{t.modeImpressionsOnly}</option>
-            </select>
-          </label>
-          <Button onClick={handlePreview} disabled={!canPreview || previewLoading}>
-            {previewLoading && <Spinner data-icon="inline-start" />}
-            {t.preview}
-          </Button>
-        </div>
-
-        {sameTarget && (
-          <p className="text-xs text-destructive">{t.sameTarget}</p>
-        )}
-
-        {preview && (
-          <div className="rounded-md border bg-muted/20 p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">{t.previewResult}</span>
-              <Badge variant={movedTotal > 0 ? 'default' : 'secondary'}>{movedTotal}</Badge>
-            </div>
-            <div className="grid gap-2 text-sm sm:grid-cols-2">
-              <Stat label={t.eventsMoved} value={preview.events_moved} />
-              <Stat label={t.impressionsMoved} value={preview.impressions_moved} />
-              <Stat label={t.impressionsDropped} value={preview.impressions_dropped} destructive={preview.impressions_dropped > 0} />
-              <Stat label={t.personasMoved} value={preview.personas_moved} />
-            </div>
-          </div>
-        )}
-
-        <div className="flex flex-wrap justify-end gap-2">
-          {!confirming ? (
-            <Button variant="destructive" disabled={!canSubmit} onClick={() => setConfirming(true)}>
-              {t.confirm}
-            </Button>
-          ) : (
-            <Button variant="destructive" disabled={!canSubmit || submitting} onClick={handleSubmit}>
-              {submitting && <Spinner data-icon="inline-start" />}
-              {t.confirmTwice}
-            </Button>
-          )}
-        </div>
-      </CardContent>
+    <Card id="persona-ownership" className="mt-4 overflow-hidden border-muted/60 shadow-sm">
+      {header}
+      {content}
     </Card>
   )
 }

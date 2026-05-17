@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Bot, ChevronsUpDown, Globe } from 'lucide-react'
+import { usePathname, useRouter } from 'next/navigation'
+import { ArrowRightLeft, Bot, ChevronsUpDown, Globe } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
@@ -18,6 +19,8 @@ function getInitials(name: string | null): string {
 export function PersonaSelector() {
   const { i18n, currentPersonaName, scopeMode, setCurrentPersona, personaConfig } = useApp()
   const t = i18n.personaSelector
+  const router = useRouter()
+  const pathname = usePathname()
   const [bots, setBots] = useState<api.BotPersonaItem[]>([])
   const [open, setOpen] = useState(false)
 
@@ -32,6 +35,20 @@ export function PersonaSelector() {
   const isAll = scopeMode === 'all'
   const label = isAll ? t.allPersonas : (currentPersonaName ?? t.defaultPersona)
   const hasMultiple = bots.length > 1 || (bots.length === 1 && bots[0].name !== null)
+  const openOwnershipSettings = () => {
+    const target = 'persona-ownership'
+    setOpen(false)
+    sessionStorage.setItem('em_config_scroll_target', target)
+    if ((pathname ?? '').replace(/\/$/, '') === '/config') {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${target}`)
+      window.dispatchEvent(new CustomEvent('em_config_scroll_target', { detail: target }))
+      window.setTimeout(() => {
+        document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 120)
+      return
+    }
+    router.push(`/config#${target}`)
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -58,9 +75,22 @@ export function PersonaSelector() {
         </Button>
       </PopoverTrigger>
       <PopoverContent side="top" align="start" className="w-56 p-1">
-        <p className="px-2 py-1 text-[10px] font-mono uppercase tracking-[0.15em] text-muted-foreground/60">
-          {t.switchPersona}
-        </p>
+        <div className="flex items-center gap-1 px-2 py-1">
+          <p className="min-w-0 flex-1 truncate text-[10px] font-mono uppercase tracking-[0.15em] text-muted-foreground/60">
+            {t.switchPersona}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-7 shrink-0 border-primary/25 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+            title={t.manageOwnershipTitle}
+            aria-label={t.manageOwnership}
+            onClick={openOwnershipSettings}
+          >
+            <ArrowRightLeft data-icon="icon-only" />
+          </Button>
+        </div>
 
         {/* All Bots option */}
         <button

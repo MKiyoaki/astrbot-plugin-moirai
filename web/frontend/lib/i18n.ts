@@ -78,6 +78,8 @@ export const zh = {
     confirmSelect: '确认',
     viewAll: '所有 Bot',
     viewAllDesc: '汇总所有 Bot 的数据',
+    manageOwnership: '我希望迁移人格数据',
+    manageOwnershipTitle: '我希望迁移人格数据',
   },
   page: {
     events: {
@@ -878,6 +880,8 @@ export const ja = {
     confirmSelect: '確認',
     viewAll: '全 Bot',
     viewAllDesc: '全 Bot のデータを集約表示',
+    manageOwnership: '人格データを移行したい',
+    manageOwnershipTitle: '人格データを移行したい',
   },
   page: {
     events: {
@@ -1658,6 +1662,8 @@ export const en = {
     confirmSelect: 'Confirm',
     viewAll: 'All Bots',
     viewAllDesc: 'Show combined data from all bots',
+    manageOwnership: 'I want to migrate persona data',
+    manageOwnershipTitle: 'I want to migrate persona data',
   },
   page: {
     events: {

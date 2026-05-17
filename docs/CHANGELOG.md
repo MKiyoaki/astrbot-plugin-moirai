@@ -1,11 +1,31 @@
 # CHANGELOG
 
+## [v0.12.2] — 2026-05-17
+
+### Persona 归属入口可达性与版本同步
+
+- **WebUI**
+  - 在左下角 `PersonaSelector` 的“切换 Bot 视角”标题右侧新增常驻设置按钮
+  - 将跳转按钮文案调整为“我希望迁移人格数据”，并改为更贴合迁移语义的双向箭头样式
+  - 点击后跳转到「插件配置 → 社会关系与印象 → Persona 数据归属管理」，并将目标区块滚动到视口居中位置
+  - 修复已在插件配置页时点击跳转按钮不会滚动到归属管理区块的问题
+  - 为 `PersonaOwnershipManager` 增加稳定锚点 `persona-ownership`
+
+- **三语适配**
+  - 补齐中文、日文、英文的 Bot 视角弹层跳转按钮文案与可访问名称
+  - 复查 `Persona 数据归属管理` 的 zh/ja/en 操作文案、提示、模式和结果字段
+
+- **版本同步**
+  - 版本号更新为 `v0.12.2`
+  - 同步更新 `README.md` 与 `README_EN.md` 版本徽章
+  - `tools/bump_version.py` 默认 bump 流程新增 README / README_EN 版本徽章更新
+
 ## [v0.12.1] — 2026-05-17
 
 ### Persona 数据归属管理与入口去重
 
 - **配置页新增 Persona 数据归属管理**
-  - 在「插件配置 → 社会关系与印象」下新增 `PersonaOwnershipManager`
+  - 在「插件配置 → 社会关系与印象」卡片内部新增 `PersonaOwnershipManager` 高级区块
   - 支持从已有 bot persona、`__legacy__` 旧数据域或自定义 `bot_persona_name` 迁移到另一个数据域
   - 支持两种迁移范围：全部数据（events + impressions + persona tags）或仅社会关系 / 印象（impressions only）
   - 提供 preview、sudo gate、二次确认和迁移后 bot 列表刷新

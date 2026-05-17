@@ -136,6 +136,12 @@ class TestI18n:
         src = _read("lib/i18n.ts")
         assert "全 Bot" in src
 
+    def test_persona_selector_ownership_jump_i18n(self):
+        src = _read("lib/i18n.ts")
+        assert "我希望迁移人格数据" in src
+        assert "人格データを移行したい" in src
+        assert "I want to migrate persona data" in src
+
     def test_three_persona_selector_sections(self):
         src = _read("lib/i18n.ts")
         # Should appear exactly 3 times (once per language)
@@ -173,6 +179,15 @@ class TestPersonaSelector:
         src = _read("components/shared/persona-selector.tsx")
         assert "listBots" in src
 
+    def test_links_to_persona_ownership_config(self):
+        src = _read("components/shared/persona-selector.tsx")
+        assert "ArrowRightLeft" in src
+        assert "persona-ownership" in src
+        assert "em_config_scroll_target" in src
+        assert "block: 'center'" in src
+        assert "router.push(`/config#${target}`)" in src
+        assert "window.dispatchEvent" in src
+
     def test_selector_does_not_merge_personas(self):
         src = _read("components/shared/persona-selector.tsx")
         assert "mergePersonas" not in src
@@ -189,9 +204,13 @@ class TestPersonaOwnershipManager:
         src = _read("app/config/page.tsx")
         assert "PersonaOwnershipManager" in src
         assert "section.id === 'relation'" in src
+        assert "<PersonaOwnershipManager embedded />" in src
+        assert "em_config_scroll_target" in src
+        assert "block: 'center'" in src
 
     def test_supports_legacy_and_modes(self):
         src = _read("components/config/persona-ownership-manager.tsx")
+        assert 'id="persona-ownership"' in src
         assert "LEGACY_PERSONA_TOKEN" in src
         assert "impressions_only" in src
         assert "mergePersonasPreview" in src

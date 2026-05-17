@@ -38,6 +38,28 @@ def bump_version(current: str, part: str) -> str:
     # Keep the 'v' prefix if the original had it
     return f"v{new_v}" if v_prefix else new_v
 
+def update_readme_version_badge(path: Path, display_version: str, dry_run: bool) -> bool:
+    """Update the shield.io version badge in README files."""
+    if not path.exists():
+        print(f"⚠️  Warning: {path.name} not found. Skipping.")
+        return False
+
+    content = path.read_text(encoding="utf-8")
+    new_content, count = re.subn(
+        r"(https://img\.shields\.io/badge/(?:版本|version)-)v?[\d\.]+(-blueviolet)",
+        rf"\g<1>{display_version}\2",
+        content,
+        count=1,
+    )
+    if count == 0:
+        print(f"⚠️  Warning: version badge not found in {path.name}. Skipping.")
+        return False
+
+    if not dry_run:
+        path.write_text(new_content, encoding="utf-8")
+    print(f"✅ Updated {path.name} version badge")
+    return True
+
 def main():
     parser = argparse.ArgumentParser(description="Bump plugin version and update metadata/CHANGELOG")
     parser.add_argument("part", choices=['major', 'minor', 'patch'], help="Which part of the version to bump")
@@ -49,6 +71,7 @@ def main():
     root = Path(__file__).parent.parent
     metadata_path = root / "metadata.yaml"
     changelog_path = root / "CHANGELOG.md"
+    readme_paths = [root / "README.md", root / "README_EN.md"]
     
     if not metadata_path.exists():
         print(f"Error: {metadata_path} not found")
@@ -70,8 +93,13 @@ def main():
         
     print(f"Bumping version: {current_version_str} -> {new_version_str}")
     
+    display_version = new_version_str if new_version_str.startswith('v') else f"v{new_version_str}"
     if args.dry_run:
-        print("Dry run: skipping file updates.")
+        print("Dry run: showing planned file updates.")
+        print(f"- {metadata_path}")
+        print(f"- {changelog_path}")
+        for path in readme_paths:
+            print(f"- {path}")
         return
         
     # 1. Update metadata.yaml
@@ -89,8 +117,6 @@ def main():
         header = "# CHANGELOG"
         
         # New entry template
-        # Note: If new_version_str doesn't have 'v', we might want to add it for the [vX.Y.Z] format
-        display_version = new_version_str if new_version_str.startswith('v') else f"v{new_version_str}"
         entry = f"\n\n## [{display_version}] — {today}\n\n### \n\n- \n"
         
         if header in changelog_content:
@@ -100,6 +126,10 @@ def main():
             print(f"✅ Updated {changelog_path.name} with new entry template")
         else:
             print("⚠️  Warning: '# CHANGELOG' header not found in CHANGELOG.md. Skipping auto-entry.")
+
+    # 3. Update README badges that mirror the plugin version for marketplace visibility.
+    for readme_path in readme_paths:
+        update_readme_version_badge(readme_path, display_version, args.dry_run)
             
     print(f"\nNext steps:\n1. Edit CHANGELOG.md to add your changes.\n2. Run 'npm run build' in web/frontend if needed.\n3. Commit and tag.")
 
