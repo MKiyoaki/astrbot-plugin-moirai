@@ -10,10 +10,15 @@
   - 点击后跳转到「插件配置 → 社会关系与印象 → Persona 数据归属管理」，并将目标区块滚动到视口居中位置
   - 修复已在插件配置页时点击跳转按钮不会滚动到归属管理区块的问题
   - 为 `PersonaOwnershipManager` 增加稳定锚点 `persona-ownership`
+  - 重新执行前端生产构建并同步 `pages/moirai/_app` 静态产物，确保 AstrBot 安装场景加载到最新 Persona 迁移工具
 
 - **三语适配**
   - 补齐中文、日文、英文的 Bot 视角弹层跳转按钮文案与可访问名称
   - 复查 `Persona 数据归属管理` 的 zh/ja/en 操作文案、提示、模式和结果字段
+
+- **构建同步**
+  - 修复 `core/utils/frontend_build.py` 在 Windows 环境只查找 `npm` 而无法启动 `npm.cmd` 的问题
+  - 构建脚本读取 npm 输出时改为 UTF-8 容错解码，避免 Next.js 输出中的非 GBK 字符导致同步脚本崩溃
 
 - **版本同步**
   - 版本号更新为 `v0.12.2`

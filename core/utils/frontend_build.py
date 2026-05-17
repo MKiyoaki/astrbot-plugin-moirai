@@ -104,8 +104,12 @@ _REDIRECT_TEMPLATE = """\
 
 
 def _find_npm() -> str | None:
-    if shutil.which("npm"):
-        return "npm"
+    npm_cmd = shutil.which("npm.cmd")
+    if npm_cmd:
+        return npm_cmd
+    npm = shutil.which("npm")
+    if npm:
+        return npm
     candidate = _CONDA_NODE_BIN / "npm"
     if candidate.exists():
         return str(candidate)
@@ -163,6 +167,8 @@ def build_frontend(force: bool = False) -> bool:
             env=env,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
     except Exception as exc:
         logger.error("[FrontendBuild] npm run build failed to start: %s", exc)
@@ -172,8 +178,8 @@ def build_frontend(force: bool = False) -> bool:
         logger.error(
             "[FrontendBuild] npm run build failed (exit %d):\n%s\n%s",
             result.returncode,
-            result.stdout[-2000:],
-            result.stderr[-2000:],
+            (result.stdout or "")[-2000:],
+            (result.stderr or "")[-2000:],
         )
         return False
 
