@@ -35,8 +35,12 @@ export interface EventFormData {
   status: 'active' | 'archived'
 }
 
-const toLocalIso = (ts: number) =>
-  new Date(ts * 1000).toISOString().slice(0, 16)
+const toLocalIso = (ts: number) => {
+  if (!Number.isFinite(ts) || ts <= 0) {
+    return new Date().toISOString().slice(0, 16)
+  }
+  return new Date(ts * 1000).toISOString().slice(0, 16)
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
