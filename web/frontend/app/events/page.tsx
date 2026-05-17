@@ -51,7 +51,12 @@ function LoomLegend() {
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function EventsPage() {
-  const { i18n, ...app } = useApp()
+  const appCtx = useApp()
+  const { i18n } = appCtx
+  // Destructure stable callbacks so loadEvents doesn't depend on the whole app object
+  // (app object identity changes on every stats poll, which would re-trigger loadEvents)
+  const { toast: appToast, setRawEvents, refreshStats: appRefreshStats } = appCtx
+  const app = appCtx
   const router = useRouter()
 
   const [search, setSearch]             = useState('')
@@ -80,13 +85,13 @@ export default function EventsPage() {
     setIsRefreshing(true)
     try {
       const data = await api.events.list(1000)
-      app.setRawEvents(data.items)
+      setRawEvents(data.items)
     } catch {
-      app.toast(i18n.events.loadError, 'destructive')
+      appToast(i18n.events.loadError, 'destructive')
     } finally {
       setTimeout(() => setIsRefreshing(false), 600)
     }
-  }, [app, i18n.events.loadError])
+  }, [setRawEvents, appToast, i18n.events.loadError])
 
   useEffect(() => {
     loadEvents()
