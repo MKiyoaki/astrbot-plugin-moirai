@@ -150,6 +150,7 @@ The WebUI uses two-tier auth: **Login** (password at `data_dir/.webui_password`)
 | WebUI Panel | `webui_enabled` | ✅ on |
 | Semantic Search | `embedding_enabled` | ✅ on |
 | Topic Drift Detection | `boundary_topic_drift_enabled` | ✅ on |
+| Persona-Influenced Summaries | `persona_influenced_summary` | ✅ on |
 | Social Graph (IPC) | `relation_enabled` | ✅ on |
 | Group Summaries | `summary_enabled` | ✅ on |
 | Persona Synthesis | `persona_synthesis_enabled` | ✅ on |

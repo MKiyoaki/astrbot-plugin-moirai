@@ -640,6 +640,12 @@ export default function ConfigPage() {
       {/* Sticky toolbar — outside PageHeader so it sticks within the document scroll */}
       <div className="sticky top-0 z-20 flex items-center gap-2 px-4 py-2 border-b bg-background/95 backdrop-blur-sm">
         <div className="flex items-center gap-2 flex-wrap">{actions}</div>
+        {dirtyCount > 0 && (
+          <div className="flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs text-primary">
+            <AlertTriangle className="size-3 shrink-0" />
+            <span className="hidden sm:inline">{(i18n.config as any).unsavedHint}</span>
+          </div>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <Button
             variant={showAdvanced ? "default" : "outline"}
@@ -665,6 +671,15 @@ export default function ConfigPage() {
               <p className="text-xs text-primary/70 leading-relaxed">配置修改后不会立即对运行中的引擎生效，请确保在保存后重新启动 AstrBot 插件。</p>
             </div>
           </div>
+
+          {!showAdvanced && !loading && (
+            <div className="flex items-center gap-3 rounded-xl border border-muted-foreground/20 bg-muted/40 px-4 py-3 transition-all">
+              <Code2 className="size-4 shrink-0 text-muted-foreground" />
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {(i18n.config as any).devSettingsHint}
+              </p>
+            </div>
+          )}
 
           {loading ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3">

@@ -448,11 +448,11 @@
         "type": "object",
         "items": {
             "persona_influenced_summary": {
-                "description": "根据当前性格记忆事件",
+                "description": "🟢 根据当前性格记忆事件",
                 "type": "bool",
                 "hint": "开启后在提取事件摘要时注入 Bot 人格描述，使摘要带有 Bot 当前性格的视角",
-                "default": false,
-                "level": "advanced"
+                "default": true,
+                "level": "basic"
             },
             "extraction_strategy": {
                 "description": "事件划分策略",
@@ -484,11 +484,11 @@
                 "level": "advanced"
             },
             "tag_seeds": {
-                "description": "标签种子词表（定义记忆抽象层级）",
+                "description": "🟢 标签种子词表（定义记忆抽象层级）",
                 "type": "string",
                 "default": "社交,日常,技术,知识,工作,娱乐,艺术,情感,资讯",
                 "hint": "用英文逗号分隔。这些词定义了系统记忆的宏观分类。LLM 会模仿这些词的抽象高度进行打标。",
-                "level": "advanced"
+                "level": "basic"
             },
             "boundary_time_gap_minutes": {
                 "description": "事件边界：空闲时间阈值（分钟）",

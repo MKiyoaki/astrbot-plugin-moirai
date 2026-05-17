@@ -541,6 +541,8 @@ export const zh = {
     configCount: '{count} 项配置',
     showAdvanced: '开发者设置',
     showAdvancedHint: '关闭后仅显示基础配置项',
+    devSettingsHint: '部分进阶配置项当前已隐藏。点击右上角「开发者设置」可显示全部配置项。',
+    unsavedHint: '有未保存的修改，请点击保存配置',
     sections: {
       webui: 'WebUI 设置',
       embedding: '向量检索与 Embedding',
@@ -1350,6 +1352,8 @@ export const ja = {
     configCount: '{count} 件の構成',
     showAdvanced: '開発者設定',
     showAdvancedHint: '基本設定のみ表示するには無効にします',
+    devSettingsHint: '一部の詳細設定は非表示になっています。右上の「開発者設定」をクリックすると全ての設定が表示されます。',
+    unsavedHint: '未保存の変更があります。保存ボタンをクリックしてください',
     sections: {
       webui: 'WebUI設定',
       embedding: 'ベクトル検索と埋め込み',
@@ -2137,6 +2141,8 @@ export const en = {
     configCount: '{count} items',
     showAdvanced: 'Developer Settings',
     showAdvancedHint: 'When off, only basic config items are shown',
+    devSettingsHint: 'Some advanced config items are currently hidden. Click "Developer Settings" in the top-right to show all options.',
+    unsavedHint: 'You have unsaved changes. Click Save Config to apply.',
     sections: {
       webui: 'WebUI Settings',
       embedding: 'Vector Search & Embedding',
