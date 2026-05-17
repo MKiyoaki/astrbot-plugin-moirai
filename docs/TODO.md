@@ -32,6 +32,46 @@
 
 ---
 
+## 待讨论的功能方向（Feature Discussions）
+
+### [设计] 用户预设关系（Preset Impressions）
+
+**背景**：目前 Impression 完全由 LLM 从对话中自动提取。希望支持管理员/用户为 bot 预设对某人的先验态度（如"朋友""仇人""亲人"），在 LLM 提取功能关闭时也能对 agent 行为生效。
+
+**讨论中的分歧**：
+- 预设关系使用枚举模板（朋友/仇人/亲人），由系统映射到 benevolence × power 双轴数值，`confidence` 设低（约 0.2）标记为先验；随真实对话积累会被更高置信度数据覆盖
+- 担忧：双轴数值是从真实行为拟合来的，手动填入破坏数据来源一致性；且先验关系在 agent 判断中的权重理应很低
+
+**两个待决定的子问题**：
+
+1. **是否注入 system prompt？**
+   - 仅可视化：出现在关系图中，不影响 agent 行为，完全安全
+   - 注入 prompt：用弱化语气（"据初始设定，与 TA 关系为朋友"），对 agent 有实际影响，但权重难以精确控制
+   - 折中：作为独立字段注入，与自动提取的 impression 分开，prompt 里明确区分两者来源
+
+2. **数据存储位置**
+   - 方案 A：写入现有 `Impression` 表，加 `is_pinned` flag 区分人工 vs 自动，extractor upsert 时跳过 pinned 记录
+   - 方案 B：独立的 `PresetRelation` 表，完全不混入自动提取数据，判断结构无污染，但需要新增 repo/schema
+
+**倾向**：方案 B + 仅可视化作为 MVP，后续视需求再开启 prompt 注入开关。
+
+---
+
+### [设计] 关系图管理操作（Graph CRUD）
+
+**背景**：目前缺少对关系数据的精细化管理入口。
+
+**合理的操作（待实现）**：
+- 删除单条 impression：`DELETE /api/impressions/{observer}/{subject}/{scope}`
+- 按 group 批量清除 impression（加确认弹窗）
+- WebUI Library 页面对 impression 的直接删除入口
+
+**不合理的操作（不做）**：
+- 手动新建 persona（无行为依据，产生"无根"节点）
+- 手动拖拽/重排关系图拓扑（破坏事件驱动的数据一致性）
+
+---
+
 ## 待确认的设计决策（Deferred Decisions）
 
 ### [设计] narrative Event 的 inherit_from 下钻
