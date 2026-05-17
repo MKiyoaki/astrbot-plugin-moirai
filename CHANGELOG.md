@@ -1,5 +1,32 @@
 # CHANGELOG
 
+## [v0.12.5] — 2026-05-17
+
+### Discord 频道事件流与 fallback 摘要
+
+**Fix — 频道级事件流**
+
+- 新增插件内 stream scope 解析：当平台没有传统 `group_id` 但存在 `message_obj.session_id` / `unified_msg_origin` 时，使用该稳定会话作为频道级事件流 ID
+- `MessageRouter.process()` 新增 `session_id_override` 与 `stream_group_id` 参数，使 Discord 同一文字频道内的用户消息和 Bot 回复进入同一个 `MessageWindow`
+- Discord 同服务器不同文字频道会分别落到独立事件流，避免“红茶 / 绿茶”等子频道被拆成用户私聊窗口或互相混流
+- LLM 请求、调试装饰、召回注入统一使用解析后的 stream scope，保证频道内记忆检索与调试摘要一致
+
+**Fix — fallback 摘要质量**
+
+- `fallback_extraction()` 不再生成“对话包含 N 条消息，始于...”的低信息量占位文案
+- 规则 fallback 改为汇总参与者、消息数量、高频线索和前 / 中 / 后代表片段；纯图片、表情或非文本消息会明确提示文字信息不足
+- 保留低置信度 `confidence=0.2` 和既有 fallback reason 日志，方便区分 provider 缺失、超时、异常或解析失败
+
+**Tests**
+
+- 新增 Discord 频道级事件流测试，覆盖同频道多用户、Bot 回复入同流、同用户跨频道隔离
+- 新增 EventHandler stream scope 解析测试，覆盖 Discord `message_obj.session_id` 场景
+- 扩展 fallback 摘要测试，确认不再输出旧占位文案并包含代表消息
+
+**Version**
+
+- 更新版本到 `v0.12.5`
+
 ## [v0.12.4] — 2026-05-17
 
 ### 配置分级 + 文档重构
@@ -334,4 +361,3 @@
 - 补全 `api.ts` 缺失的 `listArchived` / `archive` / `unarchive` 方法，修复构建报错
 
 完整更新日志见 [docs/CHANGELOG.md](docs/CHANGELOG.md)。
-

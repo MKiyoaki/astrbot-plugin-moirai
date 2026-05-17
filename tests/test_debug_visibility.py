@@ -21,9 +21,44 @@ from core.utils.frontend_build import _render_redirect_page
 
 class _Event:
     unified_msg_origin = "session-1"
+    message_str = "hello"
+    created_at = 1000.0
 
     def get_group_id(self) -> str:
         return "group-1"
+
+    def get_platform_name(self) -> str:
+        return "qq"
+
+    def get_sender_id(self) -> str:
+        return "user-1"
+
+    def get_sender_name(self) -> str:
+        return "Alice"
+
+
+class _DiscordChannelEvent:
+    message_str = "discord channel message"
+    created_at = 1000.0
+    unified_msg_origin = "discord:guild-a:red-tea"
+    message_obj = SimpleNamespace(session_id="guild-a:red-tea")
+
+    def get_group_id(self) -> str:
+        return ""
+
+    def get_platform_name(self) -> str:
+        return "discord"
+
+    def get_sender_id(self) -> str:
+        return "u1"
+
+    def get_sender_name(self) -> str:
+        return "Alice"
+
+
+class _DiscordPrivateEvent(_DiscordChannelEvent):
+    unified_msg_origin = "discord:u1"
+    message_obj = SimpleNamespace(session_id="u1", message_type="private")
 
 
 class _Router:
@@ -163,10 +198,51 @@ async def test_handle_llm_response_records_legacy_text() -> None:
     assert router.calls[0]["text"] == "old bot reply"
 
 
+async def test_handle_message_uses_discord_channel_stream_scope() -> None:
+    router = _Router()
+    handler = EventHandler(SimpleNamespace(router=router))
+
+    await handler.handle_message(_DiscordChannelEvent())
+
+    assert len(router.calls) == 1
+    call = router.calls[0]
+    assert call["raw_group_id"] is None
+    assert call["session_id_override"] == "discord:guild-a:red-tea"
+    assert call["stream_group_id"] == "guild-a:red-tea"
+
+
+async def test_handle_llm_response_uses_discord_channel_stream_scope() -> None:
+    router = _Router()
+    handler = EventHandler(SimpleNamespace(router=router))
+
+    await handler.handle_llm_response(
+        _DiscordChannelEvent(), SimpleNamespace(completion_text="bot reply")
+    )
+
+    assert len(router.calls) == 1
+    call = router.calls[0]
+    assert call["platform"] == "internal"
+    assert call["session_platform"] == "discord"
+    assert call["session_id_override"] == "discord:guild-a:red-tea"
+    assert call["stream_group_id"] == "guild-a:red-tea"
+
+
+async def test_handle_message_keeps_discord_private_group_none() -> None:
+    router = _Router()
+    handler = EventHandler(SimpleNamespace(router=router))
+
+    await handler.handle_message(_DiscordPrivateEvent())
+
+    assert len(router.calls) == 1
+    call = router.calls[0]
+    assert call["session_id_override"] == "discord:u1"
+    assert call["stream_group_id"] is None
+
+
 async def test_handle_decorating_result_adds_debug_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     class Recall:
         def pop_recall_debug(self, session_id: str) -> dict:
-            assert session_id == "session-1"
+            assert session_id == "qq:group-1"
             return {
                 "query": "query",
                 "granularity": "both",
@@ -184,13 +260,13 @@ async def test_handle_decorating_result_adds_debug_prefix(monkeypatch: pytest.Mo
         cfg=PluginConfig({"show_thinking_process": True, "show_system_prompt": True}),
     )
     handler = EventHandler(init)
-    handler._pre_inject_sys_prompt["session-1"] = (
+    handler._pre_inject_sys_prompt["qq:group-1"] = (
         "base\n"
         "# Persona Instructions\n\nYou are a helpful assistant.\n"
         "## Skills\n- search: search the web\n"
         "<!-- EM:MEMORY:START -->memory<!-- EM:MEMORY:END -->"
     )
-    handler._pre_inject_persona_name["session-1"] = "TestPersona"
+    handler._pre_inject_persona_name["qq:group-1"] = "TestPersona"
     result = Result(["normal reply"])
 
     monkeypatch.setattr(
@@ -213,7 +289,7 @@ async def test_handle_decorating_result_adds_debug_prefix(monkeypatch: pytest.Mo
 async def test_handle_decorating_result_adds_injection_summary(monkeypatch: pytest.MonkeyPatch) -> None:
     class Recall:
         def pop_injection_debug(self, session_id: str) -> dict:
-            assert session_id == "session-1"
+            assert session_id == "qq:group-1"
             return {
                 "position": "system_prompt",
                 "injected": True,
@@ -257,7 +333,7 @@ async def test_handle_decorating_result_adds_injection_summary(monkeypatch: pyte
 async def test_handle_decorating_result_accepts_streaming_finish(monkeypatch: pytest.MonkeyPatch) -> None:
     class Recall:
         def pop_injection_debug(self, session_id: str) -> dict:
-            assert session_id == "session-1"
+            assert session_id == "qq:group-1"
             return {
                 "memory": {"injected": False, "count": 0, "events": []},
                 "persona": None,

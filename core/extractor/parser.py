@@ -46,6 +46,80 @@ def _first_meaningful_text(window: MessageWindow) -> str:
     return ""
 
 
+def _preview_text(text: str, limit: int = 48) -> str:
+    preview = re.sub(r"\s+", " ", text).strip()
+    if len(preview) <= limit:
+        return preview
+    return preview[:limit].rstrip() + "..."
+
+
+def _participant_names(window: MessageWindow, limit: int = 5) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for i, msg in enumerate(window.messages):
+        name = (msg.display_name or "").strip() or f"用户{i + 1}"
+        if name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+        if len(names) >= limit:
+            break
+    return names
+
+
+def _sample_message_previews(window: MessageWindow, limit: int = 6) -> list[str]:
+    non_empty = [
+        (i, msg)
+        for i, msg in enumerate(window.messages)
+        if (msg.text or "").strip()
+    ]
+    if not non_empty:
+        return []
+
+    if len(non_empty) <= limit:
+        selected = non_empty
+    else:
+        mid = len(non_empty) // 2
+        wanted_indices = [0, 1, mid - 1, mid, len(non_empty) - 2, len(non_empty) - 1]
+        selected = []
+        used: set[int] = set()
+        for idx in wanted_indices:
+            idx = max(0, min(len(non_empty) - 1, idx))
+            original_idx, msg = non_empty[idx]
+            if original_idx in used:
+                continue
+            used.add(original_idx)
+            selected.append((original_idx, msg))
+
+    previews: list[str] = []
+    for _, msg in selected[:limit]:
+        name = (msg.display_name or "").strip() or "用户"
+        previews.append(f"{name}: {_preview_text(msg.text)}")
+    return previews
+
+
+def _fallback_summary(window: MessageWindow, topic: str, tags: list[str]) -> str:
+    names = _participant_names(window)
+    participants = "、".join(names) if names else "对话参与者"
+    if len(window.messages) > len(names) and len(names) >= 5:
+        participants += "等"
+
+    samples = _sample_message_previews(window)
+    if not samples:
+        return (
+            f"本段对话共 {window.message_count} 条消息，主要由图片、表情或非文本消息组成，"
+            "未提取到足够文字内容。"
+        )
+
+    parts = [
+        f"{participants}在本段对话中围绕“{topic}”展开交流，共 {window.message_count} 条消息。"
+    ]
+    if tags:
+        parts.append(f"高频线索包括：{'、'.join(tags)}。")
+    parts.append(f"代表片段：{' / '.join(samples)}")
+    return "".join(parts)
+
+
 def parse_llm_output(text: str, max_idx: int) -> list[dict] | None:
     """Parse and validate JSON Array from LLM completion text."""
     text = text.strip()
@@ -137,7 +211,6 @@ def fallback_extraction(window: MessageWindow) -> list[dict]:
     """Rule-based extraction used when the LLM call fails or is unavailable."""
     first_text = _first_meaningful_text(window)
     topic = first_text[:30] if first_text else "（无内容）"
-    summary = f"对话包含 {window.message_count} 条消息，始于 '{topic}'。"
 
     # Collect all words, pick the most frequent (rough approximation)
     all_text = " ".join(m.text for m in window.messages)
@@ -146,6 +219,7 @@ def fallback_extraction(window: MessageWindow) -> list[dict]:
     for w in words:
         freq[w] = freq.get(w, 0) + 1
     tags = [w for w, _ in sorted(freq.items(), key=lambda x: -x[1])[:5]]
+    summary = _fallback_summary(window, topic, tags)
 
     salience = min(0.3 + 0.01 * window.message_count, 0.7)
 

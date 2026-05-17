@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## [v0.12.5] — 2026-05-17
+
+### Discord 频道事件流与 fallback 摘要
+
+- **频道级事件流**
+  - 新增插件内 stream scope 解析：优先传统 `group_id`；当平台没有 `group_id` 时，使用 `message_obj.session_id` 或 `unified_msg_origin` 作为稳定信息流 ID
+  - Discord 同一文字频道内的用户消息与 Bot 回复现在会进入同一个 `MessageWindow`，并以该频道 scope 写入 `Event.group_id`
+  - 同一服务器下不同文字频道会分成独立事件流，避免频道内容混合或按用户私聊拆碎
+  - LLM 请求、召回注入和调试装饰使用同一 stream scope，避免频道上下文不一致
+
+- **fallback 摘要**
+  - 规则 fallback 摘要改为输出参与者、消息数、高频线索和代表消息片段
+  - 移除“对话包含 N 条消息，始于...”占位式摘要
+  - 纯图片、表情或非文本窗口会明确标记文字信息不足
+
+- **测试**
+  - 新增 Discord 频道 / Bot 回复 / 跨频道隔离测试
+  - 新增 EventHandler `message_obj.session_id` 解析测试
+  - 扩展 fallback 摘要质量测试
+
+- **版本同步**
+  - 版本号更新为 `v0.12.5`
+  - 同步更新 README / README_EN 版本徽章
+
 ## [v0.12.4] — 2026-05-17
 
 ### Bug 修复与体验优化

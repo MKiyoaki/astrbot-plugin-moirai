@@ -21,6 +21,83 @@ _TOP_LEVEL_HEADING_RE = _re.compile(r"^#{1,2}\s+")
 _SKILL_LINE_RE = _re.compile(r"^\s*-\s*([A-Za-z0-9._-]+)(?=\s*:|\s|$)")
 
 
+def _safe_call(obj: object, name: str) -> object | None:
+    method = getattr(obj, name, None)
+    if not callable(method):
+        return None
+    try:
+        return method()
+    except Exception:
+        return None
+
+
+def _clean_scope_value(value: object | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _message_obj_attr(event: object, *names: str) -> str | None:
+    msg = getattr(event, "message_obj", None)
+    if msg is None:
+        return None
+    for name in names:
+        value = _clean_scope_value(getattr(msg, name, None))
+        if value:
+            return value
+    return None
+
+
+def _looks_private_stream(event: object, stream_id: str | None) -> bool:
+    sender_id = _clean_scope_value(_safe_call(event, "get_sender_id"))
+    if stream_id and sender_id and stream_id == sender_id:
+        return True
+
+    msg = getattr(event, "message_obj", None)
+    values = [
+        _clean_scope_value(_safe_call(event, "get_message_type")),
+        _clean_scope_value(getattr(event, "message_type", None)),
+    ]
+    if msg is not None:
+        values.extend(
+            _clean_scope_value(getattr(msg, name, None))
+            for name in ("message_type", "type", "message_scene", "scene")
+        )
+    markers = ("private", "friend", "direct", "dm")
+    return any(
+        any(marker in value.lower() for marker in markers)
+        for value in values
+        if value
+    )
+
+
+def _resolve_stream_scope(event: object) -> tuple[str | None, str | None]:
+    """Return (session_id_override, stream_group_id) for the memory stream.
+
+    QQ/OneBot group messages expose get_group_id(), so the existing group flow
+    remains unchanged.  Discord-style adapters can have no group_id while still
+    exposing a stable channel/session through AstrBot's unified_msg_origin or
+    message_obj.session_id.  In that case we persist that channel/session as the
+    Event.group_id so WebUI, summaries, and recall keep each text channel as its
+    own complete event stream.
+    """
+    platform = _clean_scope_value(_safe_call(event, "get_platform_name")) or "unknown"
+    group_id = _clean_scope_value(_safe_call(event, "get_group_id"))
+    if group_id:
+        return f"{platform}:{group_id}", group_id
+
+    stream_id = (
+        _message_obj_attr(event, "session_id", "channel_id", "channel", "room_id")
+        or _clean_scope_value(getattr(event, "unified_msg_origin", None))
+    )
+    if stream_id:
+        stream_group_id = None if _looks_private_stream(event, stream_id) else stream_id
+        return f"{platform}:{stream_id}", stream_group_id
+
+    return None, None
+
+
 def _check_is_admin(event) -> bool:
     try:
         role = getattr(event, "role", None)
@@ -326,7 +403,9 @@ class EventHandler:
             icfg = None
             session_id = event.unified_msg_origin
             try:
-                group_id = event.get_group_id() or None
+                session_id_override, group_id = _resolve_stream_scope(event)
+                if session_id_override:
+                    session_id = session_id_override
 
                 icfg = self._init.cfg.get_injection_config()
                 astrbot_logger.debug(
@@ -411,6 +490,7 @@ class EventHandler:
         if router is None:
             return
         from .adapters.message_normalizer import normalize_message_text, normalize_display_name
+        session_id_override, stream_group_id = _resolve_stream_scope(event)
         await router.process(
             platform=event.get_platform_name(),
             physical_id=event.get_sender_id(),
@@ -418,6 +498,8 @@ class EventHandler:
             text=normalize_message_text(event.message_str),
             raw_group_id=event.get_group_id() or None,
             now=event.created_at,
+            session_id_override=session_id_override,
+            stream_group_id=stream_group_id,
         )
 
     async def handle_llm_response(
@@ -430,6 +512,7 @@ class EventHandler:
             return
 
         from .adapters.message_normalizer import normalize_message_text
+        session_id_override, stream_group_id = _resolve_stream_scope(event)
         # Use a special internal UID for the bot to distinguish it from users.
         # session_platform matches the human speakers so the bot joins the same window.
         await router.process(
@@ -439,6 +522,8 @@ class EventHandler:
             text=normalize_message_text(text),
             raw_group_id=event.get_group_id() or None,
             session_platform=event.get_platform_name(),
+            session_id_override=session_id_override,
+            stream_group_id=stream_group_id,
         )
 
     async def handle_using_llm_tool(
@@ -484,7 +569,7 @@ class EventHandler:
         ):
             return
 
-        session_id = event.unified_msg_origin
+        session_id = _resolve_stream_scope(event)[0] or event.unified_msg_origin
         prefix_parts: list[str] = []
 
         if icfg.show_thinking_process:

@@ -119,6 +119,9 @@ def test_fallback_returns_list() -> None:
     assert len(result) == 1
     assert result[0]["topic"] == "msg"
     assert "summary" in result[0]
+    assert "对话包含" not in result[0]["summary"]
+    assert "Alice" in result[0]["summary"]
+    assert "代表片段" in result[0]["summary"]
 
 
 def test_fallback_salience_scales_with_message_count() -> None:
@@ -145,6 +148,7 @@ def test_fallback_empty_window() -> None:
     # Empty window message_count is 0.
     result = fallback_extraction(w)
     assert result[0]["topic"] == "（无内容）"
+    assert "未提取到足够文字内容" in result[0]["summary"]
 
 
 def test_fallback_topic_uses_first_meaningful() -> None:
@@ -159,6 +163,24 @@ def test_fallback_topic_uses_first_meaningful() -> None:
     result = fallback_extraction(w)
     assert result[0]["topic"] == "主题文本"
     assert "（无内容）" not in result[0]["summary"]
+
+
+def test_fallback_summary_uses_representative_messages() -> None:
+    w = make_window([
+        ("u1", "Alice", "伦敦有几家很好吃的餐厅可以推荐吗"),
+        ("u2", "Bob", "如果想吃印度菜可以去 Dishoom"),
+        ("u3", "Bot", "也可以按区域筛选，比如 Soho 或 Shoreditch"),
+        ("u1", "Alice", "我更想找适合周五晚上的地方"),
+        ("u2", "Bob", "那就需要提前预订"),
+        ("u3", "Bot", "可以先确定预算和菜系再订位"),
+    ])
+
+    summary = fallback_extraction(w)[0]["summary"]
+
+    assert "Alice、Bob、Bot" in summary
+    assert "伦敦有几家很好吃的餐厅可以推荐吗" in summary
+    assert "提前预订" in summary
+    assert "对话包含" not in summary
 
 
 def test_fallback_tag_filters_pollution() -> None:

@@ -50,6 +50,8 @@ class MessageRouter:
         raw_group_id: str | None,
         now: float | None = None,
         session_platform: str | None = None,
+        session_id_override: str | None = None,
+        stream_group_id: str | None = None,
     ) -> None:
         """Entry point for every incoming message.
 
@@ -58,13 +60,19 @@ class MessageRouter:
         session_platform: if given, overrides the platform component used to
             compute session_id (but not the identity lookup).  Used to make
             bot replies join the same MessageWindow as the human speakers.
+        session_id_override: explicit stable stream key supplied by the adapter
+            layer.  Used for platforms such as Discord where the real memory
+            stream is a channel/session rather than sender private ID.
+        stream_group_id: group/scope ID persisted onto Event.group_id.  Defaults
+            to raw_group_id; for channel-based platforms this can be the same
+            stable channel/session ID as session_id_override.
         """
         import time as _time
 
         now = now if now is not None else _time.time()
-        group_id: str | None = raw_group_id if raw_group_id else None
+        group_id: str | None = stream_group_id or raw_group_id or None
         _sid_platform = session_platform or platform
-        session_id = (
+        session_id = session_id_override or (
             f"{_sid_platform}:{group_id}" if group_id else f"{_sid_platform}:private:{physical_id}"
         )
 

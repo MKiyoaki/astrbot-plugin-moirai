@@ -223,6 +223,83 @@ async def test_router_same_platform_different_users_share_group_window() -> None
     assert len(events[0].interaction_flow) == 2
 
 
+async def test_discord_channel_without_group_id_should_share_user_window() -> None:
+    """Discord adapters may expose the stable channel in AstrBot session_id,
+    while get_group_id() can be empty. Different users in the same Discord
+    channel must still accumulate in one memory window.
+    """
+    router, _event_repo = make_router()
+    t = 1000.0
+
+    await router.process(
+        "discord", "u1", "Alice", "hello", None, now=t,
+        session_id_override="discord:guild-a:channel-tea",
+        stream_group_id="guild-a:channel-tea",
+    )
+    await router.process(
+        "discord", "u2", "Bob", "world", None, now=t + 5,
+        session_id_override="discord:guild-a:channel-tea",
+        stream_group_id="guild-a:channel-tea",
+    )
+
+    assert len(router._context_manager._windows) == 1
+    window = next(iter(router._context_manager._windows.values()))
+    assert window.group_id == "guild-a:channel-tea"
+
+
+async def test_discord_bot_reply_without_group_id_should_join_user_window() -> None:
+    """Bot replies in Discord must join the triggering channel window.
+
+    If raw_group_id is empty, using only physical_id creates separate
+    discord:private:<user> and discord:private:bot windows, so the conversation
+    never forms a coherent event.
+    """
+    router, _event_repo = make_router()
+    t = 1000.0
+
+    await router.process(
+        "discord", "u1", "Alice", "hello", None, now=t,
+        session_id_override="discord:guild-a:channel-tea",
+        stream_group_id="guild-a:channel-tea",
+    )
+    await router.process(
+        "internal",
+        "bot",
+        "Bot",
+        "reply",
+        None,
+        now=t + 1,
+        session_platform="discord",
+        session_id_override="discord:guild-a:channel-tea",
+        stream_group_id="guild-a:channel-tea",
+    )
+
+    assert len(router._context_manager._windows) == 1
+    window = next(iter(router._context_manager._windows.values()))
+    assert window.message_count == 2
+
+
+async def test_discord_same_user_different_channels_are_separate_streams() -> None:
+    router, _event_repo = make_router()
+    t = 1000.0
+
+    await router.process(
+        "discord", "u1", "Alice", "red tea", None, now=t,
+        session_id_override="discord:guild-a:red-tea",
+        stream_group_id="guild-a:red-tea",
+    )
+    await router.process(
+        "discord", "u1", "Alice", "green tea", None, now=t + 1,
+        session_id_override="discord:guild-a:green-tea",
+        stream_group_id="guild-a:green-tea",
+    )
+
+    assert set(router._context_manager._windows.keys()) == {
+        "discord:guild-a:red-tea",
+        "discord:guild-a:green-tea",
+    }
+
+
 async def test_normalized_text_propagates_through_router_to_fallback_event() -> None:
     """End-to-end: EventHandler-style normalization → router → window → fallback_extraction.
 
