@@ -179,6 +179,16 @@ class TestPersonaSelector:
         src = _read("components/shared/persona-selector.tsx")
         assert "listBots" in src
 
+    def test_refreshes_bots_when_popover_opens(self):
+        src = _read("components/shared/persona-selector.tsx")
+        assert "if (open) loadBots()" in src
+
+    def test_keeps_current_persona_visible_when_api_omits_it(self):
+        src = _read("components/shared/persona-selector.tsx")
+        assert "visibleBots" in src
+        assert "currentPersonaName" in src
+        assert "event_count: 0" in src
+
     def test_links_to_persona_ownership_config(self):
         src = _read("components/shared/persona-selector.tsx")
         assert "ArrowRightLeft" in src
@@ -215,6 +225,13 @@ class TestPersonaOwnershipManager:
         assert "impressions_only" in src
         assert "mergePersonasPreview" in src
         assert "mergePersonas" in src
+        assert "submitBlockedReason" in src
+
+    def test_ownership_preview_required_i18n(self):
+        src = _read("lib/i18n.ts")
+        assert "请先点击“预览影响”" in src
+        assert "影響をプレビュー" in src
+        assert "Preview the impact first" in src
 
     def test_api_merge_accepts_mode(self):
         src = _read("lib/api.ts")

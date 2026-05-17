@@ -393,15 +393,24 @@ class PluginRoutes:
     async def bot_personas_data(self) -> dict[str, Any]:
         """Return distinct bot_persona_name values + per-persona event counts.
 
-        Used by the WebUI persona selector. Includes a synthetic entry for
-        legacy (bot_persona_name IS NULL) rows so users can still target
-        pre-migration data.
+        Used by the WebUI persona selector. Persona names are discovered from
+        events, impressions and persona tags so a data domain remains selectable
+        after ownership moves that do not leave active event rows behind.
         """
         db = getattr(self._event_repo, "_db", None)
         if db is not None:
             async with db.execute(
-                "SELECT COALESCE(bot_persona_name, '') AS name, COUNT(*) AS n "
-                "FROM events GROUP BY COALESCE(bot_persona_name, '') ORDER BY n DESC"
+                "WITH event_counts AS ("
+                "  SELECT COALESCE(bot_persona_name, '') AS name, COUNT(*) AS n "
+                "  FROM events GROUP BY COALESCE(bot_persona_name, '')"
+                "), persona_names AS ("
+                "  SELECT COALESCE(bot_persona_name, '') AS name FROM events "
+                "  UNION SELECT COALESCE(bot_persona_name, '') AS name FROM impressions "
+                "  UNION SELECT COALESCE(bot_persona_name, '') AS name FROM personas"
+                ") "
+                "SELECT persona_names.name, COALESCE(event_counts.n, 0) AS n "
+                "FROM persona_names LEFT JOIN event_counts ON event_counts.name = persona_names.name "
+                "ORDER BY n DESC, CASE WHEN persona_names.name = '' THEN 0 ELSE 1 END, persona_names.name ASC"
             ) as cur:
                 rows = await cur.fetchall()
             return {"items": [{"name": (row[0] or None), "event_count": row[1]} for row in rows]}
@@ -409,9 +418,18 @@ class PluginRoutes:
         counts: dict[str | None, int] = {}
         for event in await self._event_repo.list_all(limit=1_000_000):
             counts[event.bot_persona_name] = counts.get(event.bot_persona_name, 0) + 1
+        for persona in await self._persona_repo.list_all():
+            if persona.bot_persona_name not in counts:
+                counts[persona.bot_persona_name] = 0
+        for impression in getattr(self._impression_repo, "_store", {}).values():
+            if impression.bot_persona_name not in counts:
+                counts[impression.bot_persona_name] = 0
         items = [
             {"name": name, "event_count": count}
-            for name, count in sorted(counts.items(), key=lambda item: item[1], reverse=True)
+            for name, count in sorted(
+                counts.items(),
+                key=lambda item: (-item[1], 0 if item[0] is None else 1, item[0] or ""),
+            )
         ]
         return {"items": items}
 

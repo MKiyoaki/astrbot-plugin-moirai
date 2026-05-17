@@ -10,7 +10,14 @@
   - 点击后跳转到「插件配置 → 社会关系与印象 → Persona 数据归属管理」，并将目标区块滚动到视口居中位置
   - 修复已在插件配置页时点击跳转按钮不会滚动到归属管理区块的问题
   - 为 `PersonaOwnershipManager` 增加稳定锚点 `persona-ownership`
+  - 在 `执行迁移` 按钮禁用时显示明确原因，提示用户需先执行 `预览影响` 或进入 Sudo 模式
+  - 修复自定义 Persona 迁移后在左下角 Bot 视角切换器中短暂出现、切换视角后又消失的问题
+  - 左下角 Bot 切换器打开时会刷新 persona 列表，并在接口短暂漏报时保留当前已选 persona 作为兜底项
   - 重新执行前端生产构建并同步 `pages/moirai/_app` 静态产物，确保 AstrBot 安装场景加载到最新 Persona 迁移工具
+
+- **API**
+  - `/api/personas/bots` 改为从 `events`、`impressions`、`personas` 三处合并枚举 `bot_persona_name`
+  - 对只存在关系 / 印象或人格标签、暂时没有事件计数的 Persona 返回 `event_count: 0`，确保仍可在 WebUI 中选择
 
 - **三语适配**
   - 补齐中文、日文、英文的 Bot 视角弹层跳转按钮文案与可访问名称

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { ArrowRightLeft, Bot, ChevronsUpDown, Globe } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -24,17 +24,31 @@ export function PersonaSelector() {
   const [bots, setBots] = useState<api.BotPersonaItem[]>([])
   const [open, setOpen] = useState(false)
 
-  useEffect(() => {
+  const loadBots = () => {
     if (!personaConfig.isolationEnabled) return
     api.graph.listBots().then(r => setBots(r.items)).catch(() => {})
+  }
+
+  useEffect(() => {
+    loadBots()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personaConfig.isolationEnabled])
 
-  // Master switch: hide selector entirely when isolation is disabled.
-  if (!personaConfig.isolationEnabled) return null
+  useEffect(() => {
+    if (open) loadBots()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const isAll = scopeMode === 'all'
   const label = isAll ? t.allPersonas : (currentPersonaName ?? t.defaultPersona)
-  const hasMultiple = bots.length > 1 || (bots.length === 1 && bots[0].name !== null)
+  const visibleBots = useMemo(() => {
+    if (isAll || bots.some(bot => bot.name === currentPersonaName)) return bots
+    return [...bots, { name: currentPersonaName, event_count: 0 }]
+  }, [bots, currentPersonaName, isAll])
+  const hasMultiple = visibleBots.length > 1 || (visibleBots.length === 1 && visibleBots[0].name !== null)
+
+  // Master switch: hide selector entirely when isolation is disabled.
+  if (!personaConfig.isolationEnabled) return null
   const openOwnershipSettings = () => {
     const target = 'persona-ownership'
     setOpen(false)
@@ -110,7 +124,7 @@ export function PersonaSelector() {
         </button>
 
         {/* Per-bot options */}
-        {bots.map(bot => {
+        {visibleBots.map(bot => {
           const name = bot.name
           const isSelected = !isAll && currentPersonaName === name
           const displayName = name ?? t.defaultPersona
@@ -137,7 +151,7 @@ export function PersonaSelector() {
           )
         })}
 
-        {bots.length === 0 && (
+        {visibleBots.length === 0 && (
           <p className="px-2 py-2 text-xs text-muted-foreground">{t.noBotsFound}</p>
         )}
       </PopoverContent>

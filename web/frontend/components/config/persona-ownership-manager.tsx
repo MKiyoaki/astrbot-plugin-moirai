@@ -61,6 +61,13 @@ export function PersonaOwnershipManager({ embedded = false }: { embedded?: boole
   const sameTarget = !!resolvedSource && resolvedSource === resolvedTarget
   const canPreview = !!resolvedSource && !!resolvedTarget && !sameTarget
   const canSubmit = sudo && canPreview && !!preview && !previewLoading
+  const submitBlockedReason = !sudo
+    ? i18n.config.needSudo
+    : !preview
+      ? t.previewRequired
+      : sameTarget
+        ? t.sameTarget
+        : ''
 
   const resetPreview = () => {
     setPreview(null)
@@ -192,9 +199,14 @@ export function PersonaOwnershipManager({ embedded = false }: { embedded?: boole
 
       <div className="flex flex-wrap justify-end gap-2">
         {!confirming ? (
-          <Button variant="destructive" disabled={!canSubmit} onClick={() => setConfirming(true)}>
-            {t.confirm}
-          </Button>
+          <div className="flex flex-col items-end gap-1">
+            <Button variant="destructive" disabled={!canSubmit} onClick={() => setConfirming(true)}>
+              {t.confirm}
+            </Button>
+            {!canSubmit && submitBlockedReason && (
+              <p className="text-xs text-muted-foreground">{submitBlockedReason}</p>
+            )}
+          </div>
         ) : (
           <Button variant="destructive" disabled={!canSubmit || submitting} onClick={handleSubmit}>
             {submitting && <Spinner data-icon="inline-start" />}

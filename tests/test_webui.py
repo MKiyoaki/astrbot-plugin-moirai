@@ -23,7 +23,7 @@ from web.server import (
 # Fixtures & helpers
 # ---------------------------------------------------------------------------
 
-def make_persona(uid: str, name: str = "Alice") -> Persona:
+def make_persona(uid: str, name: str = "Alice", bot_persona_name: str | None = None) -> Persona:
     return Persona(
         uid=uid,
         bound_identities=[("qq", "123")],
@@ -32,6 +32,7 @@ def make_persona(uid: str, name: str = "Alice") -> Persona:
         confidence=0.8,
         created_at=1000.0,
         last_active_at=2000.0,
+        bot_persona_name=bot_persona_name,
     )
 
 
@@ -60,7 +61,7 @@ def make_event(
     )
 
 
-def make_impression(observer: str, subject: str) -> Impression:
+def make_impression(observer: str, subject: str, bot_persona_name: str | None = None) -> Impression:
     return Impression(
         observer_uid=observer,
         subject_uid=subject,
@@ -73,6 +74,7 @@ def make_impression(observer: str, subject: str) -> Impression:
         scope="global",
         evidence_event_ids=["ev1"],
         last_reinforced_at=2000.0,
+        bot_persona_name=bot_persona_name,
     )
 
 
@@ -206,6 +208,24 @@ async def test_bot_personas_data_with_memory_repo(tmp_path: Path) -> None:
         {"name": "Alice", "event_count": 2},
         {"name": None, "event_count": 1},
         {"name": "Bob", "event_count": 1},
+    ]
+
+
+async def test_bot_personas_data_includes_domains_without_events(tmp_path: Path) -> None:
+    pr = InMemoryPersonaRepository()
+    er = InMemoryEventRepository()
+    ir = InMemoryImpressionRepository()
+    await er.upsert(make_event("e1", bot_persona_name="Alice"))
+    await pr.upsert(make_persona("uid-oc", "OC User", bot_persona_name="OC"))
+    await ir.upsert(make_impression("uid-oc", "uid-x", bot_persona_name="RelationsOnly"))
+    srv = _server(tmp_path, pr=pr, er=er, ir=ir)
+
+    data = await srv.bot_personas_data()
+
+    assert data["items"] == [
+        {"name": "Alice", "event_count": 1},
+        {"name": "OC", "event_count": 0},
+        {"name": "RelationsOnly", "event_count": 0},
     ]
 
 
