@@ -80,8 +80,17 @@ async def _txn(db: aiosqlite.Connection, lock: asyncio.Lock) -> AsyncIterator[No
             raise
 
 
+def _bot_persona_match_sql(column: str, value: str | None) -> tuple[str, list[Any]]:
+    if value is None:
+        return f"{column} IS NULL", []
+    return f"{column} = ?", [value]
+
+
 async def preview_bot_persona_merge(
-    db: aiosqlite.Connection, src: str, target: str,
+    db: aiosqlite.Connection,
+    src: str | None,
+    target: str | None,
+    mode: str = "all",
 ) -> dict[str, int]:
     """Return the row counts that would be moved/dropped by a src→target merge.
 
@@ -90,38 +99,49 @@ async def preview_bot_persona_merge(
     because the (observer, subject, scope, ifnull(bot_persona_name, '')) unique
     index would otherwise be violated. "target wins" policy.
     """
+    if mode not in {"all", "impressions_only"}:
+        raise ValueError(f"unsupported merge mode: {mode}")
+
+    src_events_where, src_events_params = _bot_persona_match_sql("bot_persona_name", src)
+    src_imps_where, src_imps_params = _bot_persona_match_sql("bot_persona_name", src)
+    src_alias_where, src_alias_params = _bot_persona_match_sql("s.bot_persona_name", src)
+    src_personas_where, src_personas_params = _bot_persona_match_sql("bot_persona_name", src)
+
     async with db.execute(
-        "SELECT COUNT(*) FROM events WHERE bot_persona_name = ?", (src,)
+        f"SELECT COUNT(*) FROM events WHERE {src_events_where}", tuple(src_events_params)
     ) as cur:
         events_n = (await cur.fetchone())[0]
     async with db.execute(
-        "SELECT COUNT(*) FROM impressions WHERE bot_persona_name = ?", (src,)
+        f"SELECT COUNT(*) FROM impressions WHERE {src_imps_where}", tuple(src_imps_params)
     ) as cur:
         imps_total = (await cur.fetchone())[0]
     async with db.execute(
-        "SELECT COUNT(*) FROM impressions s WHERE s.bot_persona_name = ? "
+        f"SELECT COUNT(*) FROM impressions s WHERE {src_alias_where} "
         "AND EXISTS (SELECT 1 FROM impressions t "
         "WHERE t.observer_uid = s.observer_uid "
         "AND t.subject_uid = s.subject_uid "
         "AND t.scope = s.scope "
         "AND ifnull(t.bot_persona_name, '') = ifnull(?, ''))",
-        (src, target),
+        tuple(src_alias_params + [target]),
     ) as cur:
         imps_conflicts = (await cur.fetchone())[0]
     async with db.execute(
-        "SELECT COUNT(*) FROM personas WHERE bot_persona_name = ?", (src,)
+        f"SELECT COUNT(*) FROM personas WHERE {src_personas_where}", tuple(src_personas_params)
     ) as cur:
         personas_n = (await cur.fetchone())[0]
     return {
-        "events_moved": events_n,
+        "events_moved": events_n if mode == "all" else 0,
         "impressions_moved": imps_total - imps_conflicts,
         "impressions_dropped": imps_conflicts,
-        "personas_moved": personas_n,
+        "personas_moved": personas_n if mode == "all" else 0,
     }
 
 
 async def merge_bot_persona(
-    db: aiosqlite.Connection, src: str, target: str,
+    db: aiosqlite.Connection,
+    src: str | None,
+    target: str | None,
+    mode: str = "all",
 ) -> dict[str, int]:
     """Re-assign every row owned by bot persona `src` to `target` atomically.
 
@@ -129,34 +149,38 @@ async def merge_bot_persona(
     transaction commits. "target wins" — src impressions that collide with an
     existing target row on (observer, subject, scope) are deleted.
     """
-    counts = await preview_bot_persona_merge(db, src, target)
+    counts = await preview_bot_persona_merge(db, src, target, mode=mode)
+    src_imps_where, src_imps_params = _bot_persona_match_sql("bot_persona_name", src)
+    src_events_where, src_events_params = _bot_persona_match_sql("bot_persona_name", src)
+    src_personas_where, src_personas_params = _bot_persona_match_sql("bot_persona_name", src)
     lock = _get_db_lock(db)
     async with _txn(db, lock):
         # 1. Drop src impressions that conflict with target on (obs, subj, scope)
         await db.execute(
-            "DELETE FROM impressions WHERE bot_persona_name = ? "
+            f"DELETE FROM impressions WHERE {src_imps_where} "
             "AND EXISTS (SELECT 1 FROM impressions t "
             "WHERE t.observer_uid = impressions.observer_uid "
             "AND t.subject_uid = impressions.subject_uid "
             "AND t.scope = impressions.scope "
             "AND ifnull(t.bot_persona_name, '') = ifnull(?, ''))",
-            (src, target),
+            tuple(src_imps_params + [target]),
         )
         # 2. Re-key remaining src impressions to target
         await db.execute(
-            "UPDATE impressions SET bot_persona_name = ? WHERE bot_persona_name = ?",
-            (target, src),
+            f"UPDATE impressions SET bot_persona_name = ? WHERE {src_imps_where}",
+            tuple([target] + src_imps_params),
         )
-        # 3. Re-key events (event_id PK guarantees no conflicts)
-        await db.execute(
-            "UPDATE events SET bot_persona_name = ? WHERE bot_persona_name = ?",
-            (target, src),
-        )
-        # 4. Re-key personas (uid PK; bot_persona_name here is just a tag)
-        await db.execute(
-            "UPDATE personas SET bot_persona_name = ? WHERE bot_persona_name = ?",
-            (target, src),
-        )
+        if mode == "all":
+            # 3. Re-key events (event_id PK guarantees no conflicts)
+            await db.execute(
+                f"UPDATE events SET bot_persona_name = ? WHERE {src_events_where}",
+                tuple([target] + src_events_params),
+            )
+            # 4. Re-key personas (uid PK; bot_persona_name here is just a tag)
+            await db.execute(
+                f"UPDATE personas SET bot_persona_name = ? WHERE {src_personas_where}",
+                tuple([target] + src_personas_params),
+            )
     return counts
 
 

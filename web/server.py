@@ -47,6 +47,16 @@ def _persona_query(request: web.Request) -> str | None:
         return ""
     return value
 
+def _merge_persona_value(value: Any) -> tuple[bool, str | None]:
+    if not isinstance(value, str):
+        return False, None
+    value = value.strip()
+    if value == _LEGACY_PERSONA_TOKEN:
+        return True, None
+    if not value:
+        return False, None
+    return True, value
+
 def event_to_dict(event: Event) -> dict[str, Any]:
     return {
         "id": event.event_id,
@@ -671,36 +681,42 @@ class WebuiServer:
         return _json({"ok": True})
 
     async def _handle_persona_merge_preview(self, request: web.Request) -> web.Response:
-        src = (request.rel_url.query.get("src") or "").strip()
-        target = (request.rel_url.query.get("target") or "").strip()
-        if not src or not target:
+        src_ok, src = _merge_persona_value(request.rel_url.query.get("src"))
+        target_ok, target = _merge_persona_value(request.rel_url.query.get("target"))
+        mode = (request.rel_url.query.get("mode") or "all").strip() or "all"
+        if not src_ok or not target_ok:
             return _json({"error": "src and target required"}, status=400)
         if src == target:
             return _json({"error": "src must differ from target"}, status=400)
+        if mode not in {"all", "impressions_only"}:
+            return _json({"error": "unsupported merge mode"}, status=400)
         db = getattr(self._event_repo, "_db", None)
         if db is None:
             return _json({"error": "merge requires SQLite repository"}, status=501)
         from core.repository.sqlite import preview_bot_persona_merge
         try:
-            counts = await preview_bot_persona_merge(db, src, target)
+            counts = await preview_bot_persona_merge(db, src, target, mode=mode)
         except Exception as exc:
             return _json({"error": str(exc)}, status=500)
         return _json(counts)
 
     async def _handle_persona_merge(self, request: web.Request) -> web.Response:
         body = await request.json()
-        src = (body.get("src") or "").strip()
-        target = (body.get("target") or "").strip()
-        if not src or not target:
+        src_ok, src = _merge_persona_value(body.get("src"))
+        target_ok, target = _merge_persona_value(body.get("target"))
+        mode = body.get("mode") or "all"
+        if not src_ok or not target_ok:
             return _json({"error": "src and target required"}, status=400)
         if src == target:
             return _json({"error": "src must differ from target"}, status=400)
+        if mode not in {"all", "impressions_only"}:
+            return _json({"error": "unsupported merge mode"}, status=400)
         db = getattr(self._event_repo, "_db", None)
         if db is None:
             return _json({"error": "merge requires SQLite repository"}, status=501)
         from core.repository.sqlite import merge_bot_persona
         try:
-            counts = await merge_bot_persona(db, src, target)
+            counts = await merge_bot_persona(db, src, target, mode=mode)
         except Exception as exc:
             return _json({"error": str(exc)}, status=500)
         if bool(self._initial_config.get("persona_merge_audit_enabled", True)):
@@ -710,8 +726,9 @@ class WebuiServer:
                 with audit_path.open("a", encoding="utf-8") as f:
                     f.write(json.dumps({
                         "ts": time.time(),
-                        "src": src,
-                        "target": target,
+                        "src": src if src is not None else _LEGACY_PERSONA_TOKEN,
+                        "target": target if target is not None else _LEGACY_PERSONA_TOKEN,
+                        "mode": mode,
                         **counts,
                     }, ensure_ascii=False) + "\n")
             except Exception:

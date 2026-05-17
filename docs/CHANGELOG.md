@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## [v0.12.1] — 2026-05-17
+
+### Persona 数据归属管理与入口去重
+
+- **配置页新增 Persona 数据归属管理**
+  - 在「插件配置 → 社会关系与印象」下新增 `PersonaOwnershipManager`
+  - 支持从已有 bot persona、`__legacy__` 旧数据域或自定义 `bot_persona_name` 迁移到另一个数据域
+  - 支持两种迁移范围：全部数据（events + impressions + persona tags）或仅社会关系 / 印象（impressions only）
+  - 提供 preview、sudo gate、二次确认和迁移后 bot 列表刷新
+
+- **后端 merge 语义扩展**
+  - `preview_bot_persona_merge` / `merge_bot_persona` 支持 `src` / `target` 为 legacy NULL
+  - `/api/personas/merge/preview` 与 `/api/personas/merge` 新增 `mode=all|impressions_only`
+  - 继续采用 target wins 冲突策略；preview 和执行共享同一套匹配语义
+  - 审计日志新增 `mode`，legacy 写为 `__legacy__`
+
+- **WebUI 入口去重**
+  - 左下角 `PersonaSelector` 回归为纯全局数据域切换器
+  - 移除 selector 内的 merge 按钮和旧 `MergePersonaDialog`，避免把高层级视角切换和破坏性迁移混在一起
+  - `npm run lint` 已调整为可执行门禁，关闭当前项目不采用的 React Compiler purity 类规则
+
+- **测试**
+  - 扩展 `tests/test_persona_merge.py` 覆盖 legacy → named、named → legacy、impressions-only
+  - 扩展前端结构测试覆盖配置页归属管理入口
+
 ## [v0.12.0] — 2026-05-17
 
 ### Persona 隔离总收口：多 Bot Persona、汇总视图、合并与 Graph 管理

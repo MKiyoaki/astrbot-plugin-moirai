@@ -181,18 +181,19 @@ export interface PersonaMergePreview {
   impressions_dropped: number
   personas_moved: number
 }
+export type PersonaMergeMode = 'all' | 'impressions_only'
 
 export const graph = {
   get: (persona?: string | null) => request<GraphData>(withPersona('/api/graph', persona)),
   listBots: () => request<{ items: BotPersonaItem[] }>('/api/personas/bots'),
-  mergePersonasPreview: (src: string, target: string) =>
+  mergePersonasPreview: (src: string, target: string, mode: PersonaMergeMode = 'all') =>
     request<PersonaMergePreview>(
-      `/api/personas/merge/preview?src=${encodeURIComponent(src)}&target=${encodeURIComponent(target)}`
+      `/api/personas/merge/preview?src=${encodeURIComponent(src)}&target=${encodeURIComponent(target)}&mode=${encodeURIComponent(mode)}`
     ),
-  mergePersonas: (src: string, target: string) =>
+  mergePersonas: (src: string, target: string, mode: PersonaMergeMode = 'all') =>
     request<{ ok: boolean } & PersonaMergePreview>('/api/personas/merge', {
       method: 'POST',
-      body: JSON.stringify({ src, target }),
+      body: JSON.stringify({ src, target, mode }),
     }),
   createPersona: (data: Record<string, unknown>) =>
     request('/api/personas', { method: 'POST', body: JSON.stringify(data) }),

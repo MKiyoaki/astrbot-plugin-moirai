@@ -173,6 +173,35 @@ class TestPersonaSelector:
         src = _read("components/shared/persona-selector.tsx")
         assert "listBots" in src
 
+    def test_selector_does_not_merge_personas(self):
+        src = _read("components/shared/persona-selector.tsx")
+        assert "mergePersonas" not in src
+        assert "GitMerge" not in src
+
+
+# ── config persona ownership manager ─────────────────────────────────────────
+
+class TestPersonaOwnershipManager:
+    def test_file_exists(self):
+        assert (FRONTEND / "components/config/persona-ownership-manager.tsx").exists()
+
+    def test_config_page_renders_manager(self):
+        src = _read("app/config/page.tsx")
+        assert "PersonaOwnershipManager" in src
+        assert "section.id === 'relation'" in src
+
+    def test_supports_legacy_and_modes(self):
+        src = _read("components/config/persona-ownership-manager.tsx")
+        assert "LEGACY_PERSONA_TOKEN" in src
+        assert "impressions_only" in src
+        assert "mergePersonasPreview" in src
+        assert "mergePersonas" in src
+
+    def test_api_merge_accepts_mode(self):
+        src = _read("lib/api.ts")
+        assert "PersonaMergeMode" in src
+        assert "mode=" in src
+
 
 # ── first-launch-persona-picker.tsx ─────────────────────────────────────────
 

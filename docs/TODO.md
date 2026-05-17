@@ -324,19 +324,20 @@ persona: {
 
 ### Phase 4 — Persona 合并 / 转移（✅ 完成）
 - [x] 后端 `core/repository/sqlite.py` 加 `preview_bot_persona_merge` / `merge_bot_persona` 共享工具 — 事务内 DELETE 冲突 impressions + UPDATE events/impressions/personas (target wins 策略)
-- [x] 后端 `POST /api/personas/merge` body `{src, target}` — `plugin_routes.py` + `server.py` 双服务实现，包 `sudo` wrap
-- [x] 后端 `GET /api/personas/merge/preview?src=&target=` — 返回 4 项 counts
+- [x] 后端 `POST /api/personas/merge` body `{src, target, mode}` — `plugin_routes.py` + `server.py` 双服务实现，包 `sudo` wrap
+- [x] 后端 `GET /api/personas/merge/preview?src=&target=&mode=` — 返回 4 项 counts
+- [x] 支持 `__legacy__` / NULL 作为 source 或 target；支持 `mode=all|impressions_only`
 - [x] 接 `persona_merge_audit_enabled`：写 `data_dir/audit/persona_merge.jsonl`（每行 JSON）
-- [x] `web/frontend/lib/api.ts` — `graph.mergePersonas(src, target)` + `graph.mergePersonasPreview(src, target)` + `PersonaMergePreview` 接口
-- [x] `web/frontend/components/shared/merge-persona-dialog.tsx` — 新建（目标 select + 自动 preview + 二次确认 + sudo gate + destructive 警告）
-- [x] `PersonaSelector` 每个 bot 行加 GitMerge 小按钮（sudo 限制），打开 dialog
-- [x] 合并后：currentPersonaName === src 时自动切到 target；refreshKey 刷新 bots 列表
-- [x] `web/frontend/lib/i18n.ts` 三语 (zh/ja/en) 加 `mergeAction` / `mergeTitle` / `mergeDesc` / 4 项 stat label / 二次确认提示
-- [x] 测试 `tests/test_persona_merge.py` — 6 个场景（happy path / target wins 冲突 / personas re-key / preview 一致性 / 空 src no-op / NULL 不被 '' 匹配）
+- [x] `web/frontend/lib/api.ts` — `graph.mergePersonas(src, target, mode)` + `graph.mergePersonasPreview(src, target, mode)` + `PersonaMergePreview` 接口
+- [x] `web/frontend/components/config/persona-ownership-manager.tsx` — 配置页归属管理入口（source/target 支持 legacy、自定义；preview + 二次确认 + sudo gate）
+- [x] `PersonaSelector` 保持纯全局数据域切换，不再承载破坏性迁移操作
+- [x] 合并后：如当前数据域等于 source，自动切到 target；刷新 bots 列表
+- [x] `web/frontend/lib/i18n.ts` 三语 (zh/ja/en) 加归属管理文案 / 4 项 stat label / 二次确认提示
+- [x] 测试 `tests/test_persona_merge.py` — 覆盖 happy path / target wins 冲突 / personas re-key / preview 一致性 / 空 src no-op / legacy→named / named→legacy / impressions-only
 
 **修复的 Phase 2 遗漏**：`_EVENT_COLS` 漏了 `bot_persona_name` 列（SELECT 时不读但 `_row_to_event` 期望读，导致 list_all 返回的 events 永远是 `bot_persona_name=None`）— 在 Phase 4 测试中暴露并修复
 
-**验证**：483 backend tests pass（含新增 6 个 merge 测试）；49 frontend structure tests pass
+**验证**：backend tests pass；frontend structure tests / lint / typecheck pass
 
 #### Phase 4 技术实现（交接细节）
 
@@ -450,113 +451,46 @@ async def _handle_persona_merge(self, request):
 
 ```ts
 // web/frontend/lib/api.ts
-personas.mergePreview = (src: string, target: string) =>
+personas.mergePreview = (src: string, target: string, mode: 'all' | 'impressions_only') =>
   request<{ events_moved: number; impressions_moved: number; impressions_dropped: number; personas_moved: number }>(
-    `/api/personas/merge/preview?src=${encodeURIComponent(src)}&target=${encodeURIComponent(target)}`
+    `/api/personas/merge/preview?src=${encodeURIComponent(src)}&target=${encodeURIComponent(target)}&mode=${mode}`
   )
 
-personas.merge = (src: string, target: string) =>
-  request<...>('/api/personas/merge', { method: 'POST', body: JSON.stringify({ src, target }) })
+personas.merge = (src: string, target: string, mode: 'all' | 'impressions_only') =>
+  request<...>('/api/personas/merge', { method: 'POST', body: JSON.stringify({ src, target, mode }) })
 ```
 
-**6. MergePersonaDialog 组件** — `web/frontend/components/library/merge-persona-dialog.tsx`（新建）
+**6. PersonaOwnershipManager 组件** — `web/frontend/components/config/persona-ownership-manager.tsx`
 
-```tsx
-export function MergePersonaDialog({
-  open, src, allPersonas, onClose, onMerged,
-}: {
-  open: boolean
-  src: string
-  allPersonas: { name: string }[]
-  onClose: () => void
-  onMerged: (target: string) => void
-}) {
-  const [target, setTarget] = useState<string>('')
-  const [preview, setPreview] = useState<MergePreview | null>(null)
-  const [confirming, setConfirming] = useState(false)
-  const [loading, setLoading] = useState(false)
-  
-  useEffect(() => {
-    if (target && target !== src) {
-      api.personas.mergePreview(src, target).then(setPreview)
-    } else {
-      setPreview(null)
-    }
-  }, [src, target])
-  
-  const handleMerge = async () => {
-    setLoading(true)
-    try {
-      await api.personas.merge(src, target)
-      onMerged(target)
-      onClose()
-    } finally { setLoading(false) }
-  }
-  
-  return (
-    <Dialog ...>
-      <Select value={target} onValueChange={setTarget}>
-        {allPersonas.filter(p => p.name !== src).map(p => <SelectItem ...>{p.name}</SelectItem>)}
-      </Select>
-      {preview && (
-        <div className="text-sm space-y-1">
-          <p>events 将转移：<b>{preview.events_moved}</b></p>
-          <p>impressions 将转移：<b>{preview.impressions_moved}</b></p>
-          {preview.impressions_dropped > 0 && (
-            <p className="text-destructive">impressions 因冲突丢弃：<b>{preview.impressions_dropped}</b>（target 已有同 (obs, subj, scope) 行胜出）</p>
-          )}
-          <p>personas 将转移：<b>{preview.personas_moved}</b></p>
-        </div>
-      )}
-      {!confirming ? (
-        <Button variant="destructive" disabled={!target} onClick={() => setConfirming(true)}>
-          继续
-        </Button>
-      ) : (
-        <Button variant="destructive" disabled={loading} onClick={handleMerge}>
-          {loading ? <Spinner /> : '确认合并'}
-        </Button>
-      )}
-    </Dialog>
-  )
-}
-```
+- 位于「插件配置 → 社会关系与印象」下，作为全局数据域维护工具，而不是 Graph 局部工具
+- Source / Target 支持已有 bot、`__legacy__` 旧数据域、自定义 `bot_persona_name`
+- mode 支持 `all` 和 `impressions_only`
+- 操作需要 sudo，先 preview，再二次确认
 
-**7. PersonaRow 加按钮** — [`web/frontend/components/library/persona-row.tsx`](web/frontend/components/library/persona-row.tsx)
-
-在已有 "编辑 / 删除" 按钮旁加：
-
-```tsx
-{app.sudo && (
-  <Button variant="ghost" size="icon" onClick={() => onMerge(persona)}>
-    <GitMerge className="size-3" />  {/* lucide-react */}
-  </Button>
-)}
-```
-
-`onMerge` prop 从父组件（library/page.tsx）传入，打开 dialog。
-
-**8. 合并后状态切换**
+**7. 合并后状态切换**
 
 ```tsx
 const handleMerged = (target: string) => {
-  if (app.currentPersonaName === src) {
+  if (app.currentPersonaName === src || (src === '__legacy__' && app.currentPersonaName === null)) {
     app.setCurrentPersona(target, 'single')  // 自动切到 target
   }
-  // 刷新 personas 列表 + events
-  loadAll()
+  // 刷新 bot persona 列表
+  loadBots()
 }
 ```
 
-**9. 陷阱 / 注意**
+**8. 陷阱 / 注意**
 
-- **src / target 校验**：必须不相等、必须非空、必须都在 `/api/personas/bots` 返回列表里
+- **src / target 校验**：必须不相等、必须非空；允许不在 `/api/personas/bots` 返回列表里的自定义 `bot_persona_name`
+- **legacy 语义**：前端用 `__legacy__`，后端转成 SQL `IS NULL`；不要用空字符串表示 legacy
 - **AstrBot 端 personas 表的 `(platform="internal", physical_id="bot")` 绑定**：合并 personas 表中的 bot persona 后，相应的 identity_binding 也要 reattach 到 target uid。否则后续 `_get_bot_persona()` 可能找不到 bot
 - **审计日志位置**：`data_dir/audit/`，确保 `parent.mkdir(parents=True, exist_ok=True)`
 - **回滚**：当前方案无回滚（事务提交后不可逆）。如果担心，可以在事务前先备份 db 文件
 - **测试**：写 `tests/test_persona_merge.py`：
   - happy path：src→target，事件 / 印象 / 人格行数符合预期
   - src=target 拒绝（400）
+  - legacy→named / named→legacy
+  - impressions_only 不移动 events / personas
   - 冲突 impressions 数量正确报告
   - 审计日志生成 / 关闭开关时不生成
 

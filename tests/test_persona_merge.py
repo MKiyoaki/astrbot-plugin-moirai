@@ -191,18 +191,56 @@ async def test_merge_empty_src_is_noop(db, repos) -> None:
 
 @pytest.mark.asyncio
 async def test_merge_legacy_null_to_named(db, repos) -> None:
-    """Pre-migration NULL rows can be claimed by a named persona via merge('', target).
-
-    But we pass `src` as the bot_persona_name string; NULL legacy rows are
-    matched by `bot_persona_name = ?` which does NOT match NULL in SQLite,
-    so merging from '' (empty string) is a no-op on legacy NULLs. This test
-    pins that behavior — legacy NULL rows are NOT auto-migrated by merge.
-    """
-    _, event_repo, _ = repos
+    """Pre-migration NULL rows can be claimed by a named persona."""
+    _, event_repo, impression_repo = repos
     await event_repo.upsert(_event("e-null", None))
+    await impression_repo.upsert(_impression("u1", "u2", "global", None))
 
-    counts = await merge_bot_persona(db, "", "Bob")
-    assert counts["events_moved"] == 0
+    preview = await preview_bot_persona_merge(db, None, "Bob")
+    assert preview["events_moved"] == 1
+    assert preview["impressions_moved"] == 1
+    counts = await merge_bot_persona(db, None, "Bob")
+    assert counts == preview
 
     all_events = await event_repo.list_all(limit=10)
+    assert all_events[0].bot_persona_name == "Bob"
+    imps = await impression_repo.list_by_observer("u1")
+    assert imps[0].bot_persona_name == "Bob"
+
+
+@pytest.mark.asyncio
+async def test_merge_named_to_legacy_null(db, repos) -> None:
+    _, event_repo, impression_repo = repos
+    await event_repo.upsert(_event("e-alice", "Alice"))
+    await impression_repo.upsert(_impression("u1", "u2", "global", "Alice"))
+
+    counts = await merge_bot_persona(db, "Alice", None)
+
+    assert counts["events_moved"] == 1
+    all_events = await event_repo.list_all(limit=10)
     assert all_events[0].bot_persona_name is None
+    imps = await impression_repo.list_by_observer("u1")
+    assert imps[0].bot_persona_name is None
+
+
+@pytest.mark.asyncio
+async def test_merge_impressions_only_leaves_events_and_personas(db, repos) -> None:
+    persona_repo, event_repo, impression_repo = repos
+    await persona_repo.upsert(_persona("p1", "Alice"))
+    await event_repo.upsert(_event("e-alice", "Alice"))
+    await impression_repo.upsert(_impression("u1", "u2", "global", "Alice"))
+
+    counts = await merge_bot_persona(db, "Alice", "Bob", mode="impressions_only")
+
+    assert counts == {
+        "events_moved": 0,
+        "impressions_moved": 1,
+        "impressions_dropped": 0,
+        "personas_moved": 0,
+    }
+    all_events = await event_repo.list_all(limit=10)
+    assert all_events[0].bot_persona_name == "Alice"
+    all_personas = await persona_repo.list_all()
+    assert all_personas[0].bot_persona_name == "Alice"
+    imps = await impression_repo.list_by_observer("u1")
+    assert imps[0].bot_persona_name == "Bob"

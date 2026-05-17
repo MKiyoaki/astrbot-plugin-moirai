@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { PageHeader } from '@/components/layout/page-header'
 import { RefreshButton } from '@/components/shared/refresh-button'
 import { OnThisPage } from '@/components/shared/on-this-page'
+import { PersonaOwnershipManager } from '@/components/config/persona-ownership-manager'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -672,6 +673,7 @@ export default function ConfigPage() {
                       })}
                     </CardContent>
                   </Card>
+                  {section.id === 'relation' && <PersonaOwnershipManager />}
                 </div>
               )
             })

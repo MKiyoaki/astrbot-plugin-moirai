@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [v0.12.1] — 2026-05-17
+
+### Persona 数据归属管理与入口去重
+
+**Feature — 配置页归属管理**
+
+- 在「插件配置 → 社会关系与印象」新增 Persona 数据归属管理入口
+- 支持已有 bot persona、`__legacy__` 旧数据域和自定义 `bot_persona_name`
+- 支持全量迁移或仅迁移社会关系 / 印象
+
+**Fix — Merge 语义**
+
+- 后端 merge 支持 legacy NULL 作为 source 或 target
+- `/api/personas/merge` 与 preview 接口支持 `mode=all|impressions_only`
+- 左下角 `PersonaSelector` 移除 merge 操作，只保留全局数据域切换
+
+**Tests**
+
+- 扩展 legacy/custom/mode 相关测试；前端 lint 与 typecheck 已通过
+
 ## [v0.12.0] — 2026-05-17
 
 ### Persona 隔离总收口：多 Bot Persona、汇总视图、合并与 Graph 管理
