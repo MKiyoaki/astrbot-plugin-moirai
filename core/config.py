@@ -123,7 +123,7 @@ _DEFAULT_PERSONA_SYSTEM_PROMPT = (
 
 _DEFAULT_IMPRESSION_SYSTEM_PROMPT = (
     "你是一个社交关系分析助手。根据对话事件，更新对某人的印象。"
-    "只输出单行JSON，字段：ipc_orientation（以下8种之一：亲和/活跃/掌控/高傲/冷淡/孤避/顺应/谦让）、"
+    "只输出单行JSON，字段：ipc_orientation（以下8种之一：affinity/active/dominant/arrogant/cold/withdrawn/submissive/deferential）、"
     "benevolence（亲和度，-1.0到1.0的浮点数）、power（支配度，-1.0到1.0的浮点数）、"
     "confidence（0.0到1.0 Hendrick 的浮点数）。不要输出任何其他内容。"
 )
@@ -149,7 +149,7 @@ _DEFAULT_SUMMARY_SYSTEM_PROMPT = (
 
 _DEFAULT_SUMMARY_MOOD_PROMPT = (
     "你是一个社交关系分析助手。根据以下对话事件，分析群体情感动态。"
-    "只输出单行JSON，字段：orientation（以下8种之一：亲和/活跃/掌控/高傲/冷淡/孤避/顺应/谦让之一）、"
+    "只输出单行JSON，字段：orientation（以下8种之一：affinity/active/dominant/arrogant/cold/withdrawn/submissive/deferential之一）、"
     "benevolence（亲和度，-1.0到1.0的浮点数）、power（支配度，-1.0到1.0的浮点数）、"
     "positions（对象，key为用户UID，value为该用户的orientation，8种之一）。"
     "不要输出任何其他内容。"
@@ -160,7 +160,7 @@ _DEFAULT_SUMMARY_UNIFIED_PROMPT = (
     "请输出一个 JSON 对象，包含以下字段：\n"
     "1. summary: 对时段内所有事件进行总结的正文内容，不超过 300 字。不要包含标题或 Markdown 装饰。\n"
     "2. mood: 一个对象，包含以下社交关系分析字段：\n"
-    "   - orientation: 群体整体氛围（亲和/活跃/掌控/高傲/冷淡/孤避/顺应/谦让之一）\n"
+    "   - orientation: 群体整体氛围（affinity/active/dominant/arrogant/cold/withdrawn/submissive/deferential之一）\n"
     "   - benevolence: 整体亲和度 (-1.0 到 1.0)\n"
     "   - power: 整体支配度 (-1.0 到 1.0)\n"
     "   - positions: 对象，key 为用户 UID，value 为该用户的 orientation (8种之一)\n\n"

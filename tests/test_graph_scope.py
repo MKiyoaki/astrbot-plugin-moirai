@@ -50,7 +50,7 @@ def make_impression(observer: str, subject: str, scope: str) -> Impression:
         observer_uid=observer,
         subject_uid=subject,
         scope=scope,
-        ipc_orientation="friend",
+        ipc_orientation="affinity",
         benevolence=0.5,
         power=0.0,
         affect_intensity=0.5,

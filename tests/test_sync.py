@@ -79,7 +79,7 @@ def test_parse_first_impression_fields() -> None:
     imp = imps[0]
     assert imp.observer_uid == "observer-uid-001"
     assert imp.subject_uid == "subject-uid-001"
-    assert imp.ipc_orientation == "友好"
+    assert imp.ipc_orientation == "affinity"
     assert imp.benevolence == pytest.approx(0.70, abs=0.001)
     assert imp.power == pytest.approx(0.00, abs=0.001)
     assert imp.affect_intensity == pytest.approx(0.80, abs=0.001)
@@ -95,7 +95,7 @@ def test_parse_second_impression_fields() -> None:
     imp = imps[1]
     assert imp.observer_uid == "observer-uid-002"
     assert imp.scope == "g1"
-    assert imp.ipc_orientation == "服从"
+    assert imp.ipc_orientation == "submissive"
     assert imp.benevolence == pytest.approx(0.10, abs=0.001)
     assert imp.power == pytest.approx(-0.50, abs=0.001)
     assert imp.affect_intensity == pytest.approx(0.40, abs=0.001)
@@ -405,4 +405,4 @@ async def test_syncer_integration_watcher_triggers_upsert(tmp_path: Path) -> Non
 
     imps = await ir.list_by_observer("observer-uid-001")
     assert len(imps) == 1
-    assert imps[0].ipc_orientation == "敌意"
+    assert imps[0].ipc_orientation == "cold"

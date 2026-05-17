@@ -442,6 +442,8 @@ class PluginInitializer:
                 recall_manager=self.recall,
                 star=self._star,
                 llm_manager=self.llm_manager,
+                context_manager=self.context_manager,
+                summary_trigger_rounds=cfg.get_boundary_config().summary_trigger_rounds,
             )
         except Exception as e:
             self.webui_error = str(e) or repr(e) or "unknown error"

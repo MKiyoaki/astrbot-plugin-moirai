@@ -73,7 +73,7 @@ def make_impression(
     return Impression(
         observer_uid=observer,
         subject_uid=subject,
-        ipc_orientation="友好",
+        ipc_orientation="affinity",
         benevolence=affect,
         power=0.0,
         affect_intensity=0.7,

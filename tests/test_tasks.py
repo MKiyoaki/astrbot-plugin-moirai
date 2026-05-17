@@ -74,7 +74,7 @@ def make_impression(observer: str, subject: str, evidence: list[str] | None = No
     return Impression(
         observer_uid=observer,
         subject_uid=subject,
-        ipc_orientation="友好",
+        ipc_orientation="affinity",
         benevolence=0.0,
         power=0.0,
         affect_intensity=0.3,

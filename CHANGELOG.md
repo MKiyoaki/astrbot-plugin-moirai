@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## [v0.11.1] — 2026-05-17
+
+### ipc_orientation 字段统一化
+
+**Refactor — 将两条写入路径统一为 8 个英文 key**
+
+- `classify_octant` 返回值从硬编码中文改为英文 key（`affinity` / `active` / `dominant` / `arrogant` / `cold` / `withdrawn` / `submissive` / `deferential`）
+- LLM 提取 prompt（3 处）约束列表同步更新为英文 key
+- `i18n.py` 的 IPC 标签 key 从 `ipc.亲和` 等改为 `ipc.affinity` 等，翻译值不变（zh/en/ja 均已更新）
+- Jinja2 投影模板通过 `get_string("ipc." + imp.ipc_orientation)` 输出本地化显示名
+- `parser.py` 新增 `_ORIENTATION_NORMALIZE` 映射，将文件中读取到的中文显示名/历史变体统一归一化为英文 key，保证读写双向兼容
+- 前端 `getLocalizedOrientation` 重写：主路径直接映射英文 key，同时保留中文历史变体的 fallback
+- 前端关系图边标签通过 `getLocalizedOrientation` 翻译，不再裸显原始字段值
+
+**Migration**
+
+- 新增 `migrations/010_normalize_ipc_orientation.sql`：将数据库中所有历史中文值及 LLM 变体映射为英文 key，未知值 fallback 为 `affinity`
+
+
 ## [v0.11.0] — 2026-05-17
 
 ### 群组/私聊分域关系图

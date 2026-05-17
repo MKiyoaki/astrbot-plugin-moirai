@@ -31,6 +31,21 @@ _RSQUARED_RE = re.compile(r"^\|\s*拟合优度\s*\|\s*(\d+)%\s*\|", re.MULTILINE
 _CONFIDENCE_RE = re.compile(r"^\|\s*置信度\s*\|\s*(\d+)%\s*\|", re.MULTILINE)
 _EVIDENCE_RE = re.compile(r"^\*\*依据事件：\*\*\s*(.+)$", re.MULTILINE)
 
+# Normalize any orientation string (localized display or English key) to English key
+_ORIENTATION_NORMALIZE: dict[str, str] = {
+    # Canonical keys pass through
+    'affinity': 'affinity', 'active': 'active', 'dominant': 'dominant',
+    'arrogant': 'arrogant', 'cold': 'cold', 'withdrawn': 'withdrawn',
+    'submissive': 'submissive', 'deferential': 'deferential',
+    # Chinese display names (written by projector template)
+    '亲和': 'affinity', '活跃': 'active', '掌控': 'dominant', '高傲': 'arrogant',
+    '冷淡': 'cold', '孤避': 'withdrawn', '顺应': 'submissive', '谦让': 'deferential',
+    # Legacy variants
+    '友好': 'affinity', '积极': 'active', '支配': 'dominant', '傲慢': 'arrogant',
+    '疏远': 'cold', '敌意': 'cold', '孤立': 'withdrawn', '服从': 'submissive',
+    '顺从': 'submissive', '谦逊': 'deferential',
+}
+
 
 def parse_impressions_md(content: str, subject_uid: str) -> list[Impression]:
     """Parse an IMPRESSIONS.md file and return a list of Impression objects.
@@ -67,7 +82,8 @@ def parse_impressions_md(content: str, subject_uid: str) -> list[Impression]:
         if not (orient_m and bene_m and power_m and intensity_m and rsquared_m and conf_m):
             continue  # incomplete block — skip
 
-        ipc_orientation = orient_m.group(1).strip()
+        raw_orient = orient_m.group(1).strip()
+        ipc_orientation = _ORIENTATION_NORMALIZE.get(raw_orient, raw_orient)
         benevolence = float(bene_m.group(1))
         power = float(power_m.group(1))
         affect_intensity = int(intensity_m.group(1)) / 100.0

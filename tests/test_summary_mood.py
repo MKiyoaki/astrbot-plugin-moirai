@@ -40,7 +40,7 @@ async def test_mood_source_option_b_llm(tmp_path):
         interaction_flow=[], chat_content_tags=[], salience=0.5, confidence=0.8
     ))
     
-    mood_json = '{"orientation": "活跃", "benevolence": 0.5, "power": 0.5, "positions": {"u1": "掌控", "u2": "亲和"}}'
+    mood_json = '{"orientation": "active", "benevolence": 0.5, "power": 0.5, "positions": {"u1": "dominant", "u2": "affinity"}}'
     provider = MockProvider(mood_json)
     
     cfg = SummaryConfig(mood_source="llm")
@@ -53,6 +53,7 @@ async def test_mood_source_option_b_llm(tmp_path):
     assert "这是统一总结的主要话题内容" in content
     assert "群体情感动态整体偏向[活跃]" in content
     assert "u1处于群体中的掌控位置" in content
+    # Note: LLM returns English keys which are translated to Chinese in the summary
 
 @pytest.mark.asyncio
 async def test_mood_source_option_a_db(tmp_path):
@@ -63,7 +64,7 @@ async def test_mood_source_option_a_db(tmp_path):
     # Add impressions for u1 and u2
     await ir.upsert(Impression(
         observer_uid="bot", subject_uid="u1", 
-        ipc_orientation="掌控", benevolence=0.2, power=0.8,
+        ipc_orientation="dominant", benevolence=0.2, power=0.8,
         affect_intensity=0.6, r_squared=0.8, confidence=0.9,
         scope="global",
         evidence_event_ids=[],
@@ -71,7 +72,7 @@ async def test_mood_source_option_a_db(tmp_path):
     ))
     await ir.upsert(Impression(
         observer_uid="bot", subject_uid="u2", 
-        ipc_orientation="亲和", benevolence=0.8, power=0.1,
+        ipc_orientation="affinity", benevolence=0.8, power=0.1,
         affect_intensity=0.5, r_squared=0.9, confidence=0.9,
         scope="global",
         evidence_event_ids=[],

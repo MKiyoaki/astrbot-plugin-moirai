@@ -6,9 +6,12 @@ web/server.py delegates to these and wraps results in HTTP responses.
 from __future__ import annotations
 
 import dataclasses
+import logging
 import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger(__name__)
 
 from .domain.models import Event, EventStatus, Impression, Persona
 from .utils.version import get_plugin_version
@@ -177,8 +180,8 @@ async def get_stats(
                     "trigger_rounds": summary_trigger_rounds,
                     "trigger_threshold_messages": trigger_threshold,
                 })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[get_stats] failed to read active_sessions from context_manager: %s", e, exc_info=True)
 
     return {
         "personas": len(personas),

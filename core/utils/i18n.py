@@ -82,16 +82,15 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "projector.affect_neutral": "中性（{value:+.2f}）",
 
         # IPC Labels
-        "ipc.亲和": "亲和",
-        "ipc.活跃": "活跃",
-        "ipc.掌控": "掌控",
-        "ipc.高傲": "高傲",
-        "ipc.冷淡": "冷淡",
-        "ipc.孤避": "孤避",
-        "ipc.顺应": "顺应",
-        "ipc.谦让": "谦让",
+        "ipc.affinity": "亲和",
+        "ipc.active": "活跃",
+        "ipc.dominant": "掌控",
+        "ipc.arrogant": "高傲",
+        "ipc.cold": "冷淡",
+        "ipc.withdrawn": "孤避",
+        "ipc.submissive": "顺应",
+        "ipc.deferential": "谦让",
         "ipc.unknown": "未知",
-        "ipc.未知": "未知",
 
         # Formatter
         "formatter.minutes_ago": "{count}分钟前",
@@ -275,15 +274,15 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "projector.affect_neutral": "Neutral ({value:+.2f})",
 
         # IPC Labels
-        "ipc.亲和": "Friendly",
-        "ipc.活跃": "Outgoing",
-        "ipc.掌控": "Dominant",
-        "ipc.高傲": "Arrogant",
-        "ipc.冷淡": "Cold",
-        "ipc.孤避": "Withdrawn",
-        "ipc.顺应": "Submissive",
-        "ipc.谦让": "Humble",
-        "ipc.未知": "Unknown",
+        "ipc.affinity": "Friendly",
+        "ipc.active": "Outgoing",
+        "ipc.dominant": "Dominant",
+        "ipc.arrogant": "Arrogant",
+        "ipc.cold": "Cold",
+        "ipc.withdrawn": "Withdrawn",
+        "ipc.submissive": "Submissive",
+        "ipc.deferential": "Humble",
+        "ipc.unknown": "Unknown",
 
         # Formatter
         "formatter.minutes_ago": "{count} min ago",
@@ -467,15 +466,15 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "projector.affect_neutral": "ニュートラル（{value:+.2f}）",
 
         # IPC Labels
-        "ipc.亲和": "親和的",
-        "ipc.活跃": "社交的",
-        "ipc.掌控": "支配的",
-        "ipc.高傲": "傲慢的",
-        "ipc.冷淡": "冷淡な",
-        "ipc.孤避": "離絶的",
-        "ipc.顺应": "服従的",
-        "ipc.谦让": "謙虚な",
-        "ipc.未知": "未知",
+        "ipc.affinity": "親和的",
+        "ipc.active": "社交的",
+        "ipc.dominant": "支配的",
+        "ipc.arrogant": "傲慢的",
+        "ipc.cold": "冷淡な",
+        "ipc.withdrawn": "離絶的",
+        "ipc.submissive": "服従的",
+        "ipc.deferential": "謙虚な",
+        "ipc.unknown": "未知",
 
         # Formatter
         "formatter.minutes_ago": "{count}分前",

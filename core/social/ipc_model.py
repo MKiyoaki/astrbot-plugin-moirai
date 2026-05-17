@@ -6,16 +6,16 @@ Coordinate system:
 
 Eight octants at 45° intervals on the unit circle (B = cos θ, P = sin θ):
 
-  Label      θ      B       P
-  -------  -----  ------  ------
-  亲和        0°   +1.000  +0.000
-  活跃       45°   +0.707  +0.707
-  掌控       90°   +0.000  +1.000
-  高傲      135°   -0.707  +0.707
-  冷淡      180°   -1.000  +0.000
-  孤避      225°   -0.707  -0.707
-  顺应      270°   +0.000  -1.000
-  谦让      315°   +0.707  -0.707
+  Key           θ      B       P
+  -----------  -----  ------  ------
+  affinity       0°   +1.000  +0.000
+  active        45°   +0.707  +0.707
+  dominant      90°   +0.000  +1.000
+  arrogant     135°   -0.707  +0.707
+  cold         180°   -1.000  +0.000
+  withdrawn    225°   -0.707  -0.707
+  submissive   270°   +0.000  -1.000
+  deferential  315°   +0.707  -0.707
 
 References:
   Markey, P. M., & Markey, C. N. (2013). Journal of Personality, 81, 465-475.
@@ -50,23 +50,23 @@ class _IPCOctant:
 
 
 _OCTANTS: tuple[_IPCOctant, ...] = (
-    _IPCOctant("亲和",     0.0),
-    _IPCOctant("活跃",    45.0),
-    _IPCOctant("掌控",    90.0),
-    _IPCOctant("高傲",   135.0),
-    _IPCOctant("冷淡",   180.0),
-    _IPCOctant("孤避",   225.0),
-    _IPCOctant("顺应",   270.0),
-    _IPCOctant("谦让",   315.0),
+    _IPCOctant("affinity",      0.0),
+    _IPCOctant("active",       45.0),
+    _IPCOctant("dominant",     90.0),
+    _IPCOctant("arrogant",    135.0),
+    _IPCOctant("cold",        180.0),
+    _IPCOctant("withdrawn",   225.0),
+    _IPCOctant("submissive",  270.0),
+    _IPCOctant("deferential", 315.0),
 )
 
 _ANGLE_TO_OCTANT: dict[float, _IPCOctant] = {o.angle_deg: o for o in _OCTANTS}
 
 
 def classify_octant(benevolence: float, power: float) -> str:
-    """Return the Chinese IPC label whose centroid is nearest to (B, P)."""
+    """Return the IPC key whose centroid is nearest to (B, P)."""
     if abs(benevolence) < _EPS and abs(power) < _EPS:
-        return "亲和"  # origin → default to friendly
+        return "affinity"  # origin → default to friendly
     angle = math.degrees(math.atan2(power, benevolence)) % 360.0
     # Find the nearest octant centre (centres at 0°, 45°, …, 315°)
     nearest = round(angle / 45.0) % 8

@@ -42,7 +42,7 @@ def make_impression(observer: str, subject: str) -> Impression:
         observer_uid=observer,
         subject_uid=subject,
         scope="global",
-        ipc_orientation="friend",
+        ipc_orientation="affinity",
         benevolence=0.5,
         power=0.0,
         affect_intensity=0.5,
@@ -268,3 +268,61 @@ class TestCommandManagerStatus:
         # Should have persona count (2) and impression count (1)
         assert "2" in result
         assert "1" in result
+
+
+# ---------------------------------------------------------------------------
+# Tests: WebuiServer.stats_data() passes context_manager through
+# ---------------------------------------------------------------------------
+
+class TestWebuiServerActiveSessions:
+    """Verify WebuiServer.stats_data() propagates context_manager to get_stats()."""
+
+    @pytest.mark.asyncio
+    async def test_webui_stats_data_no_context_manager_returns_empty(self, tmp_path):
+        from web.server import WebuiServer
+
+        persona_repo = InMemoryPersonaRepository()
+        event_repo = InMemoryEventRepository()
+        impression_repo = InMemoryImpressionRepository()
+
+        server = WebuiServer(
+            persona_repo=persona_repo,
+            event_repo=event_repo,
+            impression_repo=impression_repo,
+            data_dir=tmp_path,
+            context_manager=None,
+            summary_trigger_rounds=30,
+        )
+        data = await server.stats_data()
+        assert data["active_sessions"] == []
+        assert data["summary_trigger_rounds"] == 30
+
+    @pytest.mark.asyncio
+    async def test_webui_stats_data_with_context_manager_returns_sessions(self, tmp_path):
+        from web.server import WebuiServer
+
+        persona_repo = InMemoryPersonaRepository()
+        event_repo = InMemoryEventRepository()
+        impression_repo = InMemoryImpressionRepository()
+
+        win = MessageWindow(session_id="s:test", group_id="grp1")
+        for i in range(6):
+            win.add_message(uid="u1", text=f"msg{i}", timestamp=float(1000 + i))
+
+        cm = _make_context_manager_with_windows([win])
+
+        server = WebuiServer(
+            persona_repo=persona_repo,
+            event_repo=event_repo,
+            impression_repo=impression_repo,
+            data_dir=tmp_path,
+            context_manager=cm,
+            summary_trigger_rounds=20,
+        )
+        data = await server.stats_data()
+        sessions = data["active_sessions"]
+        assert len(sessions) == 1
+        assert sessions[0]["session_id"] == "s:test"
+        assert sessions[0]["current_rounds"] == 3   # 6 // 2
+        assert sessions[0]["trigger_rounds"] == 20
+        assert data["summary_trigger_rounds"] == 20

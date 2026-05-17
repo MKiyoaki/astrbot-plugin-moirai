@@ -62,7 +62,7 @@ def make_impression(observer: str, subject: str) -> Impression:
     return Impression(
         observer_uid=observer,
         subject_uid=subject,
-        ipc_orientation="友好",
+        ipc_orientation="affinity",
         benevolence=0.7,
         power=0.0,
         affect_intensity=0.8,
@@ -130,7 +130,7 @@ def test_impression_to_edge_structure() -> None:
     e = imp.to_web_edge()
     assert e["data"]["source"] == "uid1"
     assert e["data"]["target"] == "uid2"
-    assert e["data"]["label"] == "友好"
+    assert e["data"]["label"] == "affinity"
     assert e["data"]["affect"] == pytest.approx(0.7, abs=0.001)
     assert e["data"]["evidence_event_ids"] == ["ev1"]
 

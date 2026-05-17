@@ -205,7 +205,7 @@ export default function SummaryPage() {
   )
 
   return (
-    <div className="flex w-full flex-1 h-full flex-col min-w-0 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
+    <div className="flex h-svh flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
         variant="loom"
         loomIssue="ΠΕΡΙΛΗΨΗ"

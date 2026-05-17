@@ -4,6 +4,8 @@ import type { EdgePair, PhysicsParams, VisualParams, PositionMap } from '@/lib/g
 import { computeNodeRadius, mockCluster } from '@/lib/graph-utils'
 import { GraphNode } from '@/components/graph/graph-node'
 import { GraphEdge } from '@/components/graph/graph-edge'
+import { useApp } from '@/lib/store'
+import { getLocalizedOrientation } from '@/lib/i18n'
 
 // ── Cluster color palette (Leiden-style) ─────────────────────────────────────
 const CLUSTER_COLORS = ['#d4e4f7', '#d5f0dc', '#fde8e6', '#fef9e7', '#f0eaff', '#e8f8f5']
@@ -43,6 +45,7 @@ export function NetworkGraph({
   onSizeChange,
   svgRef: externalSvgRef,
 }: NetworkGraphProps) {
+  const { i18n } = useApp()
   const containerRef = useRef<HTMLDivElement>(null)
   const internalSvgRef = useRef<SVGSVGElement>(null)
   const svgRef = (externalSvgRef as React.RefObject<SVGSVGElement>) ?? internalSvgRef
@@ -447,9 +450,10 @@ export function NetworkGraph({
             const isDimmed = getIsDimmed(pair.pairKey, 'edge')
             const midX = (pa.x + pb.x) / 2
             const midY = (pa.y + pb.y) / 2
+            const localizedLabel = getLocalizedOrientation(pair.fwd.data.label, i18n)
             const relationLabel = pair.isBidirectional
-              ? `⇄ ${pair.fwd.data.label}`
-              : `→ ${pair.fwd.data.label}`
+              ? `⇄ ${localizedLabel}`
+              : `→ ${localizedLabel}`
             return (
               <text
                 key={`lbl-${pair.pairKey}`}

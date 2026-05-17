@@ -10,7 +10,7 @@
 
 | {{ get_string("projector.field") }} | {{ get_string("projector.value") }} |
 |------|----|
-| {{ get_string("projector.ipc_orientation") }} | {{ imp.ipc_orientation }} |
+| {{ get_string("projector.ipc_orientation") }} | {{ get_string("ipc." + imp.ipc_orientation) }} |
 | {{ get_string("projector.benevolence") }} | {{ imp.benevolence | format_affect }} |
 | {{ get_string("projector.power") }} | {{ imp.power | format_affect }} |
 | {{ get_string("projector.intensity") }} | {{ (imp.affect_intensity * 100) | int }}% |

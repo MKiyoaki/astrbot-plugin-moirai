@@ -582,11 +582,16 @@ export default function ConfigPage() {
       <PageHeader
         variant="loom"
         loomIssue="ΡΥΘΜΙΣΗ"
-          loomWindow={i18n.page.config.loomWindow}
+        loomWindow={i18n.page.config.loomWindow}
         title={i18n.page.config.title}
-        actions={actions}
-        globalActions={globalActions}
+        externalToolbar
       />
+
+      {/* Sticky toolbar — outside PageHeader so it sticks within the document scroll */}
+      <div className="sticky top-0 z-20 flex items-center gap-2 px-4 py-2 border-b bg-background/95 backdrop-blur-sm">
+        <div className="flex items-center gap-2 flex-wrap">{actions}</div>
+        <div className="ml-auto flex items-center gap-2">{globalActions}</div>
+      </div>
 
       <TooltipProvider delayDuration={0}>
       <div className="flex flex-1 justify-center gap-8 px-6 pb-24 pt-6">

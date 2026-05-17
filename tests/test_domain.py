@@ -52,7 +52,7 @@ def make_impression(**overrides) -> Impression:
     defaults: dict = dict(
         observer_uid="uid-bot",
         subject_uid="uid-alice",
-        ipc_orientation="友好",
+        ipc_orientation="affinity",
         benevolence=0.6,
         power=0.0,
         affect_intensity=0.8,
