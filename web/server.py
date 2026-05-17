@@ -786,6 +786,27 @@ class WebuiServer:
         deleted = await self._impression_repo.delete_by_scope(scope, bot_persona_name=bot_persona_name)
         return _json({"ok": True, "deleted": deleted})
 
+    async def _handle_reanalyze_impressions_guarded(self, request: web.Request) -> web.Response:
+        if not self._relation_enabled: return _json({"error": "disabled"}, status=403)
+        body = await request.json()
+        scope = body.get("scope")
+        if not isinstance(scope, str) or not scope:
+            return _json({"error": "scope required"}, status=400)
+        bot_persona_name = body.get("persona")
+        if bot_persona_name == _LEGACY_PERSONA_TOKEN:
+            bot_persona_name = ""
+        if not isinstance(bot_persona_name, str):
+            bot_persona_name = None
+        try:
+            from web.plugin_routes import reanalyze_impressions_for_scope
+            updated = await reanalyze_impressions_for_scope(
+                self._event_repo, self._impression_repo, scope, bot_persona_name
+            )
+        except Exception as exc:
+            logger.warning("[WebuiServer] reanalyze_impressions failed: %s", exc, exc_info=True)
+            return _json({"error": str(exc)}, status=500)
+        return _json({"ok": True, "updated": updated})
+
     async def _handle_tags(self, _: web.Request) -> web.Response:
         counts = {}
         for gid in await self._event_repo.list_group_ids():

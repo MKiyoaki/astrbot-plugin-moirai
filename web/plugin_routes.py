@@ -41,6 +41,97 @@ def _ts_to_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
+async def reanalyze_impressions_for_scope(
+    event_repo: Any,
+    impression_repo: Any,
+    scope: str,
+    bot_persona_name: str | None,
+) -> int:
+    """Heuristic impression reanalysis: count shared events per participant pair.
+
+    Shared between WebuiServer and PluginRoutes so both transports can trigger it.
+    """
+    import dataclasses
+    import time as _time
+    from core.domain.models import Impression
+    from core.social.ipc_model import classify_octant, affect_intensity, r_squared
+
+    group_id = None if scope == "global" else scope
+    events = await event_repo.list_by_group(group_id, limit=1000, bot_persona_name=bot_persona_name)
+
+    participant_events: dict[str, set[str]] = {}
+    for ev in events:
+        for uid in (ev.participants or []):
+            participant_events.setdefault(uid, set()).add(ev.event_id)
+
+    participants = list(participant_events.keys())
+    if len(participants) < 2:
+        return 0
+
+    updated = 0
+    now = _time.time()
+
+    for obs_uid in participants:
+        obs_event_ids = participant_events[obs_uid]
+        for subj_uid in participants:
+            if subj_uid == obs_uid:
+                continue
+            shared = len(obs_event_ids & participant_events[subj_uid])
+            if shared < 1:
+                continue
+
+            salience = min(1.0, 0.3 + shared * 0.05)
+            if shared >= 10:
+                b_e = min(1.0, 0.3 + salience * 0.4)
+                p_e = 0.2
+            else:
+                b_e = min(1.0, 0.1 + salience * 0.3)
+                p_e = 0.0
+
+            ipc_o = classify_octant(b_e, p_e)
+            ai = affect_intensity(b_e, p_e)
+            rs = r_squared(b_e, p_e)
+
+            existing = await impression_repo.get(obs_uid, subj_uid, scope, bot_persona_name=bot_persona_name)
+            if existing is None:
+                imp = Impression(
+                    observer_uid=obs_uid,
+                    subject_uid=subj_uid,
+                    ipc_orientation=ipc_o,
+                    benevolence=b_e,
+                    power=p_e,
+                    affect_intensity=ai,
+                    r_squared=rs,
+                    confidence=rs,
+                    scope=scope,
+                    evidence_event_ids=list(obs_event_ids)[:100],
+                    last_reinforced_at=now,
+                    bot_persona_name=bot_persona_name,
+                )
+            else:
+                alpha = 0.4
+                evidence = list(existing.evidence_event_ids)
+                for eid in obs_event_ids:
+                    if eid not in evidence:
+                        evidence.append(eid)
+                evidence = evidence[-100:]
+                imp = dataclasses.replace(
+                    existing,
+                    ipc_orientation=ipc_o,
+                    benevolence=alpha * b_e + (1 - alpha) * existing.benevolence,
+                    power=alpha * p_e + (1 - alpha) * existing.power,
+                    affect_intensity=alpha * ai + (1 - alpha) * existing.affect_intensity,
+                    r_squared=alpha * rs + (1 - alpha) * existing.r_squared,
+                    confidence=alpha * rs + (1 - alpha) * existing.confidence,
+                    evidence_event_ids=evidence,
+                    last_reinforced_at=now,
+                )
+            await impression_repo.upsert(imp)
+            updated += 1
+
+    return updated
+
+
 def _json(data: Any, *, status: int = 200) -> Response:
     return Response(
         json.dumps(data, ensure_ascii=False),
@@ -696,94 +787,9 @@ class PluginRoutes:
     async def _reanalyze_impressions_for_scope(
         self, scope: str, bot_persona_name: str | None
     ) -> int:
-        """Heuristic impression reanalysis: count shared events per participant pair.
-
-        Uses the same heuristic formula as SocialOrientationAnalyzer Path B but
-        operates directly on historical DB events — no BigFiveBuffer required.
-        """
-        import dataclasses
-        import time as _time
-        from core.domain.models import Impression
-        from core.social.ipc_model import classify_octant, affect_intensity, r_squared
-
-        group_id = None if scope == "global" else scope
-        events = await self._event_repo.list_by_group(group_id, limit=1000, bot_persona_name=bot_persona_name)
-
-        # Build participant → event_id sets
-        participant_events: dict[str, set[str]] = {}
-        for ev in events:
-            for uid in (ev.participants or []):
-                participant_events.setdefault(uid, set()).add(ev.event_id)
-
-        participants = list(participant_events.keys())
-        if len(participants) < 2:
-            return 0
-
-        updated = 0
-        now = _time.time()
-
-        for obs_uid in participants:
-            obs_event_ids = participant_events[obs_uid]
-            for subj_uid in participants:
-                if subj_uid == obs_uid:
-                    continue
-                shared = len(obs_event_ids & participant_events[subj_uid])
-                if shared < 1:
-                    continue
-
-                # Heuristic score (mirrors orientation_analyzer Path B)
-                salience = min(1.0, 0.3 + shared * 0.05)
-                if shared >= 10:
-                    b_e = min(1.0, 0.3 + salience * 0.4)
-                    p_e = 0.2
-                else:
-                    b_e = min(1.0, 0.1 + salience * 0.3)
-                    p_e = 0.0
-
-                ipc_o = classify_octant(b_e, p_e)
-                ai = affect_intensity(b_e, p_e)
-                rs = r_squared(b_e, p_e)
-
-                existing = await self._impression_repo.get(
-                    obs_uid, subj_uid, scope, bot_persona_name=bot_persona_name
-                )
-                if existing is None:
-                    imp = Impression(
-                        observer_uid=obs_uid,
-                        subject_uid=subj_uid,
-                        ipc_orientation=ipc_o,
-                        benevolence=b_e,
-                        power=p_e,
-                        affect_intensity=ai,
-                        r_squared=rs,
-                        confidence=rs,
-                        scope=scope,
-                        evidence_event_ids=list(obs_event_ids)[:100],
-                        last_reinforced_at=now,
-                        bot_persona_name=bot_persona_name,
-                    )
-                else:
-                    alpha = 0.4
-                    evidence = list(existing.evidence_event_ids)
-                    for eid in obs_event_ids:
-                        if eid not in evidence:
-                            evidence.append(eid)
-                    evidence = evidence[-100:]
-                    imp = dataclasses.replace(
-                        existing,
-                        ipc_orientation=ipc_o,
-                        benevolence=alpha * b_e + (1 - alpha) * existing.benevolence,
-                        power=alpha * p_e + (1 - alpha) * existing.power,
-                        affect_intensity=alpha * ai + (1 - alpha) * existing.affect_intensity,
-                        r_squared=alpha * rs + (1 - alpha) * existing.r_squared,
-                        confidence=alpha * rs + (1 - alpha) * existing.confidence,
-                        evidence_event_ids=evidence,
-                        last_reinforced_at=now,
-                    )
-                await self._impression_repo.upsert(imp)
-                updated += 1
-
-        return updated
+        return await reanalyze_impressions_for_scope(
+            self._event_repo, self._impression_repo, scope, bot_persona_name
+        )
 
     # ------------------------------------------------------------------
     # Handlers: summaries

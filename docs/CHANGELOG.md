@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [v0.12.4] — 2026-05-17
+
+### Bug 修复与体验优化
+
+- **Bug 修复**
+  - 修复 WebUI「重新生成总结」报错 `'SQLitePersonaRepository' object has no attribute 'max_events'`：`server.py` 中对 `regenerate_single_summary` 的调用使用了位置参数，`persona_repo` 被误传为 `summary_config`，改为关键字参数调用修复
+  - 修复 WebUI 独立服务器（端口 2655）「重新分析关系」报 405 Method Not Allowed：`WebuiServer` 未注册 `/api/impressions/reanalyze` 路由；将核心逻辑提取为模块级函数 `reanalyze_impressions_for_scope()`，`WebuiServer` 与 `PluginRoutes` 共同调用，并补齐路由注册
+  - 修复 `/mrm run synthesis` / `/mrm run summary` 报"未找到任务"：scheduler 内部注册名（`consolidated_maintenance`、`group_summary` 等）与文档别名（`synthesis`、`summary`、`decay`、`cleanup`）不一致，在 `CommandManager.run_task()` 加别名映射层修复
+  - 为「重新分析关系」失败时增加诊断：后端 `logger.warning` 加 `exc_info=True` 输出完整堆栈；前端 catch 块改为展示服务端返回的实际错误文本，不再只显示通用"关系分析失败"
+
+- **配置分级（Config Layering）**
+  - `_conf_schema.json` 所有字段增加 `level: basic | advanced` 属性，基础字段 description 加 `🟢` 前缀，section hint 追加引导说明
+  - `persona_influenced_summary` 升级为基础设置并将默认值改为 `true`；`tag_seeds` 升级为基础设置
+  - WebUI 配置页右上角新增「开发者设置」切换按钮（`Code2` 图标）：关闭时隐藏全部 `advanced` 字段及空 section；开关状态持久化至 localStorage
+  - 未开启开发者设置时显示提示横幅，引导用户发现隐藏配置
+  - 有未保存改动时在工具栏弹出简短警示，保存后消失
+  - 补齐 i18n 三语：`showAdvanced`、`devSettingsHint`、`unsavedHint`
+
+- **文档重构**
+  - `README.md` 与 `README_EN.md` 按 Progressive Framework 重写：是什么 → 快速开始 → 使用指南 → 高级配置 → 技术架构 → 致谢
+  - 核心亮点改为面向用户语言：可视化记忆管理 / 高度可定制 / 记忆召回不消耗额外 LLM / 可靠降级
+  - 插件显示名称更新为 `Moirai - 世界线`，同步至 `metadata.yaml` 与两份 README
+
 ## [v0.12.2] — 2026-05-17
 
 ### Persona 归属入口可达性与版本同步
