@@ -110,6 +110,42 @@ async def test_reextract_event_updates_llm_fields_and_preserves_identity() -> No
 
 
 @pytest.mark.asyncio
+async def test_reextract_event_injects_bot_persona_for_eval_summary() -> None:
+    event_repo = InMemoryEventRepository()
+    persona_repo = InMemoryPersonaRepository()
+    await event_repo.upsert(_event())
+    await persona_repo.upsert(Persona(
+        uid="bot-uid",
+        bound_identities=[("internal", "bot")],
+        primary_name="Moirai",
+        persona_attrs={"description": "Analytical bot persona"},
+        confidence=1.0,
+        created_at=1.0,
+        last_active_at=1.0,
+    ))
+    provider = _MockProvider(
+        '[{"start_idx": 0, "end_idx": 1, '
+        '"topic": "eval topic", '
+        '"summary": "[What] Alice asks for food suggestions [Who] Alice [How] Bob gives options [Eval] Useful preference signal", '
+        '"chat_content_tags": ["food"], '
+        '"salience": 0.7, "confidence": 0.8}]'
+    )
+
+    result = await reextract_event(
+        event_repo,
+        persona_repo,
+        "e1",
+        lambda: provider,
+        extractor_config=ExtractorConfig(llm_timeout=1.0, persona_influenced_summary=True),
+    )
+
+    assert "Analytical bot persona" in provider.last_prompt
+    assert "[Eval]" in provider.last_prompt
+    assert result.event.bot_persona_name == "Moirai"
+    assert "[Eval] Useful preference signal" in result.event.summary
+
+
+@pytest.mark.asyncio
 async def test_reextract_event_missing_source_messages_does_not_call_provider() -> None:
     event_repo = InMemoryEventRepository()
     await event_repo.upsert(_event(refs=[]))

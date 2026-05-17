@@ -23,6 +23,7 @@ import time as _time
 from typing import TYPE_CHECKING
 from ..embedding.encoder import NullEncoder
 from .parser import fallback_extraction, parse_llm_output, parse_single_item
+from .persona_context import resolve_bot_persona_context
 from .prompts import build_user_prompt, build_distillation_prompt
 from .partitioner import LlmPartitioner, SemanticPartitioner, Partition
 
@@ -326,25 +327,15 @@ class EventExtractor:
     async def _get_bot_persona(self) -> tuple[str | None, str | None]:
         """Return (primary_name, description) for the bot persona. Use cache if available.
         """
-        if not self._persona_influenced_summary or self._persona_repo is None:
-            return None, None
-        
         if self._bot_persona_cache is not None:
             return self._bot_persona_cache
 
         try:
-            personas = await self._persona_repo.list_all()
-            bot = next(
-                (p for p in personas if any(
-                    (bi[0] if isinstance(bi, tuple) else getattr(bi, "platform", None)) == "internal"
-                    for bi in (p.bound_identities or [])
-                )),
-                None,
+            self._bot_persona_cache = await resolve_bot_persona_context(
+                self._persona_repo,
+                self._persona_influenced_summary,
             )
-            if bot:
-                desc = bot.persona_attrs.get("description", "") if isinstance(bot.persona_attrs, dict) else ""
-                self._bot_persona_cache = (bot.primary_name or None, desc or bot.primary_name or None)
-                return self._bot_persona_cache
+            return self._bot_persona_cache
         except Exception as exc:
             logger.debug("[EventExtractor] bot persona lookup failed: %s", exc)
         return None, None

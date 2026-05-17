@@ -6,7 +6,8 @@ import dataclasses
 import pytest
 
 from core.boundary.window import MessageWindow
-from core.domain.models import Event, MessageRef
+from core.config import ExtractorConfig, PluginConfig
+from core.domain.models import Event, MessageRef, Persona
 from core.extractor.extractor import EventExtractor
 from core.extractor.parser import fallback_extraction, parse_llm_output
 from core.extractor.prompts import build_user_prompt
@@ -234,8 +235,11 @@ class _MockProvider:
 
     def __init__(self, response_text: str) -> None:
         self._text = response_text
+        self.calls: list[dict] = []
 
     async def text_chat(self, prompt=None, system_prompt=None, **_kwargs):
+        self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
+
         class _Resp:
             completion_text: str
 
@@ -276,6 +280,11 @@ class _CountingPersonaRepo:
         return []
 
 
+def test_plugin_config_defaults_enable_persona_influenced_summary() -> None:
+    cfg = PluginConfig({}).get_extractor_config()
+    assert cfg.persona_influenced_summary is True
+
+
 async def test_bot_persona_list_all_called_once_per_extractor_call() -> None:
     """list_all on persona_repo must be called at most once per __call__,
     regardless of how many partitions / extracted results there are.
@@ -313,6 +322,45 @@ async def test_bot_persona_list_all_called_once_per_extractor_call() -> None:
 
     # Must be at most 1 call regardless of partition/result count
     assert persona_repo.list_all_calls <= 1
+
+
+async def test_extractor_injects_bot_persona_and_persists_eval_summary() -> None:
+    event_repo = InMemoryEventRepository()
+    persona_repo = _CountingPersonaRepo()
+    await persona_repo.upsert(Persona(
+        uid="bot-uid",
+        bound_identities=[("internal", "bot")],
+        primary_name="Moirai",
+        persona_attrs={"description": "Analytical bot persona"},
+        confidence=1.0,
+        created_at=1.0,
+        last_active_at=1.0,
+    ))
+    json_resp = (
+        '[{"start_idx": 0, "end_idx": 1, "topic": "debug", '
+        '"summary": "[What] Alice reports a bug [Who] Alice [How] Bob narrows it down [Eval] Worth tracking", '
+        '"chat_content_tags": ["debug"], "salience": 0.8, "confidence": 0.9}]'
+    )
+    provider = _MockProvider(json_resp)
+    extractor = EventExtractor(
+        event_repo=event_repo,
+        provider_getter=lambda: provider,
+        persona_repo=persona_repo,
+        extractor_config=ExtractorConfig(persona_influenced_summary=True),
+    )
+
+    await extractor(make_window([
+        ("u1", "Alice", "The detail page says my evaluation is empty."),
+        ("u2", "Bob", "The extractor prompt may be missing persona context."),
+    ]))
+
+    assert provider.calls
+    assert "Analytical bot persona" in provider.calls[0]["prompt"]
+    assert "[Eval]" in provider.calls[0]["prompt"]
+    events = await event_repo.list_by_group("g1")
+    assert len(events) == 1
+    assert events[0].bot_persona_name == "Moirai"
+    assert "[Eval] Worth tracking" in events[0].summary
 
 
 async def test_extractor_creates_events_from_llm(tmp_path) -> None:

@@ -254,7 +254,7 @@ class ExtractorConfig:
     strategy: str = "llm"  # "llm" or "semantic"
     semantic_clustering_eps: float = 0.45
     semantic_clustering_min_samples: int = 2
-    persona_influenced_summary: bool = False
+    persona_influenced_summary: bool = True
     tag_normalization_threshold: float = 0.85
     tag_seeds: list[str] = field(
         default_factory=lambda: [
@@ -520,7 +520,7 @@ class PluginConfig:
             ),
             persona_influenced_summary=self._bool(
                 "persona_influenced_summary",
-                False
+                True
             ),
             tag_normalization_threshold=self._float(
                 "tag_normalization_threshold",

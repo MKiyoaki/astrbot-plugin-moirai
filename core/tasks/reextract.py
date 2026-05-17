@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from ..boundary.window import MessageWindow
 from ..config import ExtractorConfig
 from ..extractor.parser import parse_llm_output
+from ..extractor.persona_context import resolve_bot_persona_context
 from ..extractor.prompts import build_user_prompt
 
 if TYPE_CHECKING:
@@ -125,12 +126,20 @@ async def reextract_event(
 
     cfg = extractor_config or ExtractorConfig()
     window = await _build_window_from_event(event, persona_repo)
+    bot_name, bot_desc = await resolve_bot_persona_context(
+        persona_repo,
+        cfg.persona_influenced_summary,
+    )
 
     provider = provider_getter() if callable(provider_getter) else None
     if provider is None:
         raise ReextractError("provider_none", "重新提取失败：没有可用 LLM provider。")
 
-    prompt = build_user_prompt(window, cfg.max_context_messages)
+    prompt = build_user_prompt(
+        window,
+        cfg.max_context_messages,
+        bot_persona_desc=bot_desc,
+    )
 
     try:
         if llm_manager:
@@ -162,6 +171,7 @@ async def reextract_event(
         chat_content_tags=primary.get("chat_content_tags", []),
         salience=primary["salience"],
         confidence=primary["confidence"],
+        bot_persona_name=bot_name if cfg.persona_influenced_summary and bot_name else event.bot_persona_name,
         last_accessed_at=time.time(),
     )
     await event_repo.upsert(updated)

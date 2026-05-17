@@ -164,9 +164,9 @@ class TestDetailPanel:
 
     def test_width_transition(self):
         src = _read("components/events/detail-panel.tsx")
-        # Panel animates in/out with width transition
-        assert "w-0" in src and "w-80" in src, (
-            "DetailPanel desktop aside must transition width (w-0 ↔ w-80)"
+        # Desktop panel keeps an explicit responsive width and animates layout changes.
+        assert "transition-all" in src and "w-[420px]" in src and "2xl:w-[680px]" in src, (
+            "DetailPanel desktop aside must define responsive width classes with a transition"
         )
 
     def test_close_button(self):
