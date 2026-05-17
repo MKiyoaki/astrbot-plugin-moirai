@@ -2,7 +2,7 @@
 
 <img src="https://raw.githubusercontent.com/MKiyoaki/astrbot-plugin-moirai/main/logo.png" width="96" alt="Moirai Logo" />
 
-# Moirai
+# Moirai - 世界线
 
 **AstrBot 三轴长期记忆与数据可视化插件**
 
