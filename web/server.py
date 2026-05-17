@@ -257,6 +257,7 @@ class WebuiServer:
         app.router.add_put("/api/impressions/{observer}/{subject}/{scope}", self._wrap("sudo", self._handle_update_impression_guarded))
         app.router.add_delete("/api/impressions/{observer}/{subject}/{scope}", self._wrap("sudo", self._handle_delete_impression_guarded))
         app.router.add_post("/api/impressions/bulk-delete", self._wrap("sudo", self._handle_bulk_delete_impressions_guarded))
+        app.router.add_post("/api/impressions/reanalyze", self._wrap("sudo", self._handle_reanalyze_impressions_guarded))
         app.router.add_get("/api/tags", self._wrap("auth", self._handle_tags))
         app.router.add_get("/api/config", self._wrap("auth", self._handle_get_config))
         app.router.add_put("/api/config", self._wrap("sudo", self._handle_update_config))
