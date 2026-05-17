@@ -61,6 +61,7 @@ class Persona(SerializableMixin, ValidationMixin):
     confidence: float
     created_at: float
     last_active_at: float
+    bot_persona_name: str | None = None
 
     def __post_init__(self) -> None:
         self._check_unit("confidence", self.confidence)
@@ -156,6 +157,7 @@ class Impression(SerializableMixin, ValidationMixin):
     scope: str
     evidence_event_ids: list[str]
     last_reinforced_at: float
+    bot_persona_name: str | None = None
 
     def __post_init__(self) -> None:
         self._check_range("benevolence", self.benevolence, -1.0, 1.0)

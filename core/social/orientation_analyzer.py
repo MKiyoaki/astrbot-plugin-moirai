@@ -61,8 +61,15 @@ class SocialOrientationAnalyzer:
         event_salience: float = 0.5,
         scope: str = "global",
         event_id: str | None = None,
+        bot_persona_name: str | None = None,
     ) -> int:
-        """Analyze the window and upsert Impressions for all participant pairs."""
+        """Analyze the window and upsert Impressions for all participant pairs.
+
+        bot_persona_name: scopes the Impression rows so different bot personas
+        keep independent views of the same (observer, subject, scope) pair.
+        None means "legacy / default persona" and stays compatible with rows
+        written before migration 010.
+        """
         participants = window.participants
         if len(participants) < 2:
             return 0
@@ -103,7 +110,9 @@ class SocialOrientationAnalyzer:
                     # Only trigger if LLM failed AND rule threshold met
                     try:
                         # Debounce check to avoid heavy DB queries on every event
-                        existing = await self._impression_repo.get(obs_uid, subj_uid, scope)
+                        existing = await self._impression_repo.get(
+                            obs_uid, subj_uid, scope, bot_persona_name=bot_persona_name,
+                        )
                         debounce_sec = self._cfg.impression_trigger_debounce_hours * 3600
                         if existing and (now - existing.last_reinforced_at) < debounce_sec:
                             continue
@@ -138,6 +147,7 @@ class SocialOrientationAnalyzer:
                     await self._upsert_impression(
                         obs_uid, subj_uid, ipc_o, b_e, p_e, ai, rs,
                         scope, window, event_id=event_id,
+                        bot_persona_name=bot_persona_name,
                     )
                     updated += 1
                 except Exception as exc:
@@ -154,8 +164,11 @@ class SocialOrientationAnalyzer:
         ipc_o: str, b: float, p: float, ai: float, rs: float,
         scope: str, window: MessageWindow,
         event_id: str | None = None,
+        bot_persona_name: str | None = None,
     ) -> None:
-        existing = await self._impression_repo.get(obs_uid, subj_uid, scope)
+        existing = await self._impression_repo.get(
+            obs_uid, subj_uid, scope, bot_persona_name=bot_persona_name,
+        )
         if existing is None:
             imp = Impression(
                 observer_uid=obs_uid,
@@ -169,6 +182,7 @@ class SocialOrientationAnalyzer:
                 scope=scope,
                 evidence_event_ids=[event_id] if event_id else [],
                 last_reinforced_at=time.time(),
+                bot_persona_name=bot_persona_name,
             )
         else:
             alpha = self._cfg.impression_update_alpha if self._cfg else 0.4

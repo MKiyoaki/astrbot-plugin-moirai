@@ -220,6 +220,7 @@ class PluginRoutes:
             # Tags
             (f"/api/tags",                     self._handle_tags,                    ["GET"],         "List tags"),
             # Personas
+            (f"/api/personas/bots",            self._handle_bot_personas_list,       ["GET"],         "List bot personas"),
             (f"/api/personas",                 self._handle_create_persona,          ["POST"],        "Create persona"),
             (f"/api/personas/{{uid}}",         self._handle_update_persona,          ["PUT"],         "Update persona"),
             (f"/api/personas/{{uid}}/update",  self._handle_update_persona,          ["POST"],        "Update persona"),
@@ -275,9 +276,14 @@ class PluginRoutes:
     # Data construction helpers (async, independently testable)
     # ------------------------------------------------------------------
 
-    async def events_data(self, group_id: str | None, limit: int) -> dict[str, Any]:
+    async def events_data(
+        self, group_id: str | None, limit: int,
+        bot_persona_name: str | None = None,
+    ) -> dict[str, Any]:
         if group_id is not None:
-            events = await self._event_repo.list_by_group(group_id, limit=limit)
+            events = await self._event_repo.list_by_group(
+                group_id, limit=limit, bot_persona_name=bot_persona_name,
+            )
         else:
             group_ids = await self._event_repo.list_group_ids()
             if not group_ids:
@@ -285,11 +291,13 @@ class PluginRoutes:
             per_group = max(1, limit // len(group_ids))
             events: list[Event] = []
             for gid in group_ids:
-                events.extend(await self._event_repo.list_by_group(gid, limit=per_group))
+                events.extend(await self._event_repo.list_by_group(
+                    gid, limit=per_group, bot_persona_name=bot_persona_name,
+                ))
             events = events[:limit]
         return {"items": [_event_to_dict(e) for e in events], "total": len(events)}
 
-    async def graph_data(self) -> dict[str, Any]:
+    async def graph_data(self, bot_persona_name: str | None = None) -> dict[str, Any]:
         personas = await self._persona_repo.list_all()
         uid_msg_counts = await self._event_repo.count_messages_by_uid_bulk()
 
@@ -301,7 +309,9 @@ class PluginRoutes:
 
         edges: list[dict[str, Any]] = []
         for persona in personas:
-            imps = await self._impression_repo.list_by_observer(persona.uid)
+            imps = await self._impression_repo.list_by_observer(
+                persona.uid, bot_persona_name=bot_persona_name,
+            )
             for imp in imps:
                 edge = _impression_to_edge(imp)
                 edge["data"]["msg_count"] = await self._event_repo.count_edge_messages(
@@ -313,7 +323,9 @@ class PluginRoutes:
         group_members: dict[str, list[str]] = {}
         group_ids = await self._event_repo.list_group_ids()
         for gid in group_ids:
-            events = await self._event_repo.list_by_group(gid, limit=1000)
+            events = await self._event_repo.list_by_group(
+                gid, limit=1000, bot_persona_name=bot_persona_name,
+            )
             uids: set[str] = set()
             for event in events:
                 for uid in (event.participants or []):
@@ -324,6 +336,24 @@ class PluginRoutes:
                 group_members[key] = sorted(uids)
 
         return {"nodes": nodes, "edges": edges, "group_members": group_members}
+
+    async def bot_personas_data(self) -> dict[str, Any]:
+        """Return distinct bot_persona_name values + per-persona event counts.
+
+        Used by the WebUI persona selector. Includes a synthetic entry for
+        legacy (bot_persona_name IS NULL) rows so users can still target
+        pre-migration data.
+        """
+        async with self._event_repo._db.execute(  # type: ignore[attr-defined]
+            "SELECT COALESCE(bot_persona_name, '') AS name, COUNT(*) AS n "
+            "FROM events GROUP BY COALESCE(bot_persona_name, '') ORDER BY n DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            name = row[0] or None
+            items.append({"name": name, "event_count": row[1]})
+        return {"items": items}
 
     async def summaries_data(self) -> list[dict[str, str | None]]:
         result: list[dict[str, str | None]] = []
@@ -385,7 +415,8 @@ class PluginRoutes:
     async def _handle_events(self, request: web.Request) -> web.Response:
         group_id = _query(request, "group_id") or None
         limit = int(_query(request, "limit", "100"))
-        return _json(await self.events_data(group_id, limit))
+        persona = _query(request, "persona") or None
+        return _json(await self.events_data(group_id, limit, bot_persona_name=persona))
 
     async def _handle_create_event(self, request: web.Request) -> web.Response:
         body = await _request_json(request)
@@ -482,7 +513,11 @@ class PluginRoutes:
         guard = self._relation_disabled_response()
         if guard is not None:
             return guard
-        return _json(await self.graph_data())
+        persona = _query(request, "persona") or None
+        return _json(await self.graph_data(bot_persona_name=persona))
+
+    async def _handle_bot_personas_list(self, request: web.Request) -> web.Response:
+        return _json(await self.bot_personas_data())
 
     async def _handle_update_impression_guarded(self, request: web.Request) -> web.Response:
         guard = self._relation_disabled_response()

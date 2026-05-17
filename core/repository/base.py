@@ -38,17 +38,27 @@ class EventRepository(ABC):
     async def get(self, event_id: str) -> Event | None: ...
 
     @abstractmethod
-    async def list_all(self, limit: int = 100) -> list[Event]:
-        """Return all events, sorted by start_time DESC."""
+    async def list_all(
+        self, limit: int = 100,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Event]:
+        """Return all events, sorted by start_time DESC.
+
+        bot_persona_name=None disables persona filtering (returns all rows).
+        Otherwise filters to that bot persona; include_legacy=True keeps rows
+        with bot_persona_name IS NULL visible so pre-migration data is not lost.
+        """
         ...
 
     @abstractmethod
     async def list_by_group(
         self, group_id: str | None, limit: int = 100, exclude_type: str | None = None,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
     ) -> list[Event]:
         """Return events for a group, sorted by start_time DESC.
         group_id=None returns private-chat events.
         exclude_type skips events of the given event_type (e.g. 'narrative').
+        bot_persona_name / include_legacy: see list_all docstring.
         """
         ...
 
@@ -126,7 +136,8 @@ class EventRepository(ABC):
 
     @abstractmethod
     async def list_by_status(
-        self, status: str, limit: int = 100
+        self, status: str, limit: int = 100,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
     ) -> list[Event]:
         """Return events filtered by status ('active' or 'archived'), newest first."""
         ...
@@ -245,27 +256,50 @@ class EventRepository(ABC):
 class ImpressionRepository(ABC):
     @abstractmethod
     async def get(
-        self, observer_uid: str, subject_uid: str, scope: str
-    ) -> Impression | None: ...
+        self, observer_uid: str, subject_uid: str, scope: str,
+        bot_persona_name: str | None = None,
+    ) -> Impression | None:
+        """Return the impression for the given key.
+
+        bot_persona_name disambiguates rows from different bot personas. The
+        comparison treats NULL and the passed value symmetrically — `None`
+        returns only legacy NULL rows; a non-empty string returns only rows
+        with that exact bot_persona_name.
+        """
+        ...
 
     @abstractmethod
     async def list_by_observer(
-        self, observer_uid: str, scope: str | None = None
+        self, observer_uid: str, scope: str | None = None,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
     ) -> list[Impression]:
-        """If scope is None, return impressions across all scopes."""
+        """Return impressions where this uid is the observer.
+
+        scope=None returns impressions across all scopes.
+        bot_persona_name=None returns all bot persona views; pass a string to
+        filter to one bot persona. include_legacy=True (default) keeps rows
+        with bot_persona_name IS NULL visible alongside the chosen persona.
+        """
         ...
 
     @abstractmethod
     async def list_by_subject(
-        self, subject_uid: str, scope: str | None = None
+        self, subject_uid: str, scope: str | None = None,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
     ) -> list[Impression]: ...
 
     @abstractmethod
     async def upsert(self, impression: Impression) -> None:
-        """Insert or replace based on (observer_uid, subject_uid, scope) key."""
+        """Insert or replace based on (observer_uid, subject_uid, scope, bot_persona_name)."""
         ...
 
     @abstractmethod
     async def delete(self, observer_uid: str, subject_uid: str, scope: str) -> bool:
-        """Return False if not found."""
+        """Return False if not found.
+
+        Deletes ALL rows matching the (observer, subject, scope) tuple,
+        regardless of bot_persona_name. Scope-level removal is the only
+        granularity available in this interface; use upsert/get with
+        bot_persona_name for finer-grained mutation.
+        """
         ...

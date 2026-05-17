@@ -500,6 +500,7 @@ class EventExtractor:
             await self._orientation_analyzer.analyze(
                 window, self._big_five_buffer, event.salience, scope,
                 event_id=event.event_id,
+                bot_persona_name=event.bot_persona_name,
             )
         except Exception as exc:
             logger.warning("[EventExtractor] IPC analysis failed: %s", exc)
