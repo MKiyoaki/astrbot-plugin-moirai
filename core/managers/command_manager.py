@@ -227,12 +227,21 @@ class CommandManager:
     # Action commands
     # ------------------------------------------------------------------
 
+    _TASK_ALIASES: dict[str, str] = {
+        "decay":     "daily_maintenance",
+        "synthesis": "consolidated_maintenance",
+        "summary":   "group_summary",
+        "cleanup":   "context_cleanup",
+    }
+
     async def run_task(self, task: str) -> str:
-        ok = await self._scheduler.run_now(task.strip())
+        name = task.strip()
+        resolved = self._TASK_ALIASES.get(name, name)
+        ok = await self._scheduler.run_now(resolved)
         if ok:
-            return self._t("cmd.task.triggered", task=task)
+            return self._t("cmd.task.triggered", task=name)
         available = ", ".join(self._scheduler.task_names) or self._t("cmd.status.tasks_none")
-        return self._t("cmd.task.not_found", task=task, available=available)
+        return self._t("cmd.task.not_found", task=name, available=available)
 
     async def flush(self, session_id: str) -> str:
         if self._ctx is None:

@@ -336,8 +336,9 @@ export default function GraphPage() {
       app.toast(i18n.graph.reanalyzeImpressionsSuccess.replace('{count}', String(result.updated)))
       await loadGraph()
       await app.refreshStats()
-    } catch {
-      app.toast(i18n.graph.reanalyzeImpressionsError, 'destructive')
+    } catch (e: unknown) {
+      const detail = (e as import('@/lib/api').ApiError)?.body
+      app.toast(detail ? `${i18n.graph.reanalyzeImpressionsError}: ${detail}` : i18n.graph.reanalyzeImpressionsError, 'destructive')
     } finally {
       setIsReanalyzing(false)
     }

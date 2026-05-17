@@ -689,7 +689,7 @@ class PluginRoutes:
                 scope=scope, bot_persona_name=bot_persona_name
             )
         except Exception as exc:
-            logger.warning("[PluginRoutes] reanalyze_impressions failed: %s", exc)
+            logger.warning("[PluginRoutes] reanalyze_impressions failed: %s", exc, exc_info=True)
             return _json({"error": str(exc)}, status=500)
         return _json({"ok": True, "updated": updated})
 

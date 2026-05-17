@@ -584,7 +584,7 @@ class WebuiServer:
         date = body.get("date", "")
         try:
             from core.tasks.summary import regenerate_single_summary
-            content = await regenerate_single_summary(self._event_repo, self._data_dir, self._provider_getter, body.get("group_id"), date, self._persona_repo, self._impression_repo)
+            content = await regenerate_single_summary(self._event_repo, self._data_dir, self._provider_getter, body.get("group_id"), date, persona_repo=self._persona_repo, impression_repo=self._impression_repo)
         except Exception as e: return _json({"error": str(e)}, status=500)
         if content is None: return _json({"error": "failed"}, status=503)
         return _json({"content": content})
