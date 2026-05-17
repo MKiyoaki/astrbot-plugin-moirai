@@ -44,16 +44,20 @@ async def test_memory_cleanup(event_repo):
     await event_repo.upsert(e_low)
     await event_repo.upsert(e_locked)
     
-    # 2. Run cleanup with threshold 0.3
-    cfg = CleanupConfig(enabled=True, threshold=0.3, interval_days=7)
+    # 2. Run cleanup with threshold 0.3 and very long retention to prevent phase-2 hard delete
+    cfg = CleanupConfig(enabled=True, threshold=0.3, interval_days=7, retention_days=99999)
     deleted = await run_memory_cleanup(event_repo, cfg)
-    
+
+    # Phase 1 archives 1 event (e_low). Phase 2 does not hard-delete (retention too far in future).
     assert deleted == 1
     
-    # 3. Verify: e1 and e3 should remain, e2 should be gone
-    assert await event_repo.get("e1") is not None
-    assert await event_repo.get("e2") is None
-    assert await event_repo.get("e3") is not None
+    # 3. Verify: e1 and e3 remain active; e2 is archived (soft-deleted), not hard-deleted
+    e1 = await event_repo.get("e1")
+    e2 = await event_repo.get("e2")
+    e3 = await event_repo.get("e3")
+    assert e1 is not None and e1.status == EventStatus.ACTIVE
+    assert e2 is not None and e2.status == EventStatus.ARCHIVED
+    assert e3 is not None and e3.status == EventStatus.ACTIVE
 
 async def test_set_locked(event_repo):
     e = Event(

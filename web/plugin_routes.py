@@ -158,6 +158,8 @@ class PluginRoutes:
         registry: PanelRegistry | None = None,
         star: Any = None,
         llm_manager: Any = None,
+        context_manager: Any = None,
+        summary_trigger_rounds: int = 30,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
@@ -172,6 +174,8 @@ class PluginRoutes:
         self.registry = registry or PanelRegistry()
         self._star = star
         self._llm_manager = llm_manager
+        self._context_manager = context_manager
+        self._summary_trigger_rounds = summary_trigger_rounds
 
         self._relation_enabled: bool = bool(self._initial_config.get("relation_enabled", True))
         self._config_path = data_dir / "plugin_config.json"
@@ -305,6 +309,7 @@ class PluginRoutes:
                 )
                 edges.append(edge)
 
+        _PRIVATE_KEY = "__private__"
         group_members: dict[str, list[str]] = {}
         group_ids = await self._event_repo.list_group_ids()
         for gid in group_ids:
@@ -314,7 +319,9 @@ class PluginRoutes:
                 for uid in (event.participants or []):
                     uids.add(uid)
             if uids:
-                group_members[gid] = sorted(uids)
+                # None group_id means private chat; use a stable string key
+                key = gid if gid is not None else _PRIVATE_KEY
+                group_members[key] = sorted(uids)
 
         return {"nodes": nodes, "edges": edges, "group_members": group_members}
 
@@ -352,6 +359,8 @@ class PluginRoutes:
             data_dir=self._data_dir,
             plugin_version=self._plugin_version,
             llm_manager=self._llm_manager,
+            context_manager=self._context_manager,
+            summary_trigger_rounds=self._summary_trigger_rounds,
         )
         data["soul_enabled"] = bool(self._initial_config.get("soul_enabled", True))
         return data

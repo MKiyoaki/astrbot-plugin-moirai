@@ -12,7 +12,7 @@
   - 保留 `test_fallback_empty_window` 兜底语义
 
 - **修复事件标签被 napcat @某人 污染** (`core/adapters/message_normalizer.py` 新增, `core/event_handler.py`)
-  - 现象：`#@卢比鹏(1783088492)`、`#qq=...` 等含 QQ 号的标签出现在 web UI，同时污染向量索引
+  - 现象：`#@JohnDoe(1145141919)`、`#qq=...` 等含 QQ 号的标签出现在 web UI，同时污染向量索引
   - 新增 `normalize_message_text` / `normalize_display_name` 规范化层，在 adapter 边界统一剥离：
     - `[CQ:at,...]` → `@用户`；`[CQ:image/face/record/video/json/xml/rich,...]` → `[图片]/[表情]/[语音]/[视频]/[卡片]`；`[CQ:reply,...]` 与其它未知 CQ 段直接删除
     - napcat 显示名残留 `@昵称(QQ号)` → `@昵称`（保留语义，剥离数字 ID）

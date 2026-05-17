@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { MiniGraph } from './mini-graph'
 import type { GroupCard } from '@/lib/graph-types'
+import { GROUP_ID_PRIVATE, GROUP_ID_GLOBAL } from '@/lib/graph-utils'
 import { useApp } from '@/lib/store'
 
 interface GroupCardProps {
@@ -17,9 +18,14 @@ export function GroupCardItem({ group, onClick }: GroupCardProps) {
   const extraTags = group.top_tags.length > 4 ? group.top_tags.length - 4 : 0
   const visibleTags = group.top_tags.slice(0, 4)
 
+  const isPrivate = group.group_id === GROUP_ID_PRIVATE
+  const isGlobal = group.group_id === GROUP_ID_GLOBAL
+
   const lastActive = group.last_active
     ? new Date(group.last_active).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
     : '—'
+
+  const displayId = isPrivate ? '私聊 / DM' : isGlobal ? '全局' : group.group_id
 
   return (
     <Card
@@ -31,7 +37,7 @@ export function GroupCardItem({ group, onClick }: GroupCardProps) {
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="font-semibold text-sm truncate">{group.name}</p>
-            <p className="text-[10px] text-muted-foreground font-mono truncate">{group.group_id}</p>
+            <p className="text-[10px] text-muted-foreground font-mono truncate">{displayId}</p>
           </div>
           <Badge variant="secondary" className="shrink-0 text-xs">
             {group.member_count} {t.groupCard.members}

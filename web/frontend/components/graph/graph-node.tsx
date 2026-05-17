@@ -12,6 +12,7 @@ interface GraphNodeProps {
   isFocused?: boolean
   isDimmed?: boolean
   isBot?: boolean
+  botLabel?: string
   fontSize: number
   labelOpacity: number
   showLabel: boolean
@@ -21,7 +22,7 @@ interface GraphNodeProps {
 }
 
 export function GraphNode({
-  x, y, r, label, fill, strokeColor, isSelected, isHovered, isFocused, isDimmed, isBot,
+  x, y, r, label, fill, strokeColor, isSelected, isHovered, isFocused, isDimmed, isBot, botLabel,
   fontSize, labelOpacity, showLabel, onClick, onMouseEnter, onMouseLeave
 }: GraphNodeProps) {
   return (
@@ -49,6 +50,7 @@ export function GraphNode({
       <circle
         r={r}
         fill={fill}
+        fillOpacity={isBot ? 0.15 : 1}
         stroke={isSelected ? strokeColor : (isBot ? strokeColor : 'var(--border)')}
         strokeWidth={isSelected ? 2.5 : (isBot ? 1.5 : 1)}
         className={cn(
@@ -80,7 +82,7 @@ export function GraphNode({
           className="select-none pointer-events-none transition-opacity duration-300"
           style={{ opacity: isFocused ? 1 : labelOpacity }}
         >
-          BOT
+          {botLabel ?? 'BOT'}
         </text>
       )}
     </g>

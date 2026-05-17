@@ -190,7 +190,8 @@ class MoiraiPlugin(Star):
         if not self._initializer:
             yield event.plain_result("插件未初始化。")
             return
-        yield event.plain_result(await self._initializer.command_manager.status())
+        session_id = event.unified_msg_origin if hasattr(event, "unified_msg_origin") else None
+        yield event.plain_result(await self._initializer.command_manager.status(session_id))
 
     @mrm.command("persona")
     async def mrm_persona(self, event: AstrMessageEvent, platform_id: str):

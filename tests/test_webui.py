@@ -331,16 +331,13 @@ async def test_auth_setup_then_query_succeeds(tmp_path: Path) -> None:
     async with TestClient(TestServer(srv.app)) as client:
         resp = await client.post("/api/auth/setup", json={"password": "secret123"})
         assert resp.status == 200
-        # login instead
-        # Since _server doesn't specify a secret_token, it uses one from WebuiServer.
-        # But we need to know it. In tests, we can use AuthManager directly.
-        # Let's use srv._secret_token if it exists.
-        token = getattr(srv, "_secret_token", None)
-        if token:
-            resp = await client.post("/api/auth/login", json={"password": token})
-            assert resp.status == 200
-            resp = await client.get("/api/events")
-            assert resp.status == 200
+        # After setting up a password, login with that password
+        resp = await client.post("/api/auth/login", json={"password": "secret123"})
+        assert resp.status == 200
+        data = await resp.json()
+        session_token = data.get("token")
+        resp = await client.get("/api/events", headers={"Authorization": f"Bearer {session_token}"})
+        assert resp.status == 200
 
 
 async def test_auth_setup_blocked_when_password_exists(tmp_path: Path) -> None:

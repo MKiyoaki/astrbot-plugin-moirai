@@ -101,8 +101,8 @@ class AuthManager:
         self._is_token_configured = is_configured
 
     def is_password_set(self) -> bool:
-        """返回是否已设置持久化密码。不再依赖配置中的静态密码。"""
-        return self._password_file.exists()
+        """返回认证是否已配置（持久化密码文件存在，或 AstrBot token 已配置）。"""
+        return self._password_file.exists() or bool(self._is_token_configured and self._secret_token)
 
     def setup_password(self, password: str) -> None:
         """首次设置密码，仅在未设置时可用；调用方负责前置检查。"""

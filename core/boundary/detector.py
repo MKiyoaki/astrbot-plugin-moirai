@@ -66,7 +66,8 @@ class EventBoundaryDetector:
         if window.message_count >= cfg.summary_trigger_rounds * 2:
             return True, "summary_trigger_rounds"
 
-        # If no encoder is provided, treat max_messages as a hard cap for backward compatibility        if not self._encoder or self._encoder.dim == 0:
+        # If no encoder is provided, treat max_messages as a hard cap for backward compatibility
+        if not self._encoder or self._encoder.dim == 0:
             if window.message_count >= cfg.max_messages:
                 return True, "max_messages"
 

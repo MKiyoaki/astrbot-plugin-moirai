@@ -7,8 +7,6 @@ import { GraphEdge } from '@/components/graph/graph-edge'
 
 // ── Cluster color palette (Leiden-style) ─────────────────────────────────────
 const CLUSTER_COLORS = ['#d4e4f7', '#d5f0dc', '#fde8e6', '#fef9e7', '#f0eaff', '#e8f8f5']
-const BOT_FILL = '#fce4ec'
-const BOT_STROKE = '#e91e8c'
 const DEFAULT_FILL = '#e8e8e8'
 const EDGE_POS_COLOR = '#2d7d46'
 const EDGE_NEG_COLOR = '#c0392b'
@@ -89,7 +87,7 @@ export function NetworkGraph({
   }, [edgePairs, minDeg, maxDeg])
 
   const nodeFill = useCallback((n: PersonaNode): string => {
-    if (n.data.is_bot) return BOT_FILL
+    if (n.data.is_bot) return 'var(--primary)'
     if (params.leidenEnabled) {
       const cid = clusterMap[n.data.id] ?? 0
       return CLUSTER_COLORS[cid % CLUSTER_COLORS.length]
@@ -411,8 +409,11 @@ export function NetworkGraph({
             
             const r = nodeRadius(node)
             const fill = nodeFill(node)
-            const strokeColor = node.data.is_bot ? BOT_STROKE : 'var(--primary)'
+            const strokeColor = 'var(--primary)'
             const fontSize = Math.max(7, Math.min(11, r * 0.52))
+            const botPlatform = node.data.is_bot
+              ? (node.data.bound_identities.find(b => b.platform !== 'internal')?.platform ?? 'BOT').toUpperCase()
+              : undefined
 
             return (
               <GraphNode
@@ -428,6 +429,7 @@ export function NetworkGraph({
                 isFocused={isFocused}
                 isDimmed={isDimmed}
                 isBot={node.data.is_bot}
+                botLabel={botPlatform}
                 fontSize={fontSize}
                 labelOpacity={labelOpacity}
                 showLabel={showLabel}

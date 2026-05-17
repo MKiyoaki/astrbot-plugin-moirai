@@ -26,7 +26,7 @@ export function GraphEdge({
   arrowId, perpX, perpY, offset, onClick, onMouseEnter, onMouseLeave
 }: GraphEdgeProps) {
   const strokeW = (isHovered || isSelected) ? width + 2.5 : (isFocused ? width + 1.2 : width)
-  const edgeColor = (isHovered || isSelected) ? 'var(--primary)' : color
+  const edgeColor = (isHovered || isSelected) ? 'var(--accent-foreground)' : color
 
   return (
     <g
@@ -42,7 +42,7 @@ export function GraphEdge({
       {(isHovered || isSelected) && (
         <line
           x1={x1} y1={y1} x2={x2} y2={y2}
-          className="stroke-primary opacity-20"
+          className="stroke-accent opacity-30"
           strokeWidth={strokeW + 6}
           strokeLinecap="round"
         />

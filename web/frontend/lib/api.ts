@@ -32,6 +32,15 @@ export interface PerfPhaseInfo {
   last_hits: number
 }
 
+export interface SessionWindowInfo {
+  session_id: string
+  group_id: string | null
+  message_count: number
+  current_rounds: number
+  trigger_rounds: number
+  trigger_threshold_messages: number
+}
+
 export interface PluginStats {
   personas: number
   events: number
@@ -44,6 +53,8 @@ export interface PluginStats {
   groups: number
   version: string
   soul_enabled?: boolean
+  active_sessions?: SessionWindowInfo[]
+  summary_trigger_rounds?: number
   llm_stats?: {
     total_prompt_tokens: number
     total_completion_tokens: number
@@ -60,8 +71,7 @@ export interface PluginStats {
     avg_retrieval_time: number
     avg_recall_time: number
     avg_response_time: number
-    // Detailed stats
-    [phase: string]: any // phase-specific PerfPhaseInfo or number
+    [phase: string]: any
   }
 }
 

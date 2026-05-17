@@ -92,6 +92,8 @@ async def get_stats(
     data_dir: Path | None = None,
     plugin_version: str | None = None,
     llm_manager: LLMTaskManager | None = None,
+    context_manager: object | None = None,
+    summary_trigger_rounds: int = 30,
 ) -> dict[str, Any]:
 
     if plugin_version is None:
@@ -159,6 +161,25 @@ async def get_stats(
     }
     perf_stats.update(legacy_perf)
 
+    # Active session window progress
+    active_sessions: list[dict[str, Any]] = []
+    if context_manager is not None:
+        try:
+            windows = list(getattr(context_manager, "_windows", {}).values())
+            trigger_threshold = summary_trigger_rounds * 2
+            for w in windows:
+                current_rounds = w.message_count // 2
+                active_sessions.append({
+                    "session_id": w.session_id,
+                    "group_id": w.group_id,
+                    "message_count": w.message_count,
+                    "current_rounds": current_rounds,
+                    "trigger_rounds": summary_trigger_rounds,
+                    "trigger_threshold_messages": trigger_threshold,
+                })
+        except Exception:
+            pass
+
     return {
         "personas": len(personas),
         "events": active_count,
@@ -172,6 +193,8 @@ async def get_stats(
         "version": plugin_version,
         "perf": perf_stats,
         "llm_stats": llm_stats,
+        "active_sessions": active_sessions,
+        "summary_trigger_rounds": summary_trigger_rounds,
     }
 
 

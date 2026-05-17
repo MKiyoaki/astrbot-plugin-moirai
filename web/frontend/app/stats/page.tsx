@@ -16,6 +16,7 @@ import {
   WeekOverWeek,
   PersonaRank,
   TokenStats,
+  SessionWindows,
 } from '@/components/stats'
 
 export default function StatsPage() {
@@ -138,6 +139,9 @@ export default function StatsPage() {
           <TopTags events={events} />
           <PersonaRank events={events} graph={graph} />
         </div>
+
+        {/* Row: Active session window progress */}
+        <SessionWindows stats={stats} />
       </div>
     </div>
   )

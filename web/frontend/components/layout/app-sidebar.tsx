@@ -43,6 +43,35 @@ const NAV_ADMIN = [
   { href: '/config',  icon: SlidersHorizontal,  labelKey: 'config' as const },
 ]
 
+function EngineStatusBadge() {
+  const { i18n, stats } = useApp()
+  const sessions = stats?.active_sessions ?? []
+  const triggerRounds = stats?.summary_trigger_rounds ?? 30
+
+  const hasActive = sessions.length > 0
+  const nearingTrigger = hasActive && sessions.some(s => s.current_rounds / triggerRounds >= 0.9)
+
+  const label = !hasActive
+    ? i18n.landing.engineIdle
+    : nearingTrigger
+      ? i18n.landing.engineSoonSummarize
+      : i18n.landing.engineActive
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-2">
+      <span className="relative flex h-1.5 w-1.5 shrink-0">
+        {hasActive && (
+          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${nearingTrigger ? 'bg-primary' : 'bg-green-400'}`} />
+        )}
+        <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${hasActive ? (nearingTrigger ? 'bg-primary animate-pulse' : 'bg-green-500') : 'bg-muted-foreground/40'}`} />
+      </span>
+      <span className="group-data-[collapsible=icon]:hidden truncate text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/60">
+        {label}
+      </span>
+    </div>
+  )
+}
+
 export function AppSidebar() {
   const pathname = usePathname()
   const router = useRouter()
@@ -212,15 +241,7 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="mt-auto shrink-0 border-t border-border p-2">
-        <div className="flex items-center gap-2 px-3 py-2">
-          <span className="relative flex h-1.5 w-1.5 shrink-0">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500"></span>
-          </span>
-          <span className="group-data-[collapsible=icon]:hidden truncate text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/60">
-            {i18n.landing.engineActive}
-          </span>
-        </div>
+        <EngineStatusBadge />
 
         <SidebarMenu>
           <SidebarMenuItem>

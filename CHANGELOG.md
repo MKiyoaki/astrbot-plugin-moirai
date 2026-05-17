@@ -1,5 +1,49 @@
 # CHANGELOG
 
+## [v0.11.0] — 2026-05-17
+
+### 群组/私聊分域关系图
+
+**Feature — 关系图按群组/私聊分域展示**
+
+- WebUI 关系图页面现在按群组和私聊分别显示独立的关系卡片，而非仅展示全局视图
+- 后端 `graph_data()` 将 `group_id=None`（私聊）映射为 `"__private__"` 键，保证 JSON 安全
+- 前端 `buildGroupCards()` 实现 scope 感知的边过滤：
+  - 群聊卡片只显示 `scope === group_id` 的印象关系
+  - 私聊卡片（`__private__`）只显示 `scope === "global"` 的印象关系
+- 私聊卡片显示标识 "私聊 / DM"，全局视图（无群组数据时 fallback）显示 "全局"
+- 新增 `GROUP_ID_GLOBAL` 和 `GROUP_ID_PRIVATE` 常量统一管理特殊键值
+
+**Tests**
+
+- 新增 `tests/test_graph_scope.py`：涵盖 `__private__` 键映射、群组键映射、混合场景及边 scope 字段验证（共 8 个测试）
+
+
+## [v0.10.15] — 2026-05-17
+
+### 对话轮数进度追踪
+
+**Feature — `/mrm status` 增强**
+
+- `/mrm status` 现在会显示当前会话的对话轮数进度（`当前 n / 总 m 轮`）及已累积消息数
+- 同步展示记忆库统计：活跃 event 数、人格数、印象数
+- 展示平均响应时间（来自 perf tracker）
+- `CommandManager` 新增 `impression_repo` 和 `summary_trigger_rounds` 参数
+
+**Feature — WebUI Stats 页面新增活跃会话进度卡片**
+
+- Stats 页最下方新增 "活跃会话轮数进度" 卡片，列出所有活跃 session 的进度条
+- 进度条颜色随进度变化（正常/黄色警告/红色接近触发）
+- 显示群聊/私聊标识和 session 短 ID
+- 支持中/英/日三语言
+
+**Internal**
+
+- `get_stats()` 新增 `context_manager` 和 `summary_trigger_rounds` 参数，返回 `active_sessions` 和 `summary_trigger_rounds` 字段
+- `PluginRoutes` / `PluginInitializer` 传入对应依赖
+- 新增 `tests/test_session_progress.py`（8 个测试用例，覆盖 get_stats active_sessions、CommandManager.status 轮数显示与统计行）
+
+
 ## [v0.10.14] — 2026-05-16
 
 ### napcat 事件异常 + SQLite 并发事务嵌套修复

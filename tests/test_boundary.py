@@ -119,8 +119,10 @@ def test_detector_max_messages_below_hard_cap_does_not_fire() -> None:
     class MockEncoder(NullEncoder):
         @property
         def dim(self): return 512
-        
-    det = EventBoundaryDetector(encoder=MockEncoder())
+
+    # summary_trigger_rounds=100 ensures 99 messages doesn't hit the round-based trigger
+    cfg = BoundaryConfig(summary_trigger_rounds=100)
+    det = EventBoundaryDetector(config=cfg, encoder=MockEncoder())
     w = _fill_window(99, start=1000.0)
     should_close, _ = det.should_close(w, now=1001.0)
     assert not should_close

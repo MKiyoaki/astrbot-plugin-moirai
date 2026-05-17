@@ -59,9 +59,19 @@ export function computeAffinity(pair: Pick<EdgePair, 'fwd' | 'bwd' | 'isBidirect
   return pair.fwd.data.intensity
 }
 
+// ── Constants ──────────────────────────────────────────────────────────────────
+export const GROUP_ID_GLOBAL = '__global__'
+export const GROUP_ID_PRIVATE = '__private__'
+
 // ── buildGroupCards ───────────────────────────────────────────────────────────
 // Partitions nodes by group_id when group_members is provided.
 // Falls back to a single "__global__" group if grouping is not available.
+//
+// Scope semantics (mirroring the backend extractor):
+//   - Group chat impressions → scope === group_id
+//   - Private chat impressions → scope === "global"
+//   - The "__private__" group_members key holds private-chat participants
+//   - The "__global__" fallback card shows all edges with no scope filter
 
 function _buildGlobalCard(nodes: PersonaNode[], edges: ImpressionEdge[], biWeight: number): GroupCard {
   const pairs = buildEdgePairs(edges, biWeight)
@@ -69,7 +79,7 @@ function _buildGlobalCard(nodes: PersonaNode[], edges: ImpressionEdge[], biWeigh
     .sort((a, b) => b.data.last_active_at.localeCompare(a.data.last_active_at))[0]
     ?.data.last_active_at ?? new Date().toISOString()
   return {
-    group_id: '__global__',
+    group_id: GROUP_ID_GLOBAL,
     name: '全局关系图',
     member_count: nodes.filter(n => !n.data.is_bot).length,
     node_count: nodes.length,
@@ -102,10 +112,16 @@ export function buildGroupCards(
     const groupNodes = uids.map(uid => nodeMap.get(uid)).filter(Boolean) as PersonaNode[]
     if (groupNodes.length === 0) continue
 
-    // Include edges where at least one endpoint is in this group
     const groupUidSet = new Set(uids)
+
+    // Scope-aware edge filtering:
+    //   __private__ card → show impressions scoped to "global" (private-chat interactions)
+    //   regular group   → show impressions scoped to that group_id
+    const expectedScope = gid === GROUP_ID_PRIVATE ? 'global' : gid
     const groupEdges = edges.filter(e =>
-      groupUidSet.has(e.data.source) && groupUidSet.has(e.data.target)
+      groupUidSet.has(e.data.source) &&
+      groupUidSet.has(e.data.target) &&
+      e.data.scope === expectedScope
     )
     const groupPairs = buildEdgePairs(groupEdges, biWeight)
 
@@ -113,15 +129,18 @@ export function buildGroupCards(
       .sort((a, b) => b.data.last_active_at.localeCompare(a.data.last_active_at))[0]
       ?.data.last_active_at ?? new Date().toISOString()
 
+    const isPrivate = gid === GROUP_ID_PRIVATE
     cards.push({
       group_id: gid,
-      name: gid,
+      name: isPrivate ? '私聊' : gid,
       member_count: groupNodes.filter(n => !n.data.is_bot).length,
       node_count: groupNodes.length,
       edge_pair_count: groupPairs.length,
       last_active: lastActive,
       top_tags: aggregateTopTags(groupNodes, 4),
-      description: `共 ${groupNodes.length} 个成员，${groupPairs.length} 对关系`,
+      description: isPrivate
+        ? `${groupNodes.length} 个私聊参与者，${groupPairs.length} 对关系`
+        : `共 ${groupNodes.length} 个成员，${groupPairs.length} 对关系`,
       nodes: groupNodes,
       edgePairs: groupPairs,
     })

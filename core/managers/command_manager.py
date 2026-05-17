@@ -16,7 +16,7 @@ from ..utils.i18n import LANG_ZH, LANG_EN, LANG_JA, get_string
 if TYPE_CHECKING:
     from ..managers.context_manager import ContextManager
     from ..managers.recall_manager import RecallManager
-    from ..repository.base import EventRepository, PersonaRepository
+    from ..repository.base import EventRepository, ImpressionRepository, PersonaRepository
     from ..tasks.scheduler import TaskScheduler
 
 logger = logging.getLogger(__name__)
@@ -47,8 +47,10 @@ class CommandManager:
         webui_error: str | None = None,
         persona_repo: PersonaRepository | None = None,
         event_repo: EventRepository | None = None,
+        impression_repo: ImpressionRepository | None = None,
         data_dir: Path | None = None,
         initial_lang: str = LANG_ZH,
+        summary_trigger_rounds: int = 30,
     ) -> None:
         self._scheduler = scheduler
         self._recall = recall
@@ -57,7 +59,9 @@ class CommandManager:
         self._webui_error = webui_error
         self._persona_repo = persona_repo
         self._event_repo = event_repo
+        self._impression_repo = impression_repo
         self._data_dir = data_dir
+        self._summary_trigger_rounds = summary_trigger_rounds
         # session_id → (confirm_key, expire_timestamp)
         self._pending: dict[str, tuple[str, float]] = {}
         # Language: try reading persisted preference, fall back to initial_lang
@@ -97,19 +101,66 @@ class CommandManager:
     # Info commands
     # ------------------------------------------------------------------
 
-    async def status(self) -> str:
+    async def status(self, session_id: str | None = None) -> str:
         tasks = self._scheduler.task_names
         tasks_str = ", ".join(tasks) if tasks else self._t("cmd.status.tasks_none")
         sessions = self._ctx.active_sessions_count if self._ctx else "N/A"
         webui_s = self._t("cmd.status.webui_running") if (
             self._webui and getattr(self._webui, "_runner", None)
         ) else self._t("cmd.status.webui_stopped")
-        return "\n".join([
+
+        lines = [
             self._t("cmd.status.header"),
             self._t("cmd.status.tasks", tasks=tasks_str),
             self._t("cmd.status.sessions", count=sessions),
             self._t("cmd.status.webui", status=webui_s),
-        ])
+        ]
+
+        # Memory statistics
+        event_count = 0
+        persona_count = 0
+        impression_count = 0
+        try:
+            if self._event_repo:
+                from ..domain.models import EventStatus
+                event_count = await self._event_repo.count_by_status(EventStatus.ACTIVE)
+            if self._persona_repo:
+                personas = await self._persona_repo.list_all()
+                persona_count = len(personas)
+                if self._impression_repo:
+                    for p in personas:
+                        imps = await self._impression_repo.list_by_observer(p.uid)
+                        impression_count += len(imps)
+        except Exception:
+            pass
+        lines.append(self._t("cmd.status.memory",
+                              events=event_count,
+                              personas=persona_count,
+                              impressions=impression_count))
+
+        # Average response time from perf tracker
+        try:
+            from ..utils.perf import tracker
+            metrics = await tracker.get_metrics()
+            avg_ms = round(metrics.get("response", {}).get("avg", 0.0) * 1000, 1)
+            if avg_ms > 0:
+                lines.append(self._t("cmd.status.avg_response", ms=avg_ms))
+        except Exception:
+            pass
+
+        # Current session window progress
+        if session_id and self._ctx:
+            window = self._ctx.get_window(session_id)
+            if window is not None:
+                current_rounds = window.message_count // 2
+                lines.append(self._t("cmd.status.window",
+                                     current=current_rounds,
+                                     total=self._summary_trigger_rounds,
+                                     msgs=window.message_count))
+            else:
+                lines.append(self._t("cmd.status.window_none"))
+
+        return "\n".join(lines)
 
     async def persona(self, platform: str, physical_id: str) -> str:
         if self._persona_repo is None:

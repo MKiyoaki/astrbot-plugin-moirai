@@ -409,6 +409,8 @@ class PluginInitializer:
             recall_manager=self.recall,
             star=self._star,
             llm_manager=self.llm_manager,
+            context_manager=self.context_manager,
+            summary_trigger_rounds=cfg.get_boundary_config().summary_trigger_rounds,
         )
         if cfg.webui_enabled:
             self._ensure_pages_built()
@@ -485,8 +487,10 @@ class PluginInitializer:
             webui_error=self.webui_error,
             persona_repo=persona_repo,
             event_repo=event_repo,
+            impression_repo=impression_repo,
             data_dir=data_dir,
             initial_lang=_lang_map.get(cfg.language, LANG_ZH),
+            summary_trigger_rounds=cfg.get_boundary_config().summary_trigger_rounds,
         )
 
         astrbot_logger.info("[%s] initialized — DB at %s",
