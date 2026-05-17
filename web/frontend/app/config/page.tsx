@@ -54,6 +54,9 @@ const FIELD_DEPENDENCIES: Record<string, string> = {
   
   // Relation
   'persona_isolation_enabled': 'relation_enabled',
+  'persona_isolation_legacy_visible': 'persona_isolation_enabled',
+  'persona_merge_audit_enabled': 'persona_isolation_enabled',
+  'persona_default_view_mode': 'persona_isolation_enabled',
   'impression_event_trigger_enabled': 'relation_enabled',
   'impression_event_trigger_threshold': 'relation_enabled',
   'impression_trigger_debounce_hours': 'relation_enabled',
@@ -414,31 +417,40 @@ export default function ConfigPage() {
       id: 'relation',
       label: i18n.config.sections.relation,
       keys: [
-        'relation_enabled', 
-        'persona_default_confidence', 
-        'persona_isolation_enabled', 
-        'impression_event_trigger_enabled', 
-        'impression_event_trigger_threshold', 
-        'impression_trigger_debounce_hours', 
-        'impression_update_alpha'
+        'relation_enabled',
+        'persona_default_confidence',
+        'persona_isolation_enabled',
+        'persona_isolation_legacy_visible',
+        'persona_merge_audit_enabled',
+        'persona_default_view_mode',
+        'impression_event_trigger_enabled',
+        'impression_event_trigger_threshold',
+        'impression_trigger_debounce_hours',
+        'impression_update_alpha',
+        'impression_aggregation_interval_hours'
       ],
     },
     {
       id: 'tasks',
       label: i18n.config.sections.tasks,
       keys: [
-        'show_thinking_process',
-        'show_system_prompt',
-        'show_injection_summary',
         'decay_enabled',
         'decay_lambda',
         'decay_interval_hours',
         'persona_synthesis_enabled',
-        'persona_synthesis_interval_hours', 
+        'persona_synthesis_interval_hours',
         'markdown_projection_enabled',
-        'impression_aggregation_interval_hours', 
         'file_watcher_poll_seconds',
         'migration_auto_backup'
+      ],
+    },
+    {
+      id: 'debug_display',
+      label: i18n.config.sections.debug_display,
+      keys: [
+        'show_thinking_process',
+        'show_system_prompt',
+        'show_injection_summary'
       ],
     },
     {

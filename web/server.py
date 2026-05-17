@@ -230,6 +230,7 @@ class WebuiServer:
         app.router.add_get("/api/archived_events", self._wrap("auth", self._handle_archived_events_list))
         app.router.add_post("/api/events/{event_id}/archive", self._wrap("sudo", self._handle_archive_event))
         app.router.add_post("/api/events/{event_id}/unarchive", self._wrap("sudo", self._handle_unarchive_event))
+        app.router.add_get("/api/personas/bots", self._wrap("auth", self._handle_bot_personas_list))
         app.router.add_post("/api/personas", self._wrap("sudo", self._handle_create_persona))
         app.router.add_put("/api/personas/{uid}", self._wrap("sudo", self._handle_update_persona))
         app.router.add_delete("/api/personas/{uid}", self._wrap("sudo", self._handle_delete_persona))
@@ -314,21 +315,28 @@ class WebuiServer:
                 return _json({"error": str(exc)}, status=500)
         return wrapped
 
-    async def events_data(self, group_id: str | None, limit: int) -> dict[str, Any]:
+    async def events_data(
+        self, group_id: str | None, limit: int,
+        bot_persona_name: str | None = None,
+    ) -> dict[str, Any]:
         if group_id:
-            events = await self._event_repo.list_by_group(group_id, limit=limit)
+            events = await self._event_repo.list_by_group(
+                group_id, limit=limit, bot_persona_name=bot_persona_name,
+            )
         else:
             group_ids = await self._event_repo.list_group_ids()
             if not group_ids: return {"items": []}
             per_group = max(1, limit // len(group_ids))
             events = []
             for gid in group_ids:
-                events.extend(await self._event_repo.list_by_group(gid, limit=per_group))
+                events.extend(await self._event_repo.list_by_group(
+                    gid, limit=per_group, bot_persona_name=bot_persona_name,
+                ))
             events = events[:limit]
         events = [e for e in events if e.status == "active"]
         return {"items": [event_to_dict(e) for e in events], "total": len(events)}
 
-    async def graph_data(self) -> dict[str, Any]:
+    async def graph_data(self, bot_persona_name: str | None = None) -> dict[str, Any]:
         personas = await self._persona_repo.list_all()
         uid_msg_counts = await self._event_repo.count_messages_by_uid_bulk()
         nodes = []
@@ -338,17 +346,29 @@ class WebuiServer:
             nodes.append(node)
         edges = []
         for persona in personas:
-            imps = await self._impression_repo.list_by_observer(persona.uid)
+            imps = await self._impression_repo.list_by_observer(
+                persona.uid, bot_persona_name=bot_persona_name,
+            )
             for imp in imps:
                 edge = impression_to_edge(imp)
                 edge["data"]["msg_count"] = await self._event_repo.count_edge_messages(imp.observer_uid, imp.subject_uid, imp.scope)
                 edges.append(edge)
         group_members = {}
         for gid in await self._event_repo.list_group_ids():
-            events = await self._event_repo.list_by_group(gid, limit=1000)
+            events = await self._event_repo.list_by_group(
+                gid, limit=1000, bot_persona_name=bot_persona_name,
+            )
             uids = {uid for event in events for uid in (event.participants or [])}
             if uids: group_members[gid] = sorted(uids)
         return {"nodes": nodes, "edges": edges, "group_members": group_members}
+
+    async def bot_personas_data(self) -> dict[str, Any]:
+        async with self._event_repo._db.execute(  # type: ignore[attr-defined]
+            "SELECT COALESCE(bot_persona_name, '') AS name, COUNT(*) AS n "
+            "FROM events GROUP BY COALESCE(bot_persona_name, '') ORDER BY n DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+        return {"items": [{"name": (r[0] or None), "event_count": r[1]} for r in rows]}
 
     async def summaries_data(self) -> list[dict[str, str | None]]:
         result = []
@@ -442,11 +462,20 @@ class WebuiServer:
         return _json({"ok": True})
 
     async def _handle_events(self, request: web.Request) -> web.Response:
-        return _json(await self.events_data(request.rel_url.query.get("group_id"), int(request.rel_url.query.get("limit", "100"))))
+        persona = request.rel_url.query.get("persona") or None
+        return _json(await self.events_data(
+            request.rel_url.query.get("group_id"),
+            int(request.rel_url.query.get("limit", "100")),
+            bot_persona_name=persona,
+        ))
 
     async def _handle_graph_guarded(self, request: web.Request) -> web.Response:
         if not self._relation_enabled: return _json({"enabled": False, "nodes": [], "edges": []})
-        return _json(await self.graph_data())
+        persona = request.rel_url.query.get("persona") or None
+        return _json(await self.graph_data(bot_persona_name=persona))
+
+    async def _handle_bot_personas_list(self, _: web.Request) -> web.Response:
+        return _json(await self.bot_personas_data())
 
     async def _handle_summaries(self, _: web.Request) -> web.Response: return _json(await self.summaries_data())
 

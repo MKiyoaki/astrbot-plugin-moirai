@@ -640,7 +640,22 @@ class PluginConfig:
 
     @property
     def persona_isolation_enabled(self) -> bool:
-        return self._bool("persona_isolation_enabled", False)
+        return self._bool("persona_isolation_enabled", True)
+
+    @property
+    def persona_isolation_legacy_visible(self) -> bool:
+        return self._bool("persona_isolation_legacy_visible", True)
+
+    @property
+    def persona_merge_audit_enabled(self) -> bool:
+        return self._bool("persona_merge_audit_enabled", True)
+
+    @property
+    def persona_default_view_mode(self) -> str:
+        val = self._str("persona_default_view_mode", "remember")
+        if val not in {"remember", "all", "force_pick"}:
+            return "remember"
+        return val
 
     # ------------------------------------------------------------------
     # Periodic tasks

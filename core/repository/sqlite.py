@@ -29,7 +29,7 @@ import shutil
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import aiosqlite
 
@@ -206,6 +206,7 @@ def _row_to_persona(row: aiosqlite.Row) -> Persona:
         confidence=row["confidence"],
         created_at=row["created_at"],
         last_active_at=row["last_active_at"],
+        bot_persona_name=_safe_get(row, "bot_persona_name"),
     )
 
 
@@ -222,7 +223,32 @@ def _row_to_impression(row: aiosqlite.Row) -> Impression:
         scope=row["scope"],
         evidence_event_ids=json.loads(row["evidence_event_ids"] or "[]"),
         last_reinforced_at=row["last_reinforced_at"],
+        bot_persona_name=_safe_get(row, "bot_persona_name"),
     )
+
+
+def _safe_get(row: aiosqlite.Row, key: str) -> Any:
+    """Read a column that may be absent (e.g. older row factories or VIEW joins)."""
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return None
+
+
+def _persona_where(
+    bot_persona_name: str | None, include_legacy: bool,
+) -> tuple[str, list[Any]]:
+    """Build the WHERE fragment that scopes a row set to one bot persona.
+
+    None means "no filter — return everything". A non-None value yields rows
+    matching that persona; when include_legacy is True, rows with NULL
+    bot_persona_name are also surfaced so old data stays visible.
+    """
+    if bot_persona_name is None:
+        return "", []
+    if include_legacy:
+        return "(bot_persona_name = ? OR bot_persona_name IS NULL)", [bot_persona_name]
+    return "bot_persona_name = ?", [bot_persona_name]
 
 
 # ---------------------------------------------------------------------------
@@ -270,12 +296,13 @@ class SQLitePersonaRepository(PersonaRepository):
         async with _txn(self._db, self._lock):
             await self._db.execute(
                 "INSERT INTO personas(uid, primary_name, persona_attrs, confidence, "
-                "created_at, last_active_at) VALUES (?,?,?,?,?,?) "
+                "created_at, last_active_at, bot_persona_name) VALUES (?,?,?,?,?,?,?) "
                 "ON CONFLICT(uid) DO UPDATE SET "
                 "primary_name=excluded.primary_name, "
                 "persona_attrs=excluded.persona_attrs, "
                 "confidence=excluded.confidence, "
-                "last_active_at=excluded.last_active_at",
+                "last_active_at=excluded.last_active_at, "
+                "bot_persona_name=excluded.bot_persona_name",
                 (
                     persona.uid,
                     persona.primary_name,
@@ -283,6 +310,7 @@ class SQLitePersonaRepository(PersonaRepository):
                     persona.confidence,
                     persona.created_at,
                     persona.last_active_at,
+                    persona.bot_persona_name,
                 ),
             )
             # Replace all bindings for this uid atomically
@@ -346,31 +374,38 @@ class SQLiteEventRepository(EventRepository):
             row = await cur.fetchone()
         return _row_to_event(row) if row else None
 
-    async def list_all(self, limit: int = 100) -> list[Event]:
-        async with self._db.execute(
-            f"{_EVENT_SELECT} ORDER BY start_time DESC LIMIT ?", (limit,)
-        ) as cur:
+    async def list_all(
+        self, limit: int = 100,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Event]:
+        where, params = _persona_where(bot_persona_name, include_legacy)
+        sql = f"{_EVENT_SELECT}"
+        if where:
+            sql += " WHERE " + where
+        sql += " ORDER BY start_time DESC LIMIT ?"
+        async with self._db.execute(sql, tuple(params + [limit])) as cur:
             rows = await cur.fetchall()
         return [_row_to_event(r) for r in rows]
 
     async def list_by_group(
         self, group_id: str | None, limit: int = 100,
         exclude_type: str | None = None,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
     ) -> list[Event]:
         # IS ? correctly handles NULL comparison (group_id IS NULL)
+        clauses = ["group_id IS ?"]
+        params: list[Any] = [group_id]
         if exclude_type:
-            async with self._db.execute(
-                f"{_EVENT_SELECT} WHERE group_id IS ? AND event_type != ?"
-                " ORDER BY start_time DESC LIMIT ?",
-                (group_id, exclude_type, limit),
-            ) as cur:
-                rows = await cur.fetchall()
-        else:
-            async with self._db.execute(
-                f"{_EVENT_SELECT} WHERE group_id IS ? ORDER BY start_time DESC LIMIT ?",
-                (group_id, limit),
-            ) as cur:
-                rows = await cur.fetchall()
+            clauses.append("event_type != ?")
+            params.append(exclude_type)
+        persona_where, persona_params = _persona_where(bot_persona_name, include_legacy)
+        if persona_where:
+            clauses.append(persona_where)
+            params.extend(persona_params)
+        sql = f"{_EVENT_SELECT} WHERE " + " AND ".join(clauses) + " ORDER BY start_time DESC LIMIT ?"
+        params.append(limit)
+        async with self._db.execute(sql, tuple(params)) as cur:
+            rows = await cur.fetchall()
         return [_row_to_event(r) for r in rows]
 
     async def list_by_participant(self, uid: str, limit: int = 100) -> list[Event]:
@@ -568,12 +603,18 @@ class SQLiteEventRepository(EventRepository):
         return row[0] if row else 0
 
     async def list_by_status(
-        self, status: str, limit: int = 100
+        self, status: str, limit: int = 100,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
     ) -> list[Event]:
-        async with self._db.execute(
-            f"{_EVENT_SELECT} WHERE status = ? ORDER BY start_time DESC LIMIT ?",
-            (status, limit),
-        ) as cur:
+        clauses = ["status = ?"]
+        params: list[Any] = [status]
+        persona_where, persona_params = _persona_where(bot_persona_name, include_legacy)
+        if persona_where:
+            clauses.append(persona_where)
+            params.extend(persona_params)
+        sql = f"{_EVENT_SELECT} WHERE " + " AND ".join(clauses) + " ORDER BY start_time DESC LIMIT ?"
+        params.append(limit)
+        async with self._db.execute(sql, tuple(params)) as cur:
             rows = await cur.fetchall()
         return [_row_to_event(r) for r in rows]
 
@@ -900,7 +941,7 @@ class SQLiteEventRepository(EventRepository):
 _IMPRESSION_SELECT = (
     "SELECT observer_uid, subject_uid, ipc_orientation, benevolence, power, "
     "affect_intensity, r_squared, confidence, scope, evidence_event_ids, "
-    "last_reinforced_at FROM impressions"
+    "last_reinforced_at, bot_persona_name FROM impressions"
 )
 
 
@@ -910,46 +951,56 @@ class SQLiteImpressionRepository(ImpressionRepository):
         self._lock = _get_db_lock(db)
 
     async def get(
-        self, observer_uid: str, subject_uid: str, scope: str
+        self, observer_uid: str, subject_uid: str, scope: str,
+        bot_persona_name: str | None = None,
     ) -> Impression | None:
         async with self._db.execute(
-            f"{_IMPRESSION_SELECT} WHERE observer_uid=? AND subject_uid=? AND scope=?",
-            (observer_uid, subject_uid, scope),
+            f"{_IMPRESSION_SELECT} WHERE observer_uid=? AND subject_uid=? AND scope=? "
+            "AND ifnull(bot_persona_name, '') = ifnull(?, '')",
+            (observer_uid, subject_uid, scope, bot_persona_name),
         ) as cur:
             row = await cur.fetchone()
         return _row_to_impression(row) if row else None
 
     async def list_by_observer(
-        self, observer_uid: str, scope: str | None = None
+        self, observer_uid: str, scope: str | None = None,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
     ) -> list[Impression]:
-        if scope is None:
-            sql, params = (
-                f"{_IMPRESSION_SELECT} WHERE observer_uid = ?",
-                (observer_uid,),
-            )
-        else:
-            sql, params = (
-                f"{_IMPRESSION_SELECT} WHERE observer_uid = ? AND scope = ?",
-                (observer_uid, scope),
-            )
-        async with self._db.execute(sql, params) as cur:
+        where = ["observer_uid = ?"]
+        params: list[Any] = [observer_uid]
+        if scope is not None:
+            where.append("scope = ?")
+            params.append(scope)
+        if bot_persona_name is not None:
+            if include_legacy:
+                where.append("(bot_persona_name = ? OR bot_persona_name IS NULL)")
+                params.append(bot_persona_name)
+            else:
+                where.append("bot_persona_name = ?")
+                params.append(bot_persona_name)
+        sql = f"{_IMPRESSION_SELECT} WHERE " + " AND ".join(where)
+        async with self._db.execute(sql, tuple(params)) as cur:
             rows = await cur.fetchall()
         return [_row_to_impression(r) for r in rows]
 
     async def list_by_subject(
-        self, subject_uid: str, scope: str | None = None
+        self, subject_uid: str, scope: str | None = None,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
     ) -> list[Impression]:
-        if scope is None:
-            sql, params = (
-                f"{_IMPRESSION_SELECT} WHERE subject_uid = ?",
-                (subject_uid,),
-            )
-        else:
-            sql, params = (
-                f"{_IMPRESSION_SELECT} WHERE subject_uid = ? AND scope = ?",
-                (subject_uid, scope),
-            )
-        async with self._db.execute(sql, params) as cur:
+        where = ["subject_uid = ?"]
+        params: list[Any] = [subject_uid]
+        if scope is not None:
+            where.append("scope = ?")
+            params.append(scope)
+        if bot_persona_name is not None:
+            if include_legacy:
+                where.append("(bot_persona_name = ? OR bot_persona_name IS NULL)")
+                params.append(bot_persona_name)
+            else:
+                where.append("bot_persona_name = ?")
+                params.append(bot_persona_name)
+        sql = f"{_IMPRESSION_SELECT} WHERE " + " AND ".join(where)
+        async with self._db.execute(sql, tuple(params)) as cur:
             rows = await cur.fetchall()
         return [_row_to_impression(r) for r in rows]
 
@@ -958,9 +1009,9 @@ class SQLiteImpressionRepository(ImpressionRepository):
             await self._db.execute(
                 "INSERT INTO impressions(observer_uid, subject_uid, ipc_orientation, "
                 "benevolence, power, affect_intensity, r_squared, confidence, scope, "
-                "evidence_event_ids, last_reinforced_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
-                "ON CONFLICT(observer_uid, subject_uid, scope) DO UPDATE SET "
+                "evidence_event_ids, last_reinforced_at, bot_persona_name) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(observer_uid, subject_uid, scope, ifnull(bot_persona_name, '')) DO UPDATE SET "
                 "ipc_orientation=excluded.ipc_orientation, "
                 "benevolence=excluded.benevolence, "
                 "power=excluded.power, "
@@ -981,6 +1032,7 @@ class SQLiteImpressionRepository(ImpressionRepository):
                     impression.scope,
                     _j(impression.evidence_event_ids),
                     impression.last_reinforced_at,
+                    impression.bot_persona_name,
                 ),
             )
 

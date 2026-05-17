@@ -70,17 +70,26 @@ class InMemoryEventRepository(EventRepository):
         event = self._store.get(event_id)
         return deepcopy(event) if event is not None else None
 
-    async def list_all(self, limit: int = 100) -> list[Event]:
-        events = [deepcopy(e) for e in self._store.values()]
+    async def list_all(
+        self, limit: int = 100,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Event]:
+        events = [
+            deepcopy(e) for e in self._store.values()
+            if _event_persona_matches(e, bot_persona_name, include_legacy)
+        ]
         events.sort(key=lambda e: e.start_time, reverse=True)
         return events[:limit]
 
     async def list_by_group(
         self, group_id: str | None, limit: int = 100, exclude_type: str | None = None,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
     ) -> list[Event]:
         events = [
             deepcopy(e) for e in self._store.values()
-            if e.group_id == group_id and (exclude_type is None or e.event_type != exclude_type)
+            if e.group_id == group_id
+            and (exclude_type is None or e.event_type != exclude_type)
+            and _event_persona_matches(e, bot_persona_name, include_legacy)
         ]
         events.sort(key=lambda e: e.start_time, reverse=True)
         return events[:limit]
@@ -162,8 +171,15 @@ class InMemoryEventRepository(EventRepository):
     async def count_by_status(self, status: str) -> int:
         return sum(1 for e in self._store.values() if e.status == status)
 
-    async def list_by_status(self, status: str, limit: int = 100) -> list[Event]:
-        events = [deepcopy(e) for e in self._store.values() if e.status == status]
+    async def list_by_status(
+        self, status: str, limit: int = 100,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Event]:
+        events = [
+            deepcopy(e) for e in self._store.values()
+            if e.status == status
+            and _event_persona_matches(e, bot_persona_name, include_legacy)
+        ]
         events.sort(key=lambda e: e.start_time, reverse=True)
         return events[:limit]
 
@@ -297,43 +313,73 @@ class InMemoryEventRepository(EventRepository):
 
 class InMemoryImpressionRepository(ImpressionRepository):
     def __init__(self) -> None:
-        # Unique key: (observer_uid, subject_uid, scope)
-        self._store: dict[tuple[str, str, str], Impression] = {}
+        # Unique key: (observer_uid, subject_uid, scope, bot_persona_name_or_empty).
+        # bot_persona_name is normalized to '' when None so dict equality matches
+        # the SQLite ifnull(bot_persona_name, '') unique index semantics.
+        self._store: dict[tuple[str, str, str, str], Impression] = {}
 
-    def _key(self, observer_uid: str, subject_uid: str, scope: str) -> tuple[str, str, str]:
-        return (observer_uid, subject_uid, scope)
+    def _key(
+        self, observer_uid: str, subject_uid: str, scope: str,
+        bot_persona_name: str | None = None,
+    ) -> tuple[str, str, str, str]:
+        return (observer_uid, subject_uid, scope, bot_persona_name or "")
 
     async def get(
-        self, observer_uid: str, subject_uid: str, scope: str
+        self, observer_uid: str, subject_uid: str, scope: str,
+        bot_persona_name: str | None = None,
     ) -> Impression | None:
-        imp = self._store.get(self._key(observer_uid, subject_uid, scope))
+        imp = self._store.get(self._key(observer_uid, subject_uid, scope, bot_persona_name))
         return deepcopy(imp) if imp is not None else None
 
     async def list_by_observer(
-        self, observer_uid: str, scope: str | None = None
+        self, observer_uid: str, scope: str | None = None,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
     ) -> list[Impression]:
         return [
             deepcopy(imp)
-            for (obs, _subj, sc), imp in self._store.items()
-            if obs == observer_uid and (scope is None or sc == scope)
+            for (obs, _subj, sc, _bp), imp in self._store.items()
+            if obs == observer_uid
+            and (scope is None or sc == scope)
+            and _persona_matches(imp.bot_persona_name, bot_persona_name, include_legacy)
         ]
 
     async def list_by_subject(
-        self, subject_uid: str, scope: str | None = None
+        self, subject_uid: str, scope: str | None = None,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
     ) -> list[Impression]:
         return [
             deepcopy(imp)
-            for (_obs, subj, sc), imp in self._store.items()
-            if subj == subject_uid and (scope is None or sc == scope)
+            for (_obs, subj, sc, _bp), imp in self._store.items()
+            if subj == subject_uid
+            and (scope is None or sc == scope)
+            and _persona_matches(imp.bot_persona_name, bot_persona_name, include_legacy)
         ]
 
     async def upsert(self, impression: Impression) -> None:
-        key = self._key(impression.observer_uid, impression.subject_uid, impression.scope)
+        key = self._key(
+            impression.observer_uid, impression.subject_uid,
+            impression.scope, impression.bot_persona_name,
+        )
         self._store[key] = deepcopy(impression)
 
     async def delete(self, observer_uid: str, subject_uid: str, scope: str) -> bool:
-        key = self._key(observer_uid, subject_uid, scope)
-        if key not in self._store:
+        # Remove every row matching the (observer, subject, scope) tuple
+        # regardless of bot_persona_name.
+        keys = [k for k in self._store if k[0] == observer_uid and k[1] == subject_uid and k[2] == scope]
+        if not keys:
             return False
-        del self._store[key]
+        for k in keys:
+            del self._store[k]
         return True
+
+
+def _persona_matches(row_persona: str | None, filter_persona: str | None, include_legacy: bool) -> bool:
+    if filter_persona is None:
+        return True
+    if row_persona == filter_persona:
+        return True
+    return include_legacy and row_persona is None
+
+
+def _event_persona_matches(event: Event, filter_persona: str | None, include_legacy: bool) -> bool:
+    return _persona_matches(event.bot_persona_name, filter_persona, include_legacy)

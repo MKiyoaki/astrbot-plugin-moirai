@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.png" width="96" alt="Moirai Logo" />
+<img src="https://raw.githubusercontent.com/MKiyoaki/astrbot-plugin-moirai/main/logo.png" width="96" alt="Moirai Logo" />
 
 # Moirai
 
