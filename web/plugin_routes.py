@@ -273,6 +273,12 @@ class PluginRoutes:
                 ["POST"],
                 "Bulk delete impressions",
             ),
+            (
+                f"/api/impressions/reanalyze",
+                self._handle_reanalyze_impressions_guarded,
+                ["POST"],
+                "Reanalyze impressions from events",
+            ),
             # Recycle bin
             (f"/api/recycle_bin",              self._handle_recycle_bin_list,        ["GET"],         "Recycle bin list"),
             (f"/api/recycle_bin/restore",      self._handle_recycle_bin_restore,     ["POST"],        "Restore from recycle bin"),
@@ -663,6 +669,121 @@ class PluginRoutes:
             bot_persona_name = None
         deleted = await self._impression_repo.delete_by_scope(scope, bot_persona_name=bot_persona_name)
         return _json({"ok": True, "deleted": deleted})
+
+    async def _handle_reanalyze_impressions_guarded(self, request: web.Request) -> web.Response:
+        guard = self._relation_disabled_response()
+        if guard is not None:
+            return guard
+        body = await _request_json(request)
+        scope = body.get("scope")
+        if not isinstance(scope, str) or not scope:
+            return _json({"error": "scope required"}, status=400)
+        bot_persona_name = body.get("persona")
+        if bot_persona_name == _LEGACY_PERSONA_TOKEN:
+            bot_persona_name = ""
+        if not isinstance(bot_persona_name, str):
+            bot_persona_name = None
+
+        try:
+            updated = await self._reanalyze_impressions_for_scope(
+                scope=scope, bot_persona_name=bot_persona_name
+            )
+        except Exception as exc:
+            logger.warning("[PluginRoutes] reanalyze_impressions failed: %s", exc)
+            return _json({"error": str(exc)}, status=500)
+        return _json({"ok": True, "updated": updated})
+
+    async def _reanalyze_impressions_for_scope(
+        self, scope: str, bot_persona_name: str | None
+    ) -> int:
+        """Heuristic impression reanalysis: count shared events per participant pair.
+
+        Uses the same heuristic formula as SocialOrientationAnalyzer Path B but
+        operates directly on historical DB events — no BigFiveBuffer required.
+        """
+        import dataclasses
+        import time as _time
+        from core.domain.models import Impression
+        from core.social.ipc_model import classify_octant, affect_intensity, r_squared
+
+        group_id = None if scope == "global" else scope
+        events = await self._event_repo.list_by_group(group_id, limit=1000, bot_persona_name=bot_persona_name)
+
+        # Build participant → event_id sets
+        participant_events: dict[str, set[str]] = {}
+        for ev in events:
+            for uid in (ev.participants or []):
+                participant_events.setdefault(uid, set()).add(ev.event_id)
+
+        participants = list(participant_events.keys())
+        if len(participants) < 2:
+            return 0
+
+        updated = 0
+        now = _time.time()
+
+        for obs_uid in participants:
+            obs_event_ids = participant_events[obs_uid]
+            for subj_uid in participants:
+                if subj_uid == obs_uid:
+                    continue
+                shared = len(obs_event_ids & participant_events[subj_uid])
+                if shared < 1:
+                    continue
+
+                # Heuristic score (mirrors orientation_analyzer Path B)
+                salience = min(1.0, 0.3 + shared * 0.05)
+                if shared >= 10:
+                    b_e = min(1.0, 0.3 + salience * 0.4)
+                    p_e = 0.2
+                else:
+                    b_e = min(1.0, 0.1 + salience * 0.3)
+                    p_e = 0.0
+
+                ipc_o = classify_octant(b_e, p_e)
+                ai = affect_intensity(b_e, p_e)
+                rs = r_squared(b_e, p_e)
+
+                existing = await self._impression_repo.get(
+                    obs_uid, subj_uid, scope, bot_persona_name=bot_persona_name
+                )
+                if existing is None:
+                    imp = Impression(
+                        observer_uid=obs_uid,
+                        subject_uid=subj_uid,
+                        ipc_orientation=ipc_o,
+                        benevolence=b_e,
+                        power=p_e,
+                        affect_intensity=ai,
+                        r_squared=rs,
+                        confidence=rs,
+                        scope=scope,
+                        evidence_event_ids=list(obs_event_ids)[:100],
+                        last_reinforced_at=now,
+                        bot_persona_name=bot_persona_name,
+                    )
+                else:
+                    alpha = 0.4
+                    evidence = list(existing.evidence_event_ids)
+                    for eid in obs_event_ids:
+                        if eid not in evidence:
+                            evidence.append(eid)
+                    evidence = evidence[-100:]
+                    imp = dataclasses.replace(
+                        existing,
+                        ipc_orientation=ipc_o,
+                        benevolence=alpha * b_e + (1 - alpha) * existing.benevolence,
+                        power=alpha * p_e + (1 - alpha) * existing.power,
+                        affect_intensity=alpha * ai + (1 - alpha) * existing.affect_intensity,
+                        r_squared=alpha * rs + (1 - alpha) * existing.r_squared,
+                        confidence=alpha * rs + (1 - alpha) * existing.confidence,
+                        evidence_event_ids=evidence,
+                        last_reinforced_at=now,
+                    )
+                await self._impression_repo.upsert(imp)
+                updated += 1
+
+        return updated
 
     # ------------------------------------------------------------------
     # Handlers: summaries

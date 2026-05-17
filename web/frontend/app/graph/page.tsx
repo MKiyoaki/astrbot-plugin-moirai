@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { UserPlus, ChevronLeft, Maximize2, XCircle, Search, Share2 } from 'lucide-react'
+import { UserPlus, ChevronLeft, Maximize2, XCircle, Search, Share2, RefreshCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/layout/page-header'
@@ -51,6 +51,7 @@ export default function GraphPage() {
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isReanalyzing, setIsReanalyzing] = useState(false)
   const [search, setSearch] = useState('')
 
   // ── Graph interaction state ─────────────────────────────────────────────────
@@ -324,6 +325,24 @@ export default function GraphPage() {
     }
   }
 
+  const handleReanalyzeImpressions = async (scopeOverride?: string) => {
+    if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
+    const scope = scopeOverride ?? (currentGroup
+      ? (currentGroup.group_id === GROUP_ID_PRIVATE ? 'global' : currentGroup.group_id)
+      : 'global')
+    setIsReanalyzing(true)
+    try {
+      const result = await api.graph.reanalyzeImpressions(scope, personaFilter)
+      app.toast(i18n.graph.reanalyzeImpressionsSuccess.replace('{count}', String(result.updated)))
+      await loadGraph()
+      await app.refreshStats()
+    } catch {
+      app.toast(i18n.graph.reanalyzeImpressionsError, 'destructive')
+    } finally {
+      setIsReanalyzing(false)
+    }
+  }
+
   const handleJumpToEvent = (eventId: string) => {
     setStored('em_highlight_events', JSON.stringify([eventId]), 'session')
     router.push('/events')
@@ -351,6 +370,10 @@ export default function GraphPage() {
             onChange={e => setSearch(e.target.value)}
           />
         </div>
+        <Button size="sm" variant="outline" onClick={() => handleReanalyzeImpressions('global')} disabled={!app.sudo || isReanalyzing} className="h-8 gap-1.5">
+          <RefreshCcw className={`size-3.5 ${isReanalyzing ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">{i18n.graph.reanalyzeImpressions}</span>
+        </Button>
         <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo} className="h-8 gap-1.5">
           <UserPlus className="size-3.5" />
           <span className="hidden sm:inline">{i18n.graph.createPersona}</span>
@@ -485,6 +508,10 @@ export default function GraphPage() {
             <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2" onClick={handleBackToList}>
               <ChevronLeft className="size-3.5" />
               <span className="hidden sm:inline">{i18n.graph.backToList}</span>
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => handleReanalyzeImpressions()} disabled={!app.sudo || isReanalyzing} className="h-8 gap-1.5">
+              <RefreshCcw className={`size-3.5 ${isReanalyzing ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{i18n.graph.reanalyzeImpressions}</span>
             </Button>
             <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo} className="h-8 gap-1.5">
               <UserPlus className="size-3.5" />

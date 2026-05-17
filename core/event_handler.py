@@ -431,13 +431,14 @@ class EventHandler:
 
         from .adapters.message_normalizer import normalize_message_text
         # Use a special internal UID for the bot to distinguish it from users.
-        # router.process will handle get_or_create_uid.
+        # session_platform matches the human speakers so the bot joins the same window.
         await router.process(
             platform="internal",
             physical_id="bot",
             display_name="Bot",
             text=normalize_message_text(text),
             raw_group_id=event.get_group_id() or None,
+            session_platform=event.get_platform_name(),
         )
 
     async def handle_using_llm_tool(

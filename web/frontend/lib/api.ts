@@ -220,6 +220,11 @@ export const graph = {
       method: 'POST',
       body: JSON.stringify({ scope, persona }),
     }),
+  reanalyzeImpressions: (scope: string, persona?: string | null) =>
+    request<{ ok: boolean; updated: number }>('/api/impressions/reanalyze', {
+      method: 'POST',
+      body: JSON.stringify({ scope, persona }),
+    }),
 }
 
 // ── Summaries ─────────────────────────────────────────────────────────────

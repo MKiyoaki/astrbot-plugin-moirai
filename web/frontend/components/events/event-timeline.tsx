@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import ReactDOM from 'react-dom'
 import { Pencil, Trash2, Lock, Archive } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -149,6 +150,7 @@ export function EventTimeline({
   const outerRef        = useRef<HTMLDivElement>(null)
   const [outerW, setOuterW] = useState(0)
   const [scrollH, setScrollH] = useState(0)
+  const [scrollOffset, setScrollOffset] = useState({ top: 0, left: 0 })
   const dimmedIds = externalDimmedIds ?? internalDimmedIds
 
   useEffect(() => {
@@ -161,6 +163,13 @@ export function EventTimeline({
     const el = scrollRef.current; if (!el) return
     const obs = new ResizeObserver(e => setScrollH(e[0]?.contentRect.height ?? 0))
     obs.observe(el); return () => obs.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const el = scrollRef.current; if (!el) return
+    const handler = () => setScrollOffset({ top: el.scrollTop, left: el.scrollLeft })
+    el.addEventListener('scroll', handler, { passive: true })
+    return () => el.removeEventListener('scroll', handler)
   }, [])
 
   const clearHover = useCallback(() => {
@@ -299,7 +308,10 @@ export function EventTimeline({
               return (
                 <line key={`vl-${th.id}`}
                   x1={x} y1={HEADER_H} x2={x} y2={svgH}
-                  stroke={th.color} strokeWidth={1} strokeOpacity={dim ? 0.05 : 0.2} />
+                  stroke={th.color} strokeWidth={1.5} strokeOpacity={dim ? 0.05 : 0.25}
+                  strokeDasharray="5 15"
+                  className="loom-axis-flow"
+                  style={{ animationDelay: `${ti * 0.6}s` }} />
               )
             })}
 
@@ -432,15 +444,21 @@ export function EventTimeline({
             )
           })}
 
-          {/* ── Hover tooltip ── */}
-          {activeRow && activeThread && (() => {
+          {/* ── Hover tooltip (rendered via portal to escape overflow clipping) ── */}
+          {activeRow && activeThread && typeof document !== 'undefined' && (() => {
             const { ev } = activeRow
             const ex = thX(activeTi)
             const ey = activeRow.y
             const flipLeft = activeTi >= threads.length / 2
-            return (
-              <div className="absolute z-50 pointer-events-auto"
-                style={{ left: flipLeft ? ex - BG : ex + BG, top: ey, animation: 'tlBubbleIn 0.12s ease-out' }}
+
+            const rect = scrollRef.current?.getBoundingClientRect()
+            if (!rect) return null
+            const vpX = rect.left + ex - scrollOffset.left + (flipLeft ? -BG : BG)
+            const vpY = rect.top + ey - scrollOffset.top
+
+            return ReactDOM.createPortal(
+              <div className="fixed z-[9999] pointer-events-auto"
+                style={{ left: vpX, top: vpY, animation: 'tlBubbleIn 0.12s ease-out' }}
                 onMouseEnter={() => { clearHover(); setBubbleEvId(ev.id) }}
                 onMouseLeave={() => {
                   setBubbleEvId(null); setHoveredEvId(null)
@@ -500,7 +518,8 @@ export function EventTimeline({
                     </div>
                   </div>
                 </div>
-              </div>
+              </div>,
+              document.body
             )
           })()}
         </div>

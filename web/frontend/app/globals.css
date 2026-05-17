@@ -123,6 +123,17 @@
   animation: graph-edge-flow 0.8s linear infinite;
 }
 
+/* Loom timeline axis flow — slow, compositor-only, no layout/paint cost */
+@keyframes loom-axis-flow {
+  from { stroke-dashoffset: 30; }
+  to   { stroke-dashoffset: 0;  }
+}
+
+.loom-axis-flow {
+  animation: loom-axis-flow 4s linear infinite;
+  will-change: auto;
+}
+
 /* Base chart colors and constants */
 :root {
   --chart-1: oklch(0.6 0.11 245);

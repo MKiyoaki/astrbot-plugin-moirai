@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import re
 import time as _time
 
 from typing import TYPE_CHECKING
@@ -26,6 +27,23 @@ from .prompts import build_user_prompt, build_distillation_prompt
 from .partitioner import LlmPartitioner, SemanticPartitioner, Partition
 
 _NO_PROVIDER_WARN_INTERVAL = 60.0
+
+# Patterns for tag values that look like IDs rather than semantic labels.
+_NUMERIC_ID_RE = re.compile(r'^\d{5,}$')
+_UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+_TAG_MAX_LEN = 30
+
+
+def _is_valid_tag(tag: str) -> bool:
+    """Return False for strings that look like IDs rather than semantic tag labels."""
+    t = tag.strip()
+    if not t or len(t) > _TAG_MAX_LEN:
+        return False
+    if _NUMERIC_ID_RE.match(t):
+        return False
+    if _UUID_RE.match(t):
+        return False
+    return True
 _last_no_provider_warn_ts: float = 0.0
 
 
@@ -221,9 +239,11 @@ class EventExtractor:
             start_time = min(timestamps)
             end_time = max(timestamps)
 
-            # Map raw tags to normalized tags
+            # Map raw tags to normalized tags (invalid tags are excluded here and in _batch_align_tags)
             raw_tags = res.get("chat_content_tags", [])
-            aligned_tags = list(dict.fromkeys(normalized_map.get(tag, tag) for tag in raw_tags))
+            aligned_tags = list(dict.fromkeys(
+                normalized_map.get(tag, tag) for tag in raw_tags if _is_valid_tag(tag)
+            ))
 
             event = Event(
                 event_id=str(uuid.uuid4()),
@@ -272,7 +292,7 @@ class EventExtractor:
         
         Returns a mapping from raw_tag -> normalized_tag.
         """
-        unique_raw = list(dict.fromkeys(t.strip() for t in raw_tags if t.strip()))
+        unique_raw = list(dict.fromkeys(t.strip() for t in raw_tags if _is_valid_tag(t)))
         if not unique_raw:
             return {}
 

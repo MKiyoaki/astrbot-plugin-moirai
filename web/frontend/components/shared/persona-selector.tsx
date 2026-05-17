@@ -16,7 +16,7 @@ function getInitials(name: string | null): string {
   return name.slice(0, 2).toUpperCase()
 }
 
-export function PersonaSelector() {
+export function PersonaSelector({ popoverSide = 'top' }: { popoverSide?: 'top' | 'right' | 'bottom' | 'left' } = {}) {
   const { i18n, currentPersonaName, scopeMode, setCurrentPersona, personaConfig } = useApp()
   const t = i18n.personaSelector
   const router = useRouter()
@@ -88,7 +88,7 @@ export function PersonaSelector() {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="start" className="w-56 p-1">
+      <PopoverContent side={popoverSide} align="start" className="w-56 p-1">
         <div className="flex items-center gap-1 px-2 py-1">
           <p className="min-w-0 flex-1 truncate text-[10px] font-mono uppercase tracking-[0.15em] text-muted-foreground/60">
             {t.switchPersona}

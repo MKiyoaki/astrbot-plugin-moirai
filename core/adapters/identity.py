@@ -6,11 +6,15 @@ A new Persona is created on first encounter. Subsequent calls with the same
 from __future__ import annotations
 
 import dataclasses
+import re
 import time
 import uuid
 
 from ..domain.models import Persona
 from ..repository.base import PersonaRepository
+
+# Matches pure numeric strings (e.g. QQ IDs like "1257116920")
+_NUMERIC_ID_RE = re.compile(r'^\d+$')
 
 
 class IdentityResolver:
@@ -32,6 +36,14 @@ class IdentityResolver:
         persona = await self._repo.get_by_identity(platform, physical_id)
         if persona is not None:
             self._cache[key] = persona.uid
+            # If the stored name is a raw numeric ID and a real display_name is now available, update it.
+            if (
+                display_name
+                and display_name != persona.primary_name
+                and _NUMERIC_ID_RE.match(persona.primary_name)
+                and not _NUMERIC_ID_RE.match(display_name)
+            ):
+                await self._repo.upsert(dataclasses.replace(persona, primary_name=display_name))
             return persona.uid
 
         now = time.time()

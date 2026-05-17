@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## [v0.12.3] — 2026-05-17
+
+### UI 修复与数据质量改进（8 项）
+
+**Fix — 事件流 UI**
+
+- 修复事件流第二条时间轴上的弹出气泡被左侧来源面板遮挡的问题（改用 `ReactDOM.createPortal` 渲染到 `document.body`，`position: fixed` + 实时 scroll 偏移追踪）
+- 为事件流垂直轴线添加自上而下的流动动画（`strokeDasharray` + CSS `@keyframes loom-axis-flow`，compositor-only，无 layout/paint 开销）
+
+**Fix — 侧边栏布局**
+
+- 将 Bot 人格选择器（`PersonaSelector`）从底部 Footer 移至侧边栏顶部新增的「人格」分组，位置在可视化导航项上方；Popover 方向改为向右展开
+
+**Fix — 关系图数据**
+
+- 修复关系图节点显示 QQ 数字 ID 而非昵称的问题：`IdentityResolver` 在已缓存条目的 `primary_name` 为纯数字时，自动用真实 `display_name` 更新数据库
+- 修复 Bot 在关系图中始终为孤立节点的问题：Bot 回复现在通过 `session_platform` 参数加入与用户相同的 `MessageWindow`，从而产生共现印象
+- 新增「重新分析关系」按钮（位于「新建人格」旁），后端端点 `POST /api/impressions/reanalyze` 基于历史事件共现次数启发式重建印象；在列表视图和展开视图均可用
+
+**Fix — 人格分析质量**
+
+- 修复人格分析将用户名/昵称本身误作对话证据的问题：在 `DEFAULT_EXTRACTOR_SYSTEM_PROMPT` 和 `DEFAULT_DISTILLATION_SYSTEM_PROMPT` 中明确指示「冒号左侧的显示名不是有效依据，只分析冒号右侧的发言内容」
+- 修复 tag 中出现 QQ ID / UUID 等人物标识符的问题：在 `_batch_align_tags` 入口和 `aligned_tags` 生成处双重过滤纯数字（≥5位）、UUID 格式及超长字符串（>30字符）
+
+**Version**
+
+- 更新版本到 `v0.12.3`
+
 ## [v0.12.2] — 2026-05-17
 
 ### Persona 归属入口可达性与版本同步

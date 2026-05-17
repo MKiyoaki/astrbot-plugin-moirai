@@ -49,18 +49,23 @@ class MessageRouter:
         text: str,
         raw_group_id: str | None,
         now: float | None = None,
+        session_platform: str | None = None,
     ) -> None:
         """Entry point for every incoming message.
 
         raw_group_id: group ID from the platform adapter, or None/"" for DM.
         now: override timestamp (for deterministic testing).
+        session_platform: if given, overrides the platform component used to
+            compute session_id (but not the identity lookup).  Used to make
+            bot replies join the same MessageWindow as the human speakers.
         """
         import time as _time
 
         now = now if now is not None else _time.time()
         group_id: str | None = raw_group_id if raw_group_id else None
+        _sid_platform = session_platform or platform
         session_id = (
-            f"{platform}:{group_id}" if group_id else f"{platform}:private:{physical_id}"
+            f"{_sid_platform}:{group_id}" if group_id else f"{_sid_platform}:private:{physical_id}"
         )
 
         uid = await self._resolver.get_or_create_uid(platform, physical_id, display_name)

@@ -281,6 +281,9 @@ export const zh = {
     deleteImpressionConfirm: '确认删除这条印象关系？此操作不可撤销。',
     clearScopeImpressionsConfirm: '确认清除「{name}」中的全部印象关系？此操作不可撤销。',
     clearScopeImpressionsSuccess: '已清除 {count} 条印象',
+    reanalyzeImpressions: '重新分析关系',
+    reanalyzeImpressionsSuccess: '已重新生成 {count} 条印象',
+    reanalyzeImpressionsError: '关系分析失败',
     noData: '暂无数据',
     isBot: 'AI 助手',
     params: {
@@ -1085,6 +1088,9 @@ export const ja = {
     deleteImpressionConfirm: 'この印象関係を削除しますか？この操作は取り消せません。',
     clearScopeImpressionsConfirm: '「{name}」のすべての印象関係を削除しますか？この操作は取り消せません。',
     clearScopeImpressionsSuccess: '{count} 件の印象を削除しました',
+    reanalyzeImpressions: '関係再分析',
+    reanalyzeImpressionsSuccess: '{count} 件の印象を再生成しました',
+    reanalyzeImpressionsError: '関係分析に失敗しました',
     noData: 'データなし',
     isBot: 'AIアシスタント',
     params: {
@@ -1867,6 +1873,9 @@ export const en = {
     deleteImpressionConfirm: 'Delete this impression relation? This cannot be undone.',
     clearScopeImpressionsConfirm: 'Delete all impression relations in "{name}"? This cannot be undone.',
     clearScopeImpressionsSuccess: 'Deleted {count} impressions',
+    reanalyzeImpressions: 'Re-analyze Relations',
+    reanalyzeImpressionsSuccess: 'Regenerated {count} impressions',
+    reanalyzeImpressionsError: 'Relation analysis failed',
     noData: 'No data',
     isBot: 'AI Assistant',
     params: {

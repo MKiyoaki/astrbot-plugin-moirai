@@ -174,6 +174,17 @@ export function AppSidebar() {
 
       <SidebarContent className="flex-1 overflow-y-auto min-w-0">
         <SidebarGroup>
+          <SidebarGroupLabel className="text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/60">
+            {lang === 'zh' ? '人格' : lang === 'ja' ? '人格' : 'Persona'}
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <PersonaSelector popoverSide="right" />
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarSeparator />
+
+        <SidebarGroup>
           <SidebarGroupLabel className="text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/60">{i18n.nav.visualization}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -242,7 +253,6 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="mt-auto shrink-0 border-t border-border p-2">
-        <PersonaSelector />
         <EngineStatusBadge />
 
         <SidebarMenu>
