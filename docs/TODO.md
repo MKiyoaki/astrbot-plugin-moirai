@@ -83,7 +83,7 @@ AstrBot 消息 → MessageRouter → MessageWindow
 - [x] `core/repository/sqlite.py` — read/write 路径都处理 bot_persona_name；`ON CONFLICT(...,ifnull(bot_persona_name,''))` 配合新索引；`_safe_get` 兼容旧 row factory
 - [x] Smoke test：全 10 migration 干净跑通；Upsert NULL→NULL 覆盖；NULL/Alice/Bob 三行并存；现有 455 tests 全过
 
-### Phase 3 — WebUI Persona 上下文 + API 透传 + 写路径 wiring（进行中）
+### Phase 3 — WebUI Persona 上下文 + API 透传 + 写路径 wiring（✅ 完成）
 
 **Phase 3a — 后端写路径 wiring**
 - [x] `core/social/orientation_analyzer.py` — `analyze()` / `_upsert_impression()` 接受 `bot_persona_name`，传给 Impression
@@ -100,15 +100,16 @@ AstrBot 消息 → MessageRouter → MessageWindow
 - [x] `web/server.py` — 同步上述改动（dev/tests 路径）
 - [x] 测试：150 tests pass（含 test_webui, test_graph_scope, test_sqlite_repo 等）
 
-**Phase 3c — 前端 store + API + UI 组件（待办）**
-- [ ] `web/frontend/lib/store.tsx` — `currentPersonaName: string | null` + `scopeMode: 'single' \| 'all'`，localStorage 持久化
-- [ ] `web/frontend/lib/api.ts` — list/get 加可选 `persona?: string | null` query；加 `personas.listBots()`
-- [ ] `web/frontend/components/shared/persona-selector.tsx` — 新建，sidebar 顶部下拉
-- [ ] `web/frontend/components/shared/first-launch-persona-picker.tsx` — 新建，首次弹窗
-- [ ] `web/frontend/components/layout/app-shell.tsx` — 挂 first-launch modal
-- [ ] `web/frontend/components/layout/app-sidebar.tsx` — 顶部嵌入 selector
-- [ ] events/library/graph/recall/stats 各 page — 在 loadXxx 里读 store 的 persona 透传给 api
-- [ ] `web/frontend/lib/i18n.ts` — picker / "All Personas" / "Default" 文案三语
+**Phase 3c — 前端 store + API + UI 组件（✅ 完成 v0.11.2）**
+- [x] `web/frontend/lib/store.tsx` — `currentPersonaName` / `scopeMode` / `firstLaunchDone`，localStorage 持久化，纳入 useMemo 依赖
+- [x] `web/frontend/lib/api.ts` — `withPersona()` 工具、`BotPersonaItem`、`graph.listBots()`；`events.list` / `events.listArchived` / `graph.get` 接受 `persona?`
+- [x] `web/frontend/components/shared/persona-selector.tsx` — 新建，Avatar + Popover 风格，置于 Sidebar 底部
+- [x] `web/frontend/components/shared/first-launch-persona-picker.tsx` — 新建，首次进入多 persona 时弹出
+- [x] `web/frontend/components/layout/app-shell.tsx` — 挂 FirstLaunchPersonaPicker
+- [x] `web/frontend/components/layout/app-sidebar.tsx` — 底部嵌入 PersonaSelector
+- [x] events/library/graph/stats 各 page — `personaFilter` 透传给 api，纳入 useCallback deps
+- [x] `web/frontend/lib/i18n.ts` — `personaSelector` 分区，zh/en/ja 三语全部添加
+- [x] 测试：`tests/frontend/test_persona_selector.py` 49 个结构验证测试全部通过
 
 #### Phase 3c 技术实现（交接细节）
 

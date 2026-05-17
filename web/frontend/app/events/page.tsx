@@ -55,8 +55,9 @@ export default function EventsPage() {
   const { i18n } = appCtx
   // Destructure stable callbacks so loadEvents doesn't depend on the whole app object
   // (app object identity changes on every stats poll, which would re-trigger loadEvents)
-  const { toast: appToast, setRawEvents, refreshStats: appRefreshStats } = appCtx
+  const { toast: appToast, setRawEvents, refreshStats: appRefreshStats, currentPersonaName, scopeMode } = appCtx
   const app = appCtx
+  const personaFilter = scopeMode === 'single' ? currentPersonaName : null
   const router = useRouter()
 
   const [search, setSearch]             = useState('')
@@ -84,14 +85,14 @@ export default function EventsPage() {
   const loadEvents = useCallback(async () => {
     setIsRefreshing(true)
     try {
-      const data = await api.events.list(1000)
+      const data = await api.events.list(1000, personaFilter)
       setRawEvents(data.items)
     } catch {
       appToast(i18n.events.loadError, 'destructive')
     } finally {
       setTimeout(() => setIsRefreshing(false), 600)
     }
-  }, [setRawEvents, appToast, i18n.events.loadError])
+  }, [setRawEvents, appToast, i18n.events.loadError, personaFilter])
 
   useEffect(() => {
     loadEvents()
@@ -246,7 +247,7 @@ export default function EventsPage() {
 
   const openArchiveBin = async () => {
     setArchiveBinOpen(true); setArchiveBinLoading(true)
-    try { const d = await api.events.listArchived(); setArchiveBinItems(d.items) }
+    try { const d = await api.events.listArchived(personaFilter); setArchiveBinItems(d.items) }
     catch { app.toast(i18n.events.archiveBinLoadError, 'destructive') }
     finally { setArchiveBinLoading(false) }
   }

@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [v0.11.2] — 2026-05-17
+
+### Phase 3c — Bot Persona 选择器
+
+**Feature — WebUI 多 Bot Persona 视角切换**
+
+- 全局 store 新增 `currentPersonaName` / `scopeMode` / `firstLaunchDone` 三个 localStorage 持久化状态，及对应的 `setCurrentPersona` / `setFirstLaunchDone` action
+- `api.ts` 新增 `withPersona()` 工具函数、`BotPersonaItem` 接口、`graph.listBots()`；`events.list` / `events.listArchived` / `graph.get` 均支持可选 `persona` 参数
+- 新增 `PersonaSelector` 组件（Avatar + Popover 风格），置于 Sidebar 底部，展示当前选中的 Bot Persona 并支持切换
+- 新增 `FirstLaunchPersonaPicker` 弹窗，首次进入且存在多个 Bot Persona 数据时自动弹出引导用户选择视角
+- Events / Graph / Library / Stats 四个页面的数据加载均已接入 `personaFilter`，切换 Persona 时自动重新 fetch
+
+**Tests**
+
+- 新增 `tests/frontend/test_persona_selector.py`：49 个结构验证测试，覆盖 store / api / i18n / 组件 / 各 page 的接入点，全部通过
+
+
 ## [v0.11.1] — 2026-05-17
 
 ### ipc_orientation 字段统一化

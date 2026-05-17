@@ -33,7 +33,8 @@ import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 
 function LibraryContent() {
-  const { i18n, lang, refreshStats, setRawEvents, setRawGraph, toast, sudo } = useApp()
+  const { i18n, lang, refreshStats, setRawEvents, setRawGraph, toast, sudo, currentPersonaName, scopeMode } = useApp()
+  const personaFilter = scopeMode === 'single' ? currentPersonaName : null
   const router = useRouter()
 
   const L = useMemo(() => ({
@@ -153,8 +154,8 @@ function LibraryContent() {
     try {
       const [tagsData, graphData, eventsData] = await Promise.allSettled([
         api.tags.list(),
-        api.graph.get(),
-        api.events.list(1000),
+        api.graph.get(personaFilter),
+        api.events.list(1000, personaFilter),
       ])
       if (tagsData.status === 'fulfilled') setTagList(tagsData.value.tags)
       if (graphData.status === 'fulfilled') {
@@ -202,7 +203,7 @@ function LibraryContent() {
     } finally {
       setTimeout(() => setIsRefreshing(false), 600)
     }
-  }, [refreshStats, setRawEvents, setRawGraph, toast, i18n])
+  }, [refreshStats, setRawEvents, setRawGraph, toast, i18n, personaFilter])
 
   useEffect(() => { setTimeout(() => loadData(), 0) }, [loadData])
 

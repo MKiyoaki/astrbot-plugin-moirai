@@ -28,6 +28,7 @@ import {
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { routeIsActive } from '@/lib/navigation'
+import { PersonaSelector } from '@/components/shared/persona-selector'
 
 const NAV_VISUALIZATION = [
   { href: '/events',  icon: Activity,          labelKey: 'events' as const },
@@ -241,6 +242,7 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="mt-auto shrink-0 border-t border-border p-2">
+        <PersonaSelector />
         <EngineStatusBadge />
 
         <SidebarMenu>

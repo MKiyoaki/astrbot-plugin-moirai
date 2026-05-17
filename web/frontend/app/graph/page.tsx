@@ -33,7 +33,8 @@ import { useRouter } from 'next/navigation'
 
 export default function GraphPage() {
   const app = useApp()
-  const { i18n } = app
+  const { i18n, currentPersonaName, scopeMode } = app
+  const personaFilter = scopeMode === 'single' ? currentPersonaName : null
   const router = useRouter()
 
   // ── Tag & Date filter ──────────────────────────────────────────────────────
@@ -79,7 +80,7 @@ export default function GraphPage() {
     setIsRefreshing(true)
     try {
       const [data, cfg] = await Promise.all([
-        api.graph.get(),
+        api.graph.get(personaFilter),
         api.pluginConfig.get()
       ])
       if (data.enabled === false) {
@@ -97,7 +98,7 @@ export default function GraphPage() {
       setLoading(false)
       setTimeout(() => setIsRefreshing(false), 600)
     }
-  }, [app.setRawGraph, app.toast, physics.biWeight, i18n.graph.loadError])
+  }, [app.setRawGraph, app.toast, physics.biWeight, i18n.graph.loadError, personaFilter])
 
   useEffect(() => {
     loadGraph().then(() => {

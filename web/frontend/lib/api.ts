@@ -88,6 +88,15 @@ export const soul = {
   getStates: () => request<{ states: Record<string, SoulState> }>('/api/soul/states'),
 }
 
+// ── Persona scope helper ──────────────────────────────────────────────────
+export function withPersona(url: string, persona: string | null | undefined): string {
+  if (!persona) return url
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}persona=${encodeURIComponent(persona)}`
+}
+
+export interface BotPersonaItem { name: string | null; event_count: number }
+
 export const stats = {
   get: () => request<PluginStats>('/api/stats'),
 }
@@ -114,13 +123,15 @@ export interface ApiEvent {
 }
 export interface EventsResponse { items: ApiEvent[]; total: number }
 export const events = {
-  list: (limit = 500) => request<EventsResponse>(`/api/events?limit=${limit}`),
+  list: (limit = 500, persona?: string | null) =>
+    request<EventsResponse>(withPersona(`/api/events?limit=${limit}`, persona)),
   create: (data: Record<string, unknown>) =>
     request('/api/events', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: string, data: Record<string, unknown>) =>
     request(`/api/events/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) => request(`/api/events/${id}`, { method: 'DELETE' }),
-  listArchived: () => request<EventsResponse>('/api/archived_events'),
+  listArchived: (persona?: string | null) =>
+    request<EventsResponse>(withPersona('/api/archived_events', persona)),
   archive: (event_id: string) => request(`/api/events/${event_id}/archive`, { method: 'POST' }),
   unarchive: (event_id: string) => request(`/api/events/${event_id}/unarchive`, { method: 'POST' }),
   recycleBin: () => request<{ items: (ApiEvent & { deleted_at?: string })[] }>('/api/recycle_bin'),
@@ -162,7 +173,8 @@ export interface ImpressionEdge {
 }
 export interface GraphData { enabled?: boolean; nodes: PersonaNode[]; edges: ImpressionEdge[]; group_members?: Record<string, string[]> }
 export const graph = {
-  get: () => request<GraphData>('/api/graph'),
+  get: (persona?: string | null) => request<GraphData>(withPersona('/api/graph', persona)),
+  listBots: () => request<{ items: BotPersonaItem[] }>('/api/personas/bots'),
   createPersona: (data: Record<string, unknown>) =>
     request('/api/personas', { method: 'POST', body: JSON.stringify(data) }),
   updatePersona: (uid: string, data: Record<string, unknown>) =>

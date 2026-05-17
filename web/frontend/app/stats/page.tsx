@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useApp } from '@/lib/store'
 import { PageHeader } from '@/components/layout/page-header'
 import { RefreshButton } from '@/components/shared/refresh-button'
@@ -20,27 +20,28 @@ import {
 } from '@/components/stats'
 
 export default function StatsPage() {
-  const { i18n, stats, lang, refreshStats } = useApp()
+  const { i18n, stats, lang, refreshStats, currentPersonaName, scopeMode } = useApp()
+  const personaFilter = scopeMode === 'single' ? currentPersonaName : null
   const [events, setEvents] = useState<api.ApiEvent[]>([])
   const [graph, setGraph] = useState<api.GraphData | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsRefreshing(true)
     refreshStats()
     try {
       const [evs, g] = await Promise.all([
-        api.events.list(2000),
-        api.graph.get().catch(() => null),
+        api.events.list(2000, personaFilter),
+        api.graph.get(personaFilter).catch(() => null),
       ])
       setEvents(evs.items)
       setGraph(g)
     } finally {
       setTimeout(() => setIsRefreshing(false), 600)
     }
-  }
+  }, [refreshStats, personaFilter])
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => { loadData() }, [loadData])
 
   // ── Data derivations ─────────────────────────────────────────────────────
 

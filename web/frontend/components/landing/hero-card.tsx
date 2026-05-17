@@ -30,10 +30,15 @@ export function HeroCard({ stats }: HeroCardProps) {
           {i18n.landing.issueLabel} {issueNum} · {dateStr}
         </p>
         <h1 className="text-4xl font-serif font-bold leading-tight tracking-tight text-foreground">
-          {i18n.app.name}
+          {i18n.landing.heroTitleLine1}
+          <br />
+          <span className="text-primary">{i18n.landing.heroTitleLine2}</span>
         </h1>
-        <p className="text-primary/70 text-sm font-serif italic leading-snug max-w-xs">
-          {i18n.landing.heroSubtitle}
+        <p className="text-muted-foreground text-sm font-serif italic leading-snug max-w-sm">
+          {i18n.landing.heroSubtitle
+            .replace('{n}', String(stats.events ?? 0))
+            .replace('{p}', String(stats.personas ?? 0))
+            .replace('{i}', String(stats.impressions ?? 0))}
         </p>
       </div>
 

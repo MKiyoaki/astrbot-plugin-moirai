@@ -16,6 +16,10 @@ interface AppState {
   preAuthVersion: string
   // Persona defaults (localStorage-backed)
   defaultPersonaConfidence: number
+  // Bot persona scope (localStorage-backed)
+  currentPersonaName: string | null   // null only when scopeMode='all'
+  scopeMode: 'single' | 'all'
+  firstLaunchDone: boolean
   // i18n
   lang: 'zh' | 'en' | 'ja'
   i18n: i18n_lib.I18n
@@ -35,6 +39,8 @@ interface AppActions {
   setSudo: (v: boolean) => void
   setAuthenticated: (v: boolean) => void
   setDefaultPersonaConfidence: (v: number) => void
+  setCurrentPersona: (name: string | null, mode: 'single' | 'all') => void
+  setFirstLaunchDone: (done: boolean) => void
   setLang: (l: 'zh' | 'en' | 'ja') => void
   refreshStats: () => Promise<void>
   setRawGraph: (g: api.GraphData) => void
@@ -109,6 +115,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setStored('em_default_persona_confidence', String(v))
   }, [])
 
+  // Bot persona scope — persisted in localStorage
+  const [currentPersonaName, _setCurrentPersonaName] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    const v = getStored('em_current_persona_name')
+    return v || null
+  })
+  const [scopeMode, _setScopeMode] = useState<'single' | 'all'>(() => {
+    if (typeof window === 'undefined') return 'all'
+    return (getStored('em_persona_scope_mode') as 'single' | 'all') || 'all'
+  })
+  const [firstLaunchDone, _setFirstLaunchDone] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return getStored('em_first_launch_done') === '1'
+  })
+
+  const setCurrentPersona = useCallback((name: string | null, mode: 'single' | 'all') => {
+    _setCurrentPersonaName(name)
+    _setScopeMode(mode)
+    setStored('em_current_persona_name', name ?? '')
+    setStored('em_persona_scope_mode', mode)
+  }, [])
+
+  const setFirstLaunchDone = useCallback((done: boolean) => {
+    _setFirstLaunchDone(done)
+    setStored('em_first_launch_done', done ? '1' : '')
+  }, [])
+
   const refreshStats = useCallback(async () => {
     try {
       const s = await api.stats.get()
@@ -153,9 +186,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSudo,
     setAuthenticated,
     defaultPersonaConfidence,
+    currentPersonaName,
+    scopeMode,
+    firstLaunchDone,
     lang, i18n,
     stats, rawGraph, rawEvents, isDirty, toasts,
     setDefaultPersonaConfidence,
+    setCurrentPersona,
+    setFirstLaunchDone,
     setLang,
     refreshStats,
     setRawGraph,
@@ -166,9 +204,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }), [
     sudo, authEnabled, authenticated, authLoading, preAuthVersion,
     defaultPersonaConfidence,
+    currentPersonaName, scopeMode, firstLaunchDone,
     lang, i18n,
     stats, rawGraph, rawEvents, isDirty, toasts,
-    refreshStats, setDefaultPersonaConfidence, setLang, setIsDirty, toast, dismissToast
+    refreshStats, setDefaultPersonaConfidence, setCurrentPersona, setFirstLaunchDone,
+    setLang, setIsDirty, toast, dismissToast
   ])
 
   return <AppContext.Provider value={ctx}>{children}</AppContext.Provider>

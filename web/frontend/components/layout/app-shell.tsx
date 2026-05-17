@@ -8,6 +8,7 @@ import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from './app-sidebar'
 import { Toaster } from '@/components/shared/toaster'
 import { LoginScreen } from '@/components/shared/login-screen'
+import { FirstLaunchPersonaPicker } from '@/components/shared/first-launch-persona-picker'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -157,6 +158,7 @@ function Shell({ children }: { children: ReactNode }) {
       </SidebarInset>
       <MobileTabBar />
       <Toaster />
+      <FirstLaunchPersonaPicker />
     </SidebarProvider>
   )
 }
