@@ -409,6 +409,7 @@ class PluginInitializer:
             recall_manager=self.recall,
             star=self._star,
             llm_manager=self.llm_manager,
+            encoder=self.embedding_manager,
             context_manager=self.context_manager,
             summary_trigger_rounds=cfg.get_boundary_config().summary_trigger_rounds,
         )
@@ -442,6 +443,7 @@ class PluginInitializer:
                 recall_manager=self.recall,
                 star=self._star,
                 llm_manager=self.llm_manager,
+                encoder=self.embedding_manager,
                 context_manager=self.context_manager,
                 summary_trigger_rounds=cfg.get_boundary_config().summary_trigger_rounds,
             )

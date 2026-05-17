@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [v0.12.6] — 2026-05-17
+
+### WebUI 单事件重新提取
+
+**Feature — 事件重新提取**
+
+- 新增任务层 `reextract_event()`，可基于已保存的 `Event.interaction_flow` 原始消息 preview 重新调用 LLM 提取单个事件。
+- 新增独立 WebUI 与 AstrBot Plugin Pages 路由：`POST /api/events/{event_id}/reextract`。
+- 重新提取只覆盖事件的标题、摘要、标签、显著度和置信度；保留事件 ID、频道/群组 scope、时间、参与者、继承关系与原始消息引用。
+- 缺少原始消息 preview、只有图片/表情等非文本 preview、事件锁定、provider 缺失、LLM 超时或输出解析失败时，均直接返回错误并保持原事件不变；不会进入规则 fallback。
+- WebUI 事件详情面板新增“重新提取”操作，需 sudo 权限，锁定事件禁用；失败时优先展示后端返回的 `message`，例如“缺少原始消息数据”。
+- 重新提取成功后会同步刷新事件列表与统计，并在可用 embedding encoder 时更新事件向量。
+
+**Tests**
+
+- 新增 `tests/test_reextract.py`，覆盖成功重提取、缺失原始消息、非文本消息、provider 缺失、解析失败和锁定事件。
+- 扩展 `tests/test_webui.py`，覆盖 WebUI HTTP 成功、缺少原始消息提示和 not found。
+- 前端执行 `npm.cmd run typecheck` 通过。
+
+**Version**
+
+- 更新版本到 `v0.12.6`
+
 ## [v0.12.5] — 2026-05-17
 
 ### Discord 频道事件流与 fallback 摘要

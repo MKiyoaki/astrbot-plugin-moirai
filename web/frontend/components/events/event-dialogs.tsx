@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Undo2, Trash2, Pencil, Check, ChevronsUpDown, X, Lock, Unlock, Archive } from 'lucide-react'
+import { Plus, Undo2, Trash2, Pencil, Check, ChevronsUpDown, X, Lock, Unlock, Archive, RefreshCw } from 'lucide-react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
@@ -800,11 +800,12 @@ interface EventDetailProps {
   onDelete: (ev: ApiEvent) => void
   onLockToggle: (ev: ApiEvent) => void
   onArchive?: (ev: ApiEvent) => void
+  onReextract?: (ev: ApiEvent) => void
   onSelect?: () => void
   sudoMode: boolean
 }
 
-export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockToggle, onArchive, onSelect, sudoMode }: EventDetailProps) {
+export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockToggle, onArchive, onReextract, onSelect, sudoMode }: EventDetailProps) {
   const { i18n } = useApp()
   const [pendingArchive, setPendingArchive] = useState(false)
   const archiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -918,7 +919,7 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
         </div>
       )}
 
-      <div className="flex items-center gap-2 pt-2 pl-2 border-t mt-1">
+      <div className="flex flex-wrap items-center gap-2 pt-2 pl-2 border-t mt-1">
         {isFocused ? (
           <>
             <Button size="sm" variant="default" className="h-9 px-4 shadow-sm" disabled={!sudoMode} onClick={() => onEdit(event)}>
@@ -934,6 +935,19 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
               {event.is_locked ? <Lock className="mr-2 size-3.5" /> : <Unlock className="mr-2 size-3.5" />}
               {event.is_locked ? i18n.events.unlock : i18n.events.lock}
             </Button>
+            {onReextract && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-9 px-4"
+                disabled={!sudoMode || event.is_locked}
+                onClick={(e) => { e.stopPropagation(); onReextract(event) }}
+                title={event.is_locked ? (i18n.events.lockedDeleteHint || 'Locked events cannot be changed') : '重新调用 LLM 覆盖标题、摘要、标签、显著度和置信度'}
+              >
+                <RefreshCw className="mr-2 size-3.5" />
+                重新提取
+              </Button>
+            )}
             {onArchive && (
               <Button
                 size="sm"

@@ -269,6 +269,7 @@ class PluginRoutes:
         registry: PanelRegistry | None = None,
         star: Any = None,
         llm_manager: Any = None,
+        encoder: Any = None,
         context_manager: Any = None,
         summary_trigger_rounds: int = 30,
     ) -> None:
@@ -285,6 +286,7 @@ class PluginRoutes:
         self.registry = registry or PanelRegistry()
         self._star = star
         self._llm_manager = llm_manager
+        self._encoder = encoder
         self._context_manager = context_manager
         self._summary_trigger_rounds = summary_trigger_rounds
 
@@ -314,6 +316,7 @@ class PluginRoutes:
             (f"/api/events",                   self._handle_create_event,            ["POST"],        "Create event"),
             (f"/api/events/{{event_id}}",      self._handle_update_event,            ["PUT"],         "Update event"),
             (f"/api/events/{{event_id}}/update", self._handle_update_event,          ["POST"],        "Update event"),
+            (f"/api/events/{{event_id}}/reextract", self._handle_reextract_event,     ["POST"],        "Re-extract event"),
             (f"/api/events/{{event_id}}",      self._handle_delete_event,            ["DELETE"],      "Delete event"),
             (f"/api/events/{{event_id}}/delete", self._handle_delete_event,          ["POST"],        "Delete event"),
             (f"/api/events",                   self._handle_clear_events,            ["DELETE"],      "Clear all events"),
@@ -648,6 +651,28 @@ class PluginRoutes:
             return _json({"error": str(exc)}, status=400)
         await self._event_repo.upsert(updated)
         return _json({"ok": True, "event": _event_to_dict(updated)})
+
+    async def _handle_reextract_event(self, request: web.Request) -> web.Response:
+        from core.config import PluginConfig
+        from core.tasks.reextract import ReextractError, reextract_event
+
+        event_id = _match(request, "event_id")
+        try:
+            result = await reextract_event(
+                self._event_repo,
+                self._persona_repo,
+                event_id,
+                self._provider_getter,
+                extractor_config=PluginConfig(self._initial_config).get_extractor_config(),
+                llm_manager=self._llm_manager,
+                encoder=self._encoder,
+            )
+        except ReextractError as exc:
+            status = 404 if exc.code == "not_found" else 400
+            if exc.code == "provider_none":
+                status = 503
+            return _json({"ok": False, "error": exc.code, "message": exc.message}, status=status)
+        return _json({"ok": True, "event": _event_to_dict(result.event), "source_count": result.source_count})
 
     async def _handle_delete_event(self, request: web.Request) -> web.Response:
         event_id = _match(request, "event_id")

@@ -18,7 +18,7 @@ async function request<T>(url: string, opts: RequestInit = {}): Promise<T> {
   if (!res.ok) {
     const raw = await res.text()
     let detail = raw
-    try { const j = JSON.parse(raw); detail = j.error || raw } catch {}
+    try { const j = JSON.parse(raw); detail = j.message || j.error || raw } catch {}
     throw { status: res.status, body: detail } satisfies ApiError
   }
   return res.json() as Promise<T>
@@ -136,6 +136,11 @@ export const events = {
     request<EventsResponse>(withPersona('/api/archived_events', persona)),
   archive: (event_id: string) => request(`/api/events/${event_id}/archive`, { method: 'POST' }),
   unarchive: (event_id: string) => request(`/api/events/${event_id}/unarchive`, { method: 'POST' }),
+  reextract: (event_id: string) =>
+    request<{ ok: boolean; event: ApiEvent; source_count: number }>(
+      `/api/events/${event_id}/reextract`,
+      { method: 'POST' },
+    ),
   recycleBin: () => request<{ items: (ApiEvent & { deleted_at?: string })[] }>('/api/recycle_bin'),
   restore: (event_id: string) =>
     request('/api/recycle_bin/restore', { method: 'POST', body: JSON.stringify({ event_id }) }),

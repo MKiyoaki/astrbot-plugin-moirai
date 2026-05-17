@@ -23,6 +23,7 @@ interface DetailPanelProps {
   onDelete: (ev: ApiEvent) => void
   onLockToggle: (ev: ApiEvent) => void
   onArchive?: (ev: ApiEvent) => void
+  onReextract?: (ev: ApiEvent) => void
   onSelect: (ev: ApiEvent) => void
   className?: string
 }
@@ -184,7 +185,7 @@ function MiniStats({ events }: { events: ApiEvent[] }) {
 // ── Detail body (existing axis event list) ────────────────────────────────────
 
 function DetailBody({
-  focusedEvent, axisEvents, onClose, onEdit, onDelete, onLockToggle, onArchive, onSelect,
+  focusedEvent, axisEvents, onClose, onEdit, onDelete, onLockToggle, onArchive, onReextract, onSelect,
 }: DetailPanelProps) {
   const { i18n, sudo } = useApp()
   const focusedCardRef = useRef<HTMLDivElement>(null)
@@ -227,6 +228,7 @@ function DetailBody({
                 onDelete={onDelete}
                 onLockToggle={onLockToggle}
                 onArchive={onArchive}
+                onReextract={onReextract}
                 onSelect={() => onSelect(ev)}
                 sudoMode={sudo}
               />
@@ -265,7 +267,7 @@ export function DetailPanel(props: DetailPanelProps) {
     <aside
       data-testid="detail-panel"
       className={cn(
-        'w-80 lg:w-[400px] xl:w-[450px] 2xl:w-[500px] flex flex-col border-l bg-background/95 backdrop-blur shrink-0 overflow-hidden transition-all duration-300',
+        'w-[420px] lg:w-[520px] xl:w-[600px] 2xl:w-[680px] max-w-[48vw] flex flex-col border-l bg-background/95 backdrop-blur shrink-0 overflow-hidden transition-all duration-300',
         className
       )}
     >

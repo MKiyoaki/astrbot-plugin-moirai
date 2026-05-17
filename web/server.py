@@ -146,6 +146,7 @@ class WebuiServer:
         recall_manager: BaseRecallManager | None = None,
         star: Any = None,
         llm_manager: Any = None,
+        encoder: Any = None,
         context_manager: Any = None,
         summary_trigger_rounds: int = 30,
     ) -> None:
@@ -158,6 +159,7 @@ class WebuiServer:
         self._auth_enabled = auth_enabled
         self._star = star
         self._llm_manager = llm_manager
+        self._encoder = encoder
         self._context_manager = context_manager
         self._summary_trigger_rounds = summary_trigger_rounds
 
@@ -240,6 +242,7 @@ class WebuiServer:
         app.router.add_get("/api/recall", self._wrap("auth", self._handle_recall))
         app.router.add_post("/api/events", self._wrap("sudo", self._handle_create_event))
         app.router.add_put("/api/events/{event_id}", self._wrap("sudo", self._handle_update_event))
+        app.router.add_post("/api/events/{event_id}/reextract", self._wrap("sudo", self._handle_reextract_event))
         app.router.add_delete("/api/events/{event_id}", self._wrap("sudo", self._handle_delete_event))
         app.router.add_delete("/api/events", self._wrap("sudo", self._handle_clear_events))
         app.router.add_get("/api/recycle_bin", self._wrap("auth", self._handle_recycle_bin_list))
@@ -625,6 +628,28 @@ class WebuiServer:
         updated = Event(event_id=existing.event_id, group_id=body.get("group_id", existing.group_id), start_time=float(body.get("start_time", existing.start_time)), end_time=float(body.get("end_time", existing.end_time)), participants=body.get("participants", existing.participants), interaction_flow=existing.interaction_flow, topic=body.get("topic", existing.topic), summary=body.get("summary", existing.summary), chat_content_tags=body.get("chat_content_tags", existing.chat_content_tags), salience=float(body.get("salience", existing.salience)), confidence=float(body.get("confidence", existing.confidence)), inherit_from=body.get("inherit_from", existing.inherit_from), last_accessed_at=time.time(), is_locked=bool(body.get("is_locked", existing.is_locked)), status=body.get("status", existing.status))
         await self._event_repo.upsert(updated)
         return _json({"ok": True, "event": event_to_dict(updated)})
+
+    async def _handle_reextract_event(self, request: web.Request) -> web.Response:
+        from core.config import PluginConfig
+        from core.tasks.reextract import ReextractError, reextract_event
+
+        event_id = request.match_info["event_id"]
+        try:
+            result = await reextract_event(
+                self._event_repo,
+                self._persona_repo,
+                event_id,
+                self._provider_getter,
+                extractor_config=PluginConfig(self._initial_config).get_extractor_config(),
+                llm_manager=self._llm_manager,
+                encoder=self._encoder,
+            )
+        except ReextractError as exc:
+            status = 404 if exc.code == "not_found" else 400
+            if exc.code == "provider_none":
+                status = 503
+            return _json({"ok": False, "error": exc.code, "message": exc.message}, status=status)
+        return _json({"ok": True, "event": event_to_dict(result.event), "source_count": result.source_count})
 
     async def _handle_delete_event(self, request: web.Request) -> web.Response:
         existing = await self._event_repo.get(request.match_info["event_id"])

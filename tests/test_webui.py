@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from core.domain.models import Event, Impression, Persona
+from core.domain.models import Event, Impression, MessageRef, Persona
 from core.repository.memory import (
     InMemoryEventRepository,
     InMemoryImpressionRepository,
@@ -78,6 +78,20 @@ def make_impression(observer: str, subject: str, bot_persona_name: str | None = 
     )
 
 
+class _MockProvider:
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.calls = 0
+
+    async def text_chat(self, prompt: str = "", system_prompt: str = ""):
+        self.calls += 1
+        class R:
+            completion_text: str
+        r = R()
+        r.completion_text = self.text
+        return r
+
+
 def _server(
     tmp_path: Path,
     pr=None,
@@ -87,6 +101,8 @@ def _server(
     auth_enabled: bool = False,
     task_runner=None,
     registry: PanelRegistry | None = None,
+    provider_getter=None,
+    initial_config: dict | None = None,
 ) -> WebuiServer:
     return WebuiServer(
         persona_repo=pr or InMemoryPersonaRepository(),
@@ -97,6 +113,8 @@ def _server(
         auth_enabled=auth_enabled,
         task_runner=task_runner,
         registry=registry,
+        provider_getter=provider_getter,
+        initial_config=initial_config,
     )
 
 
@@ -301,6 +319,57 @@ async def test_api_events_returns_json(tmp_path: Path) -> None:
         assert resp.status == 200
         data = await resp.json()
         assert data["items"][0]["content"] == "Python"
+
+
+async def test_api_reextract_event_success(tmp_path: Path) -> None:
+    er = InMemoryEventRepository()
+    ev = make_event("e1", topic="old")
+    ev.interaction_flow = [
+        MessageRef("u1", 1000.0, "h1", "讨论伦敦早餐"),
+        MessageRef("u2", 1001.0, "h2", "推荐一家餐厅"),
+    ]
+    await er.upsert(ev)
+    provider = _MockProvider(
+        '[{"start_idx": 0, "end_idx": 1, "topic": "伦敦早餐", '
+        '"summary": "重新生成的摘要", "chat_content_tags": ["伦敦"], '
+        '"salience": 0.7, "confidence": 0.9}]'
+    )
+    srv = _server(tmp_path, er=er, provider_getter=lambda: provider)
+
+    async with TestClient(TestServer(srv.app)) as client:
+        resp = await client.post("/api/events/e1/reextract")
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["event"]["topic"] == "伦敦早餐"
+        assert data["event"]["summary"] == "重新生成的摘要"
+        assert data["source_count"] == 2
+        assert provider.calls == 1
+
+
+async def test_api_reextract_event_missing_source_returns_message(tmp_path: Path) -> None:
+    er = InMemoryEventRepository()
+    await er.upsert(make_event("e1", topic="old"))
+    provider = _MockProvider("[]")
+    srv = _server(tmp_path, er=er, provider_getter=lambda: provider)
+
+    async with TestClient(TestServer(srv.app)) as client:
+        resp = await client.post("/api/events/e1/reextract")
+        assert resp.status == 400
+        data = await resp.json()
+        assert data["error"] == "missing_source_messages"
+        assert "缺少原始消息数据" in data["message"]
+        assert provider.calls == 0
+
+    unchanged = await er.get("e1")
+    assert unchanged is not None
+    assert unchanged.topic == "old"
+
+
+async def test_api_reextract_event_not_found(tmp_path: Path) -> None:
+    srv = _server(tmp_path)
+    async with TestClient(TestServer(srv.app)) as client:
+        resp = await client.post("/api/events/missing/reextract")
+        assert resp.status == 404
 
 
 async def test_api_graph_returns_json(tmp_path: Path) -> None:

@@ -235,6 +235,21 @@ export default function EventsPage() {
     }
   }
 
+  const handleReextract = async (ev: api.ApiEvent) => {
+    if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
+    if (ev.is_locked) { app.toast('事件已锁定，无法重新提取', 'destructive'); return }
+    if (!confirm('重新提取会调用 LLM，并覆盖该事件的标题、摘要、标签、显著度和置信度。继续？')) return
+    try {
+      const result = await api.events.reextract(ev.id)
+      app.toast(`重新提取成功，使用 ${result.source_count} 条原始消息`)
+      setDetailEvent(result.event)
+      await loadEvents()
+      app.refreshStats()
+    } catch (e: any) {
+      app.toast(e?.body || e?.message || '重新提取失败', 'destructive')
+    }
+  }
+
   const openBin = async () => {
     setBinOpen(true); setBinLoading(true)
     try { const d = await api.events.recycleBin(); setBinItems(d.items) }
@@ -389,6 +404,7 @@ export default function EventsPage() {
           onDelete={handleDelete}
           onLockToggle={handleLockToggle}
           onArchive={handleArchive}
+          onReextract={handleReextract}
           onSelect={setDetailEvent}
         />
       </div>
