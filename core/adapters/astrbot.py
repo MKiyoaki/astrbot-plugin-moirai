@@ -112,7 +112,10 @@ class MessageRouter:
                 self._context_manager.update_state(window.session_id, drift_detected=True)
                 
         except Exception as exc:
-            logger.debug("[MessageRouter] brain background task failed: %s", exc)
+            logger.warning(
+                "[MessageRouter] brain background task failed (session=%s, msg_idx=%d): %s",
+                getattr(window, "session_id", "?"), msg_idx, exc,
+            )
 
     async def flush_all(self) -> None:
         """Flush all open windows (called on plugin shutdown)."""

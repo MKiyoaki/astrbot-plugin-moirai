@@ -221,3 +221,59 @@ async def test_router_same_platform_different_users_share_group_window() -> None
     events = await event_repo.list_by_group("g1")
     assert len(events) == 1
     assert len(events[0].interaction_flow) == 2
+
+
+async def test_normalized_text_propagates_through_router_to_fallback_event() -> None:
+    """End-to-end: EventHandler-style normalization → router → window → fallback_extraction.
+
+    Demonstrates that a napcat-flavored message containing `[CQ:at,...]` and
+    `@昵称(QQ号)` residue never reaches the resulting event's topic or tags
+    as polluted strings.
+    """
+    from core.boundary.window import MessageWindow
+    from core.adapters.message_normalizer import normalize_message_text
+    from core.extractor.parser import fallback_extraction
+
+    captured: list[MessageWindow] = []
+
+    async def capture(window: MessageWindow):
+        captured.append(window)
+
+    persona_repo = InMemoryPersonaRepository()
+    event_repo = InMemoryEventRepository()
+    router = MessageRouter(
+        event_repo=event_repo,
+        identity_resolver=IdentityResolver(persona_repo),
+        detector=EventBoundaryDetector(BoundaryConfig(max_messages=3)),
+        context_manager=ContextManager(ContextConfig()),
+        encoder=NullEncoder(),
+        on_event_close=capture,
+    )
+
+    raw_inputs = [
+        "[CQ:at,qq=1783088492] 你看这个",
+        "@卢比鹏(1783088492) 在吗",
+        "[CQ:image,file=x.jpg]",
+    ]
+    t = 1000.0
+    for i, raw in enumerate(raw_inputs):
+        await router.process(
+            "qq", f"u{i}", f"User{i}", normalize_message_text(raw), "g1", now=t + i,
+        )
+    await router.flush_all()
+
+    assert captured, "expected on_event_close to fire"
+    window = captured[0]
+
+    for m in window.messages:
+        assert "1783088492" not in m.text
+        assert "[CQ:" not in m.text
+
+    result = fallback_extraction(window)
+    ev = result[0]
+    assert "[CQ:" not in ev["topic"]
+    assert "1783088492" not in ev["topic"]
+    for tag in ev["chat_content_tags"]:
+        assert not tag.startswith("@")
+        assert "1783088492" not in tag
+        assert not tag.isdigit()

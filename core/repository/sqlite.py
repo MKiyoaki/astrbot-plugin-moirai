@@ -21,6 +21,7 @@ no-op — BM25 search still works.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -49,6 +50,34 @@ _PRAGMAS = [
     "PRAGMA cache_size=-64000",  # 64 MB page cache
     "PRAGMA foreign_keys=ON",
 ]
+
+
+def _get_db_lock(db: aiosqlite.Connection) -> asyncio.Lock:
+    """Return the asyncio.Lock attached to this connection, creating it on first use.
+
+    aiosqlite serializes execution on a single worker thread but transactions
+    are connection-scoped state. Without this lock, two coroutines awaiting
+    db.execute("BEGIN IMMEDIATE") on the same connection race each other and
+    one of them hits "cannot start a transaction within a transaction".
+    """
+    lock = getattr(db, "_em_txn_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        db._em_txn_lock = lock
+    return lock
+
+
+@asynccontextmanager
+async def _txn(db: aiosqlite.Connection, lock: asyncio.Lock) -> AsyncIterator[None]:
+    """Serialized BEGIN IMMEDIATE … COMMIT block."""
+    async with lock:
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
 
 
 async def _try_load_sqlite_vec(db: aiosqlite.Connection, dim: int = 512) -> bool:
@@ -203,6 +232,7 @@ def _row_to_impression(row: aiosqlite.Row) -> Impression:
 class SQLitePersonaRepository(PersonaRepository):
     def __init__(self, db: aiosqlite.Connection) -> None:
         self._db = db
+        self._lock = _get_db_lock(db)
 
     async def get(self, uid: str) -> Persona | None:
         # Fetch persona row + all bound identities in one query
@@ -237,8 +267,7 @@ class SQLitePersonaRepository(PersonaRepository):
         return [_row_to_persona(r) for r in rows]
 
     async def upsert(self, persona: Persona) -> None:
-        await self._db.execute("BEGIN IMMEDIATE")
-        try:
+        async with _txn(self._db, self._lock):
             await self._db.execute(
                 "INSERT INTO personas(uid, primary_name, persona_attrs, confidence, "
                 "created_at, last_active_at) VALUES (?,?,?,?,?,?) "
@@ -266,10 +295,6 @@ class SQLitePersonaRepository(PersonaRepository):
                     "VALUES (?,?,?)",
                     (platform, physical_id, persona.uid),
                 )
-            await self._db.commit()
-        except Exception:
-            await self._db.rollback()
-            raise
 
     async def delete(self, uid: str) -> bool:
         async with self._db.execute(
@@ -277,17 +302,17 @@ class SQLitePersonaRepository(PersonaRepository):
         ) as cur:
             if await cur.fetchone() is None:
                 return False
-        await self._db.execute("DELETE FROM personas WHERE uid = ?", (uid,))
-        await self._db.commit()
+        async with _txn(self._db, self._lock):
+            await self._db.execute("DELETE FROM personas WHERE uid = ?", (uid,))
         return True
 
     async def bind_identity(self, uid: str, platform: str, physical_id: str) -> None:
-        await self._db.execute(
-            "INSERT OR REPLACE INTO identity_bindings(platform, physical_id, uid) "
-            "VALUES (?,?,?)",
-            (platform, physical_id, uid),
-        )
-        await self._db.commit()
+        async with _txn(self._db, self._lock):
+            await self._db.execute(
+                "INSERT OR REPLACE INTO identity_bindings(platform, physical_id, uid) "
+                "VALUES (?,?,?)",
+                (platform, physical_id, uid),
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +337,7 @@ _EVENT_SELECT = f"SELECT {_EVENT_COLS} FROM events"
 class SQLiteEventRepository(EventRepository):
     def __init__(self, db: aiosqlite.Connection) -> None:
         self._db = db
+        self._lock = _get_db_lock(db)
 
     async def get(self, event_id: str) -> Event | None:
         async with self._db.execute(
@@ -433,24 +459,24 @@ class SQLiteEventRepository(EventRepository):
         if not embedding:
             return
         try:
-            await self._db.execute(
-                "INSERT OR REPLACE INTO events_vec(rowid, embedding) "
-                "SELECT rowid, ? FROM events WHERE event_id = ?",
-                (json.dumps(embedding), event_id),
-            )
-            await self._db.commit()
+            async with _txn(self._db, self._lock):
+                await self._db.execute(
+                    "INSERT OR REPLACE INTO events_vec(rowid, embedding) "
+                    "SELECT rowid, ? FROM events WHERE event_id = ?",
+                    (json.dumps(embedding), event_id),
+                )
         except Exception:
             pass
 
     async def delete_vector(self, event_id: str) -> None:
         """Remove the vec0 embedding for an event (no-op if not present)."""
         try:
-            await self._db.execute(
-                "DELETE FROM events_vec WHERE rowid = "
-                "(SELECT rowid FROM events WHERE event_id = ?)",
-                (event_id,),
-            )
-            await self._db.commit()
+            async with _txn(self._db, self._lock):
+                await self._db.execute(
+                    "DELETE FROM events_vec WHERE rowid = "
+                    "(SELECT rowid FROM events WHERE event_id = ?)",
+                    (event_id,),
+                )
         except Exception:
             pass
 
@@ -465,63 +491,61 @@ class SQLiteEventRepository(EventRepository):
         return [_row_to_event(r) for r in rows]
 
     async def upsert(self, event: Event) -> None:
-        await self._db.execute(
-            "INSERT INTO events(event_id, group_id, start_time, end_time, participants, "
-            "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
-            "inherit_from, last_accessed_at, status, is_locked, bot_persona_name, event_type) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(event_id) DO UPDATE SET "
-            "group_id=excluded.group_id, "
-            "start_time=excluded.start_time, "
-            "end_time=excluded.end_time, "
-            "participants=excluded.participants, "
-            "interaction_flow=excluded.interaction_flow, "
-            "topic=excluded.topic, "
-            "summary=excluded.summary, "
-            "chat_content_tags=excluded.chat_content_tags, "
-            "salience=excluded.salience, "
-            "confidence=excluded.confidence, "
-            "inherit_from=excluded.inherit_from, "
-            "last_accessed_at=excluded.last_accessed_at, "
-            "status=excluded.status, "
-            "is_locked=excluded.is_locked, "
-            "bot_persona_name=excluded.bot_persona_name, "
-            "event_type=excluded.event_type",
-            (
-                event.event_id,
-                event.group_id,
-                event.start_time,
-                event.end_time,
-                _j(event.participants),
-                _dump_message_refs(event.interaction_flow),
-                event.topic,
-                event.summary,
-                _j(event.chat_content_tags),
-                event.salience,
-                event.confidence,
-                _j(event.inherit_from),
-                event.last_accessed_at,
-                event.status,
-                int(event.is_locked),
-                event.bot_persona_name,
-                event.event_type,
-            ),
-        )
-        await self._db.commit()
+        async with _txn(self._db, self._lock):
+            await self._db.execute(
+                "INSERT INTO events(event_id, group_id, start_time, end_time, participants, "
+                "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
+                "inherit_from, last_accessed_at, status, is_locked, bot_persona_name, event_type) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(event_id) DO UPDATE SET "
+                "group_id=excluded.group_id, "
+                "start_time=excluded.start_time, "
+                "end_time=excluded.end_time, "
+                "participants=excluded.participants, "
+                "interaction_flow=excluded.interaction_flow, "
+                "topic=excluded.topic, "
+                "summary=excluded.summary, "
+                "chat_content_tags=excluded.chat_content_tags, "
+                "salience=excluded.salience, "
+                "confidence=excluded.confidence, "
+                "inherit_from=excluded.inherit_from, "
+                "last_accessed_at=excluded.last_accessed_at, "
+                "status=excluded.status, "
+                "is_locked=excluded.is_locked, "
+                "bot_persona_name=excluded.bot_persona_name, "
+                "event_type=excluded.event_type",
+                (
+                    event.event_id,
+                    event.group_id,
+                    event.start_time,
+                    event.end_time,
+                    _j(event.participants),
+                    _dump_message_refs(event.interaction_flow),
+                    event.topic,
+                    event.summary,
+                    _j(event.chat_content_tags),
+                    event.salience,
+                    event.confidence,
+                    _j(event.inherit_from),
+                    event.last_accessed_at,
+                    event.status,
+                    int(event.is_locked),
+                    event.bot_persona_name,
+                    event.event_type,
+                ),
+            )
 
     async def delete(self, event_id: str) -> bool:
-        await self._db.execute(
-            "DELETE FROM events WHERE event_id = ?", (event_id,)
-        )
-        await self._db.commit()
-        async with self._db.execute("SELECT changes()") as cur:
-            row = await cur.fetchone()
-        return bool(row and row[0])
+        async with _txn(self._db, self._lock):
+            cursor = await self._db.execute(
+                "DELETE FROM events WHERE event_id = ?", (event_id,)
+            )
+            rowcount = cursor.rowcount
+        return rowcount > 0
 
     async def delete_with_vector(self, event_id: str) -> bool:
         """Delete both the events row and its vec0 entry in one transaction."""
-        await self._db.execute("BEGIN IMMEDIATE")
-        try:
+        async with _txn(self._db, self._lock):
             try:
                 await self._db.execute(
                     "DELETE FROM events_vec WHERE rowid = "
@@ -533,11 +557,8 @@ class SQLiteEventRepository(EventRepository):
             cursor = await self._db.execute(
                 "DELETE FROM events WHERE event_id = ?", (event_id,)
             )
-            await self._db.commit()
-            return cursor.rowcount > 0
-        except Exception:
-            await self._db.rollback()
-            raise
+            rowcount = cursor.rowcount
+        return rowcount > 0
 
     async def count_by_status(self, status: str) -> int:
         async with self._db.execute(
@@ -557,24 +578,26 @@ class SQLiteEventRepository(EventRepository):
         return [_row_to_event(r) for r in rows]
 
     async def set_status(self, event_id: str, status: str) -> bool:
-        cursor = await self._db.execute(
-            "UPDATE events SET status = ? WHERE event_id = ?",
-            (status, event_id),
-        )
-        await self._db.commit()
-        return cursor.rowcount > 0
+        async with _txn(self._db, self._lock):
+            cursor = await self._db.execute(
+                "UPDATE events SET status = ? WHERE event_id = ?",
+                (status, event_id),
+            )
+            rowcount = cursor.rowcount
+        return rowcount > 0
 
     async def set_locked(self, event_id: str, is_locked: bool) -> bool:
-        cursor = await self._db.execute(
-            "UPDATE events SET is_locked = ? WHERE event_id = ?",
-            (int(is_locked), event_id),
-        )
-        await self._db.commit()
-        return cursor.rowcount > 0
+        async with _txn(self._db, self._lock):
+            cursor = await self._db.execute(
+                "UPDATE events SET is_locked = ? WHERE event_id = ?",
+                (int(is_locked), event_id),
+            )
+            rowcount = cursor.rowcount
+        return rowcount > 0
 
     async def cleanup_low_salience_events(self, threshold: float) -> int:
         """Delete non-locked events with salience < threshold.
-        
+
         Also deletes associated vector embeddings.
         """
         # Get event_ids to delete first to handle vector deletion
@@ -583,39 +606,38 @@ class SQLiteEventRepository(EventRepository):
             (threshold,),
         ) as cur:
             ids = [row[0] for row in await cur.fetchall()]
-        
+
         if not ids:
             return 0
 
-        # Delete from events_vec first if it exists
-        try:
-            for eid in ids:
-                await self._db.execute(
-                    "DELETE FROM events_vec WHERE rowid = "
-                    "(SELECT rowid FROM events WHERE event_id = ?)",
-                    (eid,),
-                )
-        except Exception:
-            pass # sqlite-vec not loaded
+        async with _txn(self._db, self._lock):
+            # Delete from events_vec first if it exists
+            try:
+                for eid in ids:
+                    await self._db.execute(
+                        "DELETE FROM events_vec WHERE rowid = "
+                        "(SELECT rowid FROM events WHERE event_id = ?)",
+                        (eid,),
+                    )
+            except Exception:
+                pass  # sqlite-vec not loaded
 
-        # Now delete from events
-        placeholders = ",".join(["?"] * len(ids))
-        cursor = await self._db.execute(
-            f"DELETE FROM events WHERE event_id IN ({placeholders})",
-            ids,
-        )
-        count = cursor.rowcount
-        await self._db.commit()
+            placeholders = ",".join(["?"] * len(ids))
+            cursor = await self._db.execute(
+                f"DELETE FROM events WHERE event_id IN ({placeholders})",
+                ids,
+            )
+            count = cursor.rowcount
         return count
 
     async def archive_low_salience_events(self, threshold: float) -> int:
         """Set status='archived' for non-locked active events below threshold."""
-        cursor = await self._db.execute(
-            "UPDATE events SET status = 'archived' WHERE salience < ? AND is_locked = 0 AND status = 'active'",
-            (threshold,),
-        )
-        count = cursor.rowcount
-        await self._db.commit()
+        async with _txn(self._db, self._lock):
+            cursor = await self._db.execute(
+                "UPDATE events SET status = 'archived' WHERE salience < ? AND is_locked = 0 AND status = 'active'",
+                (threshold,),
+            )
+            count = cursor.rowcount
         return count
 
     async def delete_old_archived_events(self, cutoff_ts: float) -> int:
@@ -629,23 +651,23 @@ class SQLiteEventRepository(EventRepository):
         if not ids:
             return 0
 
-        try:
-            for eid in ids:
-                await self._db.execute(
-                    "DELETE FROM events_vec WHERE rowid = "
-                    "(SELECT rowid FROM events WHERE event_id = ?)",
-                    (eid,),
-                )
-        except Exception:
-            pass
+        async with _txn(self._db, self._lock):
+            try:
+                for eid in ids:
+                    await self._db.execute(
+                        "DELETE FROM events_vec WHERE rowid = "
+                        "(SELECT rowid FROM events WHERE event_id = ?)",
+                        (eid,),
+                    )
+            except Exception:
+                pass
 
-        placeholders = ",".join(["?"] * len(ids))
-        cursor = await self._db.execute(
-            f"DELETE FROM events WHERE event_id IN ({placeholders})",
-            ids,
-        )
-        count = cursor.rowcount
-        await self._db.commit()
+            placeholders = ",".join(["?"] * len(ids))
+            cursor = await self._db.execute(
+                f"DELETE FROM events WHERE event_id IN ({placeholders})",
+                ids,
+            )
+            count = cursor.rowcount
         return count
 
     async def delete_by_group(self, group_id: str | None) -> int:
@@ -656,21 +678,21 @@ class SQLiteEventRepository(EventRepository):
             ids = [row[0] for row in await cur.fetchall()]
         if not ids:
             return 0
-        try:
-            for eid in ids:
-                await self._db.execute(
-                    "DELETE FROM events_vec WHERE rowid = "
-                    "(SELECT rowid FROM events WHERE event_id = ?)",
-                    (eid,),
-                )
-        except Exception:
-            pass
-        placeholders = ",".join(["?"] * len(ids))
-        cursor = await self._db.execute(
-            f"DELETE FROM events WHERE event_id IN ({placeholders})", ids
-        )
-        count = cursor.rowcount
-        await self._db.commit()
+        async with _txn(self._db, self._lock):
+            try:
+                for eid in ids:
+                    await self._db.execute(
+                        "DELETE FROM events_vec WHERE rowid = "
+                        "(SELECT rowid FROM events WHERE event_id = ?)",
+                        (eid,),
+                    )
+            except Exception:
+                pass
+            placeholders = ",".join(["?"] * len(ids))
+            cursor = await self._db.execute(
+                f"DELETE FROM events WHERE event_id IN ({placeholders})", ids
+            )
+            count = cursor.rowcount
         return count
 
     async def delete_all(self) -> int:
@@ -680,12 +702,12 @@ class SQLiteEventRepository(EventRepository):
         count = row[0] if row else 0
         if count == 0:
             return 0
-        try:
-            await self._db.execute("DELETE FROM events_vec")
-        except Exception:
-            pass
-        await self._db.execute("DELETE FROM events")
-        await self._db.commit()
+        async with _txn(self._db, self._lock):
+            try:
+                await self._db.execute("DELETE FROM events_vec")
+            except Exception:
+                pass
+            await self._db.execute("DELETE FROM events")
         return count
 
     async def prune_group_history(self, group_id: str | None, max_messages: int, batch_size: int) -> int:
@@ -722,8 +744,7 @@ class SQLiteEventRepository(EventRepository):
             return 0
             
         # Delete the identified events
-        await self._db.execute("BEGIN IMMEDIATE")
-        try:
+        async with _txn(self._db, self._lock):
             for eid in ids_to_delete:
                 try:
                     await self._db.execute(
@@ -736,15 +757,10 @@ class SQLiteEventRepository(EventRepository):
                 await self._db.execute(
                     "DELETE FROM events WHERE event_id = ?", (eid,)
                 )
-            await self._db.commit()
-            logger.info(
-                "[SQLiteEventRepository] Pruned %d old events for group %s (%d messages removed)",
-                deleted_count, group_id, total_messages - current_messages
-            )
-        except Exception:
-            await self._db.rollback()
-            raise
-            
+        logger.info(
+            "[SQLiteEventRepository] Pruned %d old events for group %s (%d messages removed)",
+            deleted_count, group_id, total_messages - current_messages
+        )
         return deleted_count
 
     async def get_rowid(self, event_id: str) -> int | None:
@@ -762,36 +778,31 @@ class SQLiteEventRepository(EventRepository):
         return _row_to_event(row) if row else None
 
     async def update_salience(self, event_id: str, new_salience: float) -> bool:
-        await self._db.execute(
-            "UPDATE events SET salience = ? WHERE event_id = ?",
-            (new_salience, event_id),
-        )
-        await self._db.commit()
-        async with self._db.execute(
-            "SELECT changes()"
-        ) as cur:
-            row = await cur.fetchone()
-        return bool(row and row[0])
+        async with _txn(self._db, self._lock):
+            cursor = await self._db.execute(
+                "UPDATE events SET salience = ? WHERE event_id = ?",
+                (new_salience, event_id),
+            )
+            rowcount = cursor.rowcount
+        return rowcount > 0
 
     async def update_last_accessed(self, event_id: str, timestamp: float) -> bool:
-        await self._db.execute(
-            "UPDATE events SET last_accessed_at = ? WHERE event_id = ?",
-            (timestamp, event_id),
-        )
-        await self._db.commit()
-        async with self._db.execute("SELECT changes()") as cur:
-            row = await cur.fetchone()
-        return bool(row and row[0])
+        async with _txn(self._db, self._lock):
+            cursor = await self._db.execute(
+                "UPDATE events SET last_accessed_at = ? WHERE event_id = ?",
+                (timestamp, event_id),
+            )
+            rowcount = cursor.rowcount
+        return rowcount > 0
 
     async def decay_all_salience(self, lambda_: float) -> int:
         """Multiply every event's salience by exp(-lambda_) in a single UPDATE."""
         factor = math.exp(-lambda_)
-        # Use cursor.rowcount before commit; FTS5 triggers would overwrite changes()
-        cursor = await self._db.execute(
-            "UPDATE events SET salience = MAX(0.0, salience * ?)", (factor,)
-        )
-        count = cursor.rowcount
-        await self._db.commit()
+        async with _txn(self._db, self._lock):
+            cursor = await self._db.execute(
+                "UPDATE events SET salience = MAX(0.0, salience * ?)", (factor,)
+            )
+            count = cursor.rowcount
         return count
 
     async def count_messages_by_uid_bulk(self) -> dict[str, int]:
@@ -866,20 +877,20 @@ class SQLiteEventRepository(EventRepository):
 
     async def upsert_canonical_tag(self, tag_text: str, embedding: list[float]) -> None:
         import time
-        await self._db.execute(
-            "INSERT INTO canonical_tags(tag_text, created_at) VALUES (?, ?) "
-            "ON CONFLICT(tag_text) DO NOTHING",
-            (tag_text, time.time()),
-        )
-        try:
+        async with _txn(self._db, self._lock):
             await self._db.execute(
-                "INSERT OR REPLACE INTO tags_vec(rowid, embedding) "
-                "SELECT id, ? FROM canonical_tags WHERE tag_text = ?",
-                (json.dumps(embedding), tag_text),
+                "INSERT INTO canonical_tags(tag_text, created_at) VALUES (?, ?) "
+                "ON CONFLICT(tag_text) DO NOTHING",
+                (tag_text, time.time()),
             )
-        except Exception as exc:
-            logger.debug("[SQLiteEventRepository] upsert_canonical_tag vector failed: %s", exc)
-        await self._db.commit()
+            try:
+                await self._db.execute(
+                    "INSERT OR REPLACE INTO tags_vec(rowid, embedding) "
+                    "SELECT id, ? FROM canonical_tags WHERE tag_text = ?",
+                    (json.dumps(embedding), tag_text),
+                )
+            except Exception as exc:
+                logger.debug("[SQLiteEventRepository] upsert_canonical_tag vector failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -896,6 +907,7 @@ _IMPRESSION_SELECT = (
 class SQLiteImpressionRepository(ImpressionRepository):
     def __init__(self, db: aiosqlite.Connection) -> None:
         self._db = db
+        self._lock = _get_db_lock(db)
 
     async def get(
         self, observer_uid: str, subject_uid: str, scope: str
@@ -942,42 +954,41 @@ class SQLiteImpressionRepository(ImpressionRepository):
         return [_row_to_impression(r) for r in rows]
 
     async def upsert(self, impression: Impression) -> None:
-        await self._db.execute(
-            "INSERT INTO impressions(observer_uid, subject_uid, ipc_orientation, "
-            "benevolence, power, affect_intensity, r_squared, confidence, scope, "
-            "evidence_event_ids, last_reinforced_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(observer_uid, subject_uid, scope) DO UPDATE SET "
-            "ipc_orientation=excluded.ipc_orientation, "
-            "benevolence=excluded.benevolence, "
-            "power=excluded.power, "
-            "affect_intensity=excluded.affect_intensity, "
-            "r_squared=excluded.r_squared, "
-            "confidence=excluded.confidence, "
-            "evidence_event_ids=excluded.evidence_event_ids, "
-            "last_reinforced_at=excluded.last_reinforced_at",
-            (
-                impression.observer_uid,
-                impression.subject_uid,
-                impression.ipc_orientation,
-                impression.benevolence,
-                impression.power,
-                impression.affect_intensity,
-                impression.r_squared,
-                impression.confidence,
-                impression.scope,
-                _j(impression.evidence_event_ids),
-                impression.last_reinforced_at,
-            ),
-        )
-        await self._db.commit()
+        async with _txn(self._db, self._lock):
+            await self._db.execute(
+                "INSERT INTO impressions(observer_uid, subject_uid, ipc_orientation, "
+                "benevolence, power, affect_intensity, r_squared, confidence, scope, "
+                "evidence_event_ids, last_reinforced_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(observer_uid, subject_uid, scope) DO UPDATE SET "
+                "ipc_orientation=excluded.ipc_orientation, "
+                "benevolence=excluded.benevolence, "
+                "power=excluded.power, "
+                "affect_intensity=excluded.affect_intensity, "
+                "r_squared=excluded.r_squared, "
+                "confidence=excluded.confidence, "
+                "evidence_event_ids=excluded.evidence_event_ids, "
+                "last_reinforced_at=excluded.last_reinforced_at",
+                (
+                    impression.observer_uid,
+                    impression.subject_uid,
+                    impression.ipc_orientation,
+                    impression.benevolence,
+                    impression.power,
+                    impression.affect_intensity,
+                    impression.r_squared,
+                    impression.confidence,
+                    impression.scope,
+                    _j(impression.evidence_event_ids),
+                    impression.last_reinforced_at,
+                ),
+            )
 
     async def delete(self, observer_uid: str, subject_uid: str, scope: str) -> bool:
-        await self._db.execute(
-            "DELETE FROM impressions WHERE observer_uid=? AND subject_uid=? AND scope=?",
-            (observer_uid, subject_uid, scope),
-        )
-        await self._db.commit()
-        async with self._db.execute("SELECT changes()") as cur:
-            row = await cur.fetchone()
-        return bool(row and row[0])
+        async with _txn(self._db, self._lock):
+            cursor = await self._db.execute(
+                "DELETE FROM impressions WHERE observer_uid=? AND subject_uid=? AND scope=?",
+                (observer_uid, subject_uid, scope),
+            )
+            rowcount = cursor.rowcount
+        return rowcount > 0
