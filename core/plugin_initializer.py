@@ -406,6 +406,7 @@ class PluginInitializer:
             all_providers_getter=self._context.get_all_providers,
             recall_manager=self.recall,
             star=self._star,
+            llm_manager=self.llm_manager,
         )
         if cfg.webui_enabled:
             self._ensure_pages_built()
@@ -436,6 +437,7 @@ class PluginInitializer:
                 all_providers_getter=self._context.get_all_providers,
                 recall_manager=self.recall,
                 star=self._star,
+                llm_manager=self.llm_manager,
             )
         except Exception as e:
             self.webui_error = str(e) or repr(e) or "unknown error"

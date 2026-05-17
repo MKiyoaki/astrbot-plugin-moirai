@@ -91,6 +91,7 @@ async def get_stats(
     impression_repo: ImpressionRepository,
     data_dir: Path | None = None,
     plugin_version: str | None = None,
+    llm_manager: LLMTaskManager | None = None,
 ) -> dict[str, Any]:
 
     if plugin_version is None:
@@ -108,12 +109,6 @@ async def get_stats(
         active_evs = await event_repo.list_by_group(gid, limit=10_000)
         event_count += len(active_evs)
         locked_count += sum(1 for e in active_evs if e.is_locked)
-        
-        # Check if repo supports counting archived or list them
-        # For now, let's assume event_repo.list_by_group returns active by default or all?
-        # Based on MemoryManager.list_active_events, it filters by status.
-        # Let's assume we need to list by status if we want both.
-        # Actually, let's just use the count method if available or a simpler loop.
     
     # Refined count logic for all statuses
     from .domain.models import EventStatus
@@ -154,6 +149,9 @@ async def get_stats(
             "last_hits": int(m.get("last_hits", 0)),
         }
     
+    # LLM Token stats
+    llm_stats = llm_manager.get_stats() if llm_manager else {}
+    
     # Backward compatibility for existing flat fields (in seconds)
     legacy_perf = {
         f"avg_{phase}_time": round(m.get("avg", 0.0), 3)
@@ -172,7 +170,8 @@ async def get_stats(
         "avg_summary_chars": round(avg_summary_chars, 1),
         "groups": len(group_ids),
         "version": plugin_version,
-        "perf": perf_stats
+        "perf": perf_stats,
+        "llm_stats": llm_stats,
     }
 
 

@@ -219,6 +219,31 @@ class InMemoryEventRepository(EventRepository):
         self._store.clear()
         return count
 
+    async def prune_group_history(self, group_id: str | None, max_messages: int, batch_size: int) -> int:
+        """Prune oldest non-locked events in a group until total message count is <= max_messages."""
+        group_events = [
+            e for e in self._store.values()
+            if e.group_id == group_id and not e.is_locked
+        ]
+        group_events.sort(key=lambda e: e.start_time)
+        
+        total_messages = sum(len(e.interaction_flow) for e in group_events)
+        if total_messages <= max_messages:
+            return 0
+            
+        target_messages = max_messages - batch_size
+        deleted_count = 0
+        current_messages = total_messages
+        
+        for event in group_events:
+            if current_messages <= target_messages:
+                break
+            del self._store[event.event_id]
+            current_messages -= len(event.interaction_flow)
+            deleted_count += 1
+            
+        return deleted_count
+
     async def get_rowid(self, event_id: str) -> int | None:
         # In-memory has no rowid concept; return position index as a surrogate
         for i, key in enumerate(self._store):

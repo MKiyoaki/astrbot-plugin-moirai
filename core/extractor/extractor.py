@@ -337,7 +337,7 @@ class EventExtractor:
                     asyncio.wait_for,
                     provider.text_chat(prompt=prompt, system_prompt=self._system_prompt),
                     timeout=self._llm_timeout,
-                    task_name="extractor_batch"
+                    task_name="extraction"
                 )
             else:
                 resp = await asyncio.wait_for(
@@ -378,7 +378,7 @@ class EventExtractor:
                     asyncio.wait_for,
                     provider.text_chat(prompt=prompt, system_prompt=self._distillation_system_prompt),
                     timeout=self._llm_timeout,
-                    task_name="extractor_distill"
+                    task_name="extraction"
                 )
             else:
                 resp = await asyncio.wait_for(

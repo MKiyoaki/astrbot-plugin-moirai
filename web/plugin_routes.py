@@ -157,6 +157,7 @@ class PluginRoutes:
         recall_manager: BaseRecallManager | None = None,
         registry: PanelRegistry | None = None,
         star: Any = None,
+        llm_manager: Any = None,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
@@ -170,6 +171,7 @@ class PluginRoutes:
         self._recall_manager = recall_manager
         self.registry = registry or PanelRegistry()
         self._star = star
+        self._llm_manager = llm_manager
 
         self._relation_enabled: bool = bool(self._initial_config.get("relation_enabled", True))
         self._config_path = data_dir / "plugin_config.json"
@@ -349,6 +351,7 @@ class PluginRoutes:
             impression_repo=self._impression_repo,
             data_dir=self._data_dir,
             plugin_version=self._plugin_version,
+            llm_manager=self._llm_manager,
         )
         data["soul_enabled"] = bool(self._initial_config.get("soul_enabled", True))
         return data

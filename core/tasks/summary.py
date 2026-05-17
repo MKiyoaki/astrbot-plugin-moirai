@@ -233,7 +233,7 @@ async def _build_mood_section_llm(
                 asyncio.wait_for,
                 provider.text_chat(prompt=prompt, system_prompt=cfg.mood_prompt),
                 timeout=cfg.llm_timeout,
-                task_name="summary_mood"
+                task_name="summary"
             )
         else:
             resp = await asyncio.wait_for(
@@ -303,7 +303,7 @@ async def _generate_summary_for_group(
                     asyncio.wait_for,
                     provider.text_chat(prompt=prompt, system_prompt=cfg.unified_prompt),
                     timeout=cfg.llm_timeout,
-                    task_name=f"summary_unified_{group_label}"
+                    task_name="summary"
                 )
             else:
                 resp = await asyncio.wait_for(
@@ -341,7 +341,7 @@ async def _generate_summary_for_group(
                     asyncio.wait_for,
                     provider.text_chat(prompt=topic_prompt, system_prompt=cfg.system_prompt),
                     timeout=cfg.llm_timeout,
-                    task_name=f"summary_topic_{group_label}"
+                    task_name="summary"
                 )
             else:
                 resp = await asyncio.wait_for(

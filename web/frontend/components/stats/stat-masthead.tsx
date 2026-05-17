@@ -28,17 +28,21 @@ export function StatMasthead({ stats, totalTime }: StatMastheadProps) {
       label: i18n.stats.avgResponse,
       mono: true,
     },
+    {
+      value: (stats.llm_stats?.total_prompt_tokens ?? 0) + (stats.llm_stats?.total_completion_tokens ?? 0),
+      label: i18n.stats.totalTokens,
+    },
   ]
 
   return (
     <div className="border-t border-b border-border/60 py-5">
-      <div className="flex flex-wrap gap-x-10 gap-y-4">
+      <div className="flex flex-wrap justify-center gap-x-12 gap-y-6">
         {items.map((item, idx) => (
-          <div key={idx} className="flex flex-col min-w-[64px]">
+          <div key={idx} className="flex flex-col items-center min-w-[80px] text-center">
             <span className={`text-3xl font-bold tracking-tight tabular-nums ${item.mono ? 'font-mono text-2xl' : ''}`}>
               {item.value}
             </span>
-            <span className="text-[9px] uppercase tracking-[0.18em] text-muted-foreground mt-0.5">
+            <span className="text-[9px] uppercase tracking-[0.18em] text-muted-foreground mt-1">
               {item.label}
             </span>
           </div>

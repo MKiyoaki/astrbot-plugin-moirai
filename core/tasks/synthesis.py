@@ -85,7 +85,7 @@ async def run_persona_synthesis(
                     asyncio.wait_for,
                     provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
                     timeout=cfg.llm_timeout,
-                    task_name=f"persona_synthesis_{persona.uid[:8]}"
+                    task_name="synthesis"
                 )
             else:
                 resp = await asyncio.wait_for(
@@ -282,7 +282,7 @@ async def run_consolidated_maintenance(
                         asyncio.wait_for,
                         provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
                         timeout=cfg.llm_timeout,
-                        task_name=f"persona_synthesis_{persona.uid[:8]}"
+                        task_name="synthesis"
                     )
                 else:
                     resp = await asyncio.wait_for(

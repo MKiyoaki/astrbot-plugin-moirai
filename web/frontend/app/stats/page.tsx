@@ -15,6 +15,7 @@ import {
   HourlyPattern,
   WeekOverWeek,
   PersonaRank,
+  TokenStats,
 } from '@/components/stats'
 
 export default function StatsPage() {
@@ -114,10 +115,11 @@ export default function StatsPage() {
         {/* Row: Perf chart (full width) */}
         <PerfChart perfData={perfData} totalTime={totalTime} />
 
-        {/* Row: Activity chart + Avg metrics */}
-        <div className="grid grid-cols-1 lg:grid-cols-7 gap-4">
-          <div className="lg:col-span-4">
+        {/* Row: Activity chart + Tokens (Left) vs Avg metrics (Right) */}
+        <div className="grid grid-cols-1 lg:grid-cols-7 gap-4 items-stretch">
+          <div className="lg:col-span-4 flex flex-col gap-4">
             <ActivityChart timeData={timeData} />
+            <TokenStats />
           </div>
           <div className="lg:col-span-3">
             <AvgMetrics averages={averages} stats={stats} />

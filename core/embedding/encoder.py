@@ -85,7 +85,7 @@ class SentenceTransformerEncoder:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None, 
-            lambda: self._model.encode(text, normalize_embeddings=True).tolist()
+            lambda: self._model.encode(text, normalize_embeddings=True, show_progress_bar=False).tolist()
         )
 
     async def encode_batch(self, texts: List[str]) -> List[List[float]]:
@@ -96,7 +96,7 @@ class SentenceTransformerEncoder:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None,
-            lambda: self._model.encode(texts, normalize_embeddings=True).tolist()
+            lambda: self._model.encode(texts, normalize_embeddings=True, show_progress_bar=False).tolist()
         )
 
 

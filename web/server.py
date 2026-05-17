@@ -127,6 +127,7 @@ class WebuiServer:
         all_providers_getter: Callable | None = None,
         recall_manager: BaseRecallManager | None = None,
         star: Any = None,
+        llm_manager: Any = None,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
@@ -136,6 +137,7 @@ class WebuiServer:
         self._port = port
         self._auth_enabled = auth_enabled
         self._star = star
+        self._llm_manager = llm_manager
 
         self._initial_config = initial_config or {}
         # 1. 检查是否有持久化哈希文件
@@ -366,7 +368,14 @@ class WebuiServer:
 
     async def stats_data(self) -> dict[str, Any]:
         from core.api import get_stats
-        data = await get_stats(self._persona_repo, self._event_repo, self._impression_repo, self._data_dir, self._plugin_version)
+        data = await get_stats(
+            self._persona_repo, 
+            self._event_repo, 
+            self._impression_repo, 
+            self._data_dir, 
+            self._plugin_version,
+            llm_manager=self._llm_manager
+        )
         data["soul_enabled"] = bool(self._initial_config.get("soul_enabled", True))
         return data
 

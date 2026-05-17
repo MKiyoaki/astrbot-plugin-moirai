@@ -2,7 +2,12 @@
 
 ## [v0.10.13] — 2026-05-16
 
-### 配置系统与备份功能升级
+### 核心引擎日志优化与系统功能升级
+
+**Bug Fixes**
+
+- **静默本地向量模型进度条** (`core/embedding/encoder.py`)
+  - 显式关闭 `sentence-transformers` 的 `show_progress_bar` 选项，解决 AstrBot 日志中频繁出现 `Batches: 100%` 导致日志污染的问题。
 
 **Features**
 

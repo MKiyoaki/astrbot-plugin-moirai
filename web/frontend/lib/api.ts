@@ -44,6 +44,15 @@ export interface PluginStats {
   groups: number
   version: string
   soul_enabled?: boolean
+  llm_stats?: {
+    total_prompt_tokens: number
+    total_completion_tokens: number
+    token_usage_by_task: Record<string, { prompt: number; completion: number }>
+    active_tasks: number
+    total_calls: number
+    failed_calls: number
+    uptime_seconds: number
+  }
   perf?: {
     avg_extraction_time: number
     avg_partition_time: number

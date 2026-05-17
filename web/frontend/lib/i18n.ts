@@ -727,6 +727,14 @@ export const zh = {
     noData: '暂无数据',
     archivedEvents: '已归档事件',
     totalMemory: '总记忆体量',
+    llmTokens: 'LLM Token 消耗',
+    promptTokens: '输入 (Prompt)',
+    completionTokens: '输出 (Completion)',
+    totalTokens: '总 Token',
+    llmTaskBreakdown: '分阶段消耗拆解',
+    stageExtraction: '事件提取',
+    stageSynthesis: '人格合成',
+    stageSummary: '叙事总结',
   },
 } as const
 
@@ -1433,9 +1441,17 @@ export const ja = {
     wowFlat: '横ばい',
     noData: 'データなし',
     archivedEvents: 'アーカイブ済み',
-    totalMemory: '記憶総量',
-  },
-} as const
+    totalMemory: '記憶总数',
+    llmTokens: 'LLM トークン消費',
+    promptTokens: '入力 (Prompt)',
+    completionTokens: '出力 (Completion)',
+    totalTokens: '合計トークン',
+    llmTaskBreakdown: 'ステージ別消費内訳',
+    stageExtraction: 'イベント抽出',
+    stageSynthesis: 'パーソナ合成',
+    stageSummary: 'ナラティブ要約',
+    },
+    } as const
 
 export const en = {
   app: {
@@ -2160,6 +2176,14 @@ export const en = {
     noData: 'No data',
     archivedEvents: 'Archived',
     totalMemory: 'Total Memory',
+    llmTokens: 'LLM Token Usage',
+    promptTokens: 'Prompt Tokens',
+    completionTokens: 'Completion Tokens',
+    totalTokens: 'Total Tokens',
+    llmTaskBreakdown: 'Usage by Stage',
+    stageExtraction: 'Extraction',
+    stageSynthesis: 'Synthesis',
+    stageSummary: 'Summary',
   },
 } as const
 
