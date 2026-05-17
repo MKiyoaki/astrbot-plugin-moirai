@@ -117,9 +117,10 @@ function Shell({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (app.authenticated) {
-      app.refreshStats()
-    }
+    if (!app.authenticated) return
+    app.refreshStats()
+    const id = setInterval(() => app.refreshStats(), 30_000)
+    return () => clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app.authenticated])
 
