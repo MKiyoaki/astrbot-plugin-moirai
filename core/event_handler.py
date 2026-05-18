@@ -343,6 +343,10 @@ class EventHandler:
         self._pre_inject_sys_prompt: dict[str, str] = {}
         self._pre_inject_persona_name: dict[str, str | None] = {}
         self._pre_inject_skill_names: dict[str, list[str]] = {}
+        # Persona that was active on this session's most recent completed LLM
+        # request. Compared against the freshly-resolved persona at the start of
+        # each new request to detect mid-session persona switches.
+        self._last_active_persona: dict[str, str] = {}
 
     async def _resolve_persona_name(self, event: AstrMessageEvent, req: ProviderRequest) -> str | None:
         try:
@@ -416,14 +420,48 @@ class EventHandler:
                     icfg.show_injection_summary,
                 )
 
+                # Always capture the active persona so handle_llm_response can
+                # attribute the bot reply under the correct persona name.
+                new_persona = await self._resolve_persona_name(event, req)
+                self._pre_inject_persona_name[session_id] = new_persona
+
+                # Persona-switch detection: if this session's previous request
+                # used a different persona, flush the prior window (minus the
+                # current trigger message) as an Event under the OLD persona so
+                # the streams don't get mixed.
+                old_persona = self._last_active_persona.get(session_id)
+                router = self._init.router
+                if (
+                    old_persona and new_persona
+                    and old_persona != new_persona
+                    and old_persona != "无" and new_persona != "无"
+                    and router is not None
+                ):
+                    try:
+                        await router.flush_window_split_tail(
+                            session_id, tail=1, new_persona=new_persona,
+                        )
+                    except Exception as exc:
+                        astrbot_logger.warning(
+                            "[%s] persona-switch flush failed: %s", _PLUGIN_NAME, exc,
+                        )
+
+                # Stamp the active persona on the current window so 0-bot
+                # Events can still be attributed when extracted.
+                if router is not None and new_persona and new_persona != "无":
+                    try:
+                        router.note_session_persona(session_id, new_persona)
+                    except Exception:
+                        pass
+
+                if new_persona and new_persona != "无":
+                    self._last_active_persona[session_id] = new_persona
+
                 # Capture system_prompt before injection for show_system_prompt feature.
                 if icfg.show_system_prompt:
                     raw_system_prompt = getattr(req, "system_prompt", "") or ""
                     self._pre_inject_sys_prompt[session_id] = (
                         raw_system_prompt
-                    )
-                    self._pre_inject_persona_name[session_id] = await self._resolve_persona_name(
-                        event, req
                     )
                     self._pre_inject_skill_names[session_id] = _extract_system_prompt_skill_names(
                         raw_system_prompt
@@ -513,17 +551,39 @@ class EventHandler:
 
         from .adapters.message_normalizer import normalize_message_text
         session_id_override, stream_group_id = _resolve_stream_scope(event)
-        # Use a special internal UID for the bot to distinguish it from users.
-        # session_platform matches the human speakers so the bot joins the same window.
+
+        # Resolve the persona that produced this reply so we can:
+        #   1. Show its name instead of the literal "Bot" in event participant lists.
+        #   2. Give each persona an independent UID (internal:bot:<persona>) so the
+        #      IdentityResolver keeps memory/impression scopes separated per persona.
+        session_key = session_id_override or event.unified_msg_origin
+        persona_name = self._pre_inject_persona_name.get(session_key)
+        if not persona_name:
+            # Fallback path: handle_llm_request didn't run (e.g. proactive reply)
+            # or persona wasn't cached. Try resolving without a ProviderRequest.
+            try:
+                persona_name = await self._resolve_persona_name(event, resp)
+            except Exception:
+                persona_name = None
+        persona_name = persona_name or None
+
+        if persona_name and persona_name != "无":
+            display_name = persona_name
+            physical_id = f"bot:{persona_name}"
+        else:
+            display_name = "Bot"
+            physical_id = "bot"
+
         await router.process(
             platform="internal",
-            physical_id="bot",
-            display_name="Bot",
+            physical_id=physical_id,
+            display_name=display_name,
             text=normalize_message_text(text),
             raw_group_id=event.get_group_id() or None,
             session_platform=event.get_platform_name(),
             session_id_override=session_id_override,
             stream_group_id=stream_group_id,
+            bot_persona_name=persona_name if persona_name and persona_name != "无" else None,
         )
 
     async def handle_using_llm_tool(

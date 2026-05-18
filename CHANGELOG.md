@@ -1,5 +1,44 @@
 # CHANGELOG
 
+## [v0.12.7] — 2026-05-17
+
+### LLM 提取质量、超时治理、人格归属与周期性窗口扫描
+
+**Feature — LLM 提取与切分质量**
+
+- 提取提示词强化：`[Eval]` 字段在存在 `[Bot 视角人格]` 时由"建议"升为强制，缺信息也必须显式写 `[Eval] 信息不足`；同时把每个 event 内部小话题数量从"1–5 个（可单一）"调整为"鼓励 2–5 个，宁多勿少；只对极短承接/单条 emoji 做合并"。
+- Parser 兜底：`_ensure_eval_field` 在缺失 `[Eval]` 时追加占位并把 `confidence` 打 7 折；`_merge_short_spans` 把单条独立成 event 的"碎片"按 chat_content_tags 重叠 / inherit / 索引邻近的规则并入相邻 event。
+- 前端 `summaryEvalNone` 文案 `无` → `信息不足`（zh/en/ja 三语同步）。
+
+**Feature — LLM 调用稳定性**
+
+- `EventExtractor._call_llm_with_retry`：对 `_extract_batch` 与 `_distill` 统一接入重试，超时时按 `llm_timeout_growth=1.5` 倍递增 timeout；新增 `ExtractorConfig.llm_max_retries=2` 与 `llm_timeout_growth=1.5`。
+- Fallback 日志附 `retries_used` 字段，便于诊断超时还是解析失败。
+
+**Feature — 人格归属与会话隔离**
+
+- `handle_llm_response` 现在解析当前会话的 AstrBot 人格名（复用现成的 `_resolve_persona_name`），把 bot 回复写入时使用 `display_name=<人格名>`、`physical_id=bot:<人格名>`，让不同人格在 IdentityResolver 中拿到独立 UID `internal:bot:<人格名>`，记忆和印象按人格隔离。
+- `RawMessage.bot_persona_name` 字段；`EventExtractor` 不再硬绑 `internal` 平台的人格，而是按每个 event 内 bot 消息的人格名多数派决定 `Event.bot_persona_name`，并通过新增的 `_lookup_persona_description` 拉描述注入 LLM 提示词。
+- 前端"参与者"列表会显示当前生效的人格名而非字面 `Bot`；旧记录保留原貌。
+
+**Feature — 周期性窗口扫描 + 0-bot Event 归属**
+
+- `MessageRouter.run_periodic_flush()` 后台任务：默认每 30 分钟扫描所有活动窗口，把"已稳定的前缀"提取为 Event（保留尾部 `tail_keep` 条等待下次或自然边界）。让纯用户对话与慢节奏话题不再堆积到 boundary 硬触发才落库。
+- `MessageRouter.flush_window_split_tail()`：`EventHandler` 在 `handle_llm_request` 检测到 persona 切换时，立即把窗口前缀（剔除即将被回复的尾部 1 条）按旧 persona 落库；尾部消息作为新窗口起点。
+- `MessageWindow.clone_prefix()` / `drop_prefix()` / `last_active_persona`：支持上述两类切分 + 0-bot Event 归属兜底（`_resolve_window_persona` 在窗口内没有任何 bot 消息时，回退到 `last_active_persona`）。
+- 新增 `MaintenanceConfig`：`periodic_flush_enabled`（默认 true）、`periodic_flush_minutes`（默认 30）、`periodic_flush_tail_keep`（默认 10），全部在 `_conf_schema.json` 暴露。
+- `BoundaryConfig.summary_trigger_rounds` 默认值由 30 提到 50，减少多 topic 被强行拆窗。
+
+**Tests**
+
+- 新增 `tests/test_periodic_flush.py`：覆盖 `clone_prefix` / `drop_prefix` / `note_session_persona` / `flush_window_split_tail` / `run_periodic_flush` 行为，以及"窗口全用户消息时 extractor 回退到 last_active_persona"。
+- 全量 474/474 pytest 通过。
+
+**Version**
+
+- 更新版本到 `v0.12.7`
+- 同步 README / README_EN 版本徽章
+
 ## [v0.12.6] — 2026-05-17
 
 ### WebUI 单事件重新提取

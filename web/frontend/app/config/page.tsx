@@ -70,6 +70,8 @@ const FIELD_DEPENDENCIES: Record<string, string> = {
   'boundary_topic_drift_threshold': 'boundary_topic_drift_enabled',
   'boundary_topic_drift_min_messages': 'boundary_topic_drift_enabled',
   'boundary_topic_drift_interval': 'boundary_topic_drift_enabled',
+  'periodic_flush_minutes': 'periodic_flush_enabled',
+  'periodic_flush_tail_keep': 'periodic_flush_enabled',
 
   // Tasks
   'decay_interval_hours': 'decay_enabled',
@@ -406,21 +408,31 @@ export default function ConfigPage() {
     {
       id: 'boundary',
       label: i18n.config.sections.boundary,
+      // Reordered into 5 logical clusters (basics → strategy → hard bounds →
+      // drift → periodic), matching _conf_schema.json key order.
       keys: [
-        'persona_influenced_summary', 
+        // 基础
+        'persona_influenced_summary',
+        'tag_seeds',
+        // 提取策略
         'extraction_strategy',
         'semantic_clustering_eps',
         'semantic_clustering_min_samples',
         'tag_normalization_threshold',
-        'tag_seeds',
-        'boundary_time_gap_minutes', 
-        'boundary_max_messages', 
-        'boundary_max_duration_minutes', 
+        // 硬边界
+        'boundary_time_gap_minutes',
+        'boundary_max_messages',
+        'boundary_max_duration_minutes',
         'summary_trigger_rounds',
+        // 话题漂移
         'boundary_topic_drift_enabled',
         'boundary_topic_drift_threshold',
         'boundary_topic_drift_min_messages',
-        'boundary_topic_drift_interval'
+        'boundary_topic_drift_interval',
+        // 周期扫描
+        'periodic_flush_enabled',
+        'periodic_flush_minutes',
+        'periodic_flush_tail_keep',
       ],
     },
     {

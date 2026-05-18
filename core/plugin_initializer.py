@@ -122,6 +122,7 @@ class PluginInitializer:
         self.persona_repo = None
         self.resolver = None
         self.command_manager = None
+        self._periodic_flush_task: asyncio.Task | None = None
         self.plugin_routes = None
         self.webui_error: str | None = None
 
@@ -287,6 +288,29 @@ class PluginInitializer:
             encoder=self.embedding_manager,
             on_event_close=on_event_close,
         )
+
+        # Periodic window flush: turns stable prefixes into Events on a cadence
+        # so user-only chatter and slow-burn topics don't sit unprocessed until
+        # the boundary detector forces a close.
+        maint_cfg = cfg.get_maintenance_config()
+        if maint_cfg.periodic_flush_enabled:
+            router_ref = self.router
+
+            def _enabled_getter() -> bool:
+                # Re-read so toggling enabled at runtime takes effect on next tick.
+                try:
+                    return cfg.get_maintenance_config().periodic_flush_enabled
+                except Exception:
+                    return True
+
+            self._periodic_flush_task = asyncio.create_task(
+                router_ref.run_periodic_flush(
+                    interval_minutes=maint_cfg.periodic_flush_minutes,
+                    tail_keep=maint_cfg.periodic_flush_tail_keep,
+                    enabled_getter=_enabled_getter,
+                ),
+                name="moirai-periodic-flush",
+            )
 
         synthesis_cfg = cfg.get_synthesis_config()
         summary_cfg = cfg.get_summary_config()
@@ -538,6 +562,12 @@ class PluginInitializer:
             )
 
     async def teardown(self) -> None:
+        if self._periodic_flush_task is not None and not self._periodic_flush_task.done():
+            self._periodic_flush_task.cancel()
+            try:
+                await self._periodic_flush_task
+            except (asyncio.CancelledError, Exception):
+                pass
         if self.watcher is not None:
             await self.watcher.stop()
         if self.webui is not None:

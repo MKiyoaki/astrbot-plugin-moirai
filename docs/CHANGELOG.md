@@ -1,5 +1,40 @@
 # CHANGELOG
 
+## [v0.12.7] — 2026-05-17
+
+### LLM 提取质量、超时治理、人格归属与周期性窗口扫描
+
+- **LLM 提取质量**
+  - `[Eval]` 字段在提供 bot 人格时改为强制要求；缺信息也必须写 `[Eval] 信息不足`。
+  - 每个 event 改为鼓励 2–5 个小话题三元组（[What]/[Who]/[How]）；防止过度合并。
+  - Parser 引入 `_ensure_eval_field` 占位兜底（confidence ×0.7）与 `_merge_short_spans` 单条碎片合并。
+  - 前端 `summaryEvalNone` 文案 `无` → `信息不足`（zh/en/ja）。
+
+- **LLM 调用稳定性**
+  - 新增 `_call_llm_with_retry` 统一封装 `_extract_batch` 与 `_distill`；超时按 1.5× 递增重试。
+  - 新增 `ExtractorConfig.llm_max_retries=2`、`llm_timeout_growth=1.5`；fallback 日志附 `retries_used`。
+
+- **人格归属与会话隔离**
+  - `handle_llm_response` 解析 AstrBot 当前会话人格名并写入 bot 消息的 `display_name` / `physical_id` / `bot_persona_name`。
+  - 不同人格在 IdentityResolver 拿到独立 UID `internal:bot:<人格名>`。
+  - `RawMessage.bot_persona_name` 字段；`EventExtractor` 按 event 内 bot 消息多数派决定 `Event.bot_persona_name`。
+  - 前端"参与者"显示真实人格名而非字面 `Bot`。
+
+- **周期性窗口扫描 + 0-bot Event 归属**
+  - `MessageRouter.run_periodic_flush()` 默认每 30 分钟扫描所有活动窗口，把稳定前缀提取为 Event。
+  - `MessageRouter.flush_window_split_tail()`：persona 切换时立即把窗口前缀按旧 persona 落库；尾部继续。
+  - `MessageWindow.clone_prefix` / `drop_prefix` / `last_active_persona`；`_resolve_window_persona` 0-bot 兜底。
+  - 新增 `MaintenanceConfig`（`periodic_flush_enabled` / `_minutes` / `_tail_keep`）暴露在 `_conf_schema.json`。
+  - `BoundaryConfig.summary_trigger_rounds` 默认 30 → 50。
+
+- **测试**
+  - 新增 `tests/test_periodic_flush.py`：覆盖窗口前缀操作、persona-switch flush、周期性 flush、extractor 回退。
+  - 全量 474/474 pytest 通过。
+
+- **版本同步**
+  - 版本号更新为 `v0.12.7`
+  - README / README_EN 版本徽章已同步
+
 ## [v0.12.6] — 2026-05-17
 
 ### WebUI 单事件重新提取

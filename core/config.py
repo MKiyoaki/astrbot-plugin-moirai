@@ -24,10 +24,12 @@ DEFAULT_DISTILLATION_SYSTEM_PROMPT = (
     "字段说明：\n"
     "- topic: 该段对话的核心主题，简洁明了，30字以内\n"
     "- summary: 该段对话的摘要，提炼关键结论和信息，过滤口水话。"
-    "按以下格式，每个小话题用 [What]/[Who]/[How] 三元组描述，多个小话题之间用 \" | \" 分隔，"
-    "小话题数量与 chat_content_tags 对应（1-5个）。"
+    "按以下格式，每个小话题用 [What]/[Who]/[How] 三元组描述，多个小话题之间用 \" | \" 分隔。"
+    "建议产出 2–5 个小话题（与 chat_content_tags 对应）；只要话题、对象或叙事重心发生切换，就应单独成一个三元组，"
+    "宁多勿少；单一三元组仅在整段对话确实只讨论同一件事时使用。"
+    "但极短的承接、附和、单条 emoji/表情/复读 不要单独成三元组，应并入语义最接近的相邻三元组。"
     "[What] 和 [How] 各写1-2句，说清楚具体发生了什么或得出了什么结论、以何种方式推进或结束（可包含情绪/态度/结果）；[Who] 保持简短只列人名。"
-    "若提示词中提供了 [Bot 视角人格]，则每个三元组末尾还需加上 [Eval] 字段（从该人格视角对该话题的一句话评价）。"
+    "若提示词中提供了 [Bot 视角人格]，每个三元组末尾【必须】加上 [Eval] 字段（以该人格第一人称视角对话题作一句话评价，≤30字）；信息不足也要写 [Eval] 信息不足，不允许省略。"
     "格式示例（无人格）：\n"
     "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 | [What] 话题转向了近期音乐会安排，Alice 推荐了一场即将上演的室内乐 [Who] Alice [How] 对话在期待中结束，未确定是否同去\n"
     "格式示例（有人格）：\n"
@@ -62,10 +64,13 @@ DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
     "- end_idx: 该事件在提供的对话记录中的结束索引（包含）\n"
     "- topic: 该段对话的核心主题，简洁明了，30字以内\n"
     "- summary: 该段对话的摘要，提炼关键结论和信息，过滤掉口水话。"
-    "按以下格式，每个小话题用 [What]/[Who]/[How] 三元组描述，多个小话题之间用 \" | \" 分隔，"
-    "小话题数量与 chat_content_tags 对应（1-5个）。"
+    "按以下格式，每个小话题用 [What]/[Who]/[How] 三元组描述，多个小话题之间用 \" | \" 分隔。"
+    "建议每个 event 产出 2–5 个小话题三元组（与 chat_content_tags 对应）；"
+    "只要话题、对象或叙事重心发生切换，就应单独成一个三元组，宁多勿少；"
+    "单一三元组仅在整段 event 确实只讨论同一件事时使用。"
+    "但极短的承接、附和、单条 emoji/表情/复读 不要单独成三元组，应并入语义最接近的相邻三元组。"
     "[What] 和 [How] 各写1-2句，说清楚具体发生了什么或得出了什么结论、以何种方式推进或结束（可包含情绪/态度/结果）；[Who] 保持简短只列人名。"
-    "若提示词中提供了 [Bot 视角人格]，则每个三元组末尾还需加上 [Eval] 字段（从该人格视角对该话题的一句话评价）。"
+    "若提示词中提供了 [Bot 视角人格]，每个三元组末尾【必须】加上 [Eval] 字段（以该人格第一人称视角对话题作一句话评价，≤30字）；信息不足也要写 [Eval] 信息不足，不允许省略。"
     "格式示例（无人格）：\n"
     "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 | [What] 话题转向了近期音乐会安排，Alice 推荐了一场即将上演的室内乐 [Who] Alice [How] 对话在期待中结束，未确定是否同去\n"
     "格式示例（有人格）：\n"
@@ -249,6 +254,8 @@ class SoulConfig:
 class ExtractorConfig:
     max_context_messages: int = 20
     llm_timeout: float = 30.0
+    llm_max_retries: int = 2
+    llm_timeout_growth: float = 1.5
     system_prompt: str = DEFAULT_EXTRACTOR_SYSTEM_PROMPT
     distillation_system_prompt: str = DEFAULT_DISTILLATION_SYSTEM_PROMPT
     strategy: str = "llm"  # "llm" or "semantic"
@@ -281,6 +288,15 @@ class CleanupConfig:
     threshold: float = 0.3
     interval_days: int = 7
     retention_days: int = 30
+
+
+@dataclass
+class MaintenanceConfig:
+    """Periodic window flush — proactively turns stable prefixes into Events
+    so 0-bot user-chatter doesn't sit unprocessed until a boundary fires."""
+    periodic_flush_enabled: bool = True
+    periodic_flush_minutes: float = 30.0   # 建议 15–120
+    periodic_flush_tail_keep: int = 10     # 建议 3–30
 
 
 @dataclass
@@ -399,6 +415,13 @@ class PluginConfig:
             drift_min_messages=self._int(
                 "boundary_topic_drift_min_messages", 20),
             drift_check_interval=self._int("boundary_topic_drift_interval", 5),
+        )
+
+    def get_maintenance_config(self) -> MaintenanceConfig:
+        return MaintenanceConfig(
+            periodic_flush_enabled=self._bool("periodic_flush_enabled", True),
+            periodic_flush_minutes=self._float("periodic_flush_minutes", 30.0),
+            periodic_flush_tail_keep=self._int("periodic_flush_tail_keep", 10),
         )
 
     def get_decay_config(self) -> DecayConfig:

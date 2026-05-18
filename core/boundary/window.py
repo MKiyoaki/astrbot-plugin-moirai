@@ -12,6 +12,8 @@ class RawMessage:
     timestamp: float
     display_name: str = ""
     embedding: list[float] | None = None
+    # Name of the bot persona that produced this message; None for user messages.
+    bot_persona_name: str | None = None
 
 
 @dataclass
@@ -30,6 +32,11 @@ class MessageWindow:
     _sum_vec: list[float] | None = None
     _embedded_count: int = 0
 
+    # Most recently seen bot persona for this session. Set when a bot message
+    # arrives, OR when EventHandler tells the router about a persona during
+    # an LLM request (so 0-bot-message events can still be attributed).
+    last_active_persona: str | None = None
+
     @property
     def message_count(self) -> int:
         return len(self.messages)
@@ -42,10 +49,13 @@ class MessageWindow:
         return now - self.last_message_time
 
     def add_message(
-        self, uid: str, text: str, timestamp: float, display_name: str = "", 
-        embedding: list[float] | None = None
+        self, uid: str, text: str, timestamp: float, display_name: str = "",
+        embedding: list[float] | None = None, bot_persona_name: str | None = None,
     ) -> None:
-        msg = RawMessage(uid=uid, text=text, timestamp=timestamp, display_name=display_name, embedding=embedding)
+        msg = RawMessage(
+            uid=uid, text=text, timestamp=timestamp, display_name=display_name,
+            embedding=embedding, bot_persona_name=bot_persona_name,
+        )
         self.messages.append(msg)
         self.last_message_time = timestamp
         
@@ -81,6 +91,47 @@ class MessageWindow:
     @property
     def latest_text(self) -> str:
         return self.messages[-1].text if self.messages else ""
+
+    def clone_prefix(self, n: int) -> "MessageWindow":
+        """Return a new MessageWindow containing only the first ``n`` messages.
+
+        Used by periodic flush and persona-switch flush to materialize a
+        "stable prefix" as an Event without disturbing the running window.
+        The centroid of the clone is recomputed from the kept messages.
+        """
+        n = max(0, min(n, len(self.messages)))
+        kept = self.messages[:n]
+        clone = MessageWindow(
+            session_id=self.session_id,
+            group_id=self.group_id,
+            messages=list(kept),
+            start_time=kept[0].timestamp if kept else self.start_time,
+            last_message_time=kept[-1].timestamp if kept else self.last_message_time,
+            last_active_persona=self.last_active_persona,
+        )
+        for m in kept:
+            if m.embedding:
+                clone._update_centroid(m.embedding)
+        return clone
+
+    def drop_prefix(self, n: int) -> None:
+        """Remove the first ``n`` messages in place and rebuild centroid/timestamps."""
+        n = max(0, min(n, len(self.messages)))
+        if n == 0:
+            return
+        self.messages = self.messages[n:]
+        # Reset centroid state and recompute from remaining messages.
+        self._sum_vec = None
+        self._embedded_count = 0
+        self.centroid = None
+        for m in self.messages:
+            if m.embedding:
+                self._update_centroid(m.embedding)
+        if self.messages:
+            self.start_time = self.messages[0].timestamp
+            self.last_message_time = self.messages[-1].timestamp
+        # Note: an empty tail keeps the previous timestamps so the window can
+        # be safely reused; the next add_message will overwrite them.
 
     @property
     def participants(self) -> list[str]:

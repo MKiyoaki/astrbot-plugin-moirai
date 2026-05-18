@@ -45,7 +45,9 @@ def build_user_prompt(
     if bot_persona_desc:
         header_parts.append(
             f"[Bot 视角人格] {bot_persona_desc}\n"
-            f"注意：请在 summary 每个小话题三元组末尾加上 [Eval] 字段，以上述人格视角对该话题做一句话评价。"
+            f"强制要求：summary 中每一个小话题三元组的末尾【必须】包含 [Eval] 字段，"
+            f"以上述人格的第一人称视角对该话题作一句话评价（不超过30字，可表达态度、情绪、判断）。"
+            f"不允许省略；若信息确实不足，也必须写 [Eval] 信息不足。"
         )
 
     if existing_tags:
@@ -77,7 +79,9 @@ def build_distillation_prompt(
     if bot_persona_desc:
         header_parts.append(
             f"[Bot 视角人格] {bot_persona_desc}\n"
-            f"注意：请在 summary 每个小话题三元组末尾加上 [Eval] 字段，以上述人格视角对该话题做一句话评价。"
+            f"强制要求：summary 中每一个小话题三元组的末尾【必须】包含 [Eval] 字段，"
+            f"以上述人格的第一人称视角对该话题作一句话评价（不超过30字，可表达态度、情绪、判断）。"
+            f"不允许省略；若信息确实不足，也必须写 [Eval] 信息不足。"
         )
 
     if existing_tags:

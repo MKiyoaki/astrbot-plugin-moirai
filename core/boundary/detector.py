@@ -25,7 +25,7 @@ class BoundaryConfig:
     time_gap_minutes: float = 30.0
     max_messages: int = 50
     max_duration_minutes: float = 60.0
-    summary_trigger_rounds: int = 30
+    summary_trigger_rounds: int = 50
     drift_detection_enabled: bool = True
     drift_threshold: float = 0.6
     drift_min_messages: int = 20

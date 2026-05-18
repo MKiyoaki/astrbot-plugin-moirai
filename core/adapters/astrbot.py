@@ -52,6 +52,7 @@ class MessageRouter:
         session_platform: str | None = None,
         session_id_override: str | None = None,
         stream_group_id: str | None = None,
+        bot_persona_name: str | None = None,
     ) -> None:
         """Entry point for every incoming message.
 
@@ -96,7 +97,9 @@ class MessageRouter:
 
         # 1. Add message to window immediately (no delay)
         msg_idx = window.message_count
-        window.add_message(uid, text, now, display_name)
+        window.add_message(uid, text, now, display_name, bot_persona_name=bot_persona_name)
+        if bot_persona_name:
+            window.last_active_persona = bot_persona_name
         
         # 2. Update basic state (without drift info yet)
         self._context_manager.update_state(session_id, drift_detected=False)
@@ -129,6 +132,102 @@ class MessageRouter:
                 "[MessageRouter] brain background task failed (session=%s, msg_idx=%d): %s",
                 getattr(window, "session_id", "?"), msg_idx, exc,
             )
+
+    def note_session_persona(self, session_id: str, persona_name: str | None) -> None:
+        """Record the active persona for a session on its current window.
+
+        Called by EventHandler.handle_llm_request right after the persona name
+        is resolved. Lets 0-bot-message events (pure user chatter) still be
+        attributed when extracted.
+        """
+        if not persona_name:
+            return
+        window = self._context_manager.get_window(session_id)
+        if window is not None:
+            window.last_active_persona = persona_name
+
+    async def flush_window_split_tail(
+        self, session_id: str, tail: int = 1, new_persona: str | None = None
+    ) -> bool:
+        """Flush the window's prefix as an Event and keep ``tail`` newest messages.
+
+        Used on persona switch: messages up to (but not including) the trigger
+        user message become an Event under the old persona; the trigger message
+        starts a fresh window under the new persona.
+
+        Returns True if a flush happened, False if the window was too short or
+        absent.
+        """
+        window = self._context_manager.get_window(session_id)
+        if window is None:
+            return False
+        prefix_len = window.message_count - tail
+        if prefix_len <= 0:
+            # Nothing stable to flush yet; just update persona tag.
+            if new_persona:
+                window.last_active_persona = new_persona
+            return False
+        prefix = window.clone_prefix(prefix_len)
+        # Drop the prefix BEFORE extraction so extraction failures don't leave
+        # the window in a half-flushed state.
+        window.drop_prefix(prefix_len)
+        if new_persona:
+            window.last_active_persona = new_persona
+        if self._on_event_close is not None:
+            try:
+                await self._on_event_close(prefix)
+            except Exception as exc:
+                logger.warning(
+                    "[MessageRouter] split-tail flush failed for session=%s: %s",
+                    session_id, exc,
+                )
+                return False
+        return True
+
+    async def run_periodic_flush(
+        self, interval_minutes: float, tail_keep: int, enabled_getter
+    ) -> None:
+        """Background loop: every interval, flush stable prefixes of all windows.
+
+        ``enabled_getter`` is a zero-arg callable so the loop respects live config
+        toggles without needing a restart.
+        """
+        # Minimum 0.05 minutes (3 seconds) — protects against accidentally tight
+        # loops while still allowing fast-tick tests.
+        interval = max(0.05, float(interval_minutes)) * 60.0
+        while True:
+            try:
+                await asyncio.sleep(interval)
+            except asyncio.CancelledError:
+                return
+            if not enabled_getter():
+                continue
+            try:
+                session_ids = list(self._context_manager._windows.keys())
+            except Exception:
+                continue
+            for sid in session_ids:
+                try:
+                    window = self._context_manager.get_window(sid)
+                    if window is None:
+                        continue
+                    if window.message_count <= tail_keep:
+                        continue
+                    prefix_len = window.message_count - tail_keep
+                    prefix = window.clone_prefix(prefix_len)
+                    window.drop_prefix(prefix_len)
+                    if self._on_event_close is not None:
+                        await self._on_event_close(prefix)
+                    logger.info(
+                        "[MessageRouter] periodic flush: session=%s prefix=%d tail_kept=%d",
+                        sid, prefix_len, tail_keep,
+                    )
+                except asyncio.CancelledError:
+                    return
+                except Exception as exc:
+                    logger.warning(
+                        "[MessageRouter] periodic flush error session=%s: %s", sid, exc,
+                    )
 
     async def flush_all(self) -> None:
         """Flush all open windows (called on plugin shutdown)."""

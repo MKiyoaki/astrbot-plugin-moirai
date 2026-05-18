@@ -109,6 +109,8 @@ class EventExtractor:
         self._system_prompt = cfg.system_prompt
         self._distillation_system_prompt = cfg.distillation_system_prompt
         self._llm_timeout = cfg.llm_timeout
+        self._llm_max_retries = max(0, int(getattr(cfg, "llm_max_retries", 2)))
+        self._llm_timeout_growth = max(1.0, float(getattr(cfg, "llm_timeout_growth", 1.5)))
         self._strategy = cfg.strategy
         self._persona_influenced_summary = cfg.persona_influenced_summary
         self._tag_normalization_threshold = cfg.tag_normalization_threshold
@@ -168,8 +170,10 @@ class EventExtractor:
             self._seeds_initialized = True
             await self._init_tag_seeds()
 
-        # 1. Fetch bot persona once — shared by all partitions and result-loop iterations
-        bot_name, bot_desc = await self._get_bot_persona()
+        # 1. Determine bot persona context.
+        #    Priority: persona names actually carried by bot messages in this window.
+        #    Fallback: legacy "internal"-bound persona via _get_bot_persona().
+        bot_name, bot_desc = await self._resolve_window_persona(window)
 
         # 2. Fetch existing tags and merge with seeds for few-shot steering
         frequent_tags = await self._event_repo.list_frequent_tags(limit=20)
@@ -270,8 +274,18 @@ class EventExtractor:
                 last_accessed_at=sub_messages[-1].timestamp,
             )
 
-            if self._persona_influenced_summary and bot_name:
-                event = dataclasses.replace(event, bot_persona_name=bot_name)
+            if self._persona_influenced_summary:
+                # Prefer persona name from this event's own sub_messages; fall back to the
+                # window-level winner so events with no bot message still get tagged.
+                from collections import Counter as _Counter
+                sub_counts: _Counter[str] = _Counter()
+                for m in sub_messages:
+                    n = getattr(m, "bot_persona_name", None)
+                    if n:
+                        sub_counts[n] += 1
+                event_persona = (sub_counts.most_common(1)[0][0] if sub_counts else bot_name)
+                if event_persona:
+                    event = dataclasses.replace(event, bot_persona_name=event_persona)
 
             await self._event_repo.upsert(event)
             await self._index_vector(event)
@@ -324,6 +338,55 @@ class EventExtractor:
         )
         return dict(results)
 
+    async def _resolve_window_persona(self, window: MessageWindow) -> tuple[str | None, str | None]:
+        """Return (persona_name, persona_description) inferred from the window's bot messages.
+
+        If the window contains messages tagged with a `bot_persona_name`, pick the most
+        frequent one and resolve its description from the persona repository (by name).
+        Falls back to the legacy `_get_bot_persona()` (internal-bound persona) when no
+        bot message in the window carries a persona name.
+        """
+        if not self._persona_influenced_summary:
+            return None, None
+
+        # Count personas carried by bot messages in this window.
+        from collections import Counter
+        counts: Counter[str] = Counter()
+        for msg in window.messages:
+            name = getattr(msg, "bot_persona_name", None)
+            if name:
+                counts[name] += 1
+
+        if counts:
+            best_name, _ = counts.most_common(1)[0]
+            desc = await self._lookup_persona_description(best_name)
+            return best_name, desc or best_name
+
+        # No bot message in this window — fall back to the session's last known
+        # active persona (set by handle_llm_request via note_session_persona).
+        last = getattr(window, "last_active_persona", None)
+        if last:
+            desc = await self._lookup_persona_description(last)
+            return last, desc or last
+
+        return await self._get_bot_persona()
+
+    async def _lookup_persona_description(self, persona_name: str) -> str | None:
+        """Best-effort lookup of a persona description by primary name."""
+        if self._persona_repo is None:
+            return None
+        try:
+            personas = await self._persona_repo.list_all()
+        except Exception as exc:
+            logger.debug("[EventExtractor] persona list_all failed: %s", exc)
+            return None
+        for p in personas:
+            if (p.primary_name or "").strip() == persona_name:
+                attrs = p.persona_attrs if isinstance(p.persona_attrs, dict) else {}
+                desc = str(attrs.get("description") or "").strip()
+                return desc or None
+        return None
+
     async def _get_bot_persona(self) -> tuple[str | None, str | None]:
         """Return (primary_name, description) for the bot persona. Use cache if available.
         """
@@ -345,6 +408,48 @@ class EventExtractor:
         mapping = await self._batch_align_tags(raw_tags)
         return list(dict.fromkeys(mapping.get(tag, tag) for tag in raw_tags))
 
+    async def _call_llm_with_retry(self, coro_factory, task_name: str) -> tuple[object, int]:
+        """Run an LLM call with timeout + exponential retry on TimeoutError / provider exceptions.
+
+        coro_factory: zero-arg callable returning a fresh provider coroutine on each attempt.
+        Returns (response, retries_used). Raises the last exception when all attempts fail.
+        """
+        attempts = self._llm_max_retries + 1
+        timeout = float(self._llm_timeout)
+        last_exc: BaseException | None = None
+        for i in range(attempts):
+            try:
+                if self._llm_manager:
+                    resp = await self._llm_manager.run(
+                        asyncio.wait_for,
+                        coro_factory(),
+                        timeout=timeout,
+                        task_name=task_name,
+                    )
+                else:
+                    resp = await asyncio.wait_for(coro_factory(), timeout=timeout)
+                return resp, i
+            except asyncio.TimeoutError as exc:
+                last_exc = exc
+                if i + 1 >= attempts:
+                    break
+                logger.warning(
+                    "[EventExtractor] %s timed out after %.1fs (attempt %d/%d); retrying with longer timeout",
+                    task_name, timeout, i + 1, attempts,
+                )
+                timeout *= self._llm_timeout_growth
+            except Exception as exc:
+                last_exc = exc
+                if i + 1 >= attempts:
+                    break
+                logger.warning(
+                    "[EventExtractor] %s failed (%s); attempt %d/%d, retrying",
+                    task_name, exc, i + 1, attempts,
+                )
+                await asyncio.sleep(min(2.0 ** i, 5.0))
+        assert last_exc is not None
+        raise last_exc
+
     async def _extract_batch(self, window: MessageWindow, existing_tags: list[str] | None = None, bot_persona_desc: str | None = None) -> list[dict]:
         provider = self._provider_getter()
         if provider is None:
@@ -363,33 +468,35 @@ class EventExtractor:
             existing_tags=existing_tags
         )
         fallback_reason = "parse_error"
+        retries_used = 0
         try:
-            if self._llm_manager:
-                resp = await self._llm_manager.run(
-                    asyncio.wait_for,
-                    provider.text_chat(prompt=prompt, system_prompt=self._system_prompt),
-                    timeout=self._llm_timeout,
-                    task_name="extraction"
-                )
-            else:
-                resp = await asyncio.wait_for(
-                    provider.text_chat(prompt=prompt, system_prompt=self._system_prompt),
-                    timeout=self._llm_timeout,
-                )
-            result = parse_llm_output(resp.completion_text, len(window.messages) - 1)
+            resp, retries_used = await self._call_llm_with_retry(
+                lambda: provider.text_chat(prompt=prompt, system_prompt=self._system_prompt),
+                task_name="extraction",
+            )
+            result = parse_llm_output(
+                resp.completion_text,
+                len(window.messages) - 1,
+                has_bot_persona=bool(bot_persona_desc),
+            )
             if result is not None:
                 return result
         except asyncio.TimeoutError:
             fallback_reason = "timeout"
-            logger.warning("[EventExtractor] LLM batch extraction timed out after %.1fs", self._llm_timeout)
+            logger.warning(
+                "[EventExtractor] LLM batch extraction timed out (retries_used=%d)",
+                self._llm_max_retries,
+            )
+            retries_used = self._llm_max_retries
         except Exception as exc:
             fallback_reason = "exception"
             logger.warning("[EventExtractor] LLM batch extraction failed: %s", exc)
+            retries_used = self._llm_max_retries
 
         logger.warning(
             "[EventExtractor] event fell back to rule extraction: reason=%s, "
-            "session=%s, message_count=%d",
-            fallback_reason, window.session_id, window.message_count,
+            "session=%s, message_count=%d, retries_used=%d",
+            fallback_reason, window.session_id, window.message_count, retries_used,
         )
         return fallback_extraction(window)
 
@@ -414,19 +521,11 @@ class EventExtractor:
             existing_tags=existing_tags
         )
         try:
-            if self._llm_manager:
-                resp = await self._llm_manager.run(
-                    asyncio.wait_for,
-                    provider.text_chat(prompt=prompt, system_prompt=self._distillation_system_prompt),
-                    timeout=self._llm_timeout,
-                    task_name="extraction"
-                )
-            else:
-                resp = await asyncio.wait_for(
-                    provider.text_chat(prompt=prompt, system_prompt=self._distillation_system_prompt),
-                    timeout=self._llm_timeout,
-                )
-            result = parse_single_item(resp.completion_text)
+            resp, _ = await self._call_llm_with_retry(
+                lambda: provider.text_chat(prompt=prompt, system_prompt=self._distillation_system_prompt),
+                task_name="distillation",
+            )
+            result = parse_single_item(resp.completion_text, has_bot_persona=bool(bot_persona_desc))
             if result is not None:
                 return result
         except Exception as exc:
