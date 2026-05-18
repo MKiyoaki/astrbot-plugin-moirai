@@ -107,6 +107,7 @@ class InMemoryEventRepository(EventRepository):
     async def search_fts(
         self, query: str, limit: int = 20, active_only: bool = True,
         group_id: str | None = None, event_type: str | None = None,
+        scope_mode: str = "all",
     ) -> list[Event]:
         """Naive term-in-string match over topic + tags. FTS5 replaces this in production."""
         terms = query.lower().split()
@@ -114,7 +115,9 @@ class InMemoryEventRepository(EventRepository):
         for event in self._store.values():
             if active_only and event.status != "active":
                 continue
-            if group_id is not None and event.group_id != group_id:
+            if scope_mode == "group" and event.group_id != group_id:
+                continue
+            if scope_mode == "private" and event.group_id is not None:
                 continue
             if event_type is not None and event.event_type != event_type:
                 continue
@@ -127,6 +130,7 @@ class InMemoryEventRepository(EventRepository):
     async def search_vector(
         self, embedding: list[float], limit: int = 20, active_only: bool = True,
         group_id: str | None = None, event_type: str | None = None,
+        scope_mode: str = "all",
     ) -> list[Event]:
         """Stub — no vector index in memory. Production uses sqlite-vec."""
         return []

@@ -276,6 +276,25 @@ async def test_event_search_vector_returns_empty_stub(event_repo) -> None:
     assert await event_repo.search_vector([0.1, 0.2, 0.3]) == []
 
 
+async def test_event_search_fts_scope_modes(event_repo) -> None:
+    await event_repo.upsert(make_event("private", group_id=None, topic="ScopeTarget private"))
+    await event_repo.upsert(make_event("g1", group_id="grp-1", topic="ScopeTarget group one"))
+    await event_repo.upsert(make_event("g2", group_id="grp-2", topic="ScopeTarget group two"))
+
+    all_results = await event_repo.search_fts("ScopeTarget", scope_mode="all")
+    assert {e.event_id for e in all_results} == {"private", "g1", "g2"}
+
+    group_results = await event_repo.search_fts(
+        "ScopeTarget",
+        group_id="grp-1",
+        scope_mode="group",
+    )
+    assert [e.event_id for e in group_results] == ["g1"]
+
+    private_results = await event_repo.search_fts("ScopeTarget", scope_mode="private")
+    assert [e.event_id for e in private_results] == ["private"]
+
+
 async def test_event_get_children(event_repo) -> None:
     await event_repo.upsert(make_event("parent"))
     await event_repo.upsert(make_event("child1", inherit_from=["parent"]))

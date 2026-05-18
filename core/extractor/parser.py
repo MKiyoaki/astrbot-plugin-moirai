@@ -54,6 +54,14 @@ def _first_meaningful_text(window: MessageWindow) -> str:
     return ""
 
 
+def _first_meaningful_message_text(messages: list) -> str:
+    for msg in messages:
+        t = (getattr(msg, "text", "") or "").strip()
+        if t:
+            return t
+    return ""
+
+
 def _preview_text(text: str, limit: int = 48) -> str:
     preview = re.sub(r"\s+", " ", text).strip()
     if len(preview) <= limit:
@@ -106,6 +114,50 @@ def _sample_message_previews(window: MessageWindow, limit: int = 6) -> list[str]
     return previews
 
 
+def _sample_previews_from_messages(messages: list, limit: int = 6) -> list[str]:
+    non_empty = [
+        (i, msg)
+        for i, msg in enumerate(messages)
+        if (getattr(msg, "text", "") or "").strip()
+    ]
+    if not non_empty:
+        return []
+    if len(non_empty) <= limit:
+        selected = non_empty
+    else:
+        mid = len(non_empty) // 2
+        wanted_indices = [0, 1, mid - 1, mid, len(non_empty) - 2, len(non_empty) - 1]
+        selected = []
+        used: set[int] = set()
+        for idx in wanted_indices:
+            idx = max(0, min(len(non_empty) - 1, idx))
+            original_idx, msg = non_empty[idx]
+            if original_idx in used:
+                continue
+            used.add(original_idx)
+            selected.append((original_idx, msg))
+
+    previews: list[str] = []
+    for _, msg in selected[:limit]:
+        name = (getattr(msg, "display_name", "") or "").strip() or "user"
+        previews.append(f"{name}: {_preview_text(getattr(msg, 'text', '') or '')}")
+    return previews
+
+
+def _participant_names_from_messages(messages: list, limit: int = 5) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for i, msg in enumerate(messages):
+        name = (getattr(msg, "display_name", "") or "").strip() or f"user{i + 1}"
+        if name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+        if len(names) >= limit:
+            break
+    return names
+
+
 def _fallback_summary(window: MessageWindow, topic: str, tags: list[str]) -> str:
     names = _participant_names(window)
     participants = "、".join(names) if names else "对话参与者"
@@ -126,6 +178,35 @@ def _fallback_summary(window: MessageWindow, topic: str, tags: list[str]) -> str
         parts.append(f"高频线索包括：{'、'.join(tags)}。")
     parts.append(f"代表片段：{' / '.join(samples)}")
     return "".join(parts)
+
+
+def _fallback_tags_from_messages(messages: list) -> list[str]:
+    all_text = " ".join((getattr(m, "text", "") or "") for m in messages)
+    words = [w for w in re.split(r"[\s锛屻€傦紒锛熴€?!?]+", all_text) if _is_valid_fallback_tag(w)]
+    freq: dict[str, int] = {}
+    for w in words:
+        freq[w] = freq.get(w, 0) + 1
+    return [w for w, _ in sorted(freq.items(), key=lambda x: -x[1])[:5]]
+
+
+def _fallback_summary_from_messages(messages: list, topic: str, tags: list[str]) -> str:
+    names = _participant_names_from_messages(messages)
+    participants = ", ".join(names) if names else "participants"
+    if len(messages) > len(names) and len(names) >= 5:
+        participants += ", ..."
+
+    samples = _sample_previews_from_messages(messages)
+    if not samples:
+        return (
+            f"This memory contains {len(messages)} messages, mostly non-text or empty content. "
+            "No reliable text details were available."
+        )
+
+    parts = [f"{participants} discussed \"{topic}\" across {len(messages)} messages."]
+    if tags:
+        parts.append("Tags: " + ", ".join(tags) + ".")
+    parts.append("Representative excerpts: " + " / ".join(samples))
+    return " ".join(parts)
 
 
 def _ensure_eval_field(item: dict) -> None:
@@ -361,6 +442,24 @@ def fallback_extraction(window: MessageWindow) -> list[dict]:
         "inherit": False,
         "participants_personality": None,
     }]
+
+
+def fallback_single_extraction(messages: list) -> dict:
+    """Rule-based extraction for one already-partitioned message cluster."""
+    first_text = _first_meaningful_message_text(messages)
+    topic = first_text[:30] if first_text else "(no text content)"
+    tags = _fallback_tags_from_messages(messages)
+    summary = _fallback_summary_from_messages(messages, topic, tags)
+    salience = min(0.3 + 0.01 * len(messages), 0.7)
+    return {
+        "topic": topic,
+        "summary": summary,
+        "chat_content_tags": tags,
+        "salience": round(salience, 3),
+        "confidence": 0.2,
+        "inherit": False,
+        "participants_personality": None,
+    }
 
 
 def _clamp(value: object, lo: float = 0.0, hi: float = 1.0) -> float:

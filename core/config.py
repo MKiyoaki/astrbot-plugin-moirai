@@ -231,6 +231,12 @@ class InjectionConfig:
     """Prepend the pre-injection system prompt to replies for admin senders."""
     show_injection_summary: bool = False
     """Prepend a sanitized summary of Moirai's actual injected prompt content."""
+    impression_injection_enabled: bool = True
+    """Inject low-weight social impression hints into the system prompt."""
+    impression_injection_max_items: int = 3
+    """Maximum social impression rows injected for the active sender."""
+    impression_injection_min_confidence: float = 0.2
+    """Minimum confidence required before a social impression can be injected."""
 
 
 @dataclass
@@ -492,6 +498,7 @@ class PluginConfig:
         pos = self._str("injection_position", "system_prompt").strip()
         valid = {"system_prompt", "user_message_before",
                  "user_message_after", "fake_tool_call"}
+        relation_enabled = self._bool("relation_enabled", True)
         return InjectionConfig(
             position=pos if pos in valid else "system_prompt",
             auto_clear=self._bool("injection_auto_clear", True),
@@ -499,6 +506,16 @@ class PluginConfig:
             show_thinking_process=self._bool("show_thinking_process", False),
             show_system_prompt=self._bool("show_system_prompt", False),
             show_injection_summary=self._bool("show_injection_summary", False),
+            impression_injection_enabled=(
+                relation_enabled
+                and self._bool("impression_injection_enabled", True)
+            ),
+            impression_injection_max_items=max(
+                0, min(8, self._int("impression_injection_max_items", 3))
+            ),
+            impression_injection_min_confidence=max(
+                0.0, min(1.0, self._float("impression_injection_min_confidence", 0.2))
+            ),
         )
 
     def get_ipc_config(self) -> IPCConfig:
@@ -620,6 +637,10 @@ class PluginConfig:
     @property
     def llm_concurrency(self) -> int:
         return self._int("llm_concurrency", 2)
+
+    @property
+    def show_llm_call_details(self) -> bool:
+        return self._bool("show_llm_call_details", False)
 
     # ------------------------------------------------------------------
     # Embedding / retrieval

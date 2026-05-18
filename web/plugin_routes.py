@@ -569,6 +569,7 @@ class PluginRoutes:
             llm_manager=self._llm_manager,
             context_manager=self._context_manager,
             summary_trigger_rounds=self._summary_trigger_rounds,
+            show_llm_call_details=bool(self._read_config().get("show_llm_call_details", False)),
         )
         data["soul_enabled"] = bool(self._initial_config.get("soul_enabled", True))
         return data

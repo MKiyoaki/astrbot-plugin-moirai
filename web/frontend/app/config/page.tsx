@@ -59,6 +59,9 @@ const FIELD_DEPENDENCIES: Record<string, string> = {
   'persona_isolation_legacy_visible': 'persona_isolation_enabled',
   'persona_merge_audit_enabled': 'persona_isolation_enabled',
   'persona_default_view_mode': 'persona_isolation_enabled',
+  'impression_injection_enabled': 'relation_enabled',
+  'impression_injection_max_items': 'impression_injection_enabled',
+  'impression_injection_min_confidence': 'impression_injection_enabled',
   'impression_event_trigger_enabled': 'relation_enabled',
   'impression_event_trigger_threshold': 'relation_enabled',
   'impression_trigger_debounce_hours': 'relation_enabled',
@@ -479,6 +482,9 @@ export default function ConfigPage() {
       label: i18n.config.sections.relation,
       keys: [
         'relation_enabled',
+        'impression_injection_enabled',
+        'impression_injection_max_items',
+        'impression_injection_min_confidence',
         'persona_default_confidence',
         'persona_isolation_enabled',
         'persona_isolation_legacy_visible',
@@ -511,7 +517,8 @@ export default function ConfigPage() {
       keys: [
         'show_thinking_process',
         'show_system_prompt',
-        'show_injection_summary'
+        'show_injection_summary',
+        'show_llm_call_details'
       ],
     },
     {

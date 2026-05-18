@@ -22,7 +22,7 @@ import time as _time
 
 from typing import TYPE_CHECKING
 from ..embedding.encoder import NullEncoder
-from .parser import fallback_extraction, parse_llm_output, parse_single_item
+from .parser import fallback_extraction, fallback_single_extraction, parse_llm_output, parse_single_item
 from .persona_context import resolve_bot_persona_context
 from .prompts import build_user_prompt, build_distillation_prompt
 from .partitioner import LlmPartitioner, SemanticPartitioner, Partition
@@ -56,6 +56,17 @@ def _warn_no_provider() -> None:
         logger.warning(
             "[EventExtractor] LLM provider is None; falling back to rule-based extraction"
         )
+
+
+def _response_text(resp: object) -> str:
+    for attr in ("completion_text", "text"):
+        value = getattr(resp, attr, None)
+        if value is None or callable(value):
+            continue
+        text = value if isinstance(value, str) else str(value)
+        if text:
+            return text
+    return ""
 
 if TYPE_CHECKING:
     from ..boundary.window import MessageWindow
@@ -475,7 +486,7 @@ class EventExtractor:
                 task_name="extraction",
             )
             result = parse_llm_output(
-                resp.completion_text,
+                _response_text(resp),
                 len(window.messages) - 1,
                 has_bot_persona=bool(bot_persona_desc),
             )
@@ -504,6 +515,8 @@ class EventExtractor:
         """Call LLM to summarize a specific cluster of messages."""
         provider = self._provider_getter()
         if provider is None:
+            return fallback_single_extraction(messages)
+        if provider is None:
             # Fake a result from messages
             topic = messages[0].text[:30]
             return {
@@ -525,11 +538,13 @@ class EventExtractor:
                 lambda: provider.text_chat(prompt=prompt, system_prompt=self._distillation_system_prompt),
                 task_name="distillation",
             )
-            result = parse_single_item(resp.completion_text, has_bot_persona=bool(bot_persona_desc))
+            result = parse_single_item(_response_text(resp), has_bot_persona=bool(bot_persona_desc))
             if result is not None:
                 return result
         except Exception as exc:
             logger.warning("[EventExtractor] LLM distillation failed: %s", exc)
+
+        return fallback_single_extraction(messages)
 
         # Fallback for single item
         return {

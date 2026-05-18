@@ -26,12 +26,45 @@ def _estimate_tokens(text: str) -> int:
 
 
 def _time_label(end_time: float, now: float) -> str:
-    age = now - end_time
+    try:
+        age = now - float(end_time)
+    except (TypeError, ValueError):
+        return "unknown time"
     if age < 3600:
         return f"{max(1, int(age / 60))}分钟前"
     if age < 86400:
         return f"{int(age / 3600)}小时前"
     return f"{int(age / 86400)}天前"
+
+
+def _safe_text(value: object, fallback: str = "") -> str:
+    text = str(value or "").strip()
+    return text or fallback
+
+
+def _deterministic_memory_fallback(
+    events: list[Event],
+    *,
+    token_budget: int,
+    now: float,
+) -> str:
+    used = _estimate_tokens("## Retrieved memory\n")
+    lines: list[str] = []
+    for ev in events:
+        topic = _safe_text(getattr(ev, "topic", ""), getattr(ev, "event_id", "memory"))
+        summary = _safe_text(getattr(ev, "summary", ""))
+        label = _time_label(getattr(ev, "end_time", now), now)
+        entry = f"- [{label}] {topic}"
+        if summary:
+            entry += f": {summary[:120]}"
+        cost = _estimate_tokens(entry + "\n")
+        if used + cost > token_budget:
+            break
+        lines.append(entry)
+        used += cost
+    if not lines:
+        return ""
+    return "## Retrieved memory\n" + "\n".join(lines)
 
 
 def format_events_for_prompt(
@@ -92,6 +125,22 @@ def format_events_for_prompt(
 _DIM_NAMES = {"O": "开放性", "C": "尽责性", "E": "外向性", "A": "宜人性", "N": "神经质"}
 
 
+def format_events_for_prompt_safe(
+    events: list[Event],
+    *,
+    token_budget: int = _TOKEN_BUDGET,
+    now: float | None = None,
+) -> str:
+    if not events:
+        return ""
+    if now is None:
+        now = time.time()
+    try:
+        return format_events_for_prompt(events, token_budget=token_budget, now=now)
+    except Exception:
+        return _deterministic_memory_fallback(events, token_budget=token_budget, now=now)
+
+
 def format_persona_for_prompt(persona: Persona) -> str:
     """Return a brief system-prompt segment with the user's OCEAN personality profile.
 
@@ -140,7 +189,7 @@ def format_events_for_fake_tool_call(
 
     Returns empty list if no content to inject.
     """
-    content = format_events_for_prompt(events, token_budget=token_budget, now=now)
+    content = format_events_for_prompt_safe(events, token_budget=token_budget, now=now)
     if not content:
         return []
     tool_call_id = f"{FAKE_TOOL_CALL_ID_PREFIX}{uuid.uuid4().hex[:8]}"

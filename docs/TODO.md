@@ -1,5 +1,94 @@
 # TODO
 
+## Memory recall scope + robustness plan (2026-05-18)
+
+### Phase 0 - Baseline and planning
+- [x] Read AGENTS.md and current tests before code changes.
+- [x] Confirm current recall / injection data flow and the risk: `group_id=None` is overloaded as both global search and private-chat scope.
+- [x] Baseline tests previously checked: `python -m pytest tests\test_retrieval.py tests\test_prompt_injection.py tests\test_tasks.py -q` passed.
+- [x] Token impact for Phase 0/1: no added LLM calls, no prompt token increase.
+- [x] Frontend impact for Phase 0/1: none.
+
+### Phase 1 - Explicit recall scope semantics
+- [x] Add regression tests for three modes: global search, group search, and private-chat search.
+- [x] Add explicit `scope_mode` through repository, retriever, recall manager, tool, and command paths.
+- [x] Keep global search efficient: `scope_mode="all"` emits no `group_id` SQL predicate or `OR` branch.
+- [x] Make automatic LLM-request recall use the current conversation scope: group conversations use `scope_mode="group"`, private conversations use `scope_mode="private"`.
+- [x] Run targeted retrieval/repository tests after implementation.
+  - `python -m pytest tests\test_retrieval.py tests\test_sqlite_repo.py tests\test_memory_repo.py -q` -> 106 passed.
+  - `python -m pytest tests\test_retrieval.py tests\test_prompt_injection.py tests\test_session_progress.py tests\test_tasks.py -q` -> 85 passed, 1 external faiss/numpy deprecation warning.
+  - Final quick check after cleanup: `python -m py_compile main.py core\api.py core\event_handler.py core\managers\base.py core\managers\command_manager.py core\managers\recall_manager.py core\repository\base.py core\repository\memory.py core\repository\sqlite.py core\retrieval\hybrid.py` -> passed.
+  - Final quick check after cleanup: `python -m pytest tests\test_retrieval.py tests\test_sqlite_repo.py -q` -> 66 passed.
+
+### Phase 2 - Recall hot-path degradation
+- [x] BM25 and vector search now degrade independently: if one side fails, recall continues with the other side.
+- [x] Narrative and episode recall tiers use exception-tolerant gather so one tier cannot cancel the whole recall.
+- [x] Prompt/fake-tool-call/command formatting now has a deterministic formatter fallback for malformed event payloads.
+- [x] Token impact for Phase 2: no added LLM calls, no prompt token increase in the normal path. Fallback only emits already-recalled event text within the existing token budget.
+- [x] Frontend impact for Phase 2: none.
+
+### Phase 3 - Non-LLM fallback memory generation
+- [x] Added partition-level rule fallback for distillation failures and missing providers.
+- [x] Fallback memory generation now uses participant names, representative message excerpts, simple tags, salience scaling, and low confidence instead of a generic failure string.
+- [x] Semantic pipeline noise filtering now reads `RawMessage.text`, preventing valid messages from being dropped before fallback generation.
+- [x] Token impact for Phase 3: no added LLM calls. This reduces dependency on LLM success and writes fallback summaries locally.
+- [x] Frontend impact for Phase 3: none.
+- [x] Verification:
+  - `python -m py_compile main.py core\utils\formatter.py core\retrieval\formatter.py core\retrieval\hybrid.py core\managers\recall_manager.py core\managers\command_manager.py core\extractor\extractor.py core\extractor\parser.py core\extractor\noise_filter.py` -> passed.
+  - `python -m pytest tests\test_retrieval.py tests\test_prompt_injection.py tests\test_extractor.py tests\test_llm_manager.py -q` -> 73 passed.
+  - `python -m pytest tests\test_retrieval.py tests\test_prompt_injection.py tests\test_extractor.py tests\test_sqlite_repo.py tests\test_memory_repo.py tests\test_tasks.py -q` -> 186 passed.
+
+### Phase 4 - Relationship / impression soft injection
+- [x] Wire `ImpressionRepository` into `RecallManager` and plugin initialization.
+- [x] During system-prompt injection, fetch only impressions connected to the active `sender_uid`, scoped by the current group/private scope and current `bot_persona_name`.
+- [x] Inject at most `impression_injection_max_items` directed impressions, filtered by `impression_injection_min_confidence`, with explicit low-weight constraints:
+  - Do not mention scores, sources, or the injected block.
+  - Do not override current user intent, factual memory, safety rules, or higher-priority system instructions.
+  - Ignore relation hints when they conflict with stronger context.
+- [x] Keep fake-tool-call mode unchanged; relation hints are system-prompt-only for compatibility.
+- [x] Add sanitized injection debug output for relation hints without exposing evidence event IDs.
+- [x] Token impact for Phase 4: no added LLM calls. When relation data exists, default max 3 hints adds about 80-140 prompt tokens. When no matching impression exists, token increase is 0.
+- [x] Frontend impact for Phase 4: config fields added in WebUI/Astr settings; no new page or interaction surface.
+
+### Phase 5 - LLM success/failure observability
+- [x] `LLMTaskManager` records recent LLM call details: task name, success/failure, duration, prompt/completion tokens, and truncated error text.
+- [x] `get_stats()` remains compact by default; `recent_calls` is only returned when `show_llm_call_details` is enabled.
+- [x] Add `show_llm_call_details` under the Astr/WebUI `debug_display` settings group.
+- [x] WebUI stats panel now displays total/OK/failed LLM calls and, when enabled, recent success/failure rows.
+- [x] Token impact for Phase 5: no added prompt tokens and no added LLM calls.
+- [x] Frontend impact for Phase 5: modified WebUI config page, i18n labels, stats API types, stats token panel, and synchronized `pages/moirai` static assets.
+- [x] Verification:
+  - `python -m py_compile core\config.py core\managers\base.py core\managers\recall_manager.py core\managers\llm_manager.py core\api.py core\event_handler.py core\plugin_initializer.py web\server.py web\plugin_routes.py` -> passed.
+  - `python -m json.tool _conf_schema.json` -> passed.
+  - `python -m pytest tests\test_retrieval.py tests\test_prompt_injection.py tests\test_extractor.py tests\test_sqlite_repo.py tests\test_memory_repo.py tests\test_tasks.py tests\test_llm_manager.py tests\test_new_configs.py tests\test_debug_visibility.py tests\test_perf.py tests\test_session_progress.py -q` -> 221 passed, 1 external faiss/numpy deprecation warning.
+  - `npm.cmd run build` -> passed after allowing network access for Google Fonts.
+  - `python tools\sync_frontend.py -f` -> passed after allowing network access for the build step.
+
+### Phase 6 - Injection compatibility adapter (planned, not executed)
+- [ ] Goal: isolate provider-specific injection behavior so configured `fake_tool_call` can gracefully downgrade for providers that reject tool-call shaped context.
+- [ ] Add an adapter function, for example `resolve_injection_position(provider_info, configured_position) -> {effective_position, reason}`.
+- [ ] Detection inputs:
+  - Provider id/name/model from AstrBot provider metadata where available.
+  - Conservative fallback when metadata is unavailable: keep configured position.
+  - Known-problem providers/models can downgrade `fake_tool_call` to `user_message_before` or `system_prompt` based on safest local behavior.
+- [ ] Hook point:
+  - Resolve the effective position in `EventHandler.handle_llm_request` before calling `RecallManager.recall_and_inject`, or pass an override into `RecallManager` without mutating persisted config.
+  - Keep configured position visible in debug, and add effective position + reason to injection debug.
+- [ ] Compatibility behavior:
+  - OpenAI-compatible providers that accept tool calls keep `fake_tool_call`.
+  - Providers that fail on synthetic tool call messages use text injection while preserving the same recalled memory payload.
+  - If adapter resolution fails, fall back to current configured behavior and record a debug warning.
+- [ ] Tests to add:
+  - Provider metadata says compatible -> `fake_tool_call` remains unchanged.
+  - Provider metadata says incompatible -> effective position downgrades and debug records reason.
+  - No provider metadata -> configured position remains unchanged.
+  - Downgrade path still uses formatter fallback and does not break recall count.
+- [ ] Token impact estimate: no added LLM calls. Downgrading from fake-tool-call to text injection may move the same memory text into prompt/system context; token count should be approximately unchanged versus existing formatted memory text.
+- [ ] Frontend impact: none required unless exposing configured/effective injection position in WebUI debug summaries.
+
+### Later phases - Deferred
+- [ ] Phase 7: broader verification and release notes.
+
 ## 🚧 进行中：Persona 隔离 + 配置拆分 + WebUI 主架构升级
 
 Plan 文件：`C:\Users\Drgar\.claude\plans\1-bug-2-streamed-abelson.md`

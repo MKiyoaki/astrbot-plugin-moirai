@@ -9,7 +9,7 @@ from core.boundary.window import MessageWindow
 from core.config import ExtractorConfig, PluginConfig
 from core.domain.models import Event, MessageRef, Persona
 from core.extractor.extractor import EventExtractor
-from core.extractor.parser import fallback_extraction, parse_llm_output
+from core.extractor.parser import fallback_extraction, fallback_single_extraction, parse_llm_output
 from core.extractor.prompts import build_user_prompt
 from core.repository.memory import InMemoryEventRepository
 
@@ -248,6 +248,11 @@ class _MockProvider:
         return r
 
 
+class _FailingProvider:
+    async def text_chat(self, prompt=None, system_prompt=None, **_kwargs):
+        raise RuntimeError("provider failed")
+
+
 # ---------------------------------------------------------------------------
 # P1-2: bot persona list_all should be called once per extractor invocation,
 #        not once per partition / once per extracted result.
@@ -378,6 +383,42 @@ async def test_extractor_creates_events_from_llm(tmp_path) -> None:
     assert events[0].topic == "话题1"
     assert events[0].summary == "摘要1"
     assert events[0].salience == pytest.approx(0.8)
+
+
+def test_fallback_single_extraction_uses_representative_messages() -> None:
+    w = make_window([
+        ("u1", "Alice", "Project Phoenix needs a launch checklist"),
+        ("u2", "Bob", "We should include backups and rollback steps"),
+        ("u1", "Alice", "Add owner assignments before Friday"),
+    ])
+
+    result = fallback_single_extraction(w.messages)
+
+    assert result["topic"].startswith("Project Phoenix")
+    assert "Alice" in result["summary"]
+    assert "Bob" in result["summary"]
+    assert "rollback steps" in result["summary"]
+    assert result["confidence"] <= 0.35
+
+
+async def test_extractor_distill_failure_uses_non_llm_partition_fallback() -> None:
+    event_repo = InMemoryEventRepository()
+    extractor = EventExtractor(
+        event_repo=event_repo,
+        provider_getter=lambda: _FailingProvider(),
+        extractor_config=ExtractorConfig(strategy="semantic"),
+    )
+
+    await extractor(make_window([
+        ("u1", "Alice", "Project Phoenix needs a launch checklist"),
+        ("u2", "Bob", "We should include backups and rollback steps"),
+    ]))
+
+    events = await event_repo.list_by_group("g1")
+    assert len(events) == 1
+    assert events[0].topic.startswith("Project Phoenix")
+    assert "rollback steps" in events[0].summary
+    assert events[0].confidence <= 0.35
 
 
 async def test_extractor_unified_personality_priming() -> None:

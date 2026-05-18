@@ -22,11 +22,15 @@ class TestNewConfigs(unittest.IsolatedAsyncioTestCase):
                 "retrieval_salience_weight": 0.1,
                 "retrieval_rrf_k": 60,
                 "injection_position": "system_prompt",
-                "injection_auto_clear": True
+                "injection_auto_clear": True,
+                "show_llm_call_details": True
             },
             "relation": {
                 "decay_lambda": 0.01,
-                "decay_interval_hours": 24
+                "decay_interval_hours": 24,
+                "impression_injection_enabled": True,
+                "impression_injection_max_items": 4,
+                "impression_injection_min_confidence": 0.35
             },
             "backup": {
                 "backup_enabled": True,
@@ -56,6 +60,10 @@ class TestNewConfigs(unittest.IsolatedAsyncioTestCase):
         injection = self.cfg.get_injection_config()
         self.assertEqual(injection.position, "system_prompt")
         self.assertTrue(injection.auto_clear)
+        self.assertTrue(injection.impression_injection_enabled)
+        self.assertEqual(injection.impression_injection_max_items, 4)
+        self.assertEqual(injection.impression_injection_min_confidence, 0.35)
+        self.assertTrue(self.cfg.show_llm_call_details)
 
         # Test Decay
         decay = self.cfg.get_decay_config()

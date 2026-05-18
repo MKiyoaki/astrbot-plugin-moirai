@@ -8,9 +8,13 @@ import pytest
 
 from types import SimpleNamespace
 
-from core.domain.models import Event, MessageRef, Persona
+from core.domain.models import Event, Impression, MessageRef, Persona
 from core.embedding.encoder import NullEncoder
-from core.repository.memory import InMemoryEventRepository, InMemoryPersonaRepository
+from core.repository.memory import (
+    InMemoryEventRepository,
+    InMemoryImpressionRepository,
+    InMemoryPersonaRepository,
+)
 from core.retrieval.hybrid import HybridRetriever
 from core.retrieval.rrf import rrf_fuse
 
@@ -19,10 +23,15 @@ from core.retrieval.rrf import rrf_fuse
 # Helpers
 # ---------------------------------------------------------------------------
 
-def make_event(event_id: str, topic: str = "", salience: float = 0.5) -> Event:
+def make_event(
+    event_id: str,
+    topic: str = "",
+    salience: float = 0.5,
+    group_id: str | None = "g1",
+) -> Event:
     return Event(
         event_id=event_id,
-        group_id="g1",
+        group_id=group_id,
         start_time=1000.0,
         end_time=1010.0,
         participants=["uid-a"],
@@ -53,6 +62,18 @@ class _FixedEncoder:
 
     async def encode_batch(self, texts: list[str]) -> list[list[float]]:
         return [self._value for _ in texts]
+
+
+class _FailingEncoder:
+    @property
+    def dim(self) -> int:
+        return 4
+
+    async def encode(self, text: str) -> list[float]:  # noqa: ARG002
+        raise RuntimeError("encoder failed")
+
+    async def encode_batch(self, texts: list[str]) -> list[list[float]]:
+        raise RuntimeError("batch encoder failed")
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +147,10 @@ async def test_hybrid_retriever_uses_rrf_when_encoder_active() -> None:
     # Mock: search_vector always returns [e2, e1] regardless of query
     original_vec = repo.search_vector
 
-    async def mock_vec(embedding, limit=20, active_only=True, group_id=None, event_type=None):
+    async def mock_vec(
+        embedding, limit=20, active_only=True, group_id=None, event_type=None,
+        scope_mode="all",
+    ):
         return [e2, e1]
 
     repo.search_vector = mock_vec
@@ -142,7 +166,10 @@ async def test_hybrid_retriever_falls_back_on_empty_vec_results() -> None:
     repo = InMemoryEventRepository()
     await repo.upsert(make_event("e1", topic="hello world"))
 
-    async def mock_vec(embedding, limit=20, active_only=True, group_id=None, event_type=None):
+    async def mock_vec(
+        embedding, limit=20, active_only=True, group_id=None, event_type=None,
+        scope_mode="all",
+    ):
         return []
 
     repo.search_vector = mock_vec
@@ -151,6 +178,42 @@ async def test_hybrid_retriever_falls_back_on_empty_vec_results() -> None:
     retriever = HybridRetriever(event_repo=repo, encoder=encoder)
     results = await retriever.search("hello", limit=5)
     assert any(e.event_id == "e1" for e in results)
+
+
+async def test_hybrid_retriever_keeps_bm25_when_encoder_fails() -> None:
+    repo = InMemoryEventRepository()
+    await repo.upsert(make_event("e1", topic="resilient recall"))
+
+    retriever = HybridRetriever(event_repo=repo, encoder=_FailingEncoder())
+    results = await retriever.search("resilient", limit=5)
+
+    assert [e.event_id for e in results] == ["e1"]
+
+
+async def test_hybrid_retriever_keeps_vector_when_bm25_fails() -> None:
+    repo = InMemoryEventRepository()
+    vector_event = make_event("vec", topic="vector fallback")
+    await repo.upsert(vector_event)
+
+    async def broken_fts(*_args, **_kwargs):
+        raise RuntimeError("fts failed")
+
+    async def mock_vec(
+        embedding, limit=20, active_only=True, group_id=None, event_type=None,
+        scope_mode="all",
+    ):
+        return [vector_event]
+
+    repo.search_fts = broken_fts
+    repo.search_vector = mock_vec
+
+    retriever = HybridRetriever(
+        event_repo=repo,
+        encoder=_FixedEncoder(dim=4, value=[1.0, 0.0, 0.0, 0.0]),
+    )
+    results = await retriever.search("anything", limit=5)
+
+    assert [e.event_id for e in results] == ["vec"]
 
 
 async def test_hybrid_retriever_index_event_calls_upsert_vector() -> None:
@@ -397,6 +460,41 @@ async def test_recall_manager_expansion_deduplication():
 
 
 @pytest.mark.asyncio
+async def test_recall_manager_scope_mode_separates_global_group_and_private():
+    from core.managers.recall_manager import RecallManager
+    from core.config import RetrievalConfig, InjectionConfig
+
+    repo = InMemoryEventRepository()
+    retriever = HybridRetriever(repo, NullEncoder())
+    recall_manager = RecallManager(
+        retriever,
+        RetrievalConfig(final_limit=10),
+        InjectionConfig(),
+    )
+
+    await repo.upsert(make_event("private", topic="ScopeTarget private", group_id=None))
+    await repo.upsert(make_event("g1", topic="ScopeTarget group one", group_id="g1"))
+    await repo.upsert(make_event("g2", topic="ScopeTarget group two", group_id="g2"))
+
+    global_results = await recall_manager.recall("ScopeTarget")
+    assert {e.event_id for e in global_results} == {"private", "g1", "g2"}
+
+    group_results = await recall_manager.recall(
+        "ScopeTarget",
+        group_id="g1",
+        scope_mode="group",
+    )
+    assert [e.event_id for e in group_results] == ["g1"]
+
+    private_results = await recall_manager.recall(
+        "ScopeTarget",
+        group_id=None,
+        scope_mode="private",
+    )
+    assert [e.event_id for e in private_results] == ["private"]
+
+
+@pytest.mark.asyncio
 async def test_recall_manager_injection_summary_uses_persona_repo_get():
     from core.managers.recall_manager import RecallManager
     from core.config import RetrievalConfig, InjectionConfig
@@ -446,3 +544,82 @@ async def test_recall_manager_injection_summary_uses_persona_repo_get():
         {"key": "N", "label": "神经质", "percent": 70},
     ]
     assert "internal evidence" not in json.dumps(debug, ensure_ascii=False)
+
+
+@pytest.mark.asyncio
+async def test_recall_manager_injects_low_weight_social_impressions():
+    from core.managers.recall_manager import RecallManager
+    from core.config import RetrievalConfig, InjectionConfig
+
+    event_repo = InMemoryEventRepository()
+    persona_repo = InMemoryPersonaRepository()
+    impression_repo = InMemoryImpressionRepository()
+    await event_repo.upsert(make_event("A", topic="Target memory", salience=0.9, group_id="g1"))
+    await persona_repo.upsert(
+        Persona(
+            uid="uid-a",
+            bound_identities=[],
+            primary_name="Alice",
+            persona_attrs={},
+            confidence=0.8,
+            created_at=1.0,
+            last_active_at=2.0,
+        )
+    )
+    await persona_repo.upsert(
+        Persona(
+            uid="uid-b",
+            bound_identities=[],
+            primary_name="Bob",
+            persona_attrs={},
+            confidence=0.8,
+            created_at=1.0,
+            last_active_at=2.0,
+        )
+    )
+    await impression_repo.upsert(
+        Impression(
+            observer_uid="uid-b",
+            subject_uid="uid-a",
+            ipc_orientation="affinity",
+            benevolence=0.7,
+            power=0.1,
+            affect_intensity=0.8,
+            r_squared=0.5,
+            confidence=0.9,
+            scope="g1",
+            evidence_event_ids=["A"],
+            last_reinforced_at=2.0,
+            bot_persona_name="BotA",
+        )
+    )
+
+    retriever = HybridRetriever(event_repo, NullEncoder())
+    recall_manager = RecallManager(
+        retriever,
+        RetrievalConfig(final_limit=5),
+        InjectionConfig(position="system_prompt"),
+        persona_repo=persona_repo,
+        impression_repo=impression_repo,
+    )
+    req = SimpleNamespace(system_prompt="", prompt="", contexts=[])
+
+    injected = await recall_manager.recall_and_inject(
+        "Target",
+        req,
+        "session-1",
+        group_id="g1",
+        sender_uid="uid-a",
+        bot_persona_name="BotA",
+        store_injection_debug=True,
+        scope_mode="group",
+    )
+
+    debug = recall_manager.pop_injection_debug("session-1")
+    assert injected == 1
+    assert "[Social impression hints]" in req.system_prompt
+    assert "low-weight style/context signals only" in req.system_prompt
+    assert "Bob -> Alice" in req.system_prompt
+    assert debug["relation"]["count"] == 1
+    assert debug["relation"]["items"][0]["observer"] == "Bob"
+    assert "evidence_event_ids" not in json.dumps(debug, ensure_ascii=False)

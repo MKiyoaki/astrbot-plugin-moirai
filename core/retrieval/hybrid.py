@@ -8,11 +8,14 @@ from __future__ import annotations
 import asyncio
 import random
 import math
+import logging
 
 from ..domain.models import Event
 from ..embedding.encoder import Encoder, NullEncoder
 from ..repository.base import EventRepository
 from .rrf import rrf_fuse, rrf_scores
+
+logger = logging.getLogger(__name__)
 
 
 class HybridRetriever:
@@ -42,34 +45,56 @@ class HybridRetriever:
 
     async def search_raw(
         self, query: str, active_only: bool = True, group_id: str | None = None,
-        event_type: str | None = None,
+        event_type: str | None = None, scope_mode: str = "all",
     ) -> tuple[list[Event], list[Event]]:
         """Return (bm25_results, vec_results) without fusion.
 
-        group_id=None searches across all groups; pass a value to restrict to one scope.
+        scope_mode controls the conversation filter: all, group, or private.
         event_type restricts to 'episode' or 'narrative' when specified.
         Encoding runs in a thread to avoid blocking the event loop.
         """
-        bm25 = await self._event_repo.search_fts(
-            query, limit=self._bm25_limit, active_only=active_only,
-            group_id=group_id, event_type=event_type,
-        )
-        vec: list[Event] = []
-        if self._encoder.dim > 0:
-            embedding = await self._encoder.encode(query)
-            vec = await self._event_repo.search_vector(
-                embedding, limit=self._vec_limit, active_only=active_only,
-                group_id=group_id, event_type=event_type,
+        async def _bm25_search() -> list[Event]:
+            return await self._event_repo.search_fts(
+                query, limit=self._bm25_limit, active_only=active_only,
+                group_id=group_id, event_type=event_type, scope_mode=scope_mode,
             )
+
+        async def _vector_search() -> list[Event]:
+            if self._encoder.dim <= 0:
+                return []
+            embedding = await self._encoder.encode(query)
+            return await self._event_repo.search_vector(
+                embedding, limit=self._vec_limit, active_only=active_only,
+                group_id=group_id, event_type=event_type, scope_mode=scope_mode,
+            )
+
+        bm25_result, vec_result = await asyncio.gather(
+            _bm25_search(),
+            _vector_search(),
+            return_exceptions=True,
+        )
+        bm25: list[Event] = []
+        vec: list[Event] = []
+        if isinstance(bm25_result, Exception):
+            logger.warning("[HybridRetriever] BM25 search failed; continuing with vector results: %s", bm25_result)
+        else:
+            bm25 = bm25_result
+        if isinstance(vec_result, Exception):
+            logger.warning("[HybridRetriever] vector search failed; continuing with BM25 results: %s", vec_result)
+        else:
+            vec = vec_result
         return bm25, vec
 
     async def search(
         self, query: str, limit: int = 10, active_only: bool = True, group_id: str | None = None,
+        scope_mode: str = "all",
     ) -> list[Event]:
         """Return up to `limit` events most relevant to the query string."""
         from ..utils.perf import performance_timer
         async with performance_timer("retrieval"):
-            bm25, vec = await self.search_raw(query, active_only=active_only, group_id=group_id)
+            bm25, vec = await self.search_raw(
+                query, active_only=active_only, group_id=group_id, scope_mode=scope_mode
+            )
 
             if not vec:
                 candidates = bm25

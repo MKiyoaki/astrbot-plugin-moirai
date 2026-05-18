@@ -40,7 +40,7 @@ def _purge_stale_local_modules() -> None:
 
 _purge_stale_local_modules()
 
-from core.utils.formatter import format_events_for_prompt
+from core.utils.formatter import format_events_for_prompt_safe
 from core.utils.version import get_plugin_version
 from core.plugin_initializer import PluginInitializer
 from core.event_handler import EventHandler
@@ -165,17 +165,20 @@ class MoiraiPlugin(Star):
             yield event.plain_result("记忆系统未初始化。")
             return
         group_id = event.get_group_id() if hasattr(event, "get_group_id") else None
-        
+        scope_mode = "group" if group_id else "private"
+
         limit = self._initializer.cfg.get_retrieval_config().active_limit
         if limit <= 0:
             yield event.plain_result("检索已被配置禁用。")
             return
             
-        results = await self._initializer.recall.recall(query, group_id=group_id, limit=limit)
+        results = await self._initializer.recall.recall(
+            query, group_id=group_id, limit=limit, scope_mode=scope_mode
+        )
         if not results:
             yield event.plain_result("未找到相关记忆。")
             return
-        formatted = format_events_for_prompt(results, token_budget=600)
+        formatted = format_events_for_prompt_safe(results, token_budget=600)
         yield event.plain_result(formatted)
 
     # ── Command group: /mrm ───────────────────────────────────────────────────
@@ -229,8 +232,11 @@ class MoiraiPlugin(Star):
             yield event.plain_result("插件未初始化。")
             return
         group_id = event.get_group_id() if hasattr(event, "get_group_id") else None
+        scope_mode = "group" if group_id else "private"
         yield event.plain_result(
-            await self._initializer.command_manager.recall(query, group_id=group_id)
+            await self._initializer.command_manager.recall(
+                query, group_id=group_id, scope_mode=scope_mode
+            )
         )
 
     @mrm.command("webui")

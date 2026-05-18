@@ -41,6 +41,17 @@ export interface SessionWindowInfo {
   trigger_threshold_messages: number
 }
 
+export interface LlmRecentCall {
+  id: number
+  timestamp: number
+  task_name: string
+  success: boolean
+  duration_ms: number
+  prompt_tokens: number
+  completion_tokens: number
+  error?: string | null
+}
+
 export interface PluginStats {
   personas: number
   events: number
@@ -61,7 +72,9 @@ export interface PluginStats {
     token_usage_by_task: Record<string, { prompt: number; completion: number }>
     active_tasks: number
     total_calls: number
+    successful_calls?: number
     failed_calls: number
+    recent_calls?: LlmRecentCall[]
     uptime_seconds: number
   }
   perf?: {

@@ -302,6 +302,25 @@ def _format_injection_debug_for_display(debug: dict) -> str:
     else:
         lines.append("用户画像参考：未注入")
 
+    relation = debug.get("relation") if isinstance(debug.get("relation"), dict) else None
+    if relation and relation.get("injected"):
+        lines.append("")
+        lines.append(f"Social impression hints: injected {relation.get('count', 0)} item(s)")
+        for item in relation.get("items", [])[:5]:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                "  - "
+                f"{item.get('observer')} -> {item.get('subject')}: "
+                f"{item.get('orientation')} "
+                f"benevolence={item.get('benevolence')} "
+                f"power={item.get('power')} "
+                f"confidence={item.get('confidence')}"
+            )
+    else:
+        lines.append("")
+        lines.append("Social impression hints: not injected")
+
     soul = debug.get("soul") if isinstance(debug.get("soul"), dict) else None
     if soul:
         ordered = [
@@ -410,6 +429,7 @@ class EventHandler:
                 session_id_override, group_id = _resolve_stream_scope(event)
                 if session_id_override:
                     session_id = session_id_override
+                recall_scope_mode = "group" if group_id is not None else "private"
 
                 icfg = self._init.cfg.get_injection_config()
                 astrbot_logger.debug(
@@ -502,6 +522,8 @@ class EventHandler:
                     sender_uid=sender_uid,
                     store_debug=icfg.show_thinking_process,
                     store_injection_debug=icfg.show_injection_summary,
+                    scope_mode=recall_scope_mode,
+                    bot_persona_name=new_persona if new_persona and new_persona != "无" else None,
                 )
                 
                 # Sync VCM state with hit rate feedback

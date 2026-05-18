@@ -585,6 +585,27 @@
                 "default": true,
                 "level": "basic"
             },
+            "impression_injection_enabled": {
+                "description": "启用低权重社交印象注入",
+                "type": "bool",
+                "hint": "开启后，在 system prompt 中注入少量与当前用户相关的关系 / impression 线索，仅用于轻微调整语气与谨慎程度，不会增加 LLM 调用",
+                "default": true,
+                "level": "advanced"
+            },
+            "impression_injection_max_items": {
+                "description": "印象注入最大条数",
+                "type": "int",
+                "hint": "每次请求最多注入的 directed impression 条数。默认 3 条，预计增加约 80-140 tokens，无新增 LLM 调用",
+                "default": 3,
+                "level": "advanced"
+            },
+            "impression_injection_min_confidence": {
+                "description": "印象注入最小置信度",
+                "type": "float",
+                "hint": "低于该置信度的关系线索不注入，避免噪声或刚建立的印象影响回复",
+                "default": 0.2,
+                "level": "advanced"
+            },
             "persona_default_confidence": {
                 "description": "🔒人格默认置信度",
                 "type": "float",
@@ -745,6 +766,13 @@
                 "type": "bool",
                 "default": false,
                 "hint": "开启后，回复前将附加 Moirai 本轮实际注入内容的安全摘要（记忆、用户画像、Soul 状态），不会显示完整内部提示词或证据原文",
+                "level": "advanced"
+            },
+            "show_llm_call_details": {
+                "description": "显示 LLM 调用成功/失败明细",
+                "type": "bool",
+                "default": false,
+                "hint": "开启后 WebUI 统计页会显示最近 LLM 调用的任务名、成功/失败、耗时、token 和错误摘要；可能包含供应商报错文本",
                 "level": "advanced"
             }
         }

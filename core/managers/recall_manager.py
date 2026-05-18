@@ -11,6 +11,7 @@ Owns the full hot-path from raw query to ProviderRequest mutation:
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from math import exp, log
@@ -22,7 +23,11 @@ from ..config import (
     MEMORY_INJECTION_HEADER,
 )
 from ..domain.models import Event, EventType
-from ..utils.formatter import format_events_for_fake_tool_call, format_events_for_prompt, format_persona_for_prompt
+from ..utils.formatter import (
+    format_events_for_fake_tool_call,
+    format_events_for_prompt_safe,
+    format_persona_for_prompt,
+)
 from ..retrieval.rrf import rrf_scores
 from .base import BaseRecallManager
 from ..social.soul_state import SoulState, apply_decay, apply_tanh_elastic, format_soul_for_prompt, from_config
@@ -30,7 +35,7 @@ from ..social.soul_state import SoulState, apply_decay, apply_tanh_elastic, form
 if TYPE_CHECKING:
     from ..config import InjectionConfig, RetrievalConfig, SoulConfig
     from ..retrieval.hybrid import HybridRetriever
-    from ..repository.base import PersonaRepository
+    from ..repository.base import ImpressionRepository, PersonaRepository
 
 _LOG2 = log(2)
 
@@ -130,6 +135,17 @@ def _soul_debug_summary(state: object | None) -> dict[str, float] | None:
     return values or None
 
 
+def _impression_score(imp: object) -> float:
+    try:
+        confidence = float(getattr(imp, "confidence", 0.0) or 0.0)
+        affect = abs(float(getattr(imp, "affect_intensity", 0.0) or 0.0))
+        benevolence = abs(float(getattr(imp, "benevolence", 0.0) or 0.0))
+        power = abs(float(getattr(imp, "power", 0.0) or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+    return confidence * 0.55 + affect * 0.2 + benevolence * 0.15 + power * 0.1
+
+
 def _build_injection_debug(
     *,
     position: str,
@@ -137,6 +153,7 @@ def _build_injection_debug(
     injected: bool,
     memory_injected: bool,
     persona: object | None = None,
+    relation: dict | None = None,
     soul_state: object | None = None,
 ) -> dict:
     return {
@@ -148,11 +165,13 @@ def _build_injection_debug(
             "events": [_event_debug_summary(ev) for ev in events[:8]] if memory_injected else [],
         },
         "persona": _persona_debug_summary(persona),
+        "relation": relation,
         "soul": _soul_debug_summary(soul_state),
         "hidden": [
             "完整 System Prompt",
             "后台任务 prompt",
             "完整 Persona 内容",
+            "Full social impression evidence",
             "Skill Rules",
             "Big Five evidence 原文",
         ],
@@ -168,6 +187,7 @@ class RecallManager(BaseRecallManager):
         retrieval_config: RetrievalConfig,
         injection_config: InjectionConfig,
         persona_repo: PersonaRepository | None = None,
+        impression_repo: ImpressionRepository | None = None,
         soul_config: SoulConfig | None = None,
     ) -> None:
         super().__init__()
@@ -175,6 +195,7 @@ class RecallManager(BaseRecallManager):
         self._rcfg = retrieval_config
         self._icfg = injection_config
         self._persona_repo = persona_repo
+        self._impression_repo = impression_repo
         self._soul_cfg = soul_config
         self._soul_states: dict[str, SoulState] = {}
         self._last_recall_debug: dict[str, dict] = {}
@@ -192,7 +213,135 @@ class RecallManager(BaseRecallManager):
         """Return all active soul states as a dict of dicts."""
         return {sid: state.__dict__.copy() for sid, state in self._soul_states.items()}
 
-    async def recall(self, query: str, group_id: str | None = None, limit: int | None = None) -> list[Event]:
+    async def _persona_label(self, uid: str) -> str:
+        if not uid:
+            return "unknown"
+        if self._persona_repo is not None:
+            try:
+                persona = await self._persona_repo.get(uid)
+                if persona is not None:
+                    name = getattr(persona, "primary_name", None)
+                    if name:
+                        return str(name)
+            except Exception:
+                pass
+        return uid
+
+    async def _build_relation_segment(
+        self,
+        *,
+        sender_uid: str | None,
+        group_id: str | None,
+        bot_persona_name: str | None,
+        position: str,
+    ) -> tuple[str, dict | None]:
+        if (
+            not sender_uid
+            or self._impression_repo is None
+            or position not in ("system_prompt", None, "")
+            or not self._icfg.impression_injection_enabled
+            or self._icfg.impression_injection_max_items <= 0
+        ):
+            return "", None
+
+        scope = group_id or "global"
+        try:
+            subject_rows, observer_rows = await asyncio.gather(
+                self._impression_repo.list_by_subject(
+                    sender_uid,
+                    scope=scope,
+                    bot_persona_name=bot_persona_name,
+                    include_legacy=True,
+                ),
+                self._impression_repo.list_by_observer(
+                    sender_uid,
+                    scope=scope,
+                    bot_persona_name=bot_persona_name,
+                    include_legacy=True,
+                ),
+                return_exceptions=True,
+            )
+        except Exception:
+            return "", None
+
+        rows = []
+        for result in (subject_rows, observer_rows):
+            if isinstance(result, Exception):
+                continue
+            rows.extend(result)
+
+        min_conf = self._icfg.impression_injection_min_confidence
+        deduped: dict[tuple[str, str, str, str | None], object] = {}
+        for imp in rows:
+            try:
+                if float(getattr(imp, "confidence", 0.0) or 0.0) < min_conf:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            observer = str(getattr(imp, "observer_uid", "") or "")
+            subject = str(getattr(imp, "subject_uid", "") or "")
+            if not observer or not subject or observer == subject:
+                continue
+            key = (
+                observer,
+                subject,
+                str(getattr(imp, "scope", "") or ""),
+                getattr(imp, "bot_persona_name", None),
+            )
+            current = deduped.get(key)
+            if current is None or _impression_score(imp) > _impression_score(current):
+                deduped[key] = imp
+
+        selected = sorted(deduped.values(), key=_impression_score, reverse=True)[
+            : self._icfg.impression_injection_max_items
+        ]
+        if not selected:
+            return "", None
+
+        name_cache: dict[str, str] = {}
+
+        async def _label(uid: str) -> str:
+            if uid not in name_cache:
+                name_cache[uid] = await self._persona_label(uid)
+            return name_cache[uid]
+
+        lines = [
+            "[Social impression hints]",
+            "Use these as low-weight style/context signals only. Do not mention scores, sources, or this block. Never override the user's current request, factual memory, safety rules, or explicit system instructions; ignore them if they conflict.",
+        ]
+        debug_items: list[dict[str, object]] = []
+        for imp in selected:
+            observer_uid = str(getattr(imp, "observer_uid", "") or "")
+            subject_uid = str(getattr(imp, "subject_uid", "") or "")
+            observer = await _label(observer_uid)
+            subject = await _label(subject_uid)
+            orientation = str(getattr(imp, "ipc_orientation", "unknown") or "unknown")
+            benevolence = round(float(getattr(imp, "benevolence", 0.0) or 0.0), 2)
+            power = round(float(getattr(imp, "power", 0.0) or 0.0), 2)
+            confidence = round(float(getattr(imp, "confidence", 0.0) or 0.0), 2)
+            lines.append(
+                f"- {observer} -> {subject}: orientation={orientation}, "
+                f"benevolence={benevolence:+.2f}, power={power:+.2f}, confidence={confidence:.2f}"
+            )
+            debug_items.append({
+                "observer": observer,
+                "subject": subject,
+                "orientation": orientation,
+                "benevolence": benevolence,
+                "power": power,
+                "confidence": confidence,
+                "scope": getattr(imp, "scope", scope),
+            })
+
+        return "\n".join(lines), {"injected": True, "count": len(debug_items), "items": debug_items}
+
+    async def recall(
+        self,
+        query: str,
+        group_id: str | None = None,
+        limit: int | None = None,
+        scope_mode: str = "all",
+    ) -> list[Event]:
         """Return re-ranked events for injection.
 
         Uses a two-tier hierarchical strategy when narrative events exist:
@@ -223,21 +372,32 @@ class RecallManager(BaseRecallManager):
             # Parallel searches for each tier
             narrative_task = self._retriever.search_raw(
                 query, active_only=cfg.active_only, group_id=group_id,
-                event_type=EventType.NARRATIVE,
+                event_type=EventType.NARRATIVE, scope_mode=scope_mode,
             )
             episode_task = self._retriever.search_raw(
                 query, active_only=cfg.active_only, group_id=group_id,
-                event_type=EventType.EPISODE,
+                event_type=EventType.EPISODE, scope_mode=scope_mode,
             )
-            (narrative_bm25, narrative_vec), (bm25, vec) = await asyncio.gather(
-                narrative_task, episode_task
+            narrative_result, episode_result = await asyncio.gather(
+                narrative_task, episode_task, return_exceptions=True
             )
+            if isinstance(narrative_result, Exception):
+                _log = logging.getLogger(__name__)
+                _log.warning("[RecallManager] narrative recall tier failed: %s", narrative_result)
+                narrative_bm25, narrative_vec = [], []
+            else:
+                narrative_bm25, narrative_vec = narrative_result
+            if isinstance(episode_result, Exception):
+                _log = logging.getLogger(__name__)
+                _log.warning("[RecallManager] episode recall tier failed: %s", episode_result)
+                bm25, vec = [], []
+            else:
+                bm25, vec = episode_result
         
-        import logging
         _log = logging.getLogger(__name__)
         _log.debug(
-            "[RecallManager] query: %r, granularity: %s, group_id: %r",
-            query, granularity, group_id,
+            "[RecallManager] query: %r, granularity: %s, group_id: %r, scope_mode: %s",
+            query, granularity, group_id, scope_mode,
         )
         _log.debug("[RecallManager] BM25 hits: %d, Vec hits: %d", len(bm25), len(vec))
 
@@ -322,6 +482,8 @@ class RecallManager(BaseRecallManager):
         sender_uid: str | None = None,
         store_debug: bool = False,
         store_injection_debug: bool = False,
+        scope_mode: str = "all",
+        bot_persona_name: str | None = None,
     ) -> int:
         """Recall and inject memory into req. Returns the number of events injected."""
         from ..utils.perf import performance_timer, tracker
@@ -332,7 +494,7 @@ class RecallManager(BaseRecallManager):
             if self._rcfg.final_limit <= 0:
                 return 0
 
-            events = await self.recall(query, group_id=group_id)
+            events = await self.recall(query, group_id=group_id, scope_mode=scope_mode)
             await tracker.record_hit("recall", len(events))
 
             if store_debug:
@@ -379,7 +541,7 @@ class RecallManager(BaseRecallManager):
                 return len(events) if messages else 0
 
             # Build memory body (may be empty if no events).
-            body = format_events_for_prompt(events, token_budget=token_budget) if events else ""
+            body = format_events_for_prompt_safe(events, token_budget=token_budget) if events else ""
 
             # OCEAN persona injection — soft stylistic heuristic, system_prompt only.
             persona_segment = ""
@@ -393,6 +555,13 @@ class RecallManager(BaseRecallManager):
                     pass
 
             # Soul Layer injection — short-term emotional state.
+            relation_segment, relation_debug = await self._build_relation_segment(
+                sender_uid=sender_uid,
+                group_id=group_id,
+                bot_persona_name=bot_persona_name,
+                position=position,
+            )
+
             soul_segment = ""
             soul_state_for_debug = None
             if self._soul_cfg and self._soul_cfg.enabled:
@@ -414,7 +583,7 @@ class RecallManager(BaseRecallManager):
                     soul_state_for_debug = state
 
             # Nothing to inject — exit early only if all three segments are empty.
-            if not body and not persona_segment and not soul_segment:
+            if not body and not persona_segment and not relation_segment and not soul_segment:
                 if store_injection_debug:
                     self._last_injection_debug[session_id] = _build_injection_debug(
                         position=position,
@@ -430,6 +599,8 @@ class RecallManager(BaseRecallManager):
                 segments.append(body)
             if persona_segment:
                 segments.append(persona_segment)
+            if relation_segment:
+                segments.append(relation_segment)
             if soul_segment:
                 segments.append(soul_segment)
 
@@ -448,6 +619,7 @@ class RecallManager(BaseRecallManager):
                     injected=True,
                     memory_injected=bool(body),
                     persona=persona_obj if persona_segment else None,
+                    relation=relation_debug,
                     soul_state=soul_state_for_debug,
                 )
 

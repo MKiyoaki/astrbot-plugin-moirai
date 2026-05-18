@@ -155,10 +155,13 @@ class BaseRecallManager(BaseManager, ABC):
     """Contract for the retrieval + injection pipeline."""
 
     @abstractmethod
-    async def recall(self, query: str, group_id: str | None = None) -> list[Event]:
+    async def recall(
+        self, query: str, group_id: str | None = None, scope_mode: str = "all"
+    ) -> list[Event]:
         """Retrieve relevant events for the given query.
 
-        group_id is reserved for future scope filtering; pass None to search globally.
+        scope_mode="all" searches globally; "group" restricts to group_id;
+        "private" restricts to private-chat events.
         """
         ...
 
@@ -172,10 +175,13 @@ class BaseRecallManager(BaseManager, ABC):
         sender_uid: str | None = None,
         store_debug: bool = False,
         store_injection_debug: bool = False,
+        scope_mode: str = "all",
+        bot_persona_name: str | None = None,
     ) -> int:
         """Recall events and inject them into the ProviderRequest.
 
         sender_uid is used to look up the sender's persona for OCEAN injection.
+        bot_persona_name scopes persona-isolated social impression hints.
         store_debug/store_injection_debug enable user-facing diagnostics.
         Returns the number of events actually injected.
         """

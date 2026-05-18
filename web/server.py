@@ -463,6 +463,33 @@ class WebuiServer:
         path = self._data_dir / "groups" / group_id / "summaries" / f"{date}.md" if group_id else self._data_dir / "global" / "summaries" / f"{date}.md"
         return path.read_text(encoding="utf-8") if path.exists() else None
 
+    def _read_config(self) -> dict:
+        raw = json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {}
+        flat_schema: dict = {}
+        for group_data in raw.values():
+            if isinstance(group_data, dict) and group_data.get("type") == "object":
+                flat_schema.update(group_data.get("items", {}))
+
+        values: dict = {k: v.get("default") for k, v in flat_schema.items()}
+        values.update(self._initial_config)
+        if self._config_path.exists():
+            try:
+                values.update(json.loads(self._config_path.read_text(encoding="utf-8")))
+            except Exception:
+                pass
+        if self._star and hasattr(self._star, "config"):
+            star_cfg = self._star.config
+            items = getattr(star_cfg, "items", None)
+            if callable(items):
+                for key, value in items():
+                    if key in flat_schema:
+                        values[key] = value
+                    elif isinstance(value, dict):
+                        for sub_key, sub_value in value.items():
+                            if sub_key in flat_schema:
+                                values[sub_key] = sub_value
+        return values
+
     async def stats_data(self) -> dict[str, Any]:
         from core.api import get_stats
         data = await get_stats(
@@ -474,6 +501,7 @@ class WebuiServer:
             llm_manager=self._llm_manager,
             context_manager=self._context_manager,
             summary_trigger_rounds=self._summary_trigger_rounds,
+            show_llm_call_details=bool(self._read_config().get("show_llm_call_details", False)),
         )
         data["soul_enabled"] = bool(self._initial_config.get("soul_enabled", True))
         return data

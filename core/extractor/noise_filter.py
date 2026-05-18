@@ -64,7 +64,8 @@ def filter_partition(
         i for i in partition.indices
         if not is_noisy_message(
             getattr(window.messages[i], "content_preview", None) or
-            getattr(window.messages[i], "content", None) or ""
+            getattr(window.messages[i], "content", None) or
+            getattr(window.messages[i], "text", None) or ""
         )
     ]
 

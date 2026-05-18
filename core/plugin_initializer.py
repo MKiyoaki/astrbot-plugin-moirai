@@ -234,6 +234,7 @@ class PluginInitializer:
             retrieval_config=cfg.get_retrieval_config(),
             injection_config=cfg.get_injection_config(),
             persona_repo=persona_repo,
+            impression_repo=impression_repo,
             soul_config=cfg.get_soul_config(),
         )
 

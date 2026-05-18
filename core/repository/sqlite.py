@@ -357,6 +357,16 @@ def _persona_where(
     return "bot_persona_name = ?", [bot_persona_name]
 
 
+def _event_scope_where(alias: str, group_id: str | None, scope_mode: str) -> tuple[str, list[Any]]:
+    if scope_mode == "group":
+        if group_id is None:
+            return f"{alias}.group_id IS NULL", []
+        return f"{alias}.group_id = ?", [group_id]
+    if scope_mode == "private":
+        return f"{alias}.group_id IS NULL", []
+    return "", []
+
+
 # ---------------------------------------------------------------------------
 # PersonaRepository
 # ---------------------------------------------------------------------------
@@ -532,6 +542,7 @@ class SQLiteEventRepository(EventRepository):
     async def search_fts(
         self, query: str, limit: int = 20, active_only: bool = True,
         group_id: str | None = None, event_type: str | None = None,
+        scope_mode: str = "all",
     ) -> list[Event]:
         """BM25 full-text search over topic and chat_content_tags.
 
@@ -539,18 +550,22 @@ class SQLiteEventRepository(EventRepository):
         event_type filters by 'episode' or 'narrative' when specified.
         """
         try:
-            status_clause = " AND e.status = 'active'" if active_only else ""
-            type_clause = " AND e.event_type = ?" if event_type else ""
-            params = [query, limit, group_id, group_id]
+            clauses = ["e.status = 'active'"] if active_only else []
+            scope_clause, scope_params = _event_scope_where("e", group_id, scope_mode)
+            if scope_clause:
+                clauses.append(scope_clause)
+            if event_type:
+                clauses.append("e.event_type = ?")
+            where_tail = (" AND " + " AND ".join(clauses)) if clauses else ""
+            params = [query, limit]
+            params.extend(scope_params)
             if event_type:
                 params.append(event_type)
             async with self._db.execute(
                 f"{_EVENT_SELECT} e WHERE e.rowid IN ("
                 "  SELECT rowid FROM events_fts WHERE events_fts MATCH ?"
                 "  ORDER BY rank LIMIT ?"
-                f"){status_clause}"
-                " AND (? IS NULL OR e.group_id = ?)"
-                f"{type_clause}"
+                f"){where_tail}"
                 " ORDER BY e.salience DESC",
                 params,
             ) as cur:
@@ -562,6 +577,7 @@ class SQLiteEventRepository(EventRepository):
     async def search_vector(
         self, embedding: list[float], limit: int = 20, active_only: bool = True,
         group_id: str | None = None, event_type: str | None = None,
+        scope_mode: str = "all",
     ) -> list[Event]:
         """Cosine-approximate nearest-neighbour search via sqlite-vec vec0.
 
@@ -572,18 +588,22 @@ class SQLiteEventRepository(EventRepository):
         if not embedding:
             return []
         try:
-            status_clause = " AND e.status = 'active'" if active_only else ""
-            type_clause = " AND e.event_type = ?" if event_type else ""
-            params = [json.dumps(embedding), limit, group_id, group_id]
+            clauses = ["e.status = 'active'"] if active_only else []
+            scope_clause, scope_params = _event_scope_where("e", group_id, scope_mode)
+            if scope_clause:
+                clauses.append(scope_clause)
+            if event_type:
+                clauses.append("e.event_type = ?")
+            join_tail = (" AND " + " AND ".join(clauses)) if clauses else ""
+            params = [json.dumps(embedding), limit]
+            params.extend(scope_params)
             if event_type:
                 params.append(event_type)
             async with self._db.execute(
                 f"SELECT {_EVENT_SELECT_COLS} FROM "
                 "(SELECT rowid, distance FROM events_vec WHERE embedding MATCH ? "
                 " ORDER BY distance LIMIT ?) v "
-                f"JOIN events e ON e.rowid = v.rowid{status_clause}"
-                " AND (? IS NULL OR e.group_id = ?)"
-                f"{type_clause}"
+                f"JOIN events e ON e.rowid = v.rowid{join_tail}"
                 " ORDER BY v.distance",
                 params,
             ) as cur:

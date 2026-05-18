@@ -97,6 +97,7 @@ async def get_stats(
     llm_manager: LLMTaskManager | None = None,
     context_manager: object | None = None,
     summary_trigger_rounds: int = 30,
+    show_llm_call_details: bool = False,
 ) -> dict[str, Any]:
 
     if plugin_version is None:
@@ -155,7 +156,7 @@ async def get_stats(
         }
     
     # LLM Token stats
-    llm_stats = llm_manager.get_stats() if llm_manager else {}
+    llm_stats = llm_manager.get_stats(show_details=show_llm_call_details) if llm_manager else {}
     
     # Backward compatibility for existing flat fields (in seconds)
     legacy_perf = {
@@ -321,5 +322,6 @@ async def recall_preview(
     query: str,
     group_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    events = await recall_manager.recall(query, group_id=group_id)
+    scope_mode = "group" if group_id is not None else "all"
+    events = await recall_manager.recall(query, group_id=group_id, scope_mode=scope_mode)
     return [event_to_dict(e) for e in events]

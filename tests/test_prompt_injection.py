@@ -7,7 +7,7 @@ import time
 import pytest
 
 from core.domain.models import Event
-from core.retrieval.formatter import format_events_for_prompt
+from core.retrieval.formatter import format_events_for_prompt, format_events_for_prompt_safe
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +126,14 @@ def test_format_header_present() -> None:
     event = make_event("e1", topic="测试事件")
     result = format_events_for_prompt([event], now=2000.0)
     assert result.startswith("## 相关历史记忆\n")
+
+
+def test_format_safe_falls_back_on_malformed_event() -> None:
+    event = make_event("e1", topic="fallback topic")
+    event.chat_content_tags = [object()]
+    result = format_events_for_prompt_safe([event], now=2000.0)
+    assert "fallback topic" in result
+    assert result.startswith("## Retrieved memory")
 
 
 # ---------------------------------------------------------------------------

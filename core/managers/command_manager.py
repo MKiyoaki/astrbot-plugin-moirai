@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Callable
 
-from ..utils.formatter import format_events_for_prompt
+from ..utils.formatter import format_events_for_prompt_safe
 from ..utils.i18n import LANG_ZH, LANG_EN, LANG_JA, get_string
 
 if TYPE_CHECKING:
@@ -217,11 +217,13 @@ class CommandManager:
             self._t("cmd.soul.creativity", val=_fmt(state.creativity)),
         ])
 
-    async def recall(self, query: str, group_id: str | None = None) -> str:
-        results = await self._recall.recall(query, group_id=group_id)
+    async def recall(
+        self, query: str, group_id: str | None = None, scope_mode: str = "all"
+    ) -> str:
+        results = await self._recall.recall(query, group_id=group_id, scope_mode=scope_mode)
         if not results:
             return self._t("cmd.recall.not_found", query=query)
-        return format_events_for_prompt(results, token_budget=800)
+        return format_events_for_prompt_safe(results, token_budget=800)
 
     # ------------------------------------------------------------------
     # Action commands

@@ -78,10 +78,12 @@ class EventRepository(ABC):
     async def search_fts(
         self, query: str, limit: int = 20, active_only: bool = True,
         group_id: str | None = None, event_type: str | None = None,
+        scope_mode: str = "all",
     ) -> list[Event]:
         """Keyword search over topic and chat_content_tags.
 
-        group_id=None searches across all groups; pass a value to restrict to one scope.
+        scope_mode="all" searches globally; "group" restricts to group_id;
+        "private" restricts to private-chat events where group_id is NULL.
         event_type restricts to 'episode' or 'narrative' when specified.
         """
         ...
@@ -90,10 +92,12 @@ class EventRepository(ABC):
     async def search_vector(
         self, embedding: list[float], limit: int = 20, active_only: bool = True,
         group_id: str | None = None, event_type: str | None = None,
+        scope_mode: str = "all",
     ) -> list[Event]:
         """Semantic search via embedding similarity.
 
-        group_id=None searches across all groups; pass a value to restrict to one scope.
+        scope_mode="all" searches globally; "group" restricts to group_id;
+        "private" restricts to private-chat events where group_id is NULL.
         event_type restricts to 'episode' or 'narrative' when specified.
         Stub returns []; real implementation uses sqlite-vec vec0.
         """
