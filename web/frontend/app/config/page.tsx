@@ -100,7 +100,16 @@ function ConfigField({
   const id = `cfg-${fieldKey}`
   
   const localized = (i18n.config as any).fields?.[fieldKey]
-  const label = localized?.label || schema.description
+  // Strip leading cluster markers — the local WebUI already shows them via
+  // the group divider, so duplicating in the label adds visual noise. The
+  // markers are only kept on the AstrBot side where there is no other way
+  // to mark sub-groups. We strip 【...】 tags and the 4 cluster emojis but
+  // KEEP 🟢 (the "basic field" priority indicator) since it carries info
+  // that the divider does not.
+  const rawLabel = localized?.label || schema.description || ''
+  const label = String(rawLabel)
+    .replace(/^【[^】]+】\s*/u, '')
+    .replace(/^(?:🎯|⏱️|🌊|🔄)\s*/u, '')
   const hint = localized?.hint || schema.hint
   const tooltip = localized?.tooltip
 
@@ -408,31 +417,61 @@ export default function ConfigPage() {
     {
       id: 'boundary',
       label: i18n.config.sections.boundary,
-      // Reordered into 5 logical clusters (basics → strategy → hard bounds →
-      // drift → periodic), matching _conf_schema.json key order.
+      // 5 logical clusters rendered with visual dividers inside one card.
+      groups: [
+        {
+          label: '🟢 基础',
+          hint: '决定提取风格和标签体系',
+          keys: ['persona_influenced_summary', 'tag_seeds'],
+        },
+        {
+          label: '🎯 提取策略',
+          hint: '决定窗口被切分和打标的方式',
+          keys: [
+            'extraction_strategy',
+            'semantic_clustering_eps',
+            'semantic_clustering_min_samples',
+            'tag_normalization_threshold',
+          ],
+        },
+        {
+          label: '⏱️ 硬边界',
+          hint: '满足任一阈值即被动关窗',
+          keys: [
+            'boundary_time_gap_minutes',
+            'boundary_max_messages',
+            'boundary_max_duration_minutes',
+            'summary_trigger_rounds',
+          ],
+        },
+        {
+          label: '🌊 话题漂移',
+          hint: '基于向量距离动态检测话题切换',
+          keys: [
+            'boundary_topic_drift_enabled',
+            'boundary_topic_drift_threshold',
+            'boundary_topic_drift_min_messages',
+            'boundary_topic_drift_interval',
+          ],
+        },
+        {
+          label: '🔄 周期扫描',
+          hint: '主动按节奏把稳定前缀提为 Event',
+          keys: [
+            'periodic_flush_enabled',
+            'periodic_flush_minutes',
+            'periodic_flush_tail_keep',
+          ],
+        },
+      ],
+      // Flat keys list — kept in sync with groups; used by code paths that
+      // still consume `.keys` (TOC count, filters, etc.).
       keys: [
-        // 基础
-        'persona_influenced_summary',
-        'tag_seeds',
-        // 提取策略
-        'extraction_strategy',
-        'semantic_clustering_eps',
-        'semantic_clustering_min_samples',
-        'tag_normalization_threshold',
-        // 硬边界
-        'boundary_time_gap_minutes',
-        'boundary_max_messages',
-        'boundary_max_duration_minutes',
-        'summary_trigger_rounds',
-        // 话题漂移
-        'boundary_topic_drift_enabled',
-        'boundary_topic_drift_threshold',
-        'boundary_topic_drift_min_messages',
-        'boundary_topic_drift_interval',
-        // 周期扫描
-        'periodic_flush_enabled',
-        'periodic_flush_minutes',
-        'periodic_flush_tail_keep',
+        'persona_influenced_summary', 'tag_seeds',
+        'extraction_strategy', 'semantic_clustering_eps', 'semantic_clustering_min_samples', 'tag_normalization_threshold',
+        'boundary_time_gap_minutes', 'boundary_max_messages', 'boundary_max_duration_minutes', 'summary_trigger_rounds',
+        'boundary_topic_drift_enabled', 'boundary_topic_drift_threshold', 'boundary_topic_drift_min_messages', 'boundary_topic_drift_interval',
+        'periodic_flush_enabled', 'periodic_flush_minutes', 'periodic_flush_tail_keep',
       ],
     },
     {
@@ -721,35 +760,65 @@ export default function ConfigPage() {
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="divide-y divide-muted/50 pt-2 px-6">
-                      {fields.map(key => {
-                        const parentKey = FIELD_DEPENDENCIES[key]
-                        let isParentOff = false
-                        if (parentKey) {
-                          const parentVal = values[parentKey]
-                          const parentSchema = schema[parentKey]
-                          if (parentSchema?.type === 'bool') {
-                            isParentOff = !parentVal
-                          } else if (parentKey === 'extraction_strategy') {
-                            isParentOff = parentVal !== 'semantic'
-                          } else if (parentKey === 'embedding_provider') {
-                            isParentOff = parentVal !== 'api' || !values['embedding_enabled']
+                      {(() => {
+                        // Helper: render a single field row.
+                        const renderField = (key: string) => {
+                          const parentKey = FIELD_DEPENDENCIES[key]
+                          let isParentOff = false
+                          if (parentKey) {
+                            const parentVal = values[parentKey]
+                            const parentSchema = schema[parentKey]
+                            if (parentSchema?.type === 'bool') {
+                              isParentOff = !parentVal
+                            } else if (parentKey === 'extraction_strategy') {
+                              isParentOff = parentVal !== 'semantic'
+                            } else if (parentKey === 'embedding_provider') {
+                              isParentOff = parentVal !== 'api' || !values['embedding_enabled']
+                            }
                           }
+                          const fieldDisabled = !sudo || saving || isParentOff
+                          return (
+                            <ConfigField
+                              key={key}
+                              fieldKey={key}
+                              schema={schema[key]}
+                              value={values[key] ?? schema[key].default}
+                              onChange={val => handleChange(key, val)}
+                              disabled={fieldDisabled}
+                              providers={providers}
+                            />
+                          )
                         }
 
-                        const fieldDisabled = !sudo || saving || isParentOff
-
-                        return (
-                          <ConfigField
-                            key={key}
-                            fieldKey={key}
-                            schema={schema[key]}
-                            value={values[key] ?? schema[key].default}
-                            onChange={val => handleChange(key, val)}
-                            disabled={fieldDisabled}
-                            providers={providers}
-                          />
-                        )
-                      })}
+                        const sectionAny = section as any
+                        if (Array.isArray(sectionAny.groups)) {
+                          // Grouped render: a labelled divider between each cluster.
+                          return sectionAny.groups.map((g: { label: string; hint?: string; keys: string[] }, gi: number) => {
+                            const gFields = g.keys.filter(k => schema[k] && (showAdvanced || schema[k].level !== 'advanced'))
+                            if (!gFields.length) return null
+                            return (
+                              <div key={`grp-${gi}-${g.label}`} className="py-1 first:pt-0">
+                                <div className="flex items-center gap-2 px-1 pt-3 pb-2 -mx-1 sticky">
+                                  <div className="h-px flex-1 bg-gradient-to-r from-primary/40 via-primary/15 to-transparent" />
+                                  <span className="text-xs font-semibold text-primary tracking-wide whitespace-nowrap">
+                                    {g.label}
+                                  </span>
+                                  {g.hint && (
+                                    <span className="text-[10px] text-muted-foreground/70 whitespace-nowrap">
+                                      · {g.hint}
+                                    </span>
+                                  )}
+                                  <div className="h-px flex-1 bg-gradient-to-l from-primary/40 via-primary/15 to-transparent" />
+                                </div>
+                                <div className="divide-y divide-muted/40">
+                                  {gFields.map(renderField)}
+                                </div>
+                              </div>
+                            )
+                          })
+                        }
+                        return fields.map(renderField)
+                      })()}
                     </CardContent>
                     {section.id === 'relation' && <PersonaOwnershipManager embedded />}
                   </Card>
