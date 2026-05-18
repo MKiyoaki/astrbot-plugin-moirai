@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## [v0.12.10] — 2026-05-18
+
+### WebUI 交互与管理功能补全
+
+**Feature — 摘要页支持删除**
+
+- Summary 页新增删除当前摘要功能：toolbar 右侧（重新生成按钮旁）增加红色垃圾桶图标按钮，点击弹出 AlertDialog 二次确认。
+- 删除成功后自动跳转到列表中下一条摘要；列表为空时清空内容区。
+- 后端新增 `DELETE /api/summary?group_id=&date=` 路由（sudo 保护），文件不存在返回 404。
+- 前端 `api.summaries.delete()` 方法及三语 i18n key（`deleteConfirm` / `deleteSuccess` / `deleteFailed`）同步补全。
+- 新增后端测试 `tests/backend/test_summary_delete.py`（9 个用例，覆盖 400/404/200、全局摘要、群组摘要、邻近文件隔离）。
+
+**Fix — Events 页 PageEmptyOverlay 覆盖范围修正**
+
+- 原空状态 overlay 被渲染在左侧时间轴列内，被右侧 DetailPanel 挤压为半宽。现将空状态判断提升至两列布局外层，overlay 可正确撑满 header/toolbar 以下全部区域。
+
+**Refactor — 事件卡片操作按钮统一为纯图标风格**
+
+- `EventDetailCard` 聚焦状态的操作栏（编辑/锁定/再抽出/封存/删除）全部改为 `size-8` ghost icon 按钮 + Tooltip，去除文字标签，视觉更紧凑统一。
+- 封存二次确认逻辑保留（图标变橙色），删除按钮保留 `text-destructive` 红色。
+- 非聚焦状态的锁定按钮同步改为纯图标，右侧提示文字更新为 `click to expand`。
+
+
+
+
 ## [v0.12.9] — 2026-05-18
 
 ### WebUI 视觉与交互优化

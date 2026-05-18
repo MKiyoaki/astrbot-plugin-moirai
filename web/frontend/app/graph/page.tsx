@@ -15,7 +15,7 @@ import { EdgeDetail } from '@/components/graph/edge-detail'
 import { GroupCardList } from '@/components/graph/group-card-list'
 import { PersonaSupernodeGrid } from '@/components/graph/persona-supernode-grid'
 import { RefreshButton } from '@/components/shared/refresh-button'
-import { EmptyState } from '@/components/shared/empty-state'
+import { PageEmptyOverlay } from '@/components/shared/page-empty-overlay'
 import { useApp } from '@/lib/store'
 import { getStored, removeStored, setStored } from '@/lib/safe-storage'
 import * as api from '@/lib/api'
@@ -470,7 +470,7 @@ export default function GraphPage() {
       <div className="flex h-screen flex-col overflow-hidden animate-in fade-in duration-500">
         <PageHeader variant="loom" loomIssue="ΓΡΑΦΟΣ"
           loomWindow={i18n.page.graph.loomWindow} title={i18n.page.graph.title} />
-        <EmptyState
+        <PageEmptyOverlay
           icon={Share2}
           title={i18n.page.graph.disabledTitle}
           description={i18n.page.graph.disabledDescription}

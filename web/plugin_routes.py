@@ -329,6 +329,7 @@ class PluginRoutes:
             (f"/api/summary",                  self._handle_update_summary,          ["PUT"],         "Update summary"),
             (f"/api/summary/update",           self._handle_update_summary,          ["POST"],        "Update summary"),
             (f"/api/summary/regenerate",       self._handle_regenerate_summary,      ["POST"],        "Regenerate summary"),
+            (f"/api/summary",                  self._handle_delete_summary,          ["DELETE"],      "Delete summary"),
             # Recall
             (f"/api/recall",                   self._handle_recall,                  ["GET"],         "Memory recall"),
             # Tags
@@ -874,6 +875,20 @@ class PluginRoutes:
         if content is None:
             return _json({"error": "no events or no provider"}, status=503)
         return _json({"content": content})
+
+    async def _handle_delete_summary(self, request: web.Request) -> web.Response:
+        group_id = _query(request, "group_id") or None
+        date = _query(request, "date", "")
+        if not date:
+            return _json({"error": "date required"}, status=400)
+        if group_id:
+            path = self._data_dir / "groups" / group_id / "summaries" / f"{date}.md"
+        else:
+            path = self._data_dir / "global" / "summaries" / f"{date}.md"
+        if not path.exists():
+            return _json({"error": "not found"}, status=404)
+        path.unlink()
+        return _json({"ok": True})
 
     # ------------------------------------------------------------------
     # Handlers: recall / tags

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useTheme } from 'next-themes'
-import { Moon, Sun, Languages } from 'lucide-react'
+import { Moon, Sun, Monitor, Languages } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -26,8 +26,7 @@ const SHADCN_THEMES = [
 
 export default function SettingsPage() {
   const { i18n, lang, setLang } = useApp()
-  const { resolvedTheme, setTheme } = useTheme()
-  const isDark = resolvedTheme === 'dark'
+  const { theme, setTheme } = useTheme()
 
   const [activeSection, setActiveSection] = useState<string>('')
 
@@ -83,7 +82,11 @@ export default function SettingsPage() {
     api.admin.panels().then(r => setExtPanels(r.panels)).catch(() => {})
   }, [])
 
-  const toggleTheme = () => setTheme(isDark ? 'light' : 'dark')
+  const themeOptions = [
+    { value: 'light',  icon: <Sun className="size-3.5" />,     label: i18n.settings.themeLight },
+    { value: 'dark',   icon: <Moon className="size-3.5" />,    label: i18n.settings.themeDark },
+    { value: 'system', icon: <Monitor className="size-3.5" />, label: i18n.settings.themeSystem },
+  ]
 
   const applyColor = (id: string | null) => {
     if (!id) return
@@ -132,10 +135,22 @@ export default function SettingsPage() {
               <CardContent className="flex flex-col gap-4">
                 <div className="flex items-center justify-between">
                   <Label>{i18n.settings.darkLight}</Label>
-                  <Button variant="outline" size="sm" onClick={toggleTheme}>
-                    {isDark ? <Sun className="mr-1.5 size-3.5" /> : <Moon className="mr-1.5 size-3.5" />}
-                    {i18n.settings.toggle}
-                  </Button>
+                  <div className="flex rounded-md border overflow-hidden">
+                    {themeOptions.map(opt => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setTheme(opt.value)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${
+                          theme === opt.value
+                            ? 'bg-foreground text-background'
+                            : 'bg-background text-muted-foreground hover:text-foreground hover:bg-muted'
+                        }`}
+                      >
+                        {opt.icon}
+                        <span>{opt.label}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div className="flex items-center justify-between">
                   <Label>{i18n.settings.accentColor}</Label>

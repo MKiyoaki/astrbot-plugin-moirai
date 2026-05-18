@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { PersonaNode, ImpressionEdge } from '@/lib/api'
 import type { EdgePair } from '@/lib/graph-types'
 import { useApp } from '@/lib/store'
@@ -162,14 +163,24 @@ function ImpressionSection({
         <p className="text-xs font-medium truncate">{label}</p>
         <div className="flex shrink-0 items-center gap-1">
           {onEdit && (
-            <Button variant="ghost" size="icon" className="size-5" onClick={onEdit}>
-              <Pencil className="size-3" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-5" onClick={onEdit}>
+                  <Pencil className="size-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{i18n.common.edit}</TooltipContent>
+            </Tooltip>
           )}
           {onDelete && (
-            <Button variant="ghost" size="icon" className="size-5" onClick={onDelete}>
-              <Trash2 className="size-3" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-5" onClick={onDelete}>
+                  <Trash2 className="size-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{i18n.common.delete}</TooltipContent>
+            </Tooltip>
           )}
         </div>
       </div>

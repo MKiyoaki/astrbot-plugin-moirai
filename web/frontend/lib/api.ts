@@ -259,6 +259,10 @@ export const summaries = {
     request<{ content: string }>('/api/summary/regenerate', {
       method: 'POST', body: JSON.stringify({ group_id: groupId, date }),
     }),
+  delete: (groupId: string | null, date: string) => {
+    const qs = groupId ? `group_id=${encodeURIComponent(groupId)}&date=${encodeURIComponent(date)}` : `date=${encodeURIComponent(date)}`
+    return request('/api/summary?' + qs, { method: 'DELETE' })
+  },
 }
 
 // ── Recall ────────────────────────────────────────────────────────────────

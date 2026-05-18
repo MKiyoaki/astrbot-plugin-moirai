@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Pencil, Save, X, Search, RotateCcw, ScrollText } from 'lucide-react'
+import { Pencil, Save, X, Search, RotateCcw, ScrollText, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { PageHeader } from '@/components/layout/page-header'
 import { RefreshButton } from '@/components/shared/refresh-button'
-import { EmptyState } from '@/components/shared/empty-state'
+import { PageEmptyOverlay } from '@/components/shared/page-empty-overlay'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -76,6 +76,7 @@ export default function SummaryPage() {
   const [loading, setLoading] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
 
   const loadList = useCallback(async () => {
     try {
@@ -137,6 +138,25 @@ export default function SummaryPage() {
     }
   }
 
+  const handleDelete = async () => {
+    setDeleteConfirmOpen(false)
+    try {
+      await api.summaries.delete(current.groupId, current.date)
+      app.toast(i18n.summary.deleteSuccess)
+      const newList = summaries.filter(s => !(s.group_id === current.groupId && s.date === current.date))
+      setSummaries(newList)
+      if (newList.length) {
+        loadSummary(newList[0].group_id, newList[0].date)
+      } else {
+        setCurrent({ groupId: null, date: '', content: '' })
+        setSections({ topic: '', events: '', mood: '' })
+      }
+      setEditing(false)
+    } catch (e: unknown) {
+      app.toast(`${i18n.summary.deleteFailed}: ${(e as api.ApiError).body}`, 'destructive')
+    }
+  }
+
   const filtered = summaries.filter(s =>
     !search ||
     (s.label || '').toLowerCase().includes(search.toLowerCase()) ||
@@ -156,19 +176,31 @@ export default function SummaryPage() {
       </div>
 
       {current.date && !editing && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 gap-1.5 px-2"
-          disabled={!app.sudo || regenerating}
-          onClick={() => setConfirmOpen(true)}
-          title={!app.sudo ? i18n.common.needSudo : undefined}
-        >
-          <RotateCcw className="size-3.5" />
-          <span className="hidden sm:inline">
-            {regenerating ? i18n.common.loading : i18n.summary.regenerate}
-          </span>
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 px-2"
+            disabled={!app.sudo || regenerating}
+            onClick={() => setConfirmOpen(true)}
+            title={!app.sudo ? i18n.common.needSudo : undefined}
+          >
+            <RotateCcw className="size-3.5" />
+            <span className="hidden sm:inline">
+              {regenerating ? i18n.common.loading : i18n.summary.regenerate}
+            </span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            disabled={!app.sudo}
+            onClick={() => setDeleteConfirmOpen(true)}
+            title={!app.sudo ? i18n.common.needSudo : undefined}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </>
       )}
 
       {!editing ? (
@@ -228,6 +260,24 @@ export default function SummaryPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{i18n.common.delete}</AlertDialogTitle>
+            <AlertDialogDescription>{i18n.summary.deleteConfirm}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{i18n.common.cancel}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleDelete}
+            >
+              {i18n.common.delete}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <div className="flex flex-1 overflow-hidden min-w-0">
         <div className="bg-card border-foreground/10 flex w-56 shrink-0 flex-col border-r">
           <ScrollArea className="flex-1">
@@ -259,7 +309,7 @@ export default function SummaryPage() {
 
         <div className="flex flex-1 flex-col overflow-hidden min-w-0">
           {!current.date ? (
-            <EmptyState
+            <PageEmptyOverlay
               icon={ScrollText}
               title={summaries.length === 0 ? i18n.summary.noneHint.split('\n')[0] : i18n.summary.placeholder}
               description={summaries.length === 0 ? i18n.summary.noneHint.split('\n').slice(1).join(' ') : undefined}

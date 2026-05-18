@@ -4,6 +4,10 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { Plus, Trash2, Archive, Search, X, MessageSquareOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { PageHeader } from '@/components/layout/page-header'
 import { EventTimeline } from '@/components/events/event-timeline'
 import { DetailPanel } from '@/components/events/detail-panel'
@@ -11,7 +15,7 @@ import {
   CreateEventDialog, EditEventDialog, RecycleBinDialog, ArchiveEventsDialog, type EventFormData,
 } from '@/components/events/event-dialogs'
 import { RefreshButton } from '@/components/shared/refresh-button'
-import { EmptyState } from '@/components/shared/empty-state'
+import { PageEmptyOverlay } from '@/components/shared/page-empty-overlay'
 import { TimeGapSelector } from '@/components/shared/time-gap-selector'
 import { FilterBar } from '@/components/shared/filter-bar'
 import { useApp } from '@/lib/store'
@@ -76,6 +80,16 @@ export default function EventsPage() {
   const [archiveBinOpen, setArchiveBinOpen]   = useState(false)
   const [archiveBinItems, setArchiveBinItems] = useState<api.ApiEvent[]>([])
   const [archiveBinLoading, setArchiveBinLoading] = useState(false)
+
+  // ── Confirm dialog (replaces native window.confirm) ────────────────────────
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string; description: string; onConfirm: () => void
+  } | null>(null)
+
+  const askConfirm = (title: string, description: string, onConfirm: () => void) => {
+    setConfirmDialog({ title, description, onConfirm })
+  }
+
   // ── Data loading ───────────────────────────────────────────────────────────
 
   const loadEvents = useCallback(async () => {
@@ -181,17 +195,22 @@ export default function EventsPage() {
     setEditEvent(null); loadEvents()
   }
 
-  const handleDelete = async (ev: api.ApiEvent) => {
+  const handleDelete = (ev: api.ApiEvent) => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    if (!confirm(i18n.events.deleteConfirm.replace('{name}', ev.content || ev.topic || ev.id))) return
-    try {
-      await api.events.delete(ev.id)
-      app.toast(i18n.events.moveBinSuccess)
-      if (detailEvent?.id === ev.id) setDetailEvent(null)
-      loadEvents(); app.refreshStats()
-    } catch (e: any) {
-      app.toast(e?.body || e?.message || i18n.common.deleteFailed, 'destructive')
-    }
+    askConfirm(
+      i18n.common.delete,
+      i18n.events.deleteConfirm.replace('{name}', ev.content || ev.topic || ev.id),
+      async () => {
+        try {
+          await api.events.delete(ev.id)
+          app.toast(i18n.events.moveBinSuccess)
+          if (detailEvent?.id === ev.id) setDetailEvent(null)
+          loadEvents(); app.refreshStats()
+        } catch (e: any) {
+          app.toast(e?.body || e?.message || i18n.common.deleteFailed, 'destructive')
+        }
+      }
+    )
   }
 
   const handleLockToggle = async (ev: api.ApiEvent) => {
@@ -217,19 +236,24 @@ export default function EventsPage() {
     }
   }
 
-  const handleReextract = async (ev: api.ApiEvent) => {
+  const handleReextract = (ev: api.ApiEvent) => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    if (ev.is_locked) { app.toast('事件已锁定，无法重新提取', 'destructive'); return }
-    if (!confirm('重新提取会调用 LLM，并覆盖该事件的标题、摘要、标签、显著度和置信度。继续？')) return
-    try {
-      const result = await api.events.reextract(ev.id)
-      app.toast(`重新提取成功，使用 ${result.source_count} 条原始消息`)
-      setDetailEvent(result.event)
-      await loadEvents()
-      app.refreshStats()
-    } catch (e: any) {
-      app.toast(e?.body || e?.message || '重新提取失败', 'destructive')
-    }
+    if (ev.is_locked) { app.toast(i18n.events.reextractLocked, 'destructive'); return }
+    askConfirm(
+      i18n.events.reextractTitle,
+      i18n.events.reextractConfirm,
+      async () => {
+        try {
+          const result = await api.events.reextract(ev.id)
+          app.toast(i18n.events.reextractSuccess.replace('{n}', String(result.source_count)))
+          setDetailEvent(result.event)
+          await loadEvents()
+          app.refreshStats()
+        } catch (e: any) {
+          app.toast(e?.body || e?.message || i18n.events.reextractFailed, 'destructive')
+        }
+      }
+    )
   }
 
   const openBin = async () => {
@@ -248,11 +272,16 @@ export default function EventsPage() {
     } catch (e: any) { app.toast(e?.body || e?.message || i18n.common.updateFailed, 'destructive') }
   }
 
-  const handleClearBin = async () => {
+  const handleClearBin = () => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
-    if (!confirm(i18n.events.clearBinConfirm)) return
-    try { await api.events.clearBin(); app.toast(i18n.events.binClearSuccess); setBinItems([]) }
-    catch (e: any) { app.toast(e?.body || e?.message || i18n.common.deleteFailed, 'destructive') }
+    askConfirm(
+      i18n.common.delete,
+      i18n.events.clearBinConfirm,
+      async () => {
+        try { await api.events.clearBin(); app.toast(i18n.events.binClearSuccess); setBinItems([]) }
+        catch (e: any) { app.toast(e?.body || e?.message || i18n.common.deleteFailed, 'destructive') }
+      }
+    )
   }
 
   const openArchiveBin = async () => {
@@ -336,29 +365,31 @@ export default function EventsPage() {
       />
 
       {/* ── Main area ── */}
+      {app.rawEvents.length === 0 ? (
+        <PageEmptyOverlay
+          icon={MessageSquareOff}
+          title={i18n.page.events.noEvents}
+          description={i18n.page.events.description}
+          action={app.sudo && (
+            <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-1.5 size-3.5" />{i18n.common.create}
+            </Button>
+          )}
+        />
+      ) : filtered.length === 0 ? (
+        <PageEmptyOverlay
+          icon={Search}
+          title={i18n.page.events.noResults}
+          action={
+            <Button variant="ghost" size="sm" className="mt-2 text-xs"
+              onClick={() => { setSearch(''); setDateRange(undefined); setActiveTags(new Set()) }}>
+              {i18n.common.clearHighlight}
+            </Button>
+          }
+        />
+      ) : (
       <div className="flex flex-1 overflow-hidden" data-testid="loom-layout">
         <div className="flex flex-1 flex-col overflow-hidden">
-          {app.rawEvents.length === 0 ? (
-            <EmptyState
-              icon={MessageSquareOff}
-              title={i18n.page.events.noEvents}
-              description={i18n.page.events.description}
-              action={app.sudo && (
-                <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
-                  <Plus className="mr-1.5 size-3.5" />{i18n.common.create}
-                </Button>
-              )}
-            />
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
-              <Search className="size-12 text-muted-foreground/30 mb-4" />
-              <h3 className="text-md font-medium text-muted-foreground">{i18n.page.events.noResults}</h3>
-              <Button variant="ghost" size="sm" className="mt-2 text-xs"
-                onClick={() => { setSearch(''); setDateRange(undefined); setActiveTags(new Set()) }}>
-                {i18n.common.clearHighlight}
-              </Button>
-            </div>
-          ) : (
             <EventTimeline
               events={filtered}
               timeGap={timeGap}
@@ -370,7 +401,6 @@ export default function EventsPage() {
               onDelete={handleDelete}
               onArchive={handleArchive}
             />
-          )}
         </div>
 
         {/* Right Detail Panel */}
@@ -387,6 +417,7 @@ export default function EventsPage() {
           onSelect={setDetailEvent}
         />
       </div>
+      )}
 
       <CreateEventDialog open={createOpen} onClose={() => setCreateOpen(false)}
         onSubmit={handleCreate} tagSuggestions={tagList.map(t => t.name)} events={app.rawEvents} />
@@ -396,6 +427,22 @@ export default function EventsPage() {
         onClose={() => setBinOpen(false)} onRestore={handleRestore} onClear={handleClearBin} sudoMode={app.sudo} />
       <ArchiveEventsDialog open={archiveBinOpen} items={archiveBinItems} loading={archiveBinLoading}
         onClose={() => setArchiveBinOpen(false)} onUnarchive={handleUnarchive} sudoMode={app.sudo} />
+
+      {/* Confirm dialog — replaces native window.confirm() */}
+      <AlertDialog open={!!confirmDialog} onOpenChange={v => { if (!v) setConfirmDialog(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmDialog?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmDialog?.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{i18n.common.cancel}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { confirmDialog?.onConfirm(); setConfirmDialog(null) }}>
+              {i18n.common.confirm}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -5,6 +5,7 @@ import { Plus, Undo2, Trash2, Pencil, Check, ChevronsUpDown, X, Lock, Unlock, Ar
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -664,7 +665,7 @@ interface RecycleBinDialogProps {
   loading: boolean
   onClose: () => void
   onRestore: (id: string) => Promise<void>
-  onClear: () => Promise<void>
+  onClear: () => void | Promise<void>
   sudoMode: boolean
 }
 export function RecycleBinDialog({ open, items, loading, onClose, onRestore, onClear, sudoMode }: RecycleBinDialogProps) {
@@ -919,82 +920,111 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 pt-2 pl-2 border-t mt-1">
+      <div className="flex items-center gap-1 pt-2 pl-2 border-t mt-1">
         {isFocused ? (
           <>
-            <Button size="sm" variant="default" className="h-9 px-4 shadow-sm" disabled={!sudoMode} onClick={() => onEdit(event)}>
-              <Pencil className="mr-2 size-3.5" />{i18n.common.edit}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className={cn("h-9 px-4", event.is_locked && "text-primary border-primary/30 bg-primary/5")}
-              disabled={!sudoMode}
-              onClick={() => onLockToggle(event)}
-            >
-              {event.is_locked ? <Lock className="mr-2 size-3.5" /> : <Unlock className="mr-2 size-3.5" />}
-              {event.is_locked ? i18n.events.unlock : i18n.events.lock}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="icon" variant="ghost" className="size-8" disabled={!sudoMode} onClick={() => onEdit(event)}>
+                  <Pencil className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{i18n.common.edit}</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className={cn("size-8", event.is_locked && "text-primary")}
+                  disabled={!sudoMode}
+                  onClick={() => onLockToggle(event)}
+                >
+                  {event.is_locked ? <Lock className="size-3.5" /> : <Unlock className="size-3.5" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{event.is_locked ? i18n.events.unlock : i18n.events.lock}</TooltipContent>
+            </Tooltip>
+
             {onReextract && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-9 px-4"
-                disabled={!sudoMode || event.is_locked}
-                onClick={(e) => { e.stopPropagation(); onReextract(event) }}
-                title={event.is_locked ? (i18n.events.lockedDeleteHint || 'Locked events cannot be changed') : '重新调用 LLM 覆盖标题、摘要、标签、显著度和置信度'}
-              >
-                <RefreshCw className="mr-2 size-3.5" />
-                重新提取
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-8"
+                    disabled={!sudoMode || event.is_locked}
+                    onClick={(e) => { e.stopPropagation(); onReextract(event) }}
+                  >
+                    <RefreshCw className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{event.is_locked ? i18n.events.reextractLocked : i18n.events.reextractTitle}</TooltipContent>
+              </Tooltip>
             )}
+
             {onArchive && (
-              <Button
-                size="sm"
-                variant={pendingArchive ? "default" : "outline"}
-                className={cn("h-9 px-4 transition-colors", pendingArchive && "bg-amber-500 hover:bg-amber-600 border-amber-500 text-white")}
-                disabled={!sudoMode || event.is_locked || event.status === 'archived'}
-                onClick={() => {
-                  if (!pendingArchive) {
-                    setPendingArchive(true)
-                    archiveTimerRef.current = setTimeout(() => setPendingArchive(false), 3000)
-                  } else {
-                    if (archiveTimerRef.current) clearTimeout(archiveTimerRef.current)
-                    setPendingArchive(false)
-                    onArchive(event)
-                  }
-                }}
-              >
-                <Archive className="mr-2 size-3.5" />
-                {pendingArchive ? i18n.common.confirm : i18n.events.archive}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className={cn("size-8 transition-colors", pendingArchive && "text-amber-500 hover:text-amber-600")}
+                    disabled={!sudoMode || event.is_locked || event.status === 'archived'}
+                    onClick={() => {
+                      if (!pendingArchive) {
+                        setPendingArchive(true)
+                        archiveTimerRef.current = setTimeout(() => setPendingArchive(false), 3000)
+                      } else {
+                        if (archiveTimerRef.current) clearTimeout(archiveTimerRef.current)
+                        setPendingArchive(false)
+                        onArchive(event)
+                      }
+                    }}
+                  >
+                    <Archive className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{pendingArchive ? i18n.common.confirm : i18n.events.archive}</TooltipContent>
+              </Tooltip>
             )}
+
             <div className="flex-1" />
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-9 px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
-              disabled={!sudoMode || event.is_locked}
-              onClick={(e) => { e.stopPropagation(); onDelete(event) }}
-              title={event.is_locked ? (i18n.events.lockedDeleteHint || 'Locked events cannot be deleted') : ''}
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  disabled={!sudoMode || event.is_locked}
+                  onClick={(e) => { e.stopPropagation(); onDelete(event) }}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{event.is_locked ? (i18n.events.lockedDeleteHint ?? i18n.common.delete) : i18n.common.delete}</TooltipContent>
+            </Tooltip>
           </>
         ) : (
           <>
-            <Button 
-              size="sm" 
-              variant="ghost" 
-              className={cn("h-8 text-[11px]", event.is_locked && "text-primary")}
-              disabled={!sudoMode} 
-              onClick={(e) => { e.stopPropagation(); onLockToggle(event) }}
-            >
-              {event.is_locked ? <Lock className="mr-1.5 size-3" /> : <Unlock className="mr-1.5 size-3" />}
-              {event.is_locked ? i18n.events.unlock : i18n.events.lock}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className={cn("size-8", event.is_locked && "text-primary")}
+                  disabled={!sudoMode}
+                  onClick={(e) => { e.stopPropagation(); onLockToggle(event) }}
+                >
+                  {event.is_locked ? <Lock className="size-3" /> : <Unlock className="size-3" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{event.is_locked ? i18n.events.unlock : i18n.events.lock}</TooltipContent>
+            </Tooltip>
             <div className="flex-1" />
-            <span className="text-[10px] text-muted-foreground italic">Select to edit</span>
+            <span className="text-[10px] text-muted-foreground/50 italic">click to expand</span>
           </>
         )}
       </div>

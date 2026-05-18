@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { PersonaNode } from '@/lib/api'
 import type { EdgePair } from '@/lib/graph-types'
 import { useApp } from '@/lib/store'
@@ -38,19 +39,34 @@ export function NodeDetail({ node, allNodes, edgePairs, onBack, onEdit, onDelete
     <div className="flex h-full flex-col overflow-hidden text-sm">
       {/* Header */}
       <div className="shrink-0 border-b px-3 py-2 flex items-center gap-2">
-        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onBack}>
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onBack}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{td.backToParams}</TooltipContent>
+        </Tooltip>
         <span className="text-xs text-muted-foreground flex-1">{td.backToParams}</span>
         {sudoMode && (
           <>
-            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onEdit(node)}>
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive"
-              onClick={() => onDelete(node.data.id, node.data.label)}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onEdit(node)}>
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{i18n.common.edit}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive"
+                  onClick={() => onDelete(node.data.id, node.data.label)}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{i18n.common.delete}</TooltipContent>
+            </Tooltip>
           </>
         )}
       </div>

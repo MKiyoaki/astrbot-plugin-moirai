@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useTheme } from 'next-themes'
-import { Eye, EyeOff, Moon, Sun, Languages, Loader2, AlertCircle } from 'lucide-react'
+import { Eye, EyeOff, Moon, Sun, Monitor, Languages, Loader2, AlertCircle } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useApp } from '@/lib/store'
@@ -37,8 +37,7 @@ interface LoginScreenProps {
 
 export function LoginScreen({ onSuccess }: LoginScreenProps) {
   const { lang, setLang, preAuthVersion } = useApp()
-  const { resolvedTheme, setTheme } = useTheme()
-  const isDark = resolvedTheme === 'dark'
+  const { theme, setTheme } = useTheme()
 
   const [password, setPassword] = useState('')
   const [showPwd, setShowPwd] = useState(false)
@@ -326,14 +325,22 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
           ))}
         </div>
 
-        {/* Dark/light */}
-        <button
-          onClick={() => setTheme(isDark ? 'light' : 'dark')}
-          className="p-1 rounded hover:text-foreground transition-colors"
-          aria-label="Toggle theme"
-        >
-          {isDark ? <Sun className="size-3" /> : <Moon className="size-3" />}
-        </button>
+        {/* Dark/light/system */}
+        <div className="flex items-center gap-0.5">
+          {([
+            { value: 'light',  icon: <Sun className="size-3" /> },
+            { value: 'dark',   icon: <Moon className="size-3" /> },
+            { value: 'system', icon: <Monitor className="size-3" /> },
+          ] as const).map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => setTheme(opt.value)}
+              className={`p-1 rounded transition-colors ${theme === opt.value ? 'bg-foreground text-background' : 'hover:text-foreground'}`}
+            >
+              {opt.icon}
+            </button>
+          ))}
+        </div>
 
         {/* Color scheme dots */}
         <div className="flex items-center gap-1">

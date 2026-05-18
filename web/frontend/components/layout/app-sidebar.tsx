@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import {
   Activity, Share2, BookOpen, Search, Database, Settings, SlidersHorizontal,
-  Moon, Sun, Monitor, BarChart3, Lock, Unlock,
+  Moon, Sun, Monitor, BarChart3, Lock, Unlock, Check,
 } from 'lucide-react'
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/sidebar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -145,13 +146,14 @@ export function AppSidebar() {
   }
 
   const { theme, setTheme } = useTheme()
-  const cycleTheme = () => {
-    if (theme === 'light') setTheme('dark')
-    else if (theme === 'dark') setTheme('system')
-    else setTheme('light')
-  }
+  const [themePopoverOpen, setThemePopoverOpen] = useState(false)
   const themeIcon = theme === 'light' ? <Sun /> : theme === 'dark' ? <Moon /> : <Monitor />
   const themeLabel = theme === 'light' ? i18n.settings.themeLight : theme === 'dark' ? i18n.settings.themeDark : i18n.settings.themeSystem
+  const themeOptions = [
+    { value: 'light', icon: <Sun className="size-4" />, label: i18n.settings.themeLight },
+    { value: 'dark',  icon: <Moon className="size-4" />, label: i18n.settings.themeDark },
+    { value: 'system', icon: <Monitor className="size-4" />, label: i18n.settings.themeSystem },
+  ]
 
   return (
     <>
@@ -271,10 +273,27 @@ export function AppSidebar() {
           </SidebarMenuItem>
 
           <SidebarMenuItem>
-            <SidebarMenuButton onClick={cycleTheme} tooltip={themeLabel} className="cursor-pointer">
-              {themeIcon}
-              <span>{themeLabel}</span>
-            </SidebarMenuButton>
+            <Popover open={themePopoverOpen} onOpenChange={setThemePopoverOpen}>
+              <PopoverTrigger asChild>
+                <SidebarMenuButton tooltip={themeLabel} className="cursor-pointer">
+                  {themeIcon}
+                  <span>{themeLabel}</span>
+                </SidebarMenuButton>
+              </PopoverTrigger>
+              <PopoverContent side="right" align="end" className="w-40 p-1">
+                {themeOptions.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setTheme(opt.value); setThemePopoverOpen(false) }}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                  >
+                    {opt.icon}
+                    <span className="flex-1 text-left">{opt.label}</span>
+                    {theme === opt.value && <Check className="size-3.5" />}
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
           </SidebarMenuItem>
 
           <SidebarMenuItem>

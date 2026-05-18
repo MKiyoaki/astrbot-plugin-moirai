@@ -3,6 +3,7 @@
 import { useRef, useEffect } from 'react'
 import { X, Tag, Users, Zap, BarChart2, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
@@ -207,9 +208,14 @@ function DetailBody({
             {focusedEvent?.group || i18n.events.privateChat} · AXIS
           </p>
         </div>
-        <Button variant="ghost" size="icon" className="size-8 shrink-0 -mr-2" onClick={onClose}>
-          <X className="size-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" className="size-8 shrink-0 -mr-2" onClick={onClose}>
+              <X className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">{i18n.common.close ?? 'Close'}</TooltipContent>
+        </Tooltip>
       </div>
 
       <ScrollArea className="flex-1 overscroll-contain">
