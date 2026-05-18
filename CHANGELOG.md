@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [v0.12.8] — 2026-05-18
+
+### 配置界面信息整理
+
+**Chore — AstrBot 原生配置 hint 去冗余**
+
+- 所有 section 的 `hint` 删除重复的 `（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）` 括号说明；该约定统一收录到 `general` section 的置顶 hint 中，一次说明全局生效。
+- `boundary` section hint 保持原有的 emoji 顺序说明（`【基础】→🎯→⏱️→🌊→🔄`）不变。
+
+**Feature — `relation` section 字段分组标注**
+
+- `relation` section hint 更新为 `按【基础】→🔒→💭顺序排列`，与 `boundary` 的标注风格一致。
+- 人格隔离相关字段（`persona_default_confidence` / `persona_isolation_enabled` / `persona_isolation_legacy_visible` / `persona_merge_audit_enabled` / `persona_default_view_mode`）description 加 `🔒` 前缀。
+- 印象触发相关字段（`impression_event_trigger_enabled` / `impression_event_trigger_threshold` / `impression_trigger_debounce_hours` / `impression_update_alpha` / `impression_aggregation_interval_hours`）description 加 `💭` 前缀。
+
+**Chore — WebUI 标签剥离正则扩展**
+
+- `config/page.tsx` 的 emoji 剥离正则新增 `🔒` 和 `💭`，WebUI 字段标签不显示新增的聚类前缀。
+
+**Version**
+
+- 更新版本到 `v0.12.8`
+
 ## [v0.12.7] — 2026-05-17
 
 ### LLM 提取质量、超时治理、人格归属与周期性窗口扫描

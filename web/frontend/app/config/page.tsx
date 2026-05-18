@@ -109,7 +109,7 @@ function ConfigField({
   const rawLabel = localized?.label || schema.description || ''
   const label = String(rawLabel)
     .replace(/^【[^】]+】\s*/u, '')
-    .replace(/^(?:🎯|⏱️|🌊|🔄)\s*/u, '')
+    .replace(/^(?:🎯|⏱️|🌊|🔄|🔒|💭)\s*/u, '')
   const hint = localized?.hint || schema.hint
   const tooltip = localized?.tooltip
 

@@ -1,7 +1,7 @@
 {
     "general": {
         "description": "基础设置",
-        "hint": "🟢 标注的设置项为基础项，其余为进阶项，新手可只关注基础项。插件语言与 LLM 提供者配置（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
+        "hint": "🟢 标注的设置项为基础项，其余为进阶项，新手可只关注基础项。以下约定适用于所有 section：🟢 基础 · 其余为进阶，进阶参数建议前往 WebUI 配置面板调整。",
         "type": "object",
         "items": {
             "language": {
@@ -30,7 +30,7 @@
     },
     "webui": {
         "description": "WebUI 面板",
-        "hint": "启用后可在浏览器访问 Moirai 三轴记忆面板（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
+        "hint": "启用后可在浏览器访问 Moirai 三轴记忆面板（事件流 / 关系图 / 摘要）",
         "type": "object",
         "items": {
             "webui_enabled": {
@@ -79,7 +79,7 @@
     },
     "embedding": {
         "description": "向量嵌入",
-        "hint": "语义检索所需的 Embedding 模型配置（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
+        "hint": "语义检索所需的 Embedding 模型配置",
         "type": "object",
         "items": {
             "embedding_enabled": {
@@ -181,7 +181,7 @@
     },
     "retrieval": {
         "description": "记忆检索",
-        "hint": "控制记忆如何从数据库检索并注入 Prompt（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
+        "hint": "控制记忆如何从数据库检索并注入 Prompt",
         "type": "object",
         "items": {
             "retrieval_top_k": {
@@ -259,7 +259,7 @@
     },
     "vcm": {
         "description": "上下文管理 (VCM)",
-        "hint": "虚拟上下文管理器：控制活跃会话缓存与上下文窗口大小（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
+        "hint": "虚拟上下文管理器：控制活跃会话缓存与上下文窗口大小",
         "type": "object",
         "items": {
             "vcm_enabled": {
@@ -308,7 +308,7 @@
     },
     "soul": {
         "description": "情绪四维 (Soul Layer)",
-        "hint": "动态情绪状态，随对话变化并注入 system prompt 以影响回复风格（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
+        "hint": "动态情绪状态，随对话变化并注入 system prompt 以影响回复风格",
         "type": "object",
         "items": {
             "soul_enabled": {
@@ -372,7 +372,7 @@
     },
     "cleanup": {
         "description": "记忆清理",
-        "hint": "定期清理重要度衰减到阈值以下的旧记忆，控制数据库规模（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
+        "hint": "定期清理重要度衰减到阈值以下的旧记忆，控制数据库规模",
         "type": "object",
         "items": {
             "memory_cleanup_enabled": {
@@ -407,7 +407,7 @@
     },
     "summaries": {
         "description": "叙事摘要",
-        "hint": "定期为活跃群组生成每日叙事摘要（叙事轴记忆）（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
+        "hint": "定期为活跃群组生成每日叙事摘要（叙事轴记忆）",
         "type": "object",
         "items": {
             "summary_enabled": {
@@ -575,7 +575,7 @@
     },
     "relation": {
         "description": "社会关系与印象",
-        "hint": "Bot 人格隔离、社交关系推断与印象触发策略（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
+        "hint": "Bot 人格隔离、社交关系推断与印象触发策略，按【基础】→🔒→💭顺序排列。",
         "type": "object",
         "items": {
             "relation_enabled": {
@@ -586,35 +586,35 @@
                 "level": "basic"
             },
             "persona_default_confidence": {
-                "description": "人格默认置信度",
+                "description": "🔒人格默认置信度",
                 "type": "float",
                 "hint": "新建人格时赋予的初始置信值（由模型推断后自动更新）",
                 "default": 0.5,
                 "level": "advanced"
             },
             "persona_isolation_enabled": {
-                "description": "启用 Bot 人格数据隔离",
+                "description": "🔒启用 Bot 人格数据隔离",
                 "type": "bool",
                 "hint": "开启后 WebUI 与查询路径会按当前选中的 bot_persona_name 过滤事件 / 印象 / 人格，使不同 Bot 人格互不串记忆。关闭则回退为汇总视图（与旧版行为一致）。",
                 "default": true,
                 "level": "advanced"
             },
             "persona_isolation_legacy_visible": {
-                "description": "在单 persona 视图中保留遗留数据可见",
+                "description": "🔒在单 persona 视图中保留遗留数据可见",
                 "type": "bool",
                 "hint": "开启后选择具体 persona 时仍会看到 bot_persona_name 为 NULL 的旧数据；关闭则严格隔离，旧数据只在「全部 persona」视图下出现",
                 "default": true,
                 "level": "advanced"
             },
             "persona_merge_audit_enabled": {
-                "description": "记录 Persona 合并审计日志",
+                "description": "🔒记录 Persona 合并审计日志",
                 "type": "bool",
                 "hint": "执行 Persona A → B 合并时，是否在 data_dir/audit/persona_merge.jsonl 中追加一行 JSON 记录",
                 "default": true,
                 "level": "advanced"
             },
             "persona_default_view_mode": {
-                "description": "WebUI 首次进入的默认 Persona 视图模式",
+                "description": "🔒WebUI 首次进入的默认 Persona 视图模式",
                 "type": "string",
                 "options": ["remember", "all", "force_pick"],
                 "default": "remember",
@@ -622,35 +622,35 @@
                 "level": "advanced"
             },
             "impression_event_trigger_enabled": {
-                "description": "启用事件数量触发印象更新",
+                "description": "💭启用事件数量触发印象更新",
                 "type": "bool",
                 "hint": "每次事件关闭后，若参与者间共享事件数达到阈值则自动触发规则式印象更新（不消耗 LLM token）",
                 "default": true,
                 "level": "advanced"
             },
             "impression_event_trigger_threshold": {
-                "description": "印象触发所需最少共享事件数",
+                "description": "💭印象触发所需最少共享事件数",
                 "type": "int",
                 "hint": "两人在同一 scope 内的共享事件数达到此值时才触发印象更新",
                 "default": 5,
                 "level": "advanced"
             },
             "impression_trigger_debounce_hours": {
-                "description": "印象触发防抖时间（小时）",
+                "description": "💭印象触发防抖时间（小时）",
                 "type": "float",
                 "hint": "上次更新距今不足此时长则跳过本次触发，避免高频刷新",
                 "default": 1.0,
                 "level": "advanced"
             },
             "impression_update_alpha": {
-                "description": "印象更新平滑系数 (Alpha)",
+                "description": "💭印象更新平滑系数 (Alpha)",
                 "type": "float",
                 "hint": "数值越大则越快接受新印象，数值越小越倾向于维持旧印象。0.4 表示新信息占比 40%，旧记忆占比 60%。",
                 "default": 0.4,
                 "level": "advanced"
             },
             "impression_aggregation_interval_hours": {
-                "description": "印象字段重算间隔（小时）",
+                "description": "💭印象字段重算间隔（小时）",
                 "type": "int",
                 "hint": "每隔多少小时根据最新数据重算社交取向（IPC）衍生字段并对齐依据事件。纯算法执行，不消耗 LLM token。",
                 "default": 168,
@@ -660,7 +660,7 @@
     },
     "scheduled": {
         "description": "后台周期任务",
-        "hint": "定时跑的衰减、合成、投影、监听等后台任务的开关与频率（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
+        "hint": "定时跑的衰减、合成、投影、监听等后台任务的开关与频率",
         "type": "object",
         "items": {
             "decay_enabled": {
@@ -723,7 +723,7 @@
     },
     "debug_display": {
         "description": "调试与注入显示",
-        "hint": "开发可观测开关，不影响核心逻辑（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
+        "hint": "开发可观测开关，不影响核心逻辑",
         "type": "object",
         "items": {
             "show_thinking_process": {
@@ -751,7 +751,7 @@
     },
     "backup": {
         "description": "自动备份",
-        "hint": "定期自动备份数据库文件，防止数据丢失（🟢 标注为基础设置，进阶参数建议前往 WebUI 配置面板调整）",
+        "hint": "定期自动备份数据库文件，防止数据丢失",
         "type": "object",
         "items": {
             "backup_enabled": {
