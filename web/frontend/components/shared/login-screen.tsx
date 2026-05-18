@@ -87,7 +87,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
       forgotTip: '在 AstrBot 面板查看插件日志中的随机 Token，或在插件配置中手动设置密码。',
       enter: '进入控制台',
       verifying: '验证中…',
-      tagline: <>AstrBot AI Agent 的<br /><span style={{ color: 'var(--color-primary, oklch(0.53 0.130 295))' }}>长期记忆</span>与社交关系管理面板。</>,
+      tagline: <>为 AstrBot 注入<span style={{ color: 'var(--color-primary, oklch(0.53 0.130 295))' }}>持久记忆</span>，<br />让对话跨越时间。</>,
     },
     en: {
       issue: 'ISSUE',
@@ -100,7 +100,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
       forgotTip: 'Check the random token in the AstrBot panel plugin logs, or set a password manually in plugin config.',
       enter: 'Enter Console',
       verifying: 'Verifying…',
-      tagline: <>Long-term <span style={{ color: 'var(--color-primary, oklch(0.53 0.130 295))' }}>memory</span> &amp; social relationship<br />management panel for AstrBot AI Agent.</>,
+      tagline: <>Inject <span style={{ color: 'var(--color-primary, oklch(0.53 0.130 295))' }}>persistent memory</span> into AstrBot,<br />so conversations transcend time.</>,
     },
     ja: {
       issue: 'アーカイブ',
@@ -113,7 +113,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
       forgotTip: 'AstrBot パネルのプラグインログでランダムトークンを確認するか、プラグイン設定でパスワードを手動設定してください。',
       enter: 'コンソールへ',
       verifying: '認証中…',
-      tagline: <>AstrBot AI Agent の<span style={{ color: 'var(--color-primary, oklch(0.53 0.130 295))' }}>長期記憶</span>と<br />ソーシャル関係管理パネル。</>,
+      tagline: <>AstrBot に<span style={{ color: 'var(--color-primary, oklch(0.53 0.130 295))' }}>永続記憶</span>を宿し、<br />対話を時を超えてつなぐ。</>,
     },
   }
 

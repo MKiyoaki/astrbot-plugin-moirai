@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { PageHeader } from '@/components/layout/page-header'
 import { OnThisPage } from '@/components/shared/on-this-page'
 import { useApp } from '@/lib/store'
@@ -23,6 +23,16 @@ const SHADCN_THEMES = [
   { id: 'selune', label: 'Aether' },
   { id: 'folio', label: 'Folio' },
 ]
+
+const THEME_ACCENT_COLORS: Record<string, string> = {
+  moirai: 'oklch(0.53 0.130 295)',
+  nox: 'oklch(0.45 0.08 260)',
+  venus: 'oklch(0.60 0.18 5)',
+  juno: 'oklch(0.52 0.12 220)',
+  augustus: 'oklch(0.58 0.14 55)',
+  selune: 'oklch(0.55 0.10 200)',
+  folio: 'oklch(0.48 0.09 140)',
+}
 
 export default function SettingsPage() {
   const { i18n, lang, setLang } = useApp()
@@ -154,18 +164,24 @@ export default function SettingsPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <Label>{i18n.settings.accentColor}</Label>
-                  <Select value={colorScheme} onValueChange={applyColor}>
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Select a theme" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SHADCN_THEMES.map((theme) => (
-                        <SelectItem key={theme.id} value={theme.id}>
-                          {theme.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center gap-1.5">
+                    {SHADCN_THEMES.map(t => (
+                      <Tooltip key={t.id}>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => applyColor(t.id)}
+                            className={`w-4 h-4 rounded-full border-2 transition-all ${
+                              colorScheme === t.id
+                                ? 'border-foreground scale-125'
+                                : 'border-transparent hover:scale-110'
+                            }`}
+                            style={{ background: THEME_ACCENT_COLORS[t.id] }}
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent>{t.label}</TooltipContent>
+                      </Tooltip>
+                    ))}
+                  </div>
                 </div>
               </CardContent>
             </Card>
