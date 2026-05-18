@@ -30,6 +30,7 @@ from ..utils.formatter import (
 )
 from ..retrieval.rrf import rrf_scores
 from .base import BaseRecallManager
+from ..utils.injection_compat import resolve_injection_position
 from ..social.soul_state import SoulState, apply_decay, apply_tanh_elastic, format_soul_for_prompt, from_config
 
 if TYPE_CHECKING:
@@ -155,9 +156,15 @@ def _build_injection_debug(
     persona: object | None = None,
     relation: dict | None = None,
     soul_state: object | None = None,
+    configured_position: str | None = None,
+    compat_reason: str = "",
 ) -> dict:
+    result: dict = {"position": position}
+    if configured_position and configured_position != position:
+        result["configured_position"] = configured_position
+        result["compat_downgrade"] = compat_reason
     return {
-        "position": position,
+        **result,
         "injected": injected,
         "memory": {
             "injected": memory_injected,
@@ -510,7 +517,15 @@ class RecallManager(BaseRecallManager):
                 }
 
             async with performance_timer("recall_inject"):
-                position = self._icfg.position
+                model_name = getattr(req, "model", None)
+                position, compat_reason = resolve_injection_position(
+                    model_name, self._icfg.position
+                )
+                if compat_reason:
+                    logger.debug(
+                        "injection_compat: downgraded fake_tool_call → %s for model=%r (%s)",
+                        position, model_name, compat_reason,
+                    )
                 token_budget = self._icfg.token_budget
 
             if position == "fake_tool_call":
@@ -521,6 +536,8 @@ class RecallManager(BaseRecallManager):
                             events=[],
                             injected=False,
                             memory_injected=False,
+                            configured_position=self._icfg.position,
+                            compat_reason=compat_reason,
                         )
                     return 0
                 messages = format_events_for_fake_tool_call(
@@ -532,6 +549,8 @@ class RecallManager(BaseRecallManager):
                         events=events,
                         injected=bool(messages),
                         memory_injected=bool(messages),
+                        configured_position=self._icfg.position,
+                        compat_reason=compat_reason,
                     )
                 if messages:
                     contexts = getattr(req, "contexts", None)
@@ -590,6 +609,8 @@ class RecallManager(BaseRecallManager):
                         events=[],
                         injected=False,
                         memory_injected=False,
+                        configured_position=self._icfg.position,
+                        compat_reason=compat_reason,
                     )
                 return 0
 
@@ -621,6 +642,8 @@ class RecallManager(BaseRecallManager):
                     persona=persona_obj if persona_segment else None,
                     relation=relation_debug,
                     soul_state=soul_state_for_debug,
+                    configured_position=self._icfg.position,
+                    compat_reason=compat_reason,
                 )
 
             if position == "system_prompt":
