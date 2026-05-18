@@ -238,10 +238,10 @@ export const graph = {
       method: 'POST',
       body: JSON.stringify({ scope, persona }),
     }),
-  reanalyzeImpressions: (scope: string, persona?: string | null) =>
+  reanalyzeImpressions: (scope: string, persona?: string | null, method: 'heuristic' | 'llm' = 'heuristic') =>
     request<{ ok: boolean; updated: number }>('/api/impressions/reanalyze', {
       method: 'POST',
-      body: JSON.stringify({ scope, persona }),
+      body: JSON.stringify({ scope, persona, method }),
     }),
 }
 

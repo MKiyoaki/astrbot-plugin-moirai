@@ -224,3 +224,99 @@ async def test_identity_resolver_touch_last_active_updates_timestamp(persona_rep
 async def test_identity_resolver_touch_last_active_missing_uid_noop(persona_repo) -> None:
     resolver = IdentityResolver(persona_repo)
     await resolver.touch_last_active("nonexistent-uid")  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# find_split_index tests
+# ---------------------------------------------------------------------------
+
+def _fill_window_with_embeddings(
+    count: int, start: float = 1000.0, gap: float = 1.0,
+    embedding_fn=None,
+) -> MessageWindow:
+    """Fill a window where every message has an embedding."""
+    w = MessageWindow(session_id="s", group_id="g", start_time=start, last_message_time=start)
+    for i in range(count):
+        ts = start + i * gap
+        w.add_message("uid-a", f"msg{i}", ts)
+        vec = embedding_fn(i) if embedding_fn else [1.0] * 4
+        w.attach_embedding(i, vec)
+    return w
+
+
+def test_find_split_index_time_gap_no_encoder() -> None:
+    """Without encoder: split at the biggest time gap in the tail.
+
+    gap=200 when i==17 means msg17 arrives 200s after msg16.
+    The big gap is BETWEEN msg16 and msg17, so split_after=16:
+    flush msgs[0..16], keep msgs[17..19] as seed.
+    """
+    det = EventBoundaryDetector()  # no encoder
+    w = MessageWindow(session_id="s", group_id="g", start_time=1000.0, last_message_time=1000.0)
+    ts = 1000.0
+    for i in range(20):
+        gap = 200.0 if i == 17 else 1.0
+        ts += gap
+        w.add_message("uid-a", f"msg{i}", ts)
+
+    split = det.find_split_index(w)
+    # gap(msg16→msg17) = 200s → split_after = 16
+    assert split == 16
+
+
+def test_find_split_index_time_gap_below_min_returns_last() -> None:
+    """No gap exceeds _MIN_GAP_SECONDS → returns message_count - 1 (flush all)."""
+    det = EventBoundaryDetector()
+    w = _fill_window(20)  # all 1-second gaps
+    split = det.find_split_index(w)
+    assert split == w.message_count - 1
+
+
+def test_find_split_index_encoder_path() -> None:
+    """With encoder: split at maximum cosine distance pair in the tail."""
+    from core.embedding.encoder import NullEncoder
+
+    class MockEncoder(NullEncoder):
+        @property
+        def dim(self) -> int:
+            return 4
+
+    det = EventBoundaryDetector(encoder=MockEncoder())
+    # 20 messages, all similar embeddings except index 17→18 has orthogonal vectors
+    def emb(i: int) -> list[float]:
+        # Messages 0–17: [1,0,0,0], messages 18–19: [0,1,0,0]
+        return [1.0, 0.0, 0.0, 0.0] if i <= 17 else [0.0, 1.0, 0.0, 0.0]
+
+    w = _fill_window_with_embeddings(20, embedding_fn=emb)
+    split = det.find_split_index(w)
+    # Cosine distance between msg17 ([1,0,0,0]) and msg18 ([0,1,0,0]) = 1.0 (max)
+    assert split == 17
+
+
+def test_find_split_index_encoder_fallback_on_missing_embeddings() -> None:
+    """When embeddings are absent, encoder path falls back to time-gap."""
+    from core.embedding.encoder import NullEncoder
+
+    class MockEncoder(NullEncoder):
+        @property
+        def dim(self) -> int:
+            return 4
+
+    det = EventBoundaryDetector(encoder=MockEncoder())
+    # 20 messages with NO embeddings, one large time gap at index 16
+    w = MessageWindow(session_id="s", group_id="g", start_time=1000.0, last_message_time=1000.0)
+    ts = 1000.0
+    for i in range(20):
+        ts += 200.0 if i == 16 else 1.0
+        w.add_message("uid-a", f"msg{i}", ts)
+    # No embeddings attached — encoder path finds no embedded pairs → time-gap fallback
+    # ts += 200.0 if i==16 means gap is added BEFORE msg16, so gap is between msg15→msg16 → split_after=15
+    split = det.find_split_index(w)
+    assert split == 15
+
+
+def test_find_split_index_small_window_returns_last() -> None:
+    """Window with < 2 messages: returns message_count - 1."""
+    det = EventBoundaryDetector()
+    w = _fill_window(1)
+    assert det.find_split_index(w) == 0

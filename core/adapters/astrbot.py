@@ -88,8 +88,17 @@ class MessageRouter:
                 should_close, reason = True, "topic_drift"
             
             if should_close:
-                await self._flush_window(window)
-                window = None
+                if reason in ("max_messages", "max_messages_hard_cap") and window.message_count > 1:
+                    split_after = self._detector.find_split_index(window)
+                    if split_after < window.message_count - 1:
+                        await self._flush_window_smart_split(window, split_after)
+                        # window stays alive with tail messages as seed
+                    else:
+                        await self._flush_window(window)
+                        window = None
+                else:
+                    await self._flush_window(window)
+                    window = None
 
         if window is None:
             window = self._context_manager.get_window(session_id, create=True, group_id=group_id, now=now)
@@ -241,6 +250,19 @@ class MessageRouter:
             window = self._context_manager.get_window(session_id)
             if window:
                 await self._flush_window(window)
+
+    async def _flush_window_smart_split(self, window: MessageWindow, split_after: int) -> None:
+        prefix = window.clone_prefix(split_after + 1)
+        window.drop_prefix(split_after + 1)
+        window.drift_detected = False
+        if self._on_event_close is not None:
+            try:
+                await self._on_event_close(prefix)
+            except Exception as exc:
+                logger.warning(
+                    "[MessageRouter] smart-split flush failed session=%s split=%d: %s",
+                    window.session_id, split_after, exc,
+                )
 
     async def _flush_window(self, window: MessageWindow) -> None:
         if self._on_event_close is not None:

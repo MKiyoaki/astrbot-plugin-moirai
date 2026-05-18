@@ -1,5 +1,107 @@
-# CHANGELOG
+﻿# CHANGELOG
 
+## [v0.12.11] — 2026-05-19
+
+### 事件边界智能分割 & 关系重分析 LLM 模式
+
+**Feature — 事件边界智能分割（Smart Split）**
+
+- 当消息窗口触达容量上限时，不再直接硬截断，而是在尾部消息中寻找最自然的话题断点，将前段提交为事件、后段作为种子继续当前窗口。
+- 优先使用 encoder 余弦距离（相邻消息对中距离最大处为分割点）；无 encoder 或缺少向量时退回时间间隔策略（间隔 ≥ 120 s 的最大间隙处）。
+- `EventBoundaryDetector` 新增公开方法 `find_split_index(window)`，以及私有辅助 `_find_split_by_embedding` / `_find_split_by_time_gap`。
+- `MessageRouter.process()` 在 `max_messages` / `max_messages_hard_cap` 触发时调用 `_flush_window_smart_split()`，通过已有的 `clone_prefix` / `drop_prefix` 完成无损切分，`should_close` 签名保持不变。
+- 新增后端测试 5 个（`test_find_split_index_*`），覆盖无 encoder 时间分割、无超门槛间隙兜底、encoder 路径、无向量回退、单消息窗口。
+
+**Feature — 重新分析关系支持 LLM 深度模式**
+
+- 「重新分析关系」按钮点击后弹出方式选择 Dialog，用户可在启发式（共现统计）和 LLM 深度分析两种模式间选择后再执行。
+- 新增 `core/tasks/reanalyze_llm.py`：并发（Semaphore 3）调用 LLM 对所有参与者对分析，解析 `{benevolence, power}` JSON，新旧印象以 α=0.4 混合；provider 缺失或参与者不足时抛 `ReanalyzeError` 预检异常，不写入任何数据。
+- `plugin_routes.py` / `server.py` 路由层读取 `body.method`：`"llm"` 走新路径，`"heuristic"`（默认）走原路径；`ReanalyzeError` 映射为 400 响应。
+- 前端新增 `ReanalyzeMethodDialog` 组件（`components/shared/reanalyze-method-dialog.tsx`），`api.graph.reanalyzeImpressions` 新增 `method` 参数，`graph/page.tsx` 接入 dialog 状态管理。
+- i18n 三语新增 5 个 key：`reanalyzeMethodDialogTitle` / `reanalyzeMethodHeuristic` / `reanalyzeMethodHeuristicDesc` / `reanalyzeMethodLlm` / `reanalyzeMethodLlmDesc`。
+- 新增后端测试 6 个（`test_reanalyze_llm.py`），覆盖 provider 缺失、数据不足、正常路径、LLM 失败跳过、JSON 解析失败、混合已有印象。
+
+---
+
+## [v0.12.10] — 2026-05-18
+
+### WebUI 交互与管理功能补全
+
+**Feature — 摘要页支持删除**
+
+- Summary 页新增删除当前摘要功能：toolbar 右侧（重新生成按钮旁）增加红色垃圾桶图标按钮，点击弹出 AlertDialog 二次确认。
+- 删除成功后自动跳转到列表中下一条摘要；列表为空时清空内容区。
+- 后端新增 `DELETE /api/summary?group_id=&date=` 路由（sudo 保护），文件不存在返回 404。
+- 前端 `api.summaries.delete()` 方法及三语 i18n key（`deleteConfirm` / `deleteSuccess` / `deleteFailed`）同步补全。
+- 新增后端测试 `tests/backend/test_summary_delete.py`（9 个用例，覆盖 400/404/200、全局摘要、群组摘要、邻近文件隔离）。
+
+**Fix — Events 页 PageEmptyOverlay 覆盖范围修正**
+
+- 原空状态 overlay 被渲染在左侧时间轴列内，被右侧 DetailPanel 挤压为半宽。现将空状态判断提升至两列布局外层，overlay 可正确撑满 header/toolbar 以下全部区域。
+
+**Refactor — 事件卡片操作按钮统一为纯图标风格**
+
+- `EventDetailCard` 聚焦状态的操作栏（编辑/锁定/再抽出/封存/删除）全部改为 `size-8` ghost icon 按钮 + Tooltip，去除文字标签，视觉更紧凑统一。
+- 封存二次确认逻辑保留（图标变橙色），删除按钮保留 `text-destructive` 红色。
+- 非聚焦状态的锁定按钮同步改为纯图标，右侧提示文字更新为 `click to expand`。
+
+---
+
+## [v0.12.9] — 2026-05-18
+
+### WebUI 视觉与交互优化
+
+**Feature — Landing Page Hero Card 动态背景**
+
+- Hero Card 新增与登录页左面板同款的 SVG 丝线动画背景：静态背景曲线 + 两条 primary 色 accent 线分别以 10s/14s 正反向流动，节点圆点点缀。
+- 线条集中于卡片下 1/3 区域，不遮挡标题与副标题文字。
+- 主题色完全自适应 `var(--color-primary)`，零额外依赖。
+
+**Feature — 明暗模式新增「跟随系统」选项**
+
+- 侧边栏主题切换由双态（浅/深）升级为三态循环：浅色 (Sun) → 深色 (Moon) → 跟随系统 (Monitor) → 循环。
+- 按钮文字与 tooltip 随当前状态显示（中/日/英三语）；新增 i18n key：`themeLight` / `themeDark` / `themeSystem`。
+
+**Feature — 统计页 Toolbar 固定在顶部**
+
+- `PageHeader` 新增 `stickyToolbar` prop：当启用时，Row 3（toolbar 行）独立 sticky（`top-0 z-20 backdrop-blur`），标题与 meta strip 正常随页面滚走。
+- 统计页（`/stats`）启用 `stickyToolbar`，布局改为文档流滚动，与配置页行为一致。
+
+**Chore — Config 页面 Boundary 分组标签去 emoji、支持多语言**
+
+- 五个分组标签（基础 / 提取策略 / 硬边界 / 话题漂移 / 周期扫描）去除 emoji 前缀，改为从 i18n 读取，支持中/日/英。
+
+**Chore — 统计页 Phase 标签支持日语**
+
+- 平均应答时间各 phase 标签（总响应 / 人格合成 / 叙事摘要 / 记忆清理 / 重索引）改为 i18n key，新增日语翻译。
+
+**Chore — 事件流页面布局调整**
+
+- 移除左侧 `SourcePanel`，右侧 `DetailPanel` 宽度收窄（`max-w-[36vw]`）。
+- 刷新按钮移至 `globalActions`（右对齐），补充与关系图页一致的 Tag + 日期筛选工具栏。
+
+**Chore — Sidebar UserMenu 统一人格切换与退出登录**
+
+- 新增 `SidebarUserMenu` 组件：Avatar + 当前 persona 名称触发 Popover，集成人格切换列表与登出按钮，替换原有独立的 `PersonaSelector` 和退出按钮。
+
+**Chore — PersonaOwnershipManager 样式统一**
+
+- 移除标题图标，与其他 config card 风格一致；下拉菜单替换为 shadcn `Select` 组件；布局调整为 `grid grid-cols-[1fr_32px_1fr]` 源→目标对称排列。
+
+**Chore — 关系图移除创建 Persona 按钮**
+
+- 删除关系图页面（`/graph`）中创建新 persona 的按钮及所有相关前端逻辑（`CreatePersonaDialog`、`handleCreatePersona`、`createOpen` state）。
+
+**Engineering — 测试体系重构与覆盖率提升**
+
+- **测试架构重构**：将测试用例按照功能拆分为 `tests/backend/` 和 `tests/frontend/` 目录，优化了引用路径与组织管理。
+- **大幅提升测试覆盖率**：
+    - **后端**：新增 API 逻辑与 LLM 工具类测试，核心引擎覆盖率提升至 **70%**。
+    - **前端/WebUI**：新增 11+ 个针对 `web/plugin_routes.py` 的 API 路由测试（涵盖事件 CRUD、人格管理、回收站恢复、配置同步等），前端逻辑覆盖率提升至 **53%**。
+- **同步前端结构检查**：更新了 `test_loom_layout` 等静态分析测试，使其与最新的 UI 实现（DetailPanel 响应式宽度、FilterBar 组件保留）保持一致。
+- **开发环境 Mock 支持**：引入了 mock `astrbot` 包，解决了插件在开发环境下因缺少主程序接口而无法运行测试的问题。
+
+---
 ## [v0.12.8] — 2026-05-18
 
 ### 配置界面信息整理

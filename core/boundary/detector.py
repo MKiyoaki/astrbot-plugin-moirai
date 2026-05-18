@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_MIN_GAP_SECONDS = 120.0
+
 
 @dataclass
 class BoundaryConfig:
@@ -109,5 +111,69 @@ class EventBoundaryDetector:
                 return True
         except Exception as exc:
             logger.debug("[BoundaryDetector] drift check failed: %s", exc)
-            
+
         return False
+
+    def find_split_index(self, window: "MessageWindow") -> int:
+        """Find the best split point in a window that's at max capacity.
+
+        Returns split_after: index of the last message in the current event.
+        Messages [0..split_after] are flushed; [split_after+1..] become seed.
+        Returns message_count - 1 (flush all) if no better split is found.
+        """
+        n = window.message_count
+        if n < 2:
+            return n - 1
+
+        tail_start = n - min(20, max(3, n // 4))
+
+        if self._encoder and self._encoder.dim > 0:
+            return self._find_split_by_embedding(window, tail_start)
+        return self._find_split_by_time_gap(window, tail_start)
+
+    def _find_split_by_embedding(self, window: "MessageWindow", tail_start: int) -> int:
+        """Split at the pair with maximum cosine distance in the tail.
+
+        Falls back to time-gap if no adjacent pair has embeddings.
+        """
+        import math
+
+        messages = window.messages
+        best_idx = -1
+        best_dist = -1.0
+
+        for i in range(tail_start, len(messages) - 1):
+            v1 = messages[i].embedding if hasattr(messages[i], "embedding") else None
+            v2 = messages[i + 1].embedding if hasattr(messages[i + 1], "embedding") else None
+            if v1 is None or v2 is None:
+                continue
+            dot = sum(a * b for a, b in zip(v1, v2))
+            n1 = math.sqrt(sum(a * a for a in v1))
+            n2 = math.sqrt(sum(a * a for a in v2))
+            if n1 == 0 or n2 == 0:
+                continue
+            dist = 1.0 - dot / (n1 * n2)
+            if dist > best_dist:
+                best_dist = dist
+                best_idx = i
+
+        if best_idx >= 0:
+            return best_idx
+        return self._find_split_by_time_gap(window, tail_start)
+
+    def _find_split_by_time_gap(self, window: "MessageWindow", tail_start: int) -> int:
+        """Split at the pair with the largest time gap >= _MIN_GAP_SECONDS in the tail.
+
+        Returns message_count - 1 if no qualifying gap is found.
+        """
+        messages = window.messages
+        best_idx = -1
+        best_gap = _MIN_GAP_SECONDS
+
+        for i in range(tail_start, len(messages) - 1):
+            gap = messages[i + 1].timestamp - messages[i].timestamp
+            if gap > best_gap:
+                best_gap = gap
+                best_idx = i
+
+        return best_idx if best_idx >= 0 else window.message_count - 1

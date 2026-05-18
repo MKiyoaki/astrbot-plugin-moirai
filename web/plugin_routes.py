@@ -802,11 +802,25 @@ class PluginRoutes:
         if not isinstance(bot_persona_name, str):
             bot_persona_name = None
 
+        method = body.get("method", "heuristic")
+
         try:
-            updated = await self._reanalyze_impressions_for_scope(
-                scope=scope, bot_persona_name=bot_persona_name
-            )
+            if method == "llm":
+                from core.tasks.reanalyze_llm import ReanalyzeError, reanalyze_impressions_llm
+                updated = await reanalyze_impressions_llm(
+                    self._event_repo, self._impression_repo,
+                    scope, bot_persona_name,
+                    self._provider_getter,
+                    llm_manager=self._llm_manager,
+                )
+            else:
+                updated = await self._reanalyze_impressions_for_scope(
+                    scope=scope, bot_persona_name=bot_persona_name
+                )
         except Exception as exc:
+            from core.tasks.reanalyze_llm import ReanalyzeError
+            if isinstance(exc, ReanalyzeError):
+                return _json({"error": exc.code, "message": exc.message}, status=400)
             logger.warning("[PluginRoutes] reanalyze_impressions failed: %s", exc, exc_info=True)
             return _json({"error": str(exc)}, status=500)
         return _json({"ok": True, "updated": updated})

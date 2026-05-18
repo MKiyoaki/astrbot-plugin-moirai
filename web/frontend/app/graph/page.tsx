@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/layout/page-header'
 import { FilterBar } from '@/components/shared/filter-bar'
 import { DateRange } from 'react-day-picker'
 import { EditPersonaDialog, EditImpressionDialog } from '@/components/graph/persona-dialogs'
+import { ReanalyzeMethodDialog, type ReanalyzeMethod } from '@/components/shared/reanalyze-method-dialog'
 import { NetworkGraph } from '@/components/graph/network-graph'
 import { ParamsPanel } from '@/components/graph/params-panel'
 import { NodeDetail } from '@/components/graph/node-detail'
@@ -52,6 +53,8 @@ export default function GraphPage() {
   const [loading, setLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isReanalyzing, setIsReanalyzing] = useState(false)
+  const [reanalyzeDialogOpen, setReanalyzeDialogOpen] = useState(false)
+  const [pendingReanalyzeScope, setPendingReanalyzeScope] = useState<string>('global')
   const [search, setSearch] = useState('')
 
   // ── Graph interaction state ─────────────────────────────────────────────────
@@ -317,14 +320,19 @@ export default function GraphPage() {
     }
   }
 
-  const handleReanalyzeImpressions = async (scopeOverride?: string) => {
+  const handleReanalyzeImpressions = (scopeOverride?: string) => {
     if (!app.sudo) { app.toast(i18n.common.needSudo, 'destructive'); return }
     const scope = scopeOverride ?? (currentGroup
       ? (currentGroup.group_id === GROUP_ID_PRIVATE ? 'global' : currentGroup.group_id)
       : 'global')
+    setPendingReanalyzeScope(scope)
+    setReanalyzeDialogOpen(true)
+  }
+
+  const handleReanalyzeConfirm = async (method: ReanalyzeMethod) => {
     setIsReanalyzing(true)
     try {
-      const result = await api.graph.reanalyzeImpressions(scope, personaFilter)
+      const result = await api.graph.reanalyzeImpressions(pendingReanalyzeScope, personaFilter, method)
       app.toast(i18n.graph.reanalyzeImpressionsSuccess.replace('{count}', String(result.updated)))
       await loadGraph()
       await app.refreshStats()
@@ -542,6 +550,11 @@ export default function GraphPage() {
       </div>
 
       {/* Dialogs */}
+      <ReanalyzeMethodDialog
+        open={reanalyzeDialogOpen}
+        onClose={() => setReanalyzeDialogOpen(false)}
+        onConfirm={handleReanalyzeConfirm}
+      />
       <EditPersonaDialog
         open={!!editNode}
         node={editNode}
