@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import {
   Activity, Share2, BookOpen, Search, Database, Settings, SlidersHorizontal,
-  Moon, Sun, BarChart3, Lock, Unlock, LogOut,
+  Moon, Sun, Monitor, BarChart3, Lock, Unlock,
 } from 'lucide-react'
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
@@ -28,7 +28,7 @@ import {
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { routeIsActive } from '@/lib/navigation'
-import { PersonaSelector } from '@/components/shared/persona-selector'
+import { SidebarUserMenu } from '@/components/layout/sidebar-user-menu'
 
 const NAV_VISUALIZATION = [
   { href: '/events',  icon: Activity,          labelKey: 'events' as const },
@@ -136,10 +136,6 @@ export function AppSidebar() {
     }
   }
 
-  const handleLogout = async () => {
-    await api.auth.logout().catch(() => {})
-    window.location.reload()
-  }
 
   const navLabel = (labelKey: string) => {
     if (labelKey === 'stats') {
@@ -148,9 +144,14 @@ export function AppSidebar() {
     return (i18n.nav as Record<string, string>)[labelKey] ?? labelKey
   }
 
-  const { resolvedTheme, setTheme } = useTheme()
-  const isDark = resolvedTheme === 'dark'
-  const toggleTheme = () => setTheme(isDark ? 'light' : 'dark')
+  const { theme, setTheme } = useTheme()
+  const cycleTheme = () => {
+    if (theme === 'light') setTheme('dark')
+    else if (theme === 'dark') setTheme('system')
+    else setTheme('light')
+  }
+  const themeIcon = theme === 'light' ? <Sun /> : theme === 'dark' ? <Moon /> : <Monitor />
+  const themeLabel = theme === 'light' ? i18n.settings.themeLight : theme === 'dark' ? i18n.settings.themeDark : i18n.settings.themeSystem
 
   return (
     <>
@@ -173,17 +174,6 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="flex-1 overflow-y-auto min-w-0">
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/60">
-            {lang === 'zh' ? '人格' : lang === 'ja' ? '人格' : 'Persona'}
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <PersonaSelector popoverSide="right" />
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarSeparator />
-
         <SidebarGroup>
           <SidebarGroupLabel className="text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/60">{i18n.nav.visualization}</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -281,20 +271,15 @@ export function AppSidebar() {
           </SidebarMenuItem>
 
           <SidebarMenuItem>
-            <SidebarMenuButton onClick={toggleTheme} tooltip={i18n.settings.toggle} className="cursor-pointer">
-              {isDark ? <Sun /> : <Moon />}
-              <span>{i18n.settings.toggle}</span>
+            <SidebarMenuButton onClick={cycleTheme} tooltip={themeLabel} className="cursor-pointer">
+              {themeIcon}
+              <span>{themeLabel}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
 
-          {app.authEnabled && (
-            <SidebarMenuItem>
-              <SidebarMenuButton onClick={handleLogout} tooltip={i18n.auth.logout} className="cursor-pointer">
-                <LogOut />
-                <span>{i18n.auth.logout}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          )}
+          <SidebarMenuItem>
+            <SidebarUserMenu />
+          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
     </Sidebar>

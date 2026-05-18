@@ -1,13 +1,13 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { UserPlus, ChevronLeft, Maximize2, XCircle, Search, Share2, RefreshCcw } from 'lucide-react'
+import { ChevronLeft, Maximize2, XCircle, Search, Share2, RefreshCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/layout/page-header'
 import { FilterBar } from '@/components/shared/filter-bar'
 import { DateRange } from 'react-day-picker'
-import { CreatePersonaDialog, EditPersonaDialog, EditImpressionDialog } from '@/components/graph/persona-dialogs'
+import { EditPersonaDialog, EditImpressionDialog } from '@/components/graph/persona-dialogs'
 import { NetworkGraph } from '@/components/graph/network-graph'
 import { ParamsPanel } from '@/components/graph/params-panel'
 import { NodeDetail } from '@/components/graph/node-detail'
@@ -71,7 +71,6 @@ export default function GraphPage() {
   const svgRef = useRef<SVGSVGElement | null>(null)
 
   // ── Dialogs ─────────────────────────────────────────────────────────────────
-  const [createOpen, setCreateOpen] = useState(false)
   const [editNode, setEditNode] = useState<api.PersonaNode | null>(null)
   const [editEdge, setEditEdge] = useState<api.ImpressionEdge | null>(null)
   const [defaultConfidence, setDefaultConfidence] = useState(0.5)
@@ -247,13 +246,6 @@ export default function GraphPage() {
   }
 
   // ── CRUD handlers ───────────────────────────────────────────────────────────
-  const handleCreatePersona = async (data: Record<string, unknown>) => {
-    await api.graph.createPersona(data)
-    app.toast(i18n.graph.createSuccess)
-    await loadGraph()
-    await app.refreshStats()
-  }
-
   const handleUpdatePersona = async (uid: string, data: Record<string, unknown>) => {
     await api.graph.updatePersona(uid, data)
     app.toast(i18n.graph.updateSuccess)
@@ -375,10 +367,6 @@ export default function GraphPage() {
           <RefreshCcw className={`size-3.5 ${isReanalyzing ? 'animate-spin' : ''}`} />
           <span className="hidden sm:inline">{i18n.graph.reanalyzeImpressions}</span>
         </Button>
-        <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo} className="h-8 gap-1.5">
-          <UserPlus className="size-3.5" />
-          <span className="hidden sm:inline">{i18n.graph.createPersona}</span>
-        </Button>
       </div>
     )
 
@@ -418,12 +406,6 @@ export default function GraphPage() {
           )}
         </div>
 
-        <CreatePersonaDialog
-          open={createOpen}
-          onClose={() => setCreateOpen(false)}
-          onSubmit={handleCreatePersona}
-          defaultConfidence={defaultConfidence}
-        />
       </div>
     )
   }
@@ -514,10 +496,6 @@ export default function GraphPage() {
               <RefreshCcw className={`size-3.5 ${isReanalyzing ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">{i18n.graph.reanalyzeImpressions}</span>
             </Button>
-            <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!app.sudo} className="h-8 gap-1.5">
-              <UserPlus className="size-3.5" />
-              <span className="hidden sm:inline">{i18n.graph.createPersona}</span>
-            </Button>
           </div>
         }
         globalActions={globalActions}
@@ -564,12 +542,6 @@ export default function GraphPage() {
       </div>
 
       {/* Dialogs */}
-      <CreatePersonaDialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onSubmit={handleCreatePersona}
-        defaultConfidence={defaultConfidence}
-      />
       <EditPersonaDialog
         open={!!editNode}
         node={editNode}

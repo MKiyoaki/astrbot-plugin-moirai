@@ -423,13 +423,13 @@ export default function ConfigPage() {
       // 5 logical clusters rendered with visual dividers inside one card.
       groups: [
         {
-          label: '🟢 基础',
-          hint: '决定提取风格和标签体系',
+          label: (i18n.config as any).boundaryGroups?.basic?.label ?? '基础',
+          hint: (i18n.config as any).boundaryGroups?.basic?.hint,
           keys: ['persona_influenced_summary', 'tag_seeds'],
         },
         {
-          label: '🎯 提取策略',
-          hint: '决定窗口被切分和打标的方式',
+          label: (i18n.config as any).boundaryGroups?.extraction?.label ?? '提取策略',
+          hint: (i18n.config as any).boundaryGroups?.extraction?.hint,
           keys: [
             'extraction_strategy',
             'semantic_clustering_eps',
@@ -438,8 +438,8 @@ export default function ConfigPage() {
           ],
         },
         {
-          label: '⏱️ 硬边界',
-          hint: '满足任一阈值即被动关窗',
+          label: (i18n.config as any).boundaryGroups?.hardBoundary?.label ?? '硬边界',
+          hint: (i18n.config as any).boundaryGroups?.hardBoundary?.hint,
           keys: [
             'boundary_time_gap_minutes',
             'boundary_max_messages',
@@ -448,8 +448,8 @@ export default function ConfigPage() {
           ],
         },
         {
-          label: '🌊 话题漂移',
-          hint: '基于向量距离动态检测话题切换',
+          label: (i18n.config as any).boundaryGroups?.topicDrift?.label ?? '话题漂移',
+          hint: (i18n.config as any).boundaryGroups?.topicDrift?.hint,
           keys: [
             'boundary_topic_drift_enabled',
             'boundary_topic_drift_threshold',
@@ -458,8 +458,8 @@ export default function ConfigPage() {
           ],
         },
         {
-          label: '🔄 周期扫描',
-          hint: '主动按节奏把稳定前缀提为 Event',
+          label: (i18n.config as any).boundaryGroups?.periodicFlush?.label ?? '周期扫描',
+          hint: (i18n.config as any).boundaryGroups?.periodicFlush?.hint,
           keys: [
             'periodic_flush_enabled',
             'periodic_flush_minutes',

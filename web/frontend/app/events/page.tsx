@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/layout/page-header'
 import { EventTimeline } from '@/components/events/event-timeline'
-import { SourcePanel, buildThreads } from '@/components/events/source-panel'
 import { DetailPanel } from '@/components/events/detail-panel'
 import {
   CreateEventDialog, EditEventDialog, RecycleBinDialog, ArchiveEventsDialog, type EventFormData,
@@ -14,6 +13,7 @@ import {
 import { RefreshButton } from '@/components/shared/refresh-button'
 import { EmptyState } from '@/components/shared/empty-state'
 import { TimeGapSelector } from '@/components/shared/time-gap-selector'
+import { FilterBar } from '@/components/shared/filter-bar'
 import { useApp } from '@/lib/store'
 import { getStored, removeStored } from '@/lib/safe-storage'
 import * as api from '@/lib/api'
@@ -62,7 +62,7 @@ export default function EventsPage() {
   const [timeGap, setTimeGap]           = useState(7200000) // Default 2h
   const [dateRange, setDateRange]       = useState<DateRange | undefined>()
   const [activeTags, setActiveTags]     = useState<Set<string>>(new Set())
-  const [tagSuggestions, setTagSuggestions]   = useState<string[]>([])
+  const [tagList, setTagList] = useState<{ name: string; count: number }[]>([])
   const [highlightIds, setHighlightIds]       = useState<Set<string>>(new Set())
   const [detailEvent, setDetailEvent]         = useState<api.ApiEvent | null>(null)
   const [isRefreshing, setIsRefreshing]       = useState(false)
@@ -76,8 +76,6 @@ export default function EventsPage() {
   const [archiveBinOpen, setArchiveBinOpen]   = useState(false)
   const [archiveBinItems, setArchiveBinItems] = useState<api.ApiEvent[]>([])
   const [archiveBinLoading, setArchiveBinLoading] = useState(false)
-  const [dimmedSourceIds, setDimmedSourceIds] = useState<Set<string>>(new Set())
-
   // ── Data loading ───────────────────────────────────────────────────────────
 
   const loadEvents = useCallback(async () => {
@@ -95,7 +93,7 @@ export default function EventsPage() {
   useEffect(() => {
     loadEvents()
     api.tags.list().then(r => {
-      setTagSuggestions(r.tags.map(t => t.name))
+      setTagList(r.tags)
     })
   }, [loadEvents])
 
@@ -145,27 +143,11 @@ export default function EventsPage() {
       if (activeTags.size > 0) {
         if (!(ev.tags ?? []).some(t => activeTags.has(t))) return false
       }
-      const sourceId = ev.group || '__pvt__'
-      if (dimmedSourceIds.has(sourceId)) return false
       return true
     })
-  }, [app.rawEvents, search, dateRange, activeTags, dimmedSourceIds])
+  }, [app.rawEvents, search, dateRange, activeTags])
 
   const hasActiveFilters = search || activeTags.size > 0 || !!dateRange
-
-  const sourceThreads = useMemo(
-    () => buildThreads(app.rawEvents, i18n.events.privateChat),
-    [app.rawEvents, i18n.events.privateChat],
-  )
-
-  const toggleSource = useCallback((id: string) => {
-    setDimmedSourceIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
 
   const axisEvents = useMemo(() => {
     if (!detailEvent) return []
@@ -326,37 +308,35 @@ export default function EventsPage() {
           <X className="size-3" />{i18n.common.clearHighlight}
         </Button>
       )}
-
-      <div className="ml-auto">
-        <RefreshButton onClick={loadEvents} loading={isRefreshing} />
-      </div>
     </div>
+  )
+
+  const globalActions = (
+    <RefreshButton onClick={loadEvents} loading={isRefreshing} />
   )
 
   return (
     <div className="flex h-svh flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
-      {/* Header band: PageHeader owns the toolbar; the wrapper provides one clean border. */}
-      <div className="flex flex-col border-b bg-muted/5 shrink-0">
-        <PageHeader
-          variant="loom"
-          title={i18n.page.events.title}
-          loomIssue="ΑΡΓΑΛΕΙΟΣ"
-          loomWindow={i18n.page.events.loomWindow}
-          loomLegend={<LoomLegend />}
-          actions={listActions}
-          noToolbarBorder={true}
-        />
-      </div>
+      <PageHeader
+        variant="loom"
+        title={i18n.page.events.title}
+        loomIssue="ΑΡΓΑΛΕΙΟΣ"
+        loomWindow={i18n.page.events.loomWindow}
+        loomLegend={<LoomLegend />}
+        actions={listActions}
+        globalActions={globalActions}
+        noToolbarBorder={true}
+      />
+      <FilterBar
+        tags={tagList}
+        activeTags={activeTags}
+        onTagsChange={setActiveTags}
+        dateRange={dateRange}
+        onDateRangeChange={setDateRange}
+      />
 
       {/* ── Main area ── */}
       <div className="flex flex-1 overflow-hidden" data-testid="loom-layout">
-        <SourcePanel
-          threads={sourceThreads}
-          dimmedIds={dimmedSourceIds}
-          onToggle={toggleSource}
-          totalEvents={app.rawEvents.length}
-          totalConversations={sourceThreads.length}
-        />
         <div className="flex flex-1 flex-col overflow-hidden">
           {app.rawEvents.length === 0 ? (
             <EmptyState
@@ -389,7 +369,6 @@ export default function EventsPage() {
               onEdit={ev => { if (app.sudo) setEditEvent(ev); else app.toast(i18n.common.needSudo, 'destructive') }}
               onDelete={handleDelete}
               onArchive={handleArchive}
-              externalDimmedIds={dimmedSourceIds}
             />
           )}
         </div>
@@ -410,9 +389,9 @@ export default function EventsPage() {
       </div>
 
       <CreateEventDialog open={createOpen} onClose={() => setCreateOpen(false)}
-        onSubmit={handleCreate} tagSuggestions={tagSuggestions} events={app.rawEvents} />
+        onSubmit={handleCreate} tagSuggestions={tagList.map(t => t.name)} events={app.rawEvents} />
       <EditEventDialog open={!!editEvent} event={editEvent} onClose={() => setEditEvent(null)}
-        onSubmit={handleUpdate} tagSuggestions={tagSuggestions} events={app.rawEvents} />
+        onSubmit={handleUpdate} tagSuggestions={tagList.map(t => t.name)} events={app.rawEvents} />
       <RecycleBinDialog open={binOpen} items={binItems} loading={binLoading}
         onClose={() => setBinOpen(false)} onRestore={handleRestore} onClear={handleClearBin} sudoMode={app.sudo} />
       <ArchiveEventsDialog open={archiveBinOpen} items={archiveBinItems} loading={archiveBinLoading}

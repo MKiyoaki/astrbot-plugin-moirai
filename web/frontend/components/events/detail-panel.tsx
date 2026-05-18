@@ -267,7 +267,7 @@ export function DetailPanel(props: DetailPanelProps) {
     <aside
       data-testid="detail-panel"
       className={cn(
-        'w-[420px] lg:w-[520px] xl:w-[600px] 2xl:w-[680px] max-w-[48vw] flex flex-col border-l bg-background/95 backdrop-blur shrink-0 overflow-hidden transition-all duration-300',
+        'w-[360px] lg:w-[400px] xl:w-[440px] max-w-[36vw] flex flex-col border-l bg-background/95 backdrop-blur shrink-0 overflow-hidden transition-all duration-300',
         className
       )}
     >

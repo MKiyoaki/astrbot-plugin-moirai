@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowRight, GitMerge, RefreshCw } from 'lucide-react'
+import { ArrowRight, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
@@ -89,10 +90,7 @@ export function PersonaOwnershipManager({ embedded = false }: { embedded?: boole
   }
 
   const handleSubmit = async () => {
-    if (!sudo) {
-      toast(i18n.config.needSudo, 'destructive')
-      return
-    }
+    if (!sudo) { toast(i18n.config.needSudo, 'destructive'); return }
     if (!canSubmit) return
     setSubmitting(true)
     try {
@@ -118,25 +116,21 @@ export function PersonaOwnershipManager({ embedded = false }: { embedded?: boole
 
   const header = (
     <CardHeader className="border-b border-border/50 pb-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <CardTitle className="flex items-center gap-2 text-lg font-bold tracking-tight">
-            <GitMerge className="size-4" />
-            {t.title}
-          </CardTitle>
-          <CardDescription className="mt-1 text-xs">{t.description}</CardDescription>
-        </div>
-        <Button variant="outline" size="sm" onClick={loadBots}>
+      <div className="flex items-center justify-between">
+        <CardTitle className="text-lg font-bold tracking-tight">{t.title}</CardTitle>
+        <Button variant="ghost" size="sm" onClick={loadBots} className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground">
           <RefreshCw className="size-3" />
-          {t.refresh}
+          <span className="hidden sm:inline">{t.refresh}</span>
         </Button>
       </div>
+      <CardDescription className="text-xs">{t.description}</CardDescription>
     </CardHeader>
   )
 
   const content = (
-    <CardContent className="flex flex-col gap-4 px-6 py-4">
-      <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr] md:items-end">
+    <CardContent className="flex flex-col gap-5 px-6 py-5">
+      {/* Source → Target row */}
+      <div className="grid grid-cols-[1fr_32px_1fr] items-end gap-2">
         <PersonaPicker
           label={t.source}
           value={source}
@@ -147,7 +141,9 @@ export function PersonaOwnershipManager({ embedded = false }: { embedded?: boole
           onValueChange={value => { setSource(value); resetPreview() }}
           onCustomChange={value => { setSourceCustom(value); resetPreview() }}
         />
-        <ArrowRight className="mx-auto mb-2 hidden size-4 text-muted-foreground md:block" />
+        <div className="flex items-center justify-center pb-0.5">
+          <ArrowRight className="size-4 text-muted-foreground/60" />
+        </div>
         <PersonaPicker
           label={t.target}
           value={target}
@@ -160,35 +156,43 @@ export function PersonaOwnershipManager({ embedded = false }: { embedded?: boole
         />
       </div>
 
-      <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-        <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-          {t.mode}
-          <select
-            value={mode}
-            onChange={e => { setMode(e.target.value as api.PersonaMergeMode); resetPreview() }}
-            className="border-input bg-transparent rounded-md border px-2.5 py-2 text-sm text-foreground"
-          >
-            <option value="all">{t.modeAll}</option>
-            <option value="impressions_only">{t.modeImpressionsOnly}</option>
-          </select>
-        </label>
-        <Button onClick={handlePreview} disabled={!canPreview || previewLoading}>
-          {previewLoading && <Spinner data-icon="inline-start" />}
-          {t.preview}
-        </Button>
+      {/* Mode + actions row */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-1 flex-col gap-1.5 min-w-[180px]">
+          <span className="text-xs text-muted-foreground">{t.mode}</span>
+          <Select value={mode} onValueChange={v => { setMode(v as api.PersonaMergeMode); resetPreview() }}>
+            <SelectTrigger className="h-9 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t.modeAll}</SelectItem>
+              <SelectItem value="impressions_only">{t.modeImpressionsOnly}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <Button onClick={handlePreview} disabled={!canPreview || previewLoading} className="h-9">
+            {previewLoading && <Spinner data-icon="inline-start" />}
+            {t.preview}
+          </Button>
+        </div>
       </div>
 
       {sameTarget && (
         <p className="text-xs text-destructive">{t.sameTarget}</p>
       )}
 
+      {/* Preview result */}
       {preview && (
-        <div className="rounded-md border bg-muted/20 p-3">
-          <div className="mb-2 flex items-center justify-between">
+        <div className="rounded-lg border bg-muted/20 p-3">
+          <div className="mb-2.5 flex items-center justify-between">
             <span className="text-xs font-medium text-muted-foreground">{t.previewResult}</span>
-            <Badge variant={movedTotal > 0 ? 'default' : 'secondary'}>{movedTotal}</Badge>
+            <Badge variant={movedTotal > 0 ? 'default' : 'secondary'} className="font-mono text-[10px]">
+              {movedTotal}
+            </Badge>
           </div>
-          <div className="grid gap-2 text-sm sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
             <Stat label={t.eventsMoved} value={preview.events_moved} />
             <Stat label={t.impressionsMoved} value={preview.impressions_moved} />
             <Stat label={t.impressionsDropped} value={preview.impressions_dropped} destructive={preview.impressions_dropped > 0} />
@@ -197,18 +201,19 @@ export function PersonaOwnershipManager({ embedded = false }: { embedded?: boole
         </div>
       )}
 
-      <div className="flex flex-wrap justify-end gap-2">
+      {/* Submit row */}
+      <div className="flex justify-end gap-2">
         {!confirming ? (
           <div className="flex flex-col items-end gap-1">
-            <Button variant="destructive" disabled={!canSubmit} onClick={() => setConfirming(true)}>
+            <Button variant="destructive" size="sm" disabled={!canSubmit} onClick={() => setConfirming(true)}>
               {t.confirm}
             </Button>
             {!canSubmit && submitBlockedReason && (
-              <p className="text-xs text-muted-foreground">{submitBlockedReason}</p>
+              <p className="text-[10px] text-muted-foreground">{submitBlockedReason}</p>
             )}
           </div>
         ) : (
-          <Button variant="destructive" disabled={!canSubmit || submitting} onClick={handleSubmit}>
+          <Button variant="destructive" size="sm" disabled={!canSubmit || submitting} onClick={handleSubmit}>
             {submitting && <Spinner data-icon="inline-start" />}
             {t.confirmTwice}
           </Button>
@@ -254,35 +259,38 @@ function PersonaPicker({
   onCustomChange: (value: string) => void
 }) {
   return (
-    <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-      {label}
-      <select
-        value={value}
-        onChange={e => onValueChange(e.target.value)}
-        className="border-input bg-transparent rounded-md border px-2.5 py-2 text-sm text-foreground"
-      >
-        {options.map(item => (
-          <option key={item.value} value={item.value}>{item.label}</option>
-        ))}
-        <option value={CUSTOM}>{customLabel}</option>
-      </select>
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <Select value={value} onValueChange={onValueChange}>
+        <SelectTrigger className="h-9 text-sm">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map(item => (
+            <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+          ))}
+          <SelectItem value={CUSTOM}>{customLabel}</SelectItem>
+        </SelectContent>
+      </Select>
       {value === CUSTOM && (
         <Input
           value={customValue}
           onChange={e => onCustomChange(e.target.value)}
           placeholder={customPlaceholder}
-          className="h-9"
+          className="h-9 text-sm"
         />
       )}
-    </label>
+    </div>
   )
 }
 
 function Stat({ label, value, destructive }: { label: string; value: number; destructive?: boolean }) {
   return (
-    <div className="flex items-center justify-between rounded bg-background/60 px-2 py-1">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={cn('font-mono font-medium', destructive && 'text-destructive')}>{value}</span>
+    <div className="flex flex-col gap-0.5 rounded-md bg-background/60 px-2.5 py-2">
+      <span className="text-[10px] text-muted-foreground leading-none">{label}</span>
+      <span className={cn('font-mono text-sm font-semibold', destructive ? 'text-destructive' : 'text-foreground')}>
+        {value}
+      </span>
     </div>
   )
 }

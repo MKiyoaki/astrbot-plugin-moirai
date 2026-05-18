@@ -28,6 +28,11 @@ interface PageHeaderProps {
    * Useful when another toolbar (like FilterBar) follows immediately.
    */
   noToolbarBorder?: boolean
+  /**
+   * loom: when true, Row 3 (toolbar) becomes sticky (top-0 z-20) so it stays
+   * visible while the title and meta strip scroll away.
+   */
+  stickyToolbar?: boolean
 }
 
 export function PageHeader({
@@ -42,6 +47,7 @@ export function PageHeader({
   loomLegend,
   externalToolbar = false,
   noToolbarBorder = false,
+  stickyToolbar = false,
 }: PageHeaderProps) {
   if (variant === 'loom') {
     const hasToolbar = !externalToolbar && (actions || globalActions)
@@ -81,15 +87,14 @@ export function PageHeader({
 
         {/* Row 3 (optional): compact toolbar — only when page doesn't manage its own */}
         {hasToolbar && (
-          <>
-            <div className={cn(
-              "flex items-center gap-2 px-4 py-2 bg-muted/5 shrink-0",
-              !noToolbarBorder && "border-b"
-            )}>
-              {actions && <div className="flex items-center gap-2 flex-wrap">{actions}</div>}
-              {globalActions && <div className="ml-auto flex items-center gap-2">{globalActions}</div>}
-            </div>
-          </>
+          <div className={cn(
+            "flex items-center gap-2 px-4 py-2 bg-muted/5 shrink-0",
+            !noToolbarBorder && "border-b",
+            stickyToolbar && "sticky top-0 z-20 bg-background/95 backdrop-blur-sm"
+          )}>
+            {actions && <div className="flex items-center gap-2 flex-wrap">{actions}</div>}
+            {globalActions && <div className="ml-auto flex items-center gap-2">{globalActions}</div>}
+          </div>
         )}
       </div>
     )

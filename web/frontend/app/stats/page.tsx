@@ -20,7 +20,7 @@ import {
 } from '@/components/stats'
 
 export default function StatsPage() {
-  const { i18n, stats, lang, refreshStats, currentPersonaName, scopeMode } = useApp()
+  const { i18n, stats, refreshStats, currentPersonaName, scopeMode } = useApp()
   const personaFilter = scopeMode === 'single' ? (currentPersonaName ?? api.LEGACY_PERSONA_TOKEN) : null
   const [events, setEvents] = useState<api.ApiEvent[]>([])
   const [graph, setGraph] = useState<api.GraphData | null>(null)
@@ -79,16 +79,16 @@ export default function StatsPage() {
   const perfData = useMemo(() => {
     if (!stats.perf) return []
     const phases = [
-      { id: 'response', label: lang === 'zh' ? '总响应' : 'Response' },
+      { id: 'response', label: i18n.stats.phaseResponse },
       { id: 'recall', label: i18n.stats.avgRecall },
       { id: 'retrieval', label: i18n.stats.avgRetrieval },
       { id: 'partition', label: i18n.stats.avgPartition },
       { id: 'extraction', label: i18n.stats.avgExtraction },
       { id: 'distill', label: i18n.stats.avgDistill },
-      { id: 'task_synthesis', label: lang === 'zh' ? '人格合成' : 'Synthesis' },
-      { id: 'task_summary', label: lang === 'zh' ? '叙事摘要' : 'Summary' },
-      { id: 'task_cleanup', label: lang === 'zh' ? '记忆清理' : 'Cleanup' },
-      { id: 'task_reindex', label: lang === 'zh' ? '重索引' : 'Reindex' },
+      { id: 'task_synthesis', label: i18n.stats.phaseSynthesis },
+      { id: 'task_summary', label: i18n.stats.phaseSummary },
+      { id: 'task_cleanup', label: i18n.stats.phaseCleanup },
+      { id: 'task_reindex', label: i18n.stats.phaseReindex },
     ]
     return phases
       .map(p => ({
@@ -96,21 +96,22 @@ export default function StatsPage() {
         value: stats.perf?.[p.id]?.avg_ms ? (stats.perf[p.id].avg_ms as number) / 1000 : 0,
       }))
       .filter(p => p.value > 0)
-  }, [stats.perf, lang, i18n])
+  }, [stats.perf, i18n])
 
   const totalTime = perfData.reduce((acc, p) => acc + p.value, 0)
 
   return (
-    <div className="flex h-full flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
+    <div className="flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
         variant="loom"
         loomIssue="ΠΑΡΑΤΗΡΗΤΗΡΙΟ"
-          loomWindow={i18n.page.stats.loomWindow}
+        loomWindow={i18n.page.stats.loomWindow}
         title={i18n.page.stats.title}
         globalActions={<RefreshButton onClick={loadData} loading={isRefreshing} />}
+        stickyToolbar
       />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+      <div className="px-6 py-5 space-y-6">
         {/* Masthead strip */}
         <StatMasthead stats={stats} totalTime={totalTime} />
 
