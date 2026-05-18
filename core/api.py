@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from .managers.memory_manager import MemoryManager
     from .managers.recall_manager import RecallManager
     from .repository.base import EventRepository, ImpressionRepository, PersonaRepository
+    from .managers.llm_manager import LLMTaskManager
 
 
 # ---------------------------------------------------------------------------
@@ -299,14 +300,11 @@ async def update_impression(
     existing = await impression_repo.get(observer, subject, scope)
     if existing is None:
         return None
-    _VALID_RELATIONS = frozenset({"friend", "colleague", "stranger", "family", "rival"})
     changes: dict[str, Any] = {}
-    if "relation_type" in patch and patch["relation_type"] in _VALID_RELATIONS:
-        changes["relation_type"] = patch["relation_type"]
-    if "affect" in patch:
-        changes["affect"] = max(-1.0, min(1.0, float(patch["affect"])))
-    if "intensity" in patch:
-        changes["intensity"] = max(0.0, min(1.0, float(patch["intensity"])))
+    if "benevolence" in patch:
+        changes["benevolence"] = max(-1.0, min(1.0, float(patch["benevolence"])))
+    if "affect_intensity" in patch:
+        changes["affect_intensity"] = max(0.0, min(1.0, float(patch["affect_intensity"])))
     if "confidence" in patch:
         changes["confidence"] = max(0.0, min(1.0, float(patch["confidence"])))
     if "evidence_event_ids" in patch and isinstance(patch["evidence_event_ids"], list):
