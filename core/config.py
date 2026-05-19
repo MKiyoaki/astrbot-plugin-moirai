@@ -735,7 +735,19 @@ class PluginConfig:
 
     @property
     def persona_synthesis_interval_seconds(self) -> int:
-        return self._int("persona_synthesis_interval_hours", 168) * 3600
+        return self._int("persona_synthesis_interval_hours", 72) * 3600
+
+    @property
+    def persona_synthesis_trigger_messages(self) -> int:
+        return self._int("persona_synthesis_trigger_messages", 30)
+
+    @property
+    def persona_synthesis_min_events(self) -> int:
+        return self._int("persona_synthesis_min_events", 3)
+
+    @property
+    def persona_synthesis_cooldown_hours(self) -> float:
+        return self._float("persona_synthesis_cooldown_hours", 3.0)
 
     @property
     def impression_aggregation_interval_seconds(self) -> int:

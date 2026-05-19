@@ -231,7 +231,7 @@ class CommandManager:
 
     _TASK_ALIASES: dict[str, str] = {
         "decay":     "daily_maintenance",
-        "synthesis": "consolidated_maintenance",
+        "synthesis": "persona_synthesis",
         "summary":   "group_summary",
         "cleanup":   "context_cleanup",
     }

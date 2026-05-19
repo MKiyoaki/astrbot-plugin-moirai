@@ -1,9 +1,4 @@
-"""Persona synthesis and impression aggregation (weekly LLM tasks).
-
-Both functions follow the same provider_getter pattern as EventExtractor:
-a zero-arg callable so the provider can be resolved at call time.
-On timeout or parse failure, the current record is left unchanged.
-"""
+"""Persona synthesis and impression maintenance tasks."""
 from __future__ import annotations
 
 import asyncio
@@ -11,12 +6,14 @@ import dataclasses
 import json
 import logging
 import re
+import time
+from collections import Counter
 from typing import Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..repository.base import EventRepository, ImpressionRepository, PersonaRepository
     from ..config import SynthesisConfig
     from ..managers.llm_manager import LLMTaskManager
+    from ..repository.base import EventRepository, ImpressionRepository, PersonaRepository
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +30,127 @@ def _safe_parse(text: str) -> dict | None:
         return None
 
 
+async def _synthesize_one_persona(
+    *,
+    persona,
+    events: list,
+    persona_repo,
+    provider,
+    cfg,
+    llm_manager=None,
+    log_prefix: str = "Synthesis",
+    total_message_count: int | None = None,
+) -> bool:
+    last_synth = persona.persona_attrs.get("last_synthesized_at", 0)
+    if persona.last_active_at <= last_synth and last_synth > 0:
+        return False
+
+    events = events[:cfg.max_events]
+    if not events:
+        return False
+
+    tag_counter: Counter = Counter()
+    for event in events:
+        tag_counter.update(event.chat_content_tags)
+    top_tags = [tag for tag, _ in tag_counter.most_common(5)]
+
+    event_summaries = "\n".join(f"- {event.topic}" for event in events)
+    prompt = (
+        f"User {persona.primary_name}, recent events:\n{event_summaries}\n"
+        f"Current attributes: {json.dumps(persona.persona_attrs, ensure_ascii=False)}.\n"
+        "Update the persona attributes as JSON."
+    )
+
+    try:
+        if llm_manager:
+            resp = await llm_manager.run(
+                asyncio.wait_for,
+                provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
+                timeout=cfg.llm_timeout,
+                task_name="synthesis",
+            )
+        else:
+            resp = await asyncio.wait_for(
+                provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
+                timeout=cfg.llm_timeout,
+            )
+        parsed = _safe_parse(resp.completion_text)
+        if parsed is None:
+            logger.warning("[%s] unparseable response for %s", log_prefix, persona.uid)
+            return False
+
+        new_attrs = dict(persona.persona_attrs)
+        changed = False
+        if "description" in parsed:
+            new_attrs["description"] = str(parsed["description"])[:80]
+            changed = True
+
+        if "big_five" in parsed and isinstance(parsed["big_five"], dict):
+            old_bf = persona.persona_attrs.get("big_five", {})
+            merged_bf: dict[str, float] = {}
+            for key in ["O", "C", "E", "A", "N"]:
+                raw_value = parsed["big_five"].get(key)
+                if raw_value is None or not isinstance(raw_value, (int, float)):
+                    continue
+                new_value = max(-1.0, min(1.0, float(raw_value)))
+                old_value = old_bf.get(key)
+                if old_value is not None:
+                    merged_bf[key] = round(
+                        cfg.ema_alpha * new_value + (1 - cfg.ema_alpha) * float(old_value),
+                        4,
+                    )
+                else:
+                    merged_bf[key] = new_value
+            if merged_bf:
+                new_attrs["big_five"] = merged_bf
+                changed = True
+
+            evidence = parsed.get("big_five_evidence")
+            if isinstance(evidence, dict):
+                final_bf: dict = new_attrs.get("big_five", {})
+                cleaned: dict[str, str] = {}
+                for key, value in evidence.items():
+                    if key not in ("O", "C", "E", "A", "N") or not isinstance(value, str) or not value.strip():
+                        continue
+                    sentence = str(value)[:120]
+                    if key in final_bf:
+                        correct_pct = round((final_bf[key] + 1) / 2 * 100)
+                        sentence = re.sub(r"\d+%", f"{correct_pct}%", sentence)
+                    cleaned[key] = sentence
+                new_attrs["big_five_evidence"] = cleaned
+                changed = True
+            elif isinstance(evidence, str) and evidence.strip():
+                new_attrs["big_five_evidence"] = str(evidence)[:120]
+                changed = True
+
+        if not changed:
+            return False
+
+        new_attrs["content_tags"] = top_tags
+        new_attrs["last_synthesized_at"] = max(event.end_time for event in events)
+        if total_message_count is not None:
+            new_attrs["last_synthesized_message_count"] = int(total_message_count)
+        new_attrs["last_synthesis_wall_time"] = time.time()
+
+        merged_bf_for_quality: dict = new_attrs.get("big_five", {})
+        quality = len(merged_bf_for_quality) / 5.0
+        new_confidence = round(
+            cfg.ema_alpha * quality + (1.0 - cfg.ema_alpha) * float(persona.confidence),
+            4,
+        )
+
+        await persona_repo.upsert(
+            dataclasses.replace(persona, confidence=new_confidence, persona_attrs=new_attrs)
+        )
+        return True
+
+    except asyncio.TimeoutError:
+        logger.warning("[%s] timeout for persona %s", log_prefix, persona.uid)
+    except Exception as exc:
+        logger.warning("[%s] failed for persona %s: %s", log_prefix, persona.uid, exc)
+    return False
+
+
 async def run_persona_synthesis(
     persona_repo: PersonaRepository,
     event_repo: EventRepository,
@@ -40,11 +158,12 @@ async def run_persona_synthesis(
     synthesis_config: SynthesisConfig | None = None,
     llm_manager: LLMTaskManager | None = None,
 ) -> int:
-    """Re-synthesise persona_attrs for all personas from recent events."""
+    """Re-synthesize persona_attrs for all personas from recent events."""
     from ..utils.perf import performance_timer
+
     async with performance_timer("task_synthesis"):
-        from collections import Counter
         from ..config import SynthesisConfig as _SC
+
         cfg = synthesis_config or _SC()
 
     provider = provider_getter()
@@ -53,109 +172,204 @@ async def run_persona_synthesis(
         return 0
 
     personas = await persona_repo.list_all()
-    updated_count = 0
-    
+    message_counts = await event_repo.count_messages_by_uid_bulk()
+
     async def _process_one(persona) -> bool:
-        # Optimization: Skip personas with no new activity since last synthesis
-        last_synth = persona.persona_attrs.get("last_synthesized_at", 0)
-        if persona.last_active_at <= last_synth and last_synth > 0:
-            return False
-
         events = await event_repo.list_by_participant(persona.uid, limit=cfg.max_events)
-        if not events:
-            return False
-
-        # --- Algorithmic: aggregate content_tags from event history ---
-        tag_counter: Counter = Counter()
-        for e in events:
-            tag_counter.update(e.chat_content_tags)
-        top_tags = [tag for tag, _ in tag_counter.most_common(5)]
-
-        # --- LLM: generate description and big_five only ---
-        event_summaries = "\n".join(f"- {e.topic}" for e in events)
-        prompt = (
-            f"用户 {persona.primary_name}，近期参与事件：\n{event_summaries}\n"
-            f"当前属性：{json.dumps(persona.persona_attrs, ensure_ascii=False)}。\n"
-            "请更新属性。"
+        return await _synthesize_one_persona(
+            persona=persona,
+            events=events,
+            persona_repo=persona_repo,
+            provider=provider,
+            cfg=cfg,
+            llm_manager=llm_manager,
+            log_prefix="Synthesis",
+            total_message_count=message_counts.get(persona.uid),
         )
-        
-        try:
-            if llm_manager:
-                resp = await llm_manager.run(
-                    asyncio.wait_for,
-                    provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
-                    timeout=cfg.llm_timeout,
-                    task_name="synthesis"
-                )
-            else:
-                resp = await asyncio.wait_for(
-                    provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
-                    timeout=cfg.llm_timeout,
-                )
-            parsed = _safe_parse(resp.completion_text)
-            if parsed is None:
-                logger.warning("[Synthesis] unparseable response for %s", persona.uid)
-                return False
 
-            new_attrs = dict(persona.persona_attrs)
-            if "description" in parsed:
-                new_attrs["description"] = str(parsed["description"])[:80]
-            if "big_five" in parsed and isinstance(parsed["big_five"], dict):
-                old_bf = persona.persona_attrs.get("big_five", {})
-                alpha = cfg.ema_alpha
-                merged_bf: dict[str, float] = {}
-                for k in ["O", "C", "E", "A", "N"]:
-                    nv = parsed["big_five"].get(k)
-                    if nv is not None and isinstance(nv, (int, float)):
-                        new_clamped = max(-1.0, min(1.0, float(nv)))
-                        ov = old_bf.get(k)
-                        if ov is not None:
-                            merged_bf[k] = round(alpha * new_clamped + (1 - alpha) * float(ov), 4)
-                        else:
-                            merged_bf[k] = new_clamped
-                if merged_bf:
-                    new_attrs["big_five"] = merged_bf
-                ev = parsed.get("big_five_evidence")
-                if isinstance(ev, dict):
-                    final_bf: dict[str, float] = new_attrs.get("big_five", {})
-                    cleaned: dict[str, str] = {}
-                    for k, v in ev.items():
-                        if k not in ("O", "C", "E", "A", "N") or not isinstance(v, str) or not v.strip():
-                            continue
-                        sentence = str(v)[:120]
-                        if k in final_bf:
-                            correct_pct = round((final_bf[k] + 1) / 2 * 100)
-                            sentence = re.sub(r"\d+%", f"{correct_pct}%", sentence)
-                        cleaned[k] = sentence
-                    new_attrs["big_five_evidence"] = cleaned
-                elif isinstance(ev, str) and ev.strip():
-                    new_attrs["big_five_evidence"] = str(ev)[:120]
-                
-                # Metadata update
-                new_attrs["content_tags"] = top_tags
-                new_attrs["last_synthesized_at"] = max(e.end_time for e in events)
-
-                merged_bf_for_quality: dict = new_attrs.get("big_five", {})
-                quality = len(merged_bf_for_quality) / 5.0
-                old_conf = float(persona.confidence)
-                new_confidence = round(alpha * quality + (1.0 - alpha) * old_conf, 4)
-
-                await persona_repo.upsert(
-                    dataclasses.replace(persona, confidence=new_confidence, persona_attrs=new_attrs)
-                )
-                return True
-
-        except asyncio.TimeoutError:
-            logger.warning("[Synthesis] timeout for persona %s", persona.uid)
-        except Exception as exc:
-            logger.warning("[Synthesis] failed for persona %s: %s", persona.uid, exc)
-        return False
-
-    results = await asyncio.gather(*[_process_one(p) for p in personas])
-    updated_count = sum(1 for r in results if r)
+    results = await asyncio.gather(*[_process_one(persona) for persona in personas])
+    updated_count = sum(1 for result in results if result)
 
     logger.info("[Synthesis] persona synthesis: %d/%d updated", updated_count, len(personas))
     return updated_count
+
+
+async def run_persona_synthesis_for_uid(
+    persona_repo: PersonaRepository,
+    event_repo: EventRepository,
+    provider_getter: Callable,
+    uid: str,
+    synthesis_config: SynthesisConfig | None = None,
+    llm_manager: LLMTaskManager | None = None,
+    min_events: int = 1,
+    total_message_count: int | None = None,
+) -> bool:
+    """Synthesize exactly one persona when enough event evidence exists."""
+    from ..config import SynthesisConfig as _SC
+
+    cfg = synthesis_config or _SC()
+    provider = provider_getter()
+    if provider is None:
+        logger.debug("[Synthesis] no provider, skipping persona synthesis for %s", uid)
+        return False
+
+    persona = await persona_repo.get(uid)
+    if persona is None:
+        return False
+
+    events = await event_repo.list_by_participant(uid, limit=max(cfg.max_events, min_events))
+    if len(events) < min_events:
+        return False
+
+    if total_message_count is None:
+        message_counts = await event_repo.count_messages_by_uid_bulk()
+        total_message_count = message_counts.get(uid, 0)
+
+    return await _synthesize_one_persona(
+        persona=persona,
+        events=events,
+        persona_repo=persona_repo,
+        provider=provider,
+        cfg=cfg,
+        llm_manager=llm_manager,
+        log_prefix="SynthesisTrigger",
+        total_message_count=total_message_count,
+    )
+
+
+class PersonaSynthesisTrigger:
+    """Message-count driven persona synthesis trigger with periodic fallback."""
+
+    def __init__(
+        self,
+        *,
+        persona_repo: PersonaRepository,
+        event_repo: EventRepository,
+        provider_getter: Callable,
+        synthesis_config: SynthesisConfig,
+        llm_manager: LLMTaskManager | None = None,
+        min_messages: int = 30,
+        min_events: int = 3,
+        cooldown_hours: float = 3.0,
+        fallback_staleness_hours: float = 72.0,
+    ) -> None:
+        self._persona_repo = persona_repo
+        self._event_repo = event_repo
+        self._provider_getter = provider_getter
+        self._synthesis_config = synthesis_config
+        self._llm_manager = llm_manager
+        self._min_messages = max(1, int(min_messages))
+        self._min_events = max(1, int(min_events))
+        self._cooldown_seconds = max(0.0, float(cooldown_hours) * 3600.0)
+        self._fallback_staleness_seconds = max(60.0, float(fallback_staleness_hours) * 3600.0)
+        self._running_uids: set[str] = set()
+
+    async def handle_events(self, events: list) -> int:
+        """Check affected UIDs after new Events are persisted."""
+        affected: set[str] = set()
+        for event in events:
+            if getattr(event, "event_type", "episode") != "episode":
+                continue
+            for msg in getattr(event, "interaction_flow", []) or []:
+                if getattr(msg, "sender_uid", None):
+                    affected.add(msg.sender_uid)
+            if not getattr(event, "interaction_flow", None):
+                affected.update(getattr(event, "participants", []) or [])
+        if not affected:
+            return 0
+
+        counts = await self._event_repo.count_messages_by_uid_bulk()
+        return await self._run_for_uids(
+            affected,
+            counts,
+            require_threshold=True,
+            allow_stale=False,
+        )
+
+    async def run_fallback(self) -> int:
+        """Low-frequency safety pass for missed triggers and stale dirty users."""
+        counts = await self._event_repo.count_messages_by_uid_bulk()
+        personas = await self._persona_repo.list_all()
+        return await self._run_for_uids(
+            {persona.uid for persona in personas},
+            counts,
+            require_threshold=False,
+            allow_stale=True,
+        )
+
+    async def _run_for_uids(
+        self,
+        uids: set[str],
+        counts: dict[str, int],
+        *,
+        require_threshold: bool,
+        allow_stale: bool,
+    ) -> int:
+        updated = 0
+        for uid in sorted(uids):
+            total_count = int(counts.get(uid, 0))
+            if total_count <= 0 or uid in self._running_uids:
+                continue
+            persona = await self._persona_repo.get(uid)
+            if persona is None:
+                continue
+            if not self._eligible(
+                persona,
+                total_count,
+                require_threshold=require_threshold,
+                allow_stale=allow_stale,
+            ):
+                continue
+            if await self._run_one(persona, total_count):
+                updated += 1
+        return updated
+
+    def _eligible(
+        self,
+        persona,
+        total_count: int,
+        *,
+        require_threshold: bool,
+        allow_stale: bool,
+    ) -> bool:
+        attrs = persona.persona_attrs or {}
+        last_count = int(attrs.get("last_synthesized_message_count", 0) or 0)
+        delta = total_count - last_count
+        threshold_met = delta >= self._min_messages
+        if require_threshold and not threshold_met:
+            return False
+
+        now = time.time()
+        last_attempt = float(attrs.get("last_synthesis_attempt_at", 0) or 0)
+        if last_attempt > 0 and now - last_attempt < self._cooldown_seconds:
+            return False
+
+        if allow_stale and not threshold_met:
+            last_success = float(attrs.get("last_synthesis_wall_time", 0) or 0)
+            stale = last_success <= 0 or now - last_success >= self._fallback_staleness_seconds
+            if not stale or delta <= 0:
+                return False
+
+        return True
+
+    async def _run_one(self, persona, total_count: int) -> bool:
+        self._running_uids.add(persona.uid)
+        try:
+            attrs = dict(persona.persona_attrs or {})
+            attrs["last_synthesis_attempt_at"] = time.time()
+            await self._persona_repo.upsert(dataclasses.replace(persona, persona_attrs=attrs))
+            return await run_persona_synthesis_for_uid(
+                self._persona_repo,
+                self._event_repo,
+                self._provider_getter,
+                persona.uid,
+                synthesis_config=self._synthesis_config,
+                llm_manager=self._llm_manager,
+                min_events=self._min_events,
+                total_message_count=total_count,
+            )
+        finally:
+            self._running_uids.discard(persona.uid)
 
 
 async def run_impression_recalculation(
@@ -163,17 +377,7 @@ async def run_impression_recalculation(
     event_repo: EventRepository,
     impression_repo: ImpressionRepository,
 ) -> int:
-    """Algorithmically recalculate derived impression fields and sync evidence_event_ids.
-
-    No LLM call. For each impression:
-      1. Recompute ipc_orientation / affect_intensity / r_squared / confidence
-         from the current (benevolence, power) via ipc_model — keeps derived
-         fields consistent if formula constants ever change.
-      2. Rebuild evidence_event_ids by intersecting each pair's event sets
-         (capped at 100 to bound DB growth).
-
-    Returns the number of impressions updated.
-    """
+    """Recalculate derived impression fields and evidence_event_ids."""
     from ..social.ipc_model import derive_fields
 
     personas = await persona_repo.list_all()
@@ -181,41 +385,44 @@ async def run_impression_recalculation(
     for persona in personas:
         all_impressions.extend(await impression_repo.list_by_observer(persona.uid))
 
-    # Pre-load event sets for every uid that appears in any impression — one DB
-    # query per uid instead of two per impression (avoids O(impressions) queries).
     uids_needed: set[str] = set()
-    for imp in all_impressions:
-        uids_needed.add(imp.observer_uid)
-        uids_needed.add(imp.subject_uid)
+    for impression in all_impressions:
+        uids_needed.add(impression.observer_uid)
+        uids_needed.add(impression.subject_uid)
+
     uid_event_ids: dict[str, set[str]] = {}
     for uid in uids_needed:
         events = await event_repo.list_by_participant(uid, limit=200)
-        uid_event_ids[uid] = {e.event_id for e in events}
+        uid_event_ids[uid] = {event.event_id for event in events}
 
     updated = 0
-    for imp in all_impressions:
+    for impression in all_impressions:
         try:
-            ipc_o, ai, rs = derive_fields(imp.benevolence, imp.power)
-
-            # Rebuild evidence set from pre-loaded in-memory sets.
-            obs_ids = uid_event_ids.get(imp.observer_uid, set())
-            subj_ids = uid_event_ids.get(imp.subject_uid, set())
-            shared = list(obs_ids & subj_ids)[-100:]
-
-            new_imp = dataclasses.replace(
-                imp,
-                ipc_orientation=ipc_o,
-                affect_intensity=ai,
-                r_squared=rs,
-                confidence=rs,
-                evidence_event_ids=shared,
+            ipc_orientation, affect, r_sq = derive_fields(
+                impression.benevolence,
+                impression.power,
             )
-            await impression_repo.upsert(new_imp)
+            observer_ids = uid_event_ids.get(impression.observer_uid, set())
+            subject_ids = uid_event_ids.get(impression.subject_uid, set())
+            shared = list(observer_ids & subject_ids)[-100:]
+
+            await impression_repo.upsert(
+                dataclasses.replace(
+                    impression,
+                    ipc_orientation=ipc_orientation,
+                    affect_intensity=affect,
+                    r_squared=r_sq,
+                    confidence=r_sq,
+                    evidence_event_ids=shared,
+                )
+            )
             updated += 1
         except Exception as exc:
             logger.warning(
-                "[Recalculation] failed for %s→%s: %s",
-                imp.observer_uid[:8], imp.subject_uid[:8], exc,
+                "[Recalculation] failed for %s->%s: %s",
+                impression.observer_uid[:8],
+                impression.subject_uid[:8],
+                exc,
             )
 
     logger.info("[Recalculation] impression recalculation: %d updated", updated)
@@ -230,166 +437,92 @@ async def run_consolidated_maintenance(
     synthesis_config: SynthesisConfig | None = None,
     llm_manager: LLMTaskManager | None = None,
 ) -> dict:
-    """Run persona_synthesis and impression_recalculation in a single pass.
-
-    Shares the initial persona list and event pre-load to avoid duplicate DB
-    queries. Synthesis LLM failures are isolated per-persona and do not block
-    the algorithmic recalculation phase.
-
-    Returns a dict with keys 'synthesized' and 'recalculated'.
-    """
+    """Run persona synthesis and impression recalculation with one shared preload."""
     from ..config import SynthesisConfig as _SC
-    cfg = synthesis_config or _SC()
 
+    cfg = synthesis_config or _SC()
     provider = provider_getter()
     if provider is None:
         logger.debug("[ConsolidatedMaintenance] no provider, skipping synthesis")
 
-    # ── Phase 1: shared data load ──────────────────────────────────────────
     all_personas = await persona_repo.list_all()
+    message_counts = await event_repo.count_messages_by_uid_bulk()
 
-    # Pre-load events once per uid (limit=200 satisfies both tasks).
-    uids: set[str] = {p.uid for p in all_personas}
+    uids: set[str] = {persona.uid for persona in all_personas}
     uid_events: dict[str, list] = {}
     for uid in uids:
         uid_events[uid] = await event_repo.list_by_participant(uid, limit=200)
 
-    # ── Phase 2: persona synthesis (LLM, may partially fail) ──────────────
     synthesized = 0
     if provider is not None:
-        from collections import Counter
-
         async def _synthesize_one(persona) -> bool:
-            last_synth = persona.persona_attrs.get("last_synthesized_at", 0)
-            if persona.last_active_at <= last_synth and last_synth > 0:
-                return False
-            events = uid_events.get(persona.uid, [])[:cfg.max_events]
-            if not events:
-                return False
-            tag_counter: Counter = Counter()
-            for e in events:
-                tag_counter.update(e.chat_content_tags)
-            top_tags = [tag for tag, _ in tag_counter.most_common(5)]
-            event_summaries = "\n".join(f"- {e.topic}" for e in events)
-            prompt = (
-                f"用户 {persona.primary_name}，近期参与事件：\n{event_summaries}\n"
-                f"当前属性：{json.dumps(persona.persona_attrs, ensure_ascii=False)}。\n"
-                "请更新属性。"
+            return await _synthesize_one_persona(
+                persona=persona,
+                events=uid_events.get(persona.uid, []),
+                persona_repo=persona_repo,
+                provider=provider,
+                cfg=cfg,
+                llm_manager=llm_manager,
+                log_prefix="ConsolidatedMaintenance",
+                total_message_count=message_counts.get(persona.uid),
             )
-            try:
-                if llm_manager:
-                    resp = await llm_manager.run(
-                        asyncio.wait_for,
-                        provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
-                        timeout=cfg.llm_timeout,
-                        task_name="synthesis"
-                    )
-                else:
-                    resp = await asyncio.wait_for(
-                        provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
-                        timeout=cfg.llm_timeout,
-                    )
-                parsed = _safe_parse(resp.completion_text)
-                if parsed is None:
-                    return False
-                new_attrs = dict(persona.persona_attrs)
-                if "description" in parsed:
-                    new_attrs["description"] = str(parsed["description"])[:80]
-                if "big_five" in parsed and isinstance(parsed["big_five"], dict):
-                    old_bf = persona.persona_attrs.get("big_five", {})
-                    alpha = cfg.ema_alpha
-                    merged_bf: dict[str, float] = {}
-                    for k in ["O", "C", "E", "A", "N"]:
-                        nv = parsed["big_five"].get(k)
-                        if nv is not None and isinstance(nv, (int, float)):
-                            new_clamped = max(-1.0, min(1.0, float(nv)))
-                            ov = old_bf.get(k)
-                            if ov is not None:
-                                merged_bf[k] = round(alpha * new_clamped + (1 - alpha) * float(ov), 4)
-                            else:
-                                merged_bf[k] = new_clamped
-                    if merged_bf:
-                        new_attrs["big_five"] = merged_bf
-                    ev = parsed.get("big_five_evidence")
-                    if isinstance(ev, dict):
-                        final_bf: dict = new_attrs.get("big_five", {})
-                        cleaned: dict[str, str] = {}
-                        for k, v in ev.items():
-                            if k not in ("O", "C", "E", "A", "N") or not isinstance(v, str) or not v.strip():
-                                continue
-                            sentence = str(v)[:120]
-                            if k in final_bf:
-                                correct_pct = round((final_bf[k] + 1) / 2 * 100)
-                                sentence = re.sub(r"\d+%", f"{correct_pct}%", sentence)
-                            cleaned[k] = sentence
-                        new_attrs["big_five_evidence"] = cleaned
-                    elif isinstance(ev, str) and ev.strip():
-                        new_attrs["big_five_evidence"] = str(ev)[:120]
-                    new_attrs["content_tags"] = top_tags
-                    new_attrs["last_synthesized_at"] = max(e.end_time for e in events)
-                    merged_bf_for_quality: dict = new_attrs.get("big_five", {})
-                    quality = len(merged_bf_for_quality) / 5.0
-                    old_conf = float(persona.confidence)
-                    alpha = cfg.ema_alpha
-                    new_confidence = round(alpha * quality + (1.0 - alpha) * old_conf, 4)
-                    await persona_repo.upsert(
-                        dataclasses.replace(persona, confidence=new_confidence, persona_attrs=new_attrs)
-                    )
-                    return True
-            except asyncio.TimeoutError:
-                logger.warning("[ConsolidatedMaintenance] synthesis timeout for %s", persona.uid)
-            except Exception as exc:
-                logger.warning("[ConsolidatedMaintenance] synthesis failed for %s: %s", persona.uid, exc)
-            return False
 
-        results = await asyncio.gather(*[_synthesize_one(p) for p in all_personas])
-        synthesized = sum(1 for r in results if r)
+        results = await asyncio.gather(*[_synthesize_one(persona) for persona in all_personas])
+        synthesized = sum(1 for result in results if result)
 
-    # ── Phase 3: impression recalculation (pure algorithmic) ──────────────
     from ..social.ipc_model import derive_fields
+
     all_impressions: list = []
     for persona in all_personas:
         all_impressions.extend(await impression_repo.list_by_observer(persona.uid))
 
-    # Build uid→event_id sets from the already-loaded uid_events
     uid_event_ids: dict[str, set[str]] = {
-        uid: {e.event_id for e in evs} for uid, evs in uid_events.items()
+        uid: {event.event_id for event in events}
+        for uid, events in uid_events.items()
     }
-    # Include any uids appearing in impressions but not in personas
     extra_uids = {
-        uid for imp in all_impressions
-        for uid in (imp.observer_uid, imp.subject_uid)
+        uid
+        for impression in all_impressions
+        for uid in (impression.observer_uid, impression.subject_uid)
         if uid not in uid_event_ids
     }
     for uid in extra_uids:
-        evs = await event_repo.list_by_participant(uid, limit=200)
-        uid_event_ids[uid] = {e.event_id for e in evs}
+        events = await event_repo.list_by_participant(uid, limit=200)
+        uid_event_ids[uid] = {event.event_id for event in events}
 
     recalculated = 0
-    for imp in all_impressions:
+    for impression in all_impressions:
         try:
-            ipc_o, ai, rs = derive_fields(imp.benevolence, imp.power)
-            obs_ids = uid_event_ids.get(imp.observer_uid, set())
-            subj_ids = uid_event_ids.get(imp.subject_uid, set())
-            shared = list(obs_ids & subj_ids)[-100:]
-            new_imp = dataclasses.replace(
-                imp,
-                ipc_orientation=ipc_o,
-                affect_intensity=ai,
-                r_squared=rs,
-                confidence=rs,
-                evidence_event_ids=shared,
+            ipc_orientation, affect, r_sq = derive_fields(
+                impression.benevolence,
+                impression.power,
             )
-            await impression_repo.upsert(new_imp)
+            observer_ids = uid_event_ids.get(impression.observer_uid, set())
+            subject_ids = uid_event_ids.get(impression.subject_uid, set())
+            shared = list(observer_ids & subject_ids)[-100:]
+
+            await impression_repo.upsert(
+                dataclasses.replace(
+                    impression,
+                    ipc_orientation=ipc_orientation,
+                    affect_intensity=affect,
+                    r_squared=r_sq,
+                    confidence=r_sq,
+                    evidence_event_ids=shared,
+                )
+            )
             recalculated += 1
         except Exception as exc:
             logger.warning(
-                "[ConsolidatedMaintenance] recalc failed for %s→%s: %s",
-                imp.observer_uid[:8], imp.subject_uid[:8], exc,
+                "[ConsolidatedMaintenance] recalc failed for %s->%s: %s",
+                impression.observer_uid[:8],
+                impression.subject_uid[:8],
+                exc,
             )
 
     logger.info(
-        "[ConsolidatedMaintenance] done — synthesized: %d, recalculated: %d",
-        synthesized, recalculated,
+        "[ConsolidatedMaintenance] done - synthesized: %d, recalculated: %d",
+        synthesized,
+        recalculated,
     )
     return {"synthesized": synthesized, "recalculated": recalculated}

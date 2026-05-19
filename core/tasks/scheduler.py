@@ -87,6 +87,8 @@ class TaskScheduler:
         while True:
             now = time.time()
             for task in self._tasks:
+                if task.interval <= 0:
+                    continue
                 if now - task.last_run >= task.interval:
                     await self._run_task(task)
             await asyncio.sleep(self._tick)

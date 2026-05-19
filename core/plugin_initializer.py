@@ -54,7 +54,12 @@ from .tasks.cleanup import run_memory_cleanup
 from .tasks.backup import run_database_backup
 from .tasks.scheduler import TaskScheduler
 from .tasks.summary import run_group_summary
-from .tasks.synthesis import run_consolidated_maintenance, run_impression_recalculation, run_persona_synthesis
+from .tasks.synthesis import (
+    PersonaSynthesisTrigger,
+    run_consolidated_maintenance,
+    run_impression_recalculation,
+    run_persona_synthesis,
+)
 
 if TYPE_CHECKING:
     from astrbot.api.star import Context
@@ -257,6 +262,25 @@ class PluginInitializer:
                 return self._context.get_using_provider(cfg.llm_provider)
             return self._context.get_using_provider()
 
+        synthesis_cfg = cfg.get_synthesis_config()
+        persona_synthesis_trigger: PersonaSynthesisTrigger | None = None
+        if cfg.persona_synthesis_enabled:
+            persona_synthesis_trigger = PersonaSynthesisTrigger(
+                persona_repo=persona_repo,
+                event_repo=event_repo,
+                provider_getter=provider_getter,
+                synthesis_config=synthesis_cfg,
+                llm_manager=self.llm_manager,
+                min_messages=cfg.persona_synthesis_trigger_messages,
+                min_events=cfg.persona_synthesis_min_events,
+                cooldown_hours=cfg.persona_synthesis_cooldown_hours,
+                fallback_staleness_hours=cfg.persona_synthesis_interval_seconds / 3600.0,
+            )
+
+        async def _handle_persisted_events(events: list[Event]) -> None:
+            if persona_synthesis_trigger is not None:
+                await persona_synthesis_trigger.handle_events(events)
+
         extractor = EventExtractor(
             event_repo=event_repo,
             provider_getter=provider_getter,
@@ -267,6 +291,7 @@ class PluginInitializer:
             ipc_enabled=ipc_cfg.enabled,
             persona_repo=persona_repo,
             llm_manager=self.llm_manager,
+            events_persisted_callback=_handle_persisted_events,
         )
 
         async def on_event_close(window: MessageWindow) -> None:
@@ -313,7 +338,6 @@ class PluginInitializer:
                 name="moirai-periodic-flush",
             )
 
-        synthesis_cfg = cfg.get_synthesis_config()
         summary_cfg = cfg.get_summary_config()
 
         self.scheduler = TaskScheduler()
@@ -362,42 +386,40 @@ class PluginInitializer:
             interval=60,
             fn=_context_cleanup,
         )
-        if cfg.persona_synthesis_enabled or cfg.relation_enabled:
-            # Use consolidated task when both are enabled to share DB scan overhead.
-            # Fall back to individual tasks if only one is enabled.
-            if cfg.persona_synthesis_enabled and cfg.relation_enabled:
-                interval = min(
-                    cfg.persona_synthesis_interval_seconds,
-                    cfg.impression_aggregation_interval_seconds,
-                )
-                self.scheduler.register(
-                    "consolidated_maintenance",
-                    interval=interval,
-                    fn=lambda: run_consolidated_maintenance(
-                        persona_repo, event_repo, impression_repo,
-                        provider_getter,
-                        synthesis_config=synthesis_cfg,
-                        llm_manager=self.llm_manager,
-                    ),
-                )
-            elif cfg.persona_synthesis_enabled:
-                self.scheduler.register(
-                    "persona_synthesis",
-                    interval=cfg.persona_synthesis_interval_seconds,
-                    fn=lambda: run_persona_synthesis(
-                        persona_repo, event_repo, provider_getter,
-                        synthesis_config=synthesis_cfg,
-                        llm_manager=self.llm_manager,
-                    ),
-                )
-            else:
-                self.scheduler.register(
-                    "impression_recalculation",
-                    interval=cfg.impression_aggregation_interval_seconds,
-                    fn=lambda: run_impression_recalculation(
-                        persona_repo, event_repo, impression_repo,
-                    ),
-                )
+        if cfg.persona_synthesis_enabled and persona_synthesis_trigger is not None:
+            self.scheduler.register(
+                "persona_synthesis_fallback",
+                interval=cfg.persona_synthesis_interval_seconds,
+                fn=persona_synthesis_trigger.run_fallback,
+            )
+            self.scheduler.register(
+                "persona_synthesis",
+                interval=0,  # Manual full synthesis; event-count trigger is primary.
+                fn=lambda: run_persona_synthesis(
+                    persona_repo, event_repo, provider_getter,
+                    synthesis_config=synthesis_cfg,
+                    llm_manager=self.llm_manager,
+                ),
+            )
+        if cfg.relation_enabled:
+            self.scheduler.register(
+                "impression_recalculation",
+                interval=cfg.impression_aggregation_interval_seconds,
+                fn=lambda: run_impression_recalculation(
+                    persona_repo, event_repo, impression_repo,
+                ),
+            )
+        if cfg.persona_synthesis_enabled and cfg.relation_enabled:
+            self.scheduler.register(
+                "consolidated_maintenance",
+                interval=0,  # Backward-compatible manual task.
+                fn=lambda: run_consolidated_maintenance(
+                    persona_repo, event_repo, impression_repo,
+                    provider_getter,
+                    synthesis_config=synthesis_cfg,
+                    llm_manager=self.llm_manager,
+                ),
+            )
         if cfg.summary_enabled:
             self.scheduler.register(
                 "group_summary",
@@ -490,7 +512,7 @@ class PluginInitializer:
                     "[%s] Failed to start standalone WebUI server: %s. This may happen if the port %d is already in use.", _PLUGIN_NAME, e, cfg.webui_port)
 
         if cfg.markdown_projection_enabled:
-            self.watcher = FileWatcher()
+            self.watcher = FileWatcher(poll_interval=cfg.file_watcher_poll_seconds)
             self.syncer = ReverseSyncer(
                 data_dir=data_dir,
                 persona_repo=persona_repo,

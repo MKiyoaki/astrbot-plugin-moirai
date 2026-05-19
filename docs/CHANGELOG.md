@@ -4,6 +4,16 @@
 
 ### 事件边界智能分割 & 关系重分析 LLM 模式
 
+**Maintenance — 冗余实现清理**
+
+- 人格合成任务抽出单人合成 helper，`run_persona_synthesis()` 与 `run_consolidated_maintenance()` 复用同一条合成逻辑。
+- 人格合成主路径改为按 UID 新增消息数触发：事件落库后检查参与者消息计数，达标后只合成对应 UID；周期任务降级为兜底扫描。
+- 新增人格合成触发配置：`persona_synthesis_trigger_messages` / `persona_synthesis_min_events` / `persona_synthesis_cooldown_hours`，`persona_synthesis_interval_hours` 调整为兜底扫描间隔。
+- `reindex_all` 保持手动任务语义：调度器自动循环跳过 `interval <= 0` 的任务，`run_now()` 仍可触发。
+- `file_watcher_poll_seconds` 正式接入 `FileWatcher(poll_interval=...)`。
+- `summary_word_limit` 注入摘要生成 prompt，避免配置只读取不生效。
+- 新增根目录 `CHANGELOG.md` 入口，兼容只读取插件根目录 changelog 的 AstrBot/插件管理器。
+
 **Feature — 事件边界智能分割（Smart Split）**
 
 - 当消息窗口触达容量上限时，不再直接硬截断，而是在尾部消息中寻找最自然的话题断点，将前段提交为事件、后段作为种子继续当前窗口。

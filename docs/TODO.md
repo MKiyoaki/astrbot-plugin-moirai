@@ -1,5 +1,16 @@
 # TODO
 
+## Deferred Cleanup After Redundancy Pass
+
+- Persona synthesis follow-up: evaluate persisted dirty-UID queues if in-memory trigger state is not enough across restarts.
+- Rename `summary_trigger_rounds` to an event-window threshold name, with backward-compatible config loading for the old key.
+- Split `context_window_size` into extractor context size and VCM session window size; keep the old key as compatibility input.
+- Make `memory_cleanup_interval_days` independently effective, or remove it from user-facing config if cleanup remains tied to daily maintenance.
+- Split `daily_maintenance` into clearer task entries for salience decay, memory cleanup, and Markdown projection fallback.
+- Rework group summaries toward calendar-day generation plus "only when new events exist", instead of arbitrary repeated hourly rewrites.
+- Keep `periodic_flush` as an idle-window fallback, not the primary event segmentation mechanism.
+- Move low-impact operational knobs such as context cleanup batch sizes and embedding fine-tuning parameters into advanced settings.
+
 ## Memory recall scope + robustness plan (2026-05-18)
 
 ### Phase 0 - Baseline and planning

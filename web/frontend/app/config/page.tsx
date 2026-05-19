@@ -82,6 +82,9 @@ const FIELD_DEPENDENCIES: Record<string, string> = {
   'summary_word_limit': 'summary_enabled',
   'summary_mood_source': 'summary_enabled',
   'persona_synthesis_interval_hours': 'persona_synthesis_enabled',
+  'persona_synthesis_trigger_messages': 'persona_synthesis_enabled',
+  'persona_synthesis_min_events': 'persona_synthesis_enabled',
+  'persona_synthesis_cooldown_hours': 'persona_synthesis_enabled',
 }
 
 function ConfigField({
@@ -506,6 +509,9 @@ export default function ConfigPage() {
         'decay_interval_hours',
         'persona_synthesis_enabled',
         'persona_synthesis_interval_hours',
+        'persona_synthesis_trigger_messages',
+        'persona_synthesis_min_events',
+        'persona_synthesis_cooldown_hours',
         'markdown_projection_enabled',
         'file_watcher_poll_seconds',
         'migration_auto_backup'

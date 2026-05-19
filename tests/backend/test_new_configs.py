@@ -78,6 +78,12 @@ class TestNewConfigs(unittest.IsolatedAsyncioTestCase):
         boundary = self.cfg.get_boundary_config()
         self.assertEqual(boundary.summary_trigger_rounds, 30)
 
+        # Test persona synthesis trigger defaults
+        self.assertEqual(self.cfg.persona_synthesis_trigger_messages, 30)
+        self.assertEqual(self.cfg.persona_synthesis_min_events, 3)
+        self.assertEqual(self.cfg.persona_synthesis_cooldown_hours, 3.0)
+        self.assertEqual(self.cfg.persona_synthesis_interval_seconds, 72 * 3600)
+
     def test_summary_trigger_rounds(self):
         b_cfg = BoundaryConfig(summary_trigger_rounds=2)
         detector = EventBoundaryDetector(config=b_cfg)

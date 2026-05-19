@@ -716,7 +716,28 @@
                 "description": "人设合成间隔（小时）",
                 "type": "int",
                 "hint": "每隔多少小时通过 LLM 合成一次用户人设档案（PROFILE.md），默认每周一次",
-                "default": 168,
+                "default": 72,
+                "level": "advanced"
+            },
+            "persona_synthesis_trigger_messages": {
+                "description": "人格合成消息触发阈值",
+                "type": "int",
+                "hint": "某个 UID 自上次人格合成后新增消息数达到该值时，触发该 UID 的单人合成检查。",
+                "default": 30,
+                "level": "advanced"
+            },
+            "persona_synthesis_min_events": {
+                "description": "人格合成最少事件数",
+                "type": "int",
+                "hint": "单人合成前至少需要该 UID 参与过的事件数，避免少量消息导致画像抖动。",
+                "default": 3,
+                "level": "advanced"
+            },
+            "persona_synthesis_cooldown_hours": {
+                "description": "人格合成触发冷却（小时）",
+                "type": "float",
+                "hint": "同一 UID 两次合成尝试之间的最小间隔，避免高频对话连续触发 LLM。",
+                "default": 3.0,
                 "level": "advanced"
             },
             "markdown_projection_enabled": {

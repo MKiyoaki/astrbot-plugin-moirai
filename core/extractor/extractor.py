@@ -20,7 +20,7 @@ import logging
 import re
 import time as _time
 
-from typing import TYPE_CHECKING
+from typing import Awaitable, Callable, TYPE_CHECKING
 from ..embedding.encoder import NullEncoder
 from .parser import fallback_extraction, fallback_single_extraction, parse_llm_output, parse_single_item
 from .persona_context import resolve_bot_persona_context
@@ -108,6 +108,7 @@ class EventExtractor:
         ipc_enabled: bool = True,
         persona_repo: PersonaRepository | None = None,
         llm_manager: LLMTaskManager | None = None,
+        events_persisted_callback: Callable[[list], Awaitable[None]] | None = None,
     ) -> None:
         from ..config import ExtractorConfig as _EC
         cfg = extractor_config or _EC()
@@ -116,6 +117,7 @@ class EventExtractor:
         self._provider_getter = provider_getter
         self._encoder: Encoder = encoder or NullEncoder()
         self._llm_manager = llm_manager
+        self._events_persisted_callback = events_persisted_callback
         self._max_context_messages = cfg.max_context_messages
         self._system_prompt = cfg.system_prompt
         self._distillation_system_prompt = cfg.distillation_system_prompt
@@ -232,6 +234,7 @@ class EventExtractor:
         import uuid
 
         ipc_tasks = []
+        persisted_events: list[Event] = []
 
         for indices, res in extracted_results:
             sub_messages = [window.messages[i] for i in indices]
@@ -300,6 +303,7 @@ class EventExtractor:
 
             await self._event_repo.upsert(event)
             await self._index_vector(event)
+            persisted_events.append(event)
 
             if self._ipc_enabled:
                 ipc_tasks.append(
@@ -312,6 +316,12 @@ class EventExtractor:
 
         if ipc_tasks:
             await asyncio.gather(*ipc_tasks)
+
+        if self._events_persisted_callback and persisted_events:
+            try:
+                await self._events_persisted_callback(persisted_events)
+            except Exception as exc:
+                logger.warning("[EventExtractor] events_persisted_callback failed: %s", exc)
 
     async def _batch_align_tags(self, raw_tags: list[str]) -> dict[str, str]:
         """Normalize a large list of tags in a single batch operation.

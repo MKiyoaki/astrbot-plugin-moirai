@@ -43,8 +43,9 @@ async def test_mood_source_option_b_llm(tmp_path):
     mood_json = '{"orientation": "active", "benevolence": 0.5, "power": 0.5, "positions": {"u1": "dominant", "u2": "affinity"}}'
     provider = MockProvider(mood_json)
     
-    cfg = SummaryConfig(mood_source="llm")
+    cfg = SummaryConfig(mood_source="llm", word_limit=234)
     await run_group_summary(er, tmp_path, lambda: provider, summary_config=cfg, impression_repo=ir)
+    assert "Main topic summary length limit: 234 characters." in provider.calls[0]
     
     summary_file = list((tmp_path / "groups" / "g1" / "summaries").glob("*.md"))[0]
     content = summary_file.read_text(encoding="utf-8")

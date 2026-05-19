@@ -295,6 +295,7 @@ async def _generate_summary_for_group(
             f"群组：{group_label}，统计日期：{today}。\n"
             f"事件列表：\n{event_lines}\n\n"
             f"参与者UID列表：{', '.join(participants)}\n"
+            f"Main topic summary length limit: {cfg.word_limit} characters.\n"
             f"{get_string('summary.word_limit_hint', lang)}"
         )
         try:
@@ -333,6 +334,7 @@ async def _generate_summary_for_group(
         topic_prompt = (
             f"群组：{group_label}，统计日期：{today}。\n"
             f"事件列表：\n{event_lines}\n"
+            f"Main topic summary length limit: {cfg.word_limit} characters.\n"
             f"{get_string('summary.word_limit_hint', lang)}"
         )
         try:
