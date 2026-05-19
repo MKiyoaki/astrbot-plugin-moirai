@@ -367,6 +367,16 @@
                 "max": 20.0,
                 "step": 0.5,
                 "level": "advanced"
+            },
+            "soul_states_ttl_hours": {
+                "description": "Soul 状态缓存 TTL（小时）",
+                "type": "float",
+                "hint": "超过此时长未活跃的 session Soul 状态将从内存中清除，防止多群组长期运行的内存泄漏。默认 24 小时。",
+                "default": 24.0,
+                "min": 1.0,
+                "max": 168.0,
+                "step": 1.0,
+                "level": "advanced"
             }
         }
     },

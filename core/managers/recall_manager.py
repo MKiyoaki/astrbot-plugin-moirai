@@ -205,6 +205,10 @@ class RecallManager(BaseRecallManager):
         self._impression_repo = impression_repo
         self._soul_cfg = soul_config
         self._soul_states: dict[str, SoulState] = {}
+        self._soul_state_accessed: dict[str, float] = {}
+        self._soul_states_ttl_hours: float = (
+            soul_config.states_ttl_hours if soul_config is not None else 24.0
+        )
         self._last_recall_debug: dict[str, dict] = {}
         self._last_injection_debug: dict[str, dict] = {}
 
@@ -219,6 +223,18 @@ class RecallManager(BaseRecallManager):
     def get_soul_states(self) -> dict[str, Any]:
         """Return all active soul states as a dict of dicts."""
         return {sid: state.__dict__.copy() for sid, state in self._soul_states.items()}
+
+    def _evict_soul_states(self) -> None:
+        """Remove soul states that have not been accessed within the TTL."""
+        if not self._soul_states:
+            return
+        cutoff = time.time() - self._soul_states_ttl_hours * 3600
+        stale = [
+            sid for sid, t in self._soul_state_accessed.items() if t < cutoff
+        ]
+        for sid in stale:
+            self._soul_states.pop(sid, None)
+            self._soul_state_accessed.pop(sid, None)
 
     async def _persona_label(self, uid: str) -> str:
         if not uid:
@@ -376,14 +392,27 @@ class RecallManager(BaseRecallManager):
             episode_limit = final_limit
 
         async with performance_timer("recall_search"):
+            # Encode query once and share across both tiers to avoid double CPU inference.
+            shared_embedding: list[float] | None = None
+            try:
+                _enc_dim = self._retriever._encoder.dim
+                if isinstance(_enc_dim, int) and _enc_dim > 0:
+                    shared_embedding = await self._retriever._encoder.encode(query)
+            except Exception as _enc_exc:
+                logging.getLogger(__name__).warning(
+                    "[RecallManager] pre-encode failed: %s", _enc_exc
+                )
+
             # Parallel searches for each tier
             narrative_task = self._retriever.search_raw(
                 query, active_only=cfg.active_only, group_id=group_id,
                 event_type=EventType.NARRATIVE, scope_mode=scope_mode,
+                embedding=shared_embedding,
             )
             episode_task = self._retriever.search_raw(
                 query, active_only=cfg.active_only, group_id=group_id,
                 event_type=EventType.EPISODE, scope_mode=scope_mode,
+                embedding=shared_embedding,
             )
             narrative_result, episode_result = await asyncio.gather(
                 narrative_task, episode_task, return_exceptions=True
@@ -584,6 +613,7 @@ class RecallManager(BaseRecallManager):
             soul_segment = ""
             soul_state_for_debug = None
             if self._soul_cfg and self._soul_cfg.enabled:
+                self._evict_soul_states()
                 state = self._soul_states.get(session_id)
                 if state is None:
                     state = from_config(self._soul_cfg)
@@ -597,6 +627,7 @@ class RecallManager(BaseRecallManager):
                     creativity=state.creativity,
                 )
                 self._soul_states[session_id] = state
+                self._soul_state_accessed[session_id] = time.time()
                 soul_segment = format_soul_for_prompt(state)
                 if soul_segment:
                     soul_state_for_debug = state

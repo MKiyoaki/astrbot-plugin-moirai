@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [v0.12.12] — 2026-05-19
+
+### 
+
+- 
+
+
 The full changelog is maintained at [`docs/CHANGELOG.md`](docs/CHANGELOG.md).
 
 This root-level file is kept for AstrBot/plugin managers that only read

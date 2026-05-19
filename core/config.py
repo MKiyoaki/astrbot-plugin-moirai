@@ -254,6 +254,7 @@ class SoulConfig:
     impression_depth_init: float = 0.0
     expression_desire_init: float = 0.0
     creativity_init: float = 0.0
+    states_ttl_hours: float = 24.0
 
 
 @dataclass
@@ -536,6 +537,7 @@ class PluginConfig:
             expression_desire_init=self._float(
                 "soul_expression_desire_init", 0.0),
             creativity_init=self._float("soul_creativity_init", 0.0),
+            states_ttl_hours=self._float("soul_states_ttl_hours", 24.0),
         )
 
     def get_extractor_config(self) -> ExtractorConfig:

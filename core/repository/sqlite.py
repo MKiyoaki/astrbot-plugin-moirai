@@ -48,6 +48,9 @@ _PRAGMAS = [
     "PRAGMA synchronous=NORMAL",
     "PRAGMA busy_timeout=5000",
     "PRAGMA cache_size=-64000",  # 64 MB page cache
+    "PRAGMA mmap_size=268435456",  # 256 MB memory-mapped I/O
+    "PRAGMA temp_store=MEMORY",   # keep temp tables in RAM
+    "PRAGMA wal_autocheckpoint=500",
     "PRAGMA foreign_keys=ON",
 ]
 
@@ -469,11 +472,16 @@ _EVENT_COLS = (
     "inherit_from, last_accessed_at, status, is_locked, bot_persona_name, event_type"
 )
 
-_EVENT_SELECT_COLS = (
+# Search hot-path columns: interaction_flow excluded to reduce I/O;
+# use _EVENT_SELECT (full) when callers need the message log.
+_EVENT_SEARCH_COLS = (
     "e.event_id, e.group_id, e.start_time, e.end_time, e.participants, "
-    "e.interaction_flow, e.topic, e.summary, e.chat_content_tags, e.salience, e.confidence, "
+    "'[]' AS interaction_flow, e.topic, e.summary, e.chat_content_tags, e.salience, e.confidence, "
     "e.inherit_from, e.last_accessed_at, e.status, e.is_locked, e.event_type"
 )
+
+# Legacy alias kept for any non-search callers that still import this name.
+_EVENT_SELECT_COLS = _EVENT_SEARCH_COLS
 
 _EVENT_SELECT = f"SELECT {_EVENT_COLS} FROM events"
 
@@ -600,7 +608,7 @@ class SQLiteEventRepository(EventRepository):
             if event_type:
                 params.append(event_type)
             async with self._db.execute(
-                f"SELECT {_EVENT_SELECT_COLS} FROM "
+                f"SELECT {_EVENT_SEARCH_COLS} FROM "
                 "(SELECT rowid, distance FROM events_vec WHERE embedding MATCH ? "
                 " ORDER BY distance LIMIT ?) v "
                 f"JOIN events e ON e.rowid = v.rowid{join_tail}"

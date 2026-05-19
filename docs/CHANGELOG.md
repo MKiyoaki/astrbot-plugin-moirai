@@ -1,5 +1,40 @@
 ﻿# CHANGELOG
 
+## [v0.12.12] — 2026-05-19
+
+### 性能优化（高优先级批次）
+
+**SQLite I/O 优化**
+
+- `_PRAGMAS` 新增 `mmap_size=268435456`（256 MB 内存映射）、`temp_store=MEMORY`（FTS5 排序表常驻内存）、`wal_autocheckpoint=500`（防止 WAL 文件无限增长）。
+- 新增迁移脚本 `migrations/012_perf_composite_index.sql`：为 `events` 表添加复合索引 `(status, event_type, group_id)`，覆盖 `search_fts` / `search_vector` 最常见的 WHERE 条件组合。
+- `search_vector` 热路径由 `_EVENT_SEARCH_COLS` 替换全列读取，剔除 `interaction_flow`（大 JSON 字段），降低单次向量检索的 I/O 开销；召回结果的 `interaction_flow` 置空列表，需要完整数据时仍通过 `get()` 单独查询。
+
+**Embedding LRU 缓存**
+
+- `core/embedding/encoder.py` 新增 `_LRUCache`（128 条，O(1) get/put）。
+- `SentenceTransformerEncoder` 与 `ApiEncoder` 均接入该缓存：相同文本的第二次 `encode()` 直接命中缓存，完全跳过 CPU 推理与 API 网络调用。
+
+**单次 Query 编码**
+
+- `HybridRetriever.search_raw()` 新增可选参数 `embedding: list[float] | None`：调用方可传入预计算向量，跳过内部 `encoder.encode()`。
+- `RecallManager.recall()` 在进入检索前统一编码一次 query，并将 `shared_embedding` 同时传入 narrative 层和 episode 层的 `search_raw()`，消除两次独立 CPU 推理。
+
+**Soul States 内存泄漏修复**
+
+- `RecallManager._soul_states` 新增 `_soul_state_accessed` 时间戳字典，每次更新 soul state 时写入 `time.time()`。
+- 新增 `_evict_soul_states()` 方法：在每次 soul state 访问前扫描并清除超过 TTL 未活跃的条目，防止多群组长期运行时内存无限增长。
+- TTL 默认 24 小时，可通过新配置项 `soul_states_ttl_hours` 调整。
+
+**配置项**
+
+- `_conf_schema.json` soul 节新增 `soul_states_ttl_hours`（float，1–168 小时，默认 24）。
+- `SoulConfig` 新增 `states_ttl_hours` 字段，`PluginConfig.get_soul_config()` 读取该值。
+
+**测试**
+
+- 新增测试文件 `tests/backend/test_perf_optimizations.py`（13 个测试），覆盖：PRAGMA 内容、迁移脚本存在、LRU cache 基本操作与 LRU 淘汰、encoder 缓存跳过推理、`search_raw` 使用预计算 embedding、soul states TTL eviction、vector search interaction_flow 剥离、SoulConfig TTL 接线。
+
 ## [v0.12.11] — 2026-05-19
 
 ### 事件边界智能分割 & 关系重分析 LLM 模式

@@ -6,7 +6,32 @@ is configured or when sentence-transformers is not installed.
 SentenceTransformerEncoder: wraps a local embedding model (default:
 BAAI/bge-small-zh-v1.5, 512-dim). CPU inference, ~100 MB download.
 """
+from collections import OrderedDict
 from typing import Protocol, runtime_checkable, List
+
+_ENCODE_CACHE_SIZE = 128
+
+
+class _LRUCache:
+    """Simple thread-safe LRU cache for embedding vectors."""
+
+    def __init__(self, maxsize: int = _ENCODE_CACHE_SIZE) -> None:
+        self._maxsize = maxsize
+        self._cache: OrderedDict[str, List[float]] = OrderedDict()
+
+    def get(self, key: str) -> List[float] | None:
+        if key not in self._cache:
+            return None
+        self._cache.move_to_end(key)
+        return self._cache[key]
+
+    def put(self, key: str, value: List[float]) -> None:
+        if key in self._cache:
+            self._cache.move_to_end(key)
+        else:
+            if len(self._cache) >= self._maxsize:
+                self._cache.popitem(last=False)
+            self._cache[key] = value
 
 
 @runtime_checkable
@@ -57,6 +82,7 @@ class SentenceTransformerEncoder:
         self._model_name = model_name
         self._model = None
         self._dim: int | None = None
+        self._cache = _LRUCache()
 
     def _load(self) -> None:
         if self._model is not None:
@@ -81,12 +107,16 @@ class SentenceTransformerEncoder:
     async def encode(self, text: str) -> List[float]:
         import asyncio
         self._load()
-        # Run in thread pool as it's CPU intensive
+        cached = self._cache.get(text)
+        if cached is not None:
+            return cached
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None, 
+        result = await loop.run_in_executor(
+            None,
             lambda: self._model.encode(text, normalize_embeddings=True, show_progress_bar=False).tolist()
         )
+        self._cache.put(text, result)
+        return result
 
     async def encode_batch(self, texts: List[str]) -> List[List[float]]:
         import asyncio
@@ -108,14 +138,21 @@ class ApiEncoder:
         self._api_url = api_url
         self._api_key = api_key
         self._dim = dim
+        self._cache = _LRUCache()
 
     @property
     def dim(self) -> int:
         return self._dim
 
     async def encode(self, text: str) -> List[float]:
+        cached = self._cache.get(text)
+        if cached is not None:
+            return cached
         results = await self.encode_batch([text])
-        return results[0] if results else []
+        result = results[0] if results else []
+        if result:
+            self._cache.put(text, result)
+        return result
 
     async def encode_batch(self, texts: List[str]) -> List[List[float]]:
         if not texts:
