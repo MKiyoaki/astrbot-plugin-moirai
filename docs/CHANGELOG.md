@@ -1,5 +1,23 @@
 ﻿# CHANGELOG
 
+## [v0.12.14] — 2026-05-20
+
+### 缓存工具统一 & 无界 dict 修复
+
+**新增 `core/utils/cache.py`**
+
+- `_LRUCache[V]`：泛型有界 LRU 缓存，从 `encoder.py` 移入，供全局复用。`maxsize` 为必填参数，强制调用方明确声明上限。
+- `BoundedKeysMixin`：适用于维护多个平行 dict（同一 key 空间）的类。调用方在 `__init__` 里调用 `_init_keys(maxsize)`，在写操作前调用 `_touch(key)`，重写 `_on_evict(key)` 清理所有与该 key 相关的存储。超出上限时自动 LRU 驱逐最久未访问的 key。
+
+**修复两处无界 dict**
+
+- `IdentityResolver._cache`：由无界 `dict` 改为 `_LRUCache(maxsize=2000)`，防止 2000+ 用户场景下内存无限增长。
+- `BigFiveBuffer`：继承 `BoundedKeysMixin(maxkeys=500)`，`add_message()` 调用 `_touch(uid)` 触发 LRU 注册；`_on_evict()` 统一清理 `_counters` / `_texts` / `_cache` / `_evidence` / `_pending_tasks` 五个平行 dict，并取消进行中的 scoring task。
+
+**测试**
+
+- 新增 5 个测试（`BoundedKeysMixin` 基本行为、LRU 刷新、`BigFiveBuffer` 超限驱逐、`IdentityResolver` 缓存类型验证），共 552 个测试全部通过。
+
 ## [v0.12.13] — 2026-05-20
 
 ### Encoder 性能优化 & 默认配置调整

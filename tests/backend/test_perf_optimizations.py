@@ -63,7 +63,7 @@ def test_migration_012_exists():
 # ── Embedding LRU cache ───────────────────────────────────────────────────────
 
 def test_lru_cache_put_and_get():
-    from core.embedding.encoder import _LRUCache
+    from core.utils.cache import _LRUCache
     cache = _LRUCache(maxsize=3)
     assert cache.get("a") is None
     cache.put("a", [1.0, 2.0])
@@ -71,7 +71,7 @@ def test_lru_cache_put_and_get():
 
 
 def test_lru_cache_evicts_oldest():
-    from core.embedding.encoder import _LRUCache
+    from core.utils.cache import _LRUCache
     cache = _LRUCache(maxsize=2)
     cache.put("a", [1.0])
     cache.put("b", [2.0])
@@ -82,7 +82,7 @@ def test_lru_cache_evicts_oldest():
 
 
 def test_lru_cache_move_to_end_on_access():
-    from core.embedding.encoder import _LRUCache
+    from core.utils.cache import _LRUCache
     cache = _LRUCache(maxsize=2)
     cache.put("a", [1.0])
     cache.put("b", [2.0])
@@ -96,12 +96,12 @@ def test_lru_cache_move_to_end_on_access():
 async def test_sentence_transformer_encoder_uses_cache():
     """Second call with same text should skip the executor."""
     from core.embedding.encoder import SentenceTransformerEncoder
+    from core.utils.cache import _LRUCache
     enc = SentenceTransformerEncoder.__new__(SentenceTransformerEncoder)
     enc._model_name = "test"
     enc._model = None
     enc._dim = 4
-    from core.embedding.encoder import _LRUCache
-    enc._cache = _LRUCache()
+    enc._cache = _LRUCache(maxsize=128)
 
     call_count = 0
 
@@ -284,8 +284,9 @@ def test_normalise_same_key_for_equivalent_queries():
 
 def test_lru_cache_hit_after_normalisation():
     """Two textually different but normalisation-equivalent strings hit the same cache entry."""
-    from core.embedding.encoder import _LRUCache, _normalise
-    cache = _LRUCache()
+    from core.utils.cache import _LRUCache
+    from core.embedding.encoder import _normalise
+    cache = _LRUCache(maxsize=128)
     key1 = _normalise("hello  world ")
     key2 = _normalise("hello world")
     assert key1 == key2
@@ -298,3 +299,73 @@ def test_sentence_transformer_encoder_has_dedicated_executor():
     from concurrent.futures import ThreadPoolExecutor
     enc = SentenceTransformerEncoder()
     assert isinstance(enc._executor, ThreadPoolExecutor)
+
+
+# ── BoundedKeysMixin ──────────────────────────────────────────────────────────
+
+def test_bounded_keys_mixin_evicts_lru():
+    from core.utils.cache import BoundedKeysMixin
+
+    class Store(BoundedKeysMixin):
+        def __init__(self, maxsize):
+            self._init_keys(maxsize)
+            self.data: dict[str, int] = {}
+            self.evicted: list[str] = []
+
+        def set(self, key: str, value: int) -> None:
+            self._touch(key)
+            self.data[key] = value
+
+        def _on_evict(self, key: object) -> None:
+            self.evicted.append(str(key))
+            self.data.pop(str(key), None)
+
+    store = Store(maxsize=3)
+    for i, k in enumerate(["a", "b", "c", "d"]):
+        store.set(k, i)
+
+    assert "a" in store.evicted
+    assert store._tracked_key_count == 3
+
+
+def test_bounded_keys_mixin_touch_refreshes_lru():
+    from core.utils.cache import BoundedKeysMixin
+
+    class Store(BoundedKeysMixin):
+        def __init__(self):
+            self._init_keys(maxsize=2)
+            self.evicted: list[str] = []
+
+        def touch(self, key: str) -> None:
+            self._touch(key)
+
+        def _on_evict(self, key: object) -> None:
+            self.evicted.append(str(key))
+
+    store = Store()
+    store.touch("a")
+    store.touch("b")
+    store.touch("a")  # refresh a → b is now LRU
+    store.touch("c")  # should evict b, not a
+
+    assert "b" in store.evicted
+    assert "a" not in store.evicted
+
+
+def test_big_five_buffer_evicts_on_overflow():
+    from core.social.big_five_scorer import BigFiveBuffer
+    buf = BigFiveBuffer(x_messages=100, maxkeys=3)
+    for uid in ["u1", "u2", "u3", "u4"]:
+        buf.add_message(uid, "hello")
+    assert buf._tracked_key_count == 3
+    # u1 should have been evicted (oldest)
+    assert "u1" not in buf._counters
+
+
+def test_identity_resolver_cache_is_lru():
+    from core.adapters.identity import IdentityResolver, _IDENTITY_CACHE_SIZE
+    from core.utils.cache import _LRUCache
+    resolver = IdentityResolver.__new__(IdentityResolver)
+    resolver._cache = _LRUCache(maxsize=_IDENTITY_CACHE_SIZE)
+    assert isinstance(resolver._cache, _LRUCache)
+    assert resolver._cache._maxsize == _IDENTITY_CACHE_SIZE

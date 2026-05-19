@@ -18,6 +18,9 @@ if TYPE_CHECKING:
     from ..managers.llm_manager import LLMTaskManager
 
 from ..domain.models import BigFiveVector
+from ..utils.cache import BoundedKeysMixin
+
+_BIG_FIVE_BUFFER_MAXKEYS = 500
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +116,7 @@ class LLMBigFiveScorer:
             return _ZERO_VECTOR
 
 
-class BigFiveBuffer:
+class BigFiveBuffer(BoundedKeysMixin):
     """Per-session per-user message accumulator + cached BigFiveVector.
 
     Call `add_message(uid, text)` on every incoming message.
@@ -123,6 +126,9 @@ class BigFiveBuffer:
     The cached vector persists until the next scoring trigger, so
     SocialOrientationAnalyzer can always read a recent (if slightly stale)
     estimate even for users below the threshold.
+
+    BoundedKeysMixin limits tracked UIDs to `maxkeys`; the LRU uid is
+    evicted (all five per-uid dicts cleared) when the cap is exceeded.
     """
 
     def __init__(
@@ -130,7 +136,9 @@ class BigFiveBuffer:
         x_messages: int = 10,
         scorer: BigFiveScorer | None = None,
         llm_timeout: float = 30.0,
+        maxkeys: int = _BIG_FIVE_BUFFER_MAXKEYS,
     ) -> None:
+        self._init_keys(maxkeys)
         self._x = max(1, x_messages)
         self._scorer: BigFiveScorer = scorer or LLMBigFiveScorer(llm_timeout=llm_timeout)
         # Cap text accumulation at 2× threshold to prevent unbounded memory growth.
@@ -142,7 +150,19 @@ class BigFiveBuffer:
         self._evidence: dict[str, str] = {}
         self._pending_tasks: dict[str, asyncio.Task] = {}
 
+    def _on_evict(self, key: object) -> None:
+        """LRU eviction: clean up all per-uid state."""
+        uid = str(key)
+        self._counters.pop(uid, None)
+        self._texts.pop(uid, None)
+        self._cache.pop(uid, None)
+        self._evidence.pop(uid, None)
+        task = self._pending_tasks.pop(uid, None)
+        if task and not task.done():
+            task.cancel()
+
     def add_message(self, uid: str, text: str) -> None:
+        self._touch(uid)  # register / refresh LRU order; evicts oldest if over cap
         self._counters[uid] = self._counters.get(uid, 0) + 1
         buf = self._texts.setdefault(uid, [])
         buf.append(text)

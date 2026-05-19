@@ -12,17 +12,20 @@ import uuid
 
 from ..domain.models import Persona
 from ..repository.base import PersonaRepository
+from ..utils.cache import _LRUCache
 
 # Matches pure numeric strings (e.g. QQ IDs like "1257116920")
 _NUMERIC_ID_RE = re.compile(r'^\d+$')
+
+_IDENTITY_CACHE_SIZE = 2000
 
 
 class IdentityResolver:
     def __init__(self, persona_repo: PersonaRepository, default_confidence: float = 0.5) -> None:
         self._repo = persona_repo
         self._default_confidence = default_confidence
-        # (platform, physical_id) → uid; avoids one DB round-trip per message
-        self._cache: dict[tuple[str, str], str] = {}
+        # (platform, physical_id) → uid; bounded LRU avoids unbounded growth
+        self._cache: _LRUCache[str] = _LRUCache(maxsize=_IDENTITY_CACHE_SIZE)
 
     async def get_or_create_uid(
         self, platform: str, physical_id: str, display_name: str
@@ -35,7 +38,7 @@ class IdentityResolver:
 
         persona = await self._repo.get_by_identity(platform, physical_id)
         if persona is not None:
-            self._cache[key] = persona.uid
+            self._cache.put(key, persona.uid)
             # If the stored name is a raw numeric ID and a real display_name is now available, update it.
             if (
                 display_name
@@ -59,7 +62,7 @@ class IdentityResolver:
                 last_active_at=now,
             )
         )
-        self._cache[key] = uid
+        self._cache.put(key, uid)
         return uid
 
     async def touch_last_active(self, uid: str) -> None:

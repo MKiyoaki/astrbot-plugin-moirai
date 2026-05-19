@@ -7,9 +7,10 @@ SentenceTransformerEncoder: wraps a local embedding model (default:
 BAAI/bge-small-zh-v1.5, 512-dim). CPU inference, ~100 MB download.
 """
 import re
-from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol, runtime_checkable, List
+
+from ..utils.cache import _LRUCache
 
 _ENCODE_CACHE_SIZE = 128
 # BGE-small saturates at ~512 tokens; ~200 CJK chars cover that budget.
@@ -21,28 +22,6 @@ _WHITESPACE_RE = re.compile(r"\s+")
 def _normalise(text: str) -> str:
     """Collapse whitespace, strip edges, truncate to cache-key length."""
     return _WHITESPACE_RE.sub(" ", text).strip()[:_ENCODE_MAX_CHARS]
-
-
-class _LRUCache:
-    """Simple LRU cache for embedding vectors."""
-
-    def __init__(self, maxsize: int = _ENCODE_CACHE_SIZE) -> None:
-        self._maxsize = maxsize
-        self._cache: OrderedDict[str, List[float]] = OrderedDict()
-
-    def get(self, key: str) -> List[float] | None:
-        if key not in self._cache:
-            return None
-        self._cache.move_to_end(key)
-        return self._cache[key]
-
-    def put(self, key: str, value: List[float]) -> None:
-        if key in self._cache:
-            self._cache.move_to_end(key)
-        else:
-            if len(self._cache) >= self._maxsize:
-                self._cache.popitem(last=False)
-            self._cache[key] = value
 
 
 @runtime_checkable
@@ -94,7 +73,7 @@ class SentenceTransformerEncoder:
         self._model_name = model_name
         self._model = None
         self._dim: int | None = None
-        self._cache = _LRUCache()
+        self._cache = _LRUCache(maxsize=_ENCODE_CACHE_SIZE)
         # Single worker keeps model weights hot in CPU cache; prevents contention
         # with unrelated thread-pool work in the default executor.
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="em_encoder")
@@ -151,7 +130,7 @@ class ApiEncoder:
         self._api_url = api_url
         self._api_key = api_key
         self._dim = dim
-        self._cache = _LRUCache()
+        self._cache = _LRUCache(maxsize=_ENCODE_CACHE_SIZE)
 
     @property
     def dim(self) -> int:
