@@ -256,3 +256,45 @@ def test_recall_manager_uses_soul_config_ttl():
     mgr._soul_states_ttl_hours = cfg.states_ttl_hours if cfg is not None else 24.0
 
     assert mgr._soul_states_ttl_hours == 6.0
+
+
+# ── Query normalisation ───────────────────────────────────────────────────────
+
+def test_normalise_strips_whitespace():
+    from core.embedding.encoder import _normalise
+    assert _normalise("  hello world  ") == "hello world"
+
+
+def test_normalise_collapses_internal_whitespace():
+    from core.embedding.encoder import _normalise
+    assert _normalise("hello\t\nworld") == "hello world"
+
+
+def test_normalise_truncates_long_text():
+    from core.embedding.encoder import _normalise, _ENCODE_MAX_CHARS
+    long = "a" * (_ENCODE_MAX_CHARS + 50)
+    assert len(_normalise(long)) == _ENCODE_MAX_CHARS
+
+
+def test_normalise_same_key_for_equivalent_queries():
+    from core.embedding.encoder import _normalise
+    assert _normalise("最近怎么样") == _normalise("最近怎么样 ")
+    assert _normalise("hello  world") == _normalise("hello world")
+
+
+def test_lru_cache_hit_after_normalisation():
+    """Two textually different but normalisation-equivalent strings hit the same cache entry."""
+    from core.embedding.encoder import _LRUCache, _normalise
+    cache = _LRUCache()
+    key1 = _normalise("hello  world ")
+    key2 = _normalise("hello world")
+    assert key1 == key2
+    cache.put(key1, [1.0, 2.0])
+    assert cache.get(key2) == [1.0, 2.0]
+
+
+def test_sentence_transformer_encoder_has_dedicated_executor():
+    from core.embedding.encoder import SentenceTransformerEncoder
+    from concurrent.futures import ThreadPoolExecutor
+    enc = SentenceTransformerEncoder()
+    assert isinstance(enc._executor, ThreadPoolExecutor)

@@ -1,5 +1,27 @@
 ﻿# CHANGELOG
 
+## [v0.12.13] — 2026-05-20
+
+### Encoder 性能优化 & 默认配置调整
+
+**Query 归一化 + 截断**
+
+- `core/embedding/encoder.py` 新增 `_normalise(text)` 函数：折叠连续空白、strip 首尾、截断到前 200 字符（BGE-small 512 token 上限对应约 200 CJK 字符）。
+- `SentenceTransformerEncoder.encode()` 和 `ApiEncoder.encode()` 均以归一化后的字符串作为 LRU 缓存 key 和实际推理输入，"最近怎么样" / "最近怎么样 " / "最近怎么样？" 等等价查询合并为同一缓存条目。
+
+**专用单线程 Executor**
+
+- `SentenceTransformerEncoder` 新建 `ThreadPoolExecutor(max_workers=1, thread_name_prefix="em_encoder")` 实例替代默认线程池。
+- 固定到同一线程确保模型权重常驻该线程的 CPU cache，消除与其他线程池工作的竞争和 cache miss。
+
+**默认配置调整**
+
+- `markdown_projection_enabled` 默认值由 `true` 改为 `false`，level 降为 `advanced`：WebUI 已提供完整查看与编辑能力，Markdown 文件投影对大多数用户是冗余的磁盘 IO；有文本编辑器访问需求的用户可手动开启。
+
+**测试**
+
+- `tests/backend/test_perf_optimizations.py` 新增 6 个测试，覆盖：归一化 strip、空白折叠、截断、等价 query 同 key、LRU 命中归一化后的 key、专用 Executor 实例类型验证。共 19 个测试全部通过。
+
 ## [v0.12.12] — 2026-05-19
 
 ### 性能优化（高优先级批次）

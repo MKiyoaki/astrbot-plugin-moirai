@@ -751,11 +751,11 @@
                 "level": "advanced"
             },
             "markdown_projection_enabled": {
-                "description": "🟢 启用 Markdown 投影生成",
+                "description": "启用 Markdown 投影生成",
                 "type": "bool",
-                "hint": "开启后将数据库中的记忆投影为可读的 Markdown 文件。禁用后仍可使用 WebUI，但 data/ 目录下将不再生成 .md 文件。",
-                "default": true,
-                "level": "basic"
+                "hint": "开启后将数据库中的记忆投影为可读的 Markdown 文件（data/ 目录下的 .md 文件）。WebUI 已提供完整的查看与编辑能力，仅在需要通过文本编辑器直接访问数据时开启。",
+                "default": false,
+                "level": "advanced"
             },
             "file_watcher_poll_seconds": {
                 "description": "Markdown 文件监听轮询间隔（秒）",
