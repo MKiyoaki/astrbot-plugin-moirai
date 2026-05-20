@@ -132,6 +132,12 @@ class EventExtractor:
         self._llm_timeout_growth = max(1.0, float(getattr(cfg, "llm_timeout_growth", 1.5)))
         self._strategy = cfg.strategy
         self._persona_influenced_summary = cfg.persona_influenced_summary
+        # Explicit bot_persona_name bucket. When set, every Event is filed under
+        # this exact name regardless of which persona the window's bot messages
+        # carry — the deterministic cross-platform "pin" for one persona.
+        self._bot_persona_override = (
+            getattr(cfg, "bot_persona_name_override", "") or ""
+        ).strip()
         self._tag_normalization_threshold = cfg.tag_normalization_threshold
         self._tag_seeds = cfg.tag_seeds
         self._big_five_buffer = big_five_buffer
@@ -295,7 +301,13 @@ class EventExtractor:
                 last_accessed_at=sub_messages[-1].timestamp,
             )
 
-            if self._persona_influenced_summary:
+            if self._bot_persona_override:
+                # Explicit override wins unconditionally: every Event lands in
+                # the configured bucket, even windows with no bot message.
+                event = dataclasses.replace(
+                    event, bot_persona_name=self._bot_persona_override
+                )
+            elif self._persona_influenced_summary:
                 # Prefer persona name from this event's own sub_messages; fall back to the
                 # window-level winner so events with no bot message still get tagged.
                 from collections import Counter as _Counter

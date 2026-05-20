@@ -9,6 +9,7 @@ import { AppSidebar } from './app-sidebar'
 import { Toaster } from '@/components/shared/toaster'
 import { LoginScreen } from '@/components/shared/login-screen'
 import { FirstLaunchPersonaPicker } from '@/components/shared/first-launch-persona-picker'
+import { QuickSetupWizard } from '@/components/config/quick-setup-wizard'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -105,6 +106,7 @@ function MobileTabBar() {
 
 function Shell({ children }: { children: ReactNode }) {
   const app = useApp()
+  const [wizardOpen, setWizardOpen] = useState(false)
 
   useEffect(() => {
     const scheme = getStored('em_color_scheme', 'zinc') || 'zinc'
@@ -124,6 +126,15 @@ function Shell({ children }: { children: ReactNode }) {
     return () => clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app.authenticated])
+
+  // First-launch quick setup — shown once, after the persona picker step so
+  // the two modals never overlap. Returning users (quickSetupDone) skip it.
+  useEffect(() => {
+    if (!app.authenticated) return
+    if (app.quickSetupDone) return
+    if (!app.firstLaunchDone) return
+    setWizardOpen(true)
+  }, [app.authenticated, app.quickSetupDone, app.firstLaunchDone])
 
   const handleLoginSuccess = useCallback(() => {
     app.setAuthenticated(true)
@@ -159,6 +170,10 @@ function Shell({ children }: { children: ReactNode }) {
       <MobileTabBar />
       <Toaster />
       <FirstLaunchPersonaPicker />
+      <QuickSetupWizard
+        open={wizardOpen}
+        onClose={() => { setWizardOpen(false); app.setQuickSetupDone(true) }}
+      />
     </SidebarProvider>
   )
 }

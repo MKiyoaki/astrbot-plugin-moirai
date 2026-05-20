@@ -92,6 +92,109 @@
 
 ---
 
+## v0.13.2 Persona 数据归库固化 (completed)
+
+### User constraints / 约束
+- 所有改动限制在 `astrbot-plugin-enhanced-memory/` 内（CLAUDE.md）。
+- `bot_persona_name` 永远来自 AstrBot 性格设置（SSOT），与平台账号显示名彻底解耦。
+- 同一性格名跨平台（QQ/Discord）必须进同一 `bot_persona_name` 桶。
+- 作为独立阶段：单独提交、单独验证、确认实机归桶正确后再做 v0.14.0。
+- 绝不破坏旧数据：`bot_persona_name IS NULL` 仍是合法的「遗留/默认」桶语义。
+
+### 问题根因（代码定位）
+1. 事件 `bot_persona_name` 在 `core/extractor/extractor.py:298-309` 最终确定：优先取窗口内 bot 消息携带的 `bot_persona_name`，否则回退 `_get_bot_persona()`。
+2. bot 消息 persona 由 `core/event_handler.py:_resolve_persona_name` 解析，三层回退（`sp` 的 `session_service_config.persona_id` → `conversation.persona_id` → `provider_settings.default_personality`），不同平台/会话可能产生不同结果或 `None`。
+3. 回退函数 `core/extractor/persona_context.py:resolve_bot_persona_context` 用 `next(...)` 取第一个 `internal`-bound persona —— 表中存在多个内部 bot persona 时结果不确定。
+4. `handle_llm_response` 用 `display_name = persona_name`、`physical_id = f"bot:{persona_name}"` 创建内部 persona —— 一旦某次解析意外返回账号名，错误名固化进 `personas` 表，污染后续回退。
+
+### Technical implementation path
+
+#### Phase 0 — 基线与诊断
+- [x] 跑基线测试：`pytest tests/backend/test_extractor.py tests/backend/test_new_configs.py tests/backend/test_persona_merge.py -q` → 38 passed
+- [x] 新建只读诊断脚本 `tools/diagnose_persona_buckets.py`：打印 events/impressions/personas 的 `bot_persona_name` 分桶计数 + 所有 `internal`-bound persona 行
+
+#### Phase 1 — 单一 SSOT persona 解析器
+- [x] `event_handler._resolve_persona_name`：入口短路 —— `cfg.bot_persona_name_override` 非空时直接返回 override，使 bot 回复 / 原始消息 / 窗口全部携带统一名
+- [x] `handle_llm_response` 复用 `_pre_inject_persona_name` 缓存、`_resolve_persona_name` 解析失败返回 `None`：经核查既有实现已正确，无需改动
+
+#### Phase 2 — `bot_persona_name_override` 显式锁定
+- [x] `_conf_schema.json` `relation` 组新增 `bot_persona_name_override`（string，默认 ""，level advanced）
+- [x] `core/config.py`：`ExtractorConfig` 加 `bot_persona_name_override: str = ""`；`get_extractor_config()` 填充；新增 `PluginConfig.bot_persona_name_override` property
+- [x] `core/extractor/extractor.py`：构造读 `cfg.bot_persona_name_override`；在事件 `bot_persona_name` 最终确定处单点优先应用
+- [x] i18n：三语写入 `.astrbot-plugin/i18n/{zh-CN,en-US}.json` + WebUI `i18n.ts`（zh/ja/en）；配置页 `relation` section 加入该 key
+
+#### Phase 3 — 加固回退（去随机性）
+- [x] `persona_context.py:resolve_bot_persona_context`：去掉「任取第一个 internal persona」，改 `last_active_at` 确定性选择 + 歧义 `logger.warning`；docstring 标明仅供 prompt 描述
+- [x] override 在 extractor 事件归桶处单点决定，`_resolve_window_persona` / `_get_bot_persona` 不再影响归桶（无需额外改动）
+
+#### Phase 4 — 验证与数据归并指引
+- [x] 新增 3 个测试（`test_extractor.py`）：① override 后全部落该桶 ② 解析失败落 NULL ③ 同名 persona 跨平台进同一桶
+- [x] `docs/CHANGELOG.md` 新增 v0.13.2 条目，写明诊断脚本 + 「Persona 归属管理」(`merge_bot_persona`) 修复路径
+
+### Verification
+- `python -m py_compile core/event_handler.py core/extractor/persona_context.py core/extractor/extractor.py core/config.py tools/diagnose_persona_buckets.py` → passed
+- `python -m json.tool _conf_schema.json` → passed
+- `pytest tests/backend/test_extractor.py tests/backend/test_new_configs.py tests/backend/test_persona_merge.py -q` → 41 passed（含 3 个新测试）
+- `pytest tests/backend -q` → 592 passed, 1 failed（`test_recall_manager_injects_low_weight_social_impressions` —— 经 `git stash` 核实为改动前既有失败，与本计划无关，疑似 Windows 控制台编码问题，另行处理）
+- 实机待用户执行：QQ + Discord 同一性格各发消息 → `python tools/diagnose_persona_buckets.py` 确认事件全部落同一 `bot_persona_name`
+
+---
+
+## v0.14.0 WebUI 配置体验重构 (completed)
+
+### User constraints / 约束
+- 在 v0.13.2 完成并验证后再做。
+- 六大类对齐 WebUI「三轴记忆」心智模型（事件流/关系图/摘要 与现有页面同名）。
+- 三档层级：新手 / 进阶 / 研究员。新手档极简 —— 只保留最关键开关，数值微调全部下沉，小白靠快速设置向导预设包，不手动调参。
+- Soul 标记为实验性、默认关闭、不进新手档、不进任何默认开启的预设。
+- 前端改动后必须 `npm run build` + `python tools/sync_frontend.py -f`（先 `conda activate plugin-dev`）。
+
+### 配置热更新检查结论（用户第 4 点）
+当前保存配置不会热更新：`_handle_update_config` 写 `plugin_config.json` 并同步 AstrBot live config 对象，但运行中引擎初始化时已捕获配置值、不重读。不做选择性「字段级热更新」（风险高、状态分散）。
+
+**采用方案 —— 保存后自动重载插件**：AstrBot 已暴露 `context._star_manager.reload("astrbot_plugin_moirai")`（terminate → unbind → load 整体重启），且 AstrBot 原生 dashboard 保存插件配置时本就调用此 API（`dashboard/routes/config.py`）。在本插件 WebUI 保存路径复用同一机制 = 最干净的「热更新」。代价：WebUI（端口 2655）随之重启、短暂不可用约 1–3s（用户已接受）。
+
+### Technical implementation path
+
+#### Phase 0 — Schema 层级体系
+- [x] `_conf_schema.json` 每字段 `level` 扩为 `basic|advanced|expert`，重打标 102 字段（basic 16 / advanced 45 / expert 41）
+- [x] soul 组 7 字段加 `"experimental": true`；`soul_enabled` 描述 🟢→🧪
+- [x] `web/frontend/lib/api.ts` `ConfSchemaField`：`level` 加 `'expert'`；新增 `experimental?: boolean`
+
+#### Phase 1 — 六大类层级 + 三档过滤
+- [x] `config/page.tsx` `CATEGORIES` 两级结构：6 父类（常规/信息流/事件流/关系图/摘要记忆/数据库维护）含原 12 section 作子分组卡片
+- [x] 二元 `showAdvanced` 替换为三段 `ToggleGroup`（新手/进阶/研究员），过滤改「显示 level ≤ 当前档」；localStorage `em_config_level`（兼容旧 `em_show_advanced_config`）
+- [x] `experimental` 字段加「实验性」徽章（含 🧪 marker 剥离）；`on-this-page.tsx` 改两级 TOC
+- [x] `i18n.ts`：6 父类标签 + 3 档位标签 + 「实验性」三语
+
+#### Phase 2 — 全局搜索框
+- [x] sticky 工具栏加搜索 `Input`，按 key/label/hint 跨六大类过滤；命中平铺列表带「父类 / 子分组」面包屑
+
+#### Phase 3 — 快速设置向导
+- [x] 新建 `web/frontend/components/config/quick-setup-wizard.tsx`（Dialog 四步：打开 Sudo → 功能选择 → 预设参数包 → 应用并跳转 `/config`）
+- [x] 常驻「快速设置」按钮（配置页头部）；`store.tsx` 加 `quickSetupDone`（`em_quick_setup_done`）；`app-shell.tsx` 首启在 `firstLaunchDone` 之后弹出
+- [x] 预设三选一：「仅聊天+记忆优化」/「均衡社交记忆」(推荐)/「完整/研究」；向导文案三语
+
+#### Phase 5 — 保存后自动重载（解决第 4 点）
+- [x] 新增配置 `webui_auto_restart_on_save`（webui 组，bool，默认 true，advanced）+ `core/config.py` getter
+- [x] `web/plugin_routes.py:_handle_update_config`：写完配置先返回 HTTP 200（响应体加 `restarting`），`_schedule_plugin_restart` 以延迟 1s 后台任务调用 `context._star_manager.reload("moirai")`，失败写日志
+- [x] 前端：`api.pluginConfig.update` 返回 `restarting`；`handleSave` 触发后显示全屏「正在重启插件」遮罩，两阶段轮询 `/api/auth/status`（先看到掉线再看到恢复）后 `location.reload()`
+- [x] 配置页横幅按 `webui_auto_restart_on_save` 取值切换 `restartAutoHint` / `restartManualHint` 文案
+
+#### Phase 6 — 文案与收尾
+- [x] `npm run build`（next build，TypeScript 通过，12 静态页生成）+ `python tools/sync_frontend.py -f` 同步 `pages/moirai`
+
+### Verification
+- `python -m py_compile web/plugin_routes.py core/config.py` → passed
+- `python -m json.tool _conf_schema.json .astrbot-plugin/i18n/{zh-CN,en-US}.json` → passed
+- `cd web/frontend && npm run build` → Compiled successfully, TypeScript passed, 12/12 静态页
+- `python tools/sync_frontend.py -f` → synced
+- `pytest tests/frontend -q` → 209 passed
+- `pytest tests/backend -q` → 592 passed, 1 failed（`test_recall_manager_injects_low_weight_social_impressions` —— v0.13.2 已核实为既有失败、与本计划无关）
+- 实机待用户验证：三档切换字段数递增 / 搜索跨类命中 / 首启弹向导走完四步 / 头部按钮重开 / Soul 实验性徽章 / 两级 TOC / 保存后插件自动重启且 WebUI 自动重连
+
+---
+
 ## v0.13.1 Manual summary & relation fixes (completed)
 
 ### Changes

@@ -78,6 +78,14 @@
       "description": "WebUI Sudo Mode Duration (minutes)",
       "hint": "Number of minutes before Sudo mode exits automatically. Write operations require entering the password again after timeout."
     },
+    "webui.webui_auto_restart_on_save": {
+      "description": "Auto-restart plugin after saving config",
+      "hint": "When enabled, saving config in the WebUI reloads this plugin so changes take effect immediately (the WebUI restarts briefly, ~1-3s, and reconnects automatically). When disabled, restart the AstrBot plugin manually after saving."
+    },
+    "webui_auto_restart_on_save": {
+      "description": "Auto-restart plugin after saving config",
+      "hint": "When enabled, saving config in the WebUI reloads this plugin so changes take effect immediately (the WebUI restarts briefly, ~1-3s, and reconnects automatically). When disabled, restart the AstrBot plugin manually after saving."
+    },
     "webui.webui_password": {
       "description": "WebUI Access Password",
       "hint": "Manually configure the WebUI access password. If empty, a random access token is generated on startup and printed to the console."
@@ -581,6 +589,14 @@
     "persona_default_confidence": {
       "description": "Default Persona Confidence",
       "hint": "Initial confidence assigned to new personas, automatically updated after model inference."
+    },
+    "relation.bot_persona_name_override": {
+      "description": "Pin Bot Persona Bucket Name",
+      "hint": "When non-empty, all events / impressions are force-filed under this bot_persona_name bucket, bypassing automatic resolution. Set this when one persona runs across multiple platforms (e.g. QQ and Discord) and must share a single dataset. Leave empty to auto-resolve from AstrBot's active persona."
+    },
+    "bot_persona_name_override": {
+      "description": "Pin Bot Persona Bucket Name",
+      "hint": "When non-empty, all events / impressions are force-filed under this bot_persona_name bucket, bypassing automatic resolution. Set this when one persona runs across multiple platforms (e.g. QQ and Discord) and must share a single dataset. Leave empty to auto-resolve from AstrBot's active persona."
     },
     "relation.persona_isolation_enabled": {
       "description": "Enable Persona Perspective Isolation",

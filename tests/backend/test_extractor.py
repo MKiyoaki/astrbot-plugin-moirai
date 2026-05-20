@@ -368,6 +368,93 @@ async def test_extractor_injects_bot_persona_and_persists_eval_summary() -> None
     assert "[Eval] Worth tracking" in events[0].summary
 
 
+async def test_extractor_bot_persona_override_forces_bucket() -> None:
+    """bot_persona_name_override pins every Event to one bucket, beating the
+    stray internal persona that the auto-resolution fallback would pick."""
+    event_repo = InMemoryEventRepository()
+    persona_repo = _CountingPersonaRepo()
+    # A stray account-name persona that the legacy fallback would mis-file into.
+    await persona_repo.upsert(Persona(
+        uid="bot-uid",
+        bound_identities=[("internal", "bot")],
+        primary_name="GaritonBot",
+        persona_attrs={},
+        confidence=1.0,
+        created_at=1.0,
+        last_active_at=1.0,
+    ))
+    json_resp = (
+        '[{"start_idx": 0, "end_idx": 1, "topic": "t", "summary": "s", '
+        '"chat_content_tags": [], "salience": 0.5, "confidence": 0.5}]'
+    )
+    extractor = EventExtractor(
+        event_repo=event_repo,
+        provider_getter=lambda: _MockProvider(json_resp),
+        persona_repo=persona_repo,
+        extractor_config=ExtractorConfig(
+            persona_influenced_summary=True,
+            bot_persona_name_override="Gariton Ver 2",
+        ),
+    )
+
+    await extractor(make_window([("u1", "Alice", "hi"), ("u2", "Bob", "yo")]))
+
+    events = await event_repo.list_by_group("g1")
+    assert len(events) == 1
+    assert events[0].bot_persona_name == "Gariton Ver 2"
+
+
+async def test_extractor_unresolved_persona_falls_to_null_bucket() -> None:
+    """With no override and no resolvable persona, the Event lands in the
+    NULL legacy bucket — never an arbitrary or account-derived name."""
+    event_repo = InMemoryEventRepository()
+    persona_repo = _CountingPersonaRepo()  # empty: no internal persona
+    json_resp = (
+        '[{"start_idx": 0, "end_idx": 1, "topic": "t", "summary": "s", '
+        '"chat_content_tags": [], "salience": 0.5, "confidence": 0.5}]'
+    )
+    extractor = EventExtractor(
+        event_repo=event_repo,
+        provider_getter=lambda: _MockProvider(json_resp),
+        persona_repo=persona_repo,
+        extractor_config=ExtractorConfig(persona_influenced_summary=True),
+    )
+
+    await extractor(make_window([("u1", "Alice", "hi"), ("u2", "Bob", "yo")]))
+
+    events = await event_repo.list_by_group("g1")
+    assert len(events) == 1
+    assert events[0].bot_persona_name is None
+
+
+async def test_extractor_same_persona_name_shares_bucket_across_platforms() -> None:
+    """The bucket key is the persona name string, not the platform — bot
+    replies tagged with the same persona on QQ and Discord share one bucket."""
+    event_repo = InMemoryEventRepository()
+    json_resp = (
+        '[{"start_idx": 0, "end_idx": 2, "topic": "t", "summary": "s", '
+        '"chat_content_tags": [], "salience": 0.5, "confidence": 0.5}]'
+    )
+    extractor = EventExtractor(
+        event_repo=event_repo,
+        provider_getter=lambda: _MockProvider(json_resp),
+        extractor_config=ExtractorConfig(persona_influenced_summary=True),
+    )
+
+    w = MessageWindow(session_id="s", group_id="g1", start_time=1000.0,
+                      last_message_time=1000.0)
+    w.add_message("u1", "question", 1000.0, "Alice", platform="qq")
+    w.add_message("bot", "reply on qq", 1010.0, "Gariton Ver 2",
+                  bot_persona_name="Gariton Ver 2", platform="qq", role="assistant")
+    w.add_message("bot", "reply on discord", 1020.0, "Gariton Ver 2",
+                  bot_persona_name="Gariton Ver 2", platform="discord", role="assistant")
+    await extractor(w)
+
+    events = await event_repo.list_by_group("g1")
+    assert len(events) == 1
+    assert events[0].bot_persona_name == "Gariton Ver 2"
+
+
 async def test_extractor_creates_events_from_llm(tmp_path) -> None:
     event_repo = InMemoryEventRepository()
     

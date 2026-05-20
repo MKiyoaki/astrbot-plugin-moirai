@@ -8,6 +8,7 @@ Route mapping:  /{PLUGIN_NAME}/{path}  →  /api/plug/{PLUGIN_NAME}/{path}
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -1312,7 +1313,52 @@ class PluginRoutes:
             except Exception as e:
                 logger.warning("[PluginRoutes] Failed to sync config to AstrBot: %s", e)
 
-        return _json({"ok": True, "saved": list(coerced.keys())})
+        # Optionally reload the whole plugin so the new config takes effect
+        # without a manual restart. The WebUI restarts with it (~1-3s).
+        restarting = False
+        if coerced:
+            try:
+                auto_restart = bool(self._read_config().get("webui_auto_restart_on_save", True))
+            except Exception:
+                auto_restart = True
+            if auto_restart:
+                restarting = self._schedule_plugin_restart()
+
+        return _json({"ok": True, "saved": list(coerced.keys()), "restarting": restarting})
+
+    def _schedule_plugin_restart(self) -> bool:
+        """Schedule a delayed full reload of this plugin via AstrBot's plugin
+        manager so saved config takes effect. The reload is deferred so the
+        HTTP response can flush before the WebUI server is torn down.
+
+        Returns True when a restart task was scheduled.
+        """
+        context = getattr(self._star, "context", None)
+        star_manager = getattr(context, "_star_manager", None)
+        if star_manager is None or not hasattr(star_manager, "reload"):
+            logger.warning("[PluginRoutes] auto-restart unavailable: no plugin manager")
+            return False
+
+        async def _delayed_reload() -> None:
+            # Give the save response time to reach the browser before the
+            # aiohttp/quart WebUI server is shut down by terminate().
+            await asyncio.sleep(1.0)
+            try:
+                result = await star_manager.reload("moirai")
+                ok = result[0] if isinstance(result, (list, tuple)) and result else True
+                if not ok:
+                    logger.warning("[PluginRoutes] plugin reload reported failure: %s", result)
+                else:
+                    logger.info("[PluginRoutes] plugin reloaded after config save")
+            except Exception as e:
+                logger.error("[PluginRoutes] auto-restart failed: %s", e)
+
+        try:
+            asyncio.get_event_loop().create_task(_delayed_reload())
+        except Exception as e:
+            logger.warning("[PluginRoutes] could not schedule restart: %s", e)
+            return False
+        return True
 
     async def _handle_get_providers(self, request: web.Request) -> web.Response:
         if self._all_providers_getter is None:

@@ -368,6 +368,16 @@ class EventHandler:
         self._last_active_persona: dict[str, str] = {}
 
     async def _resolve_persona_name(self, event: AstrMessageEvent, req: ProviderRequest) -> str | None:
+        # SSOT short-circuit: an explicit bucket override pins every reply (and
+        # therefore every Event / Impression) to one persona name regardless of
+        # platform or AstrBot session config.
+        try:
+            override = self._init.cfg.bot_persona_name_override
+        except Exception:
+            override = ""
+        if override:
+            return override
+
         try:
             from astrbot.core import sp
 

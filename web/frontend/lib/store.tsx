@@ -29,6 +29,7 @@ interface AppState {
   currentPersonaName: string | null   // null only when scopeMode='all'
   scopeMode: 'single' | 'all'
   firstLaunchDone: boolean
+  quickSetupDone: boolean
   // Persona-related plugin config values (fetched from /api/config)
   personaConfig: PersonaConfig
   // i18n
@@ -52,6 +53,7 @@ interface AppActions {
   setDefaultPersonaConfidence: (v: number) => void
   setCurrentPersona: (name: string | null, mode: 'single' | 'all') => void
   setFirstLaunchDone: (done: boolean) => void
+  setQuickSetupDone: (done: boolean) => void
   setLang: (l: 'zh' | 'en' | 'ja') => void
   refreshStats: () => Promise<void>
   setRawGraph: (g: api.GraphData) => void
@@ -140,6 +142,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (typeof window === 'undefined') return false
     return getStored('em_first_launch_done') === '1'
   })
+  const [quickSetupDone, _setQuickSetupDone] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return getStored('em_quick_setup_done') === '1'
+  })
 
   // Persona-related plugin config — fetched after auth resolves
   const [personaConfig, setPersonaConfig] = useState<PersonaConfig>({
@@ -181,6 +187,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setFirstLaunchDone = useCallback((done: boolean) => {
     _setFirstLaunchDone(done)
     setStored('em_first_launch_done', done ? '1' : '')
+  }, [])
+
+  const setQuickSetupDone = useCallback((done: boolean) => {
+    _setQuickSetupDone(done)
+    setStored('em_quick_setup_done', done ? '1' : '')
   }, [])
 
   const refreshStats = useCallback(async () => {
@@ -230,12 +241,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     currentPersonaName,
     scopeMode,
     firstLaunchDone,
+    quickSetupDone,
     personaConfig,
     lang, i18n,
     stats, rawGraph, rawEvents, isDirty, toasts,
     setDefaultPersonaConfidence,
     setCurrentPersona,
     setFirstLaunchDone,
+    setQuickSetupDone,
     setLang,
     refreshStats,
     setRawGraph,
@@ -246,12 +259,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }), [
     sudo, authEnabled, authenticated, authLoading, preAuthVersion,
     defaultPersonaConfidence,
-    currentPersonaName, scopeMode, firstLaunchDone,
+    currentPersonaName, scopeMode, firstLaunchDone, quickSetupDone,
     personaConfig,
     lang, i18n,
     stats, rawGraph, rawEvents, isDirty, toasts,
     refreshStats, setDefaultPersonaConfidence, setCurrentPersona, setFirstLaunchDone,
-    setLang, setIsDirty, toast, dismissToast
+    setQuickSetupDone, setLang, setIsDirty, toast, dismissToast
   ])
 
   return <AppContext.Provider value={ctx}>{children}</AppContext.Provider>

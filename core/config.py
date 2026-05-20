@@ -269,6 +269,10 @@ class ExtractorConfig:
     semantic_clustering_eps: float = 0.45
     semantic_clustering_min_samples: int = 2
     persona_influenced_summary: bool = True
+    # When non-empty, every extracted Event is force-filed under this exact
+    # bot_persona_name, bypassing automatic persona resolution. Use this to
+    # pin cross-platform deployments of one persona to a single data bucket.
+    bot_persona_name_override: str = ""
     tag_normalization_threshold: float = 0.85
     tag_seeds: list[str] = field(
         default_factory=lambda: [
@@ -562,6 +566,9 @@ class PluginConfig:
                 "persona_influenced_summary",
                 True
             ),
+            bot_persona_name_override=self._str(
+                "bot_persona_name_override", ""
+            ).strip(),
             tag_normalization_threshold=self._float(
                 "tag_normalization_threshold",
                 0.85
@@ -624,6 +631,10 @@ class PluginConfig:
     @property
     def webui_auth_enabled(self) -> bool:
         return self._bool("webui_auth_enabled", True)
+
+    @property
+    def webui_auto_restart_on_save(self) -> bool:
+        return self._bool("webui_auto_restart_on_save", True)
 
     @property
     def webui_password(self) -> str:
@@ -707,6 +718,11 @@ class PluginConfig:
         if val not in {"remember", "all", "force_pick"}:
             return "remember"
         return val
+
+    @property
+    def bot_persona_name_override(self) -> str:
+        """Explicit bot_persona_name bucket; empty string means auto-resolve."""
+        return self._str("bot_persona_name_override", "").strip()
 
     # ------------------------------------------------------------------
     # Periodic tasks

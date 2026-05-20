@@ -299,7 +299,8 @@ export interface ConfSchemaField {
   min?: number
   max?: number
   step?: number
-  level?: 'basic' | 'advanced'
+  level?: 'basic' | 'advanced' | 'expert'
+  experimental?: boolean
 }
 export interface PluginConfigResponse {
   schema: Record<string, ConfSchemaField>
@@ -308,7 +309,7 @@ export interface PluginConfigResponse {
 export const pluginConfig = {
   get: () => request<PluginConfigResponse>('/api/config'),
   update: (values: Record<string, unknown>) =>
-    request<{ ok: boolean; saved: string[] }>('/api/config', {
+    request<{ ok: boolean; saved: string[]; restarting?: boolean }>('/api/config', {
       method: 'PUT', body: JSON.stringify(values),
     }),
   providers: () => request<{ providers: { id: string; name: string }[] }>('/api/config/providers'),
