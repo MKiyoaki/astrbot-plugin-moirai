@@ -432,9 +432,9 @@ export function EventTimeline({
             const dim = dimmedIds.has(thread.id)
             return (
               <div key={`hs-${row.ev.id}`}
-                className="absolute cursor-pointer rounded-full"
-                style={{ left: x - 12, top: row.y - 12, width: 24, height: 24, zIndex: 20, opacity: dim ? 0.08 : 1 }}
-                onMouseEnter={e => { e.stopPropagation(); clearHover(); setHoveredEvId(row.ev.id) }}
+                className="absolute cursor-pointer"
+                style={{ left: x - tcw / 2, top: row.y - EVENT_H / 2, width: tcw, height: EVENT_H, zIndex: 20 }}
+                onMouseEnter={e => { e.stopPropagation(); clearHover(); if (!dim) setHoveredEvId(row.ev.id) }}
                 onMouseLeave={() => scheduleHoverClear(() => setHoveredEvId(null))}
                 onClick={e => {
                   e.stopPropagation()

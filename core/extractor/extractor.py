@@ -32,17 +32,21 @@ _NO_PROVIDER_WARN_INTERVAL = 60.0
 # Patterns for tag values that look like IDs rather than semantic labels.
 _NUMERIC_ID_RE = re.compile(r'^\d{5,}$')
 _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
-_TAG_MAX_LEN = 30
+# Sentence-like tags: contain sentence-ending punctuation or are overly long
+_SENTENCE_RE = re.compile(r'[，。！？,!?]|[，。！？,!?]')
+_TAG_MAX_LEN = 10
 
 
 def _is_valid_tag(tag: str) -> bool:
-    """Return False for strings that look like IDs rather than semantic tag labels."""
+    """Return False for strings that look like IDs or sentence fragments rather than topic labels."""
     t = tag.strip()
     if not t or len(t) > _TAG_MAX_LEN:
         return False
     if _NUMERIC_ID_RE.match(t):
         return False
     if _UUID_RE.match(t):
+        return False
+    if _SENTENCE_RE.search(t):
         return False
     return True
 _last_no_provider_warn_ts: float = 0.0
