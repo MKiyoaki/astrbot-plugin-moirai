@@ -767,9 +767,18 @@ export default function ConfigPage() {
   const visibleKeys = (section: (typeof SECTIONS)[number]) =>
     section.keys.filter(k => schema[k] && passesLevel(k))
 
+  const levelCounts = (keys: string[]) => {
+    const counts: Record<ConfigLevel, number> = { basic: 0, advanced: 0, expert: 0 }
+    keys.forEach(key => { counts[fieldLevel(schema[key])] += 1 })
+    return (['basic', 'advanced', 'expert'] as ConfigLevel[])
+      .filter(level => counts[level] > 0)
+      .map(level => ({ level, count: counts[level] }))
+  }
+
   const renderSectionCard = (section: (typeof SECTIONS)[number]) => {
     const fields = visibleKeys(section)
     if (!fields.length) return null
+    const counts = levelCounts(fields)
     return (
       <div key={section.id} id={section.id} className="scroll-mt-20 transition-all">
         <Card className="overflow-hidden border-muted/60 shadow-sm hover:shadow-md transition-shadow">
@@ -780,8 +789,17 @@ export default function ConfigPage() {
                 {section.id.toUpperCase()}
               </Badge>
             </div>
-            <CardDescription className="text-xs">
-              {i18n.config.configCount.replace('{count}', String(fields.length))}
+            <CardDescription className="flex flex-wrap items-center gap-1.5 text-xs">
+              <span>{i18n.config.configCount.replace('{count}', String(fields.length))}</span>
+              {counts.map(({ level, count }) => (
+                <Badge
+                  key={level}
+                  variant={level === configLevel ? 'secondary' : 'outline'}
+                  className="h-5 px-1.5 text-[10px] font-medium"
+                >
+                  {(i18n.config as any).levels[level]} {count}
+                </Badge>
+              ))}
             </CardDescription>
           </CardHeader>
           <CardContent className="divide-y divide-muted/50 pt-2 px-6">

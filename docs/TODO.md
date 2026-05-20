@@ -145,8 +145,8 @@
 ### User constraints / 约束
 - 在 v0.13.2 完成并验证后再做。
 - 六大类对齐 WebUI「三轴记忆」心智模型（事件流/关系图/摘要 与现有页面同名）。
-- 三档层级：新手 / 进阶 / 研究员。新手档极简 —— 只保留最关键开关，数值微调全部下沉，小白靠快速设置向导预设包，不手动调参。
-- Soul 标记为实验性、默认关闭、不进新手档、不进任何默认开启的预设。
+- 三档层级：基础 / 进阶 / 专家。基础档极简 —— 只保留最关键开关，数值微调全部下沉，基础用户可通过快速设置向导预设包完成配置，不手动调参。
+- Soul 标记为实验性、默认关闭、不进基础档、不进任何默认开启的预设。
 - 前端改动后必须 `npm run build` + `python tools/sync_frontend.py -f`（先 `conda activate plugin-dev`）。
 
 ### 配置热更新检查结论（用户第 4 点）
@@ -163,7 +163,7 @@
 
 #### Phase 1 — 六大类层级 + 三档过滤
 - [x] `config/page.tsx` `CATEGORIES` 两级结构：6 父类（常规/信息流/事件流/关系图/摘要记忆/数据库维护）含原 12 section 作子分组卡片
-- [x] 二元 `showAdvanced` 替换为三段 `ToggleGroup`（新手/进阶/研究员），过滤改「显示 level ≤ 当前档」；localStorage `em_config_level`（兼容旧 `em_show_advanced_config`）
+- [x] 二元 `showAdvanced` 替换为三段 `ToggleGroup`（基础/进阶/专家），过滤改「显示 level ≤ 当前档」；localStorage `em_config_level`（兼容旧 `em_show_advanced_config`）
 - [x] `experimental` 字段加「实验性」徽章（含 🧪 marker 剥离）；`on-this-page.tsx` 改两级 TOC
 - [x] `i18n.ts`：6 父类标签 + 3 档位标签 + 「实验性」三语
 

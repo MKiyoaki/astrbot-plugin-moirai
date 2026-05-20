@@ -2,17 +2,19 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useTheme } from 'next-themes'
-import { Moon, Sun, Monitor, Languages } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Moon, Sun, Monitor, Languages, Palette, PanelsTopLeft } from 'lucide-react'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Badge } from '@/components/ui/badge'
 import { PageHeader } from '@/components/layout/page-header'
 import { OnThisPage } from '@/components/shared/on-this-page'
 import { useApp } from '@/lib/store'
 import { getStored, setStored } from '@/lib/safe-storage'
 import * as api from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 const SHADCN_THEMES = [
   { id: 'moirai', label: 'Moirai' },
@@ -115,16 +117,23 @@ export default function SettingsPage() {
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex justify-center gap-8 px-6 pb-24 pt-6">
-          <div className="flex-1 max-w-2xl space-y-6">
+          <div className="flex-1 max-w-3xl space-y-6">
 
-            <Card id="language" className="scroll-mt-20">
-              <CardHeader>
-                <CardTitle>{i18n.settings.language}</CardTitle>
+            <Card id="language" className="scroll-mt-20 overflow-hidden border-muted/60 shadow-sm">
+              <CardHeader className="border-b border-border/50 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-9 items-center justify-center rounded-md border bg-muted/40">
+                    <Languages className="size-4 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base">{i18n.settings.language}</CardTitle>
+                    <CardDescription className="text-xs">{(i18n.settings as any).languageDesc}</CardDescription>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Languages className="size-4 text-muted-foreground" />
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-6">
+                  <div className="flex items-center gap-2 text-sm">
                     <Label>{i18n.settings.language}</Label>
                   </div>
                   <Tabs value={lang} onValueChange={(v: string) => setLang(v as 'zh' | 'en' | 'ja')}>
@@ -138,31 +147,42 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
-            <Card id="theme" className="scroll-mt-20">
-              <CardHeader>
-                <CardTitle>{i18n.settings.theme}</CardTitle>
+            <Card id="theme" className="scroll-mt-20 overflow-hidden border-muted/60 shadow-sm">
+              <CardHeader className="border-b border-border/50 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-9 items-center justify-center rounded-md border bg-muted/40">
+                    <Palette className="size-4 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base">{i18n.settings.theme}</CardTitle>
+                    <CardDescription className="text-xs">{(i18n.settings as any).themeDesc}</CardDescription>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-6">
                   <Label>{i18n.settings.darkLight}</Label>
-                  <div className="flex rounded-md border overflow-hidden">
+                  <ToggleGroup
+                    type="single"
+                    value={theme ?? 'system'}
+                    onValueChange={(v: string) => v && setTheme(v)}
+                    variant="outline"
+                    size="sm"
+                    className="gap-0"
+                  >
                     {themeOptions.map(opt => (
-                      <button
+                      <ToggleGroupItem
                         key={opt.value}
-                        onClick={() => setTheme(opt.value)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${
-                          theme === opt.value
-                            ? 'bg-foreground text-background'
-                            : 'bg-background text-muted-foreground hover:text-foreground hover:bg-muted'
-                        }`}
+                        value={opt.value}
+                        className="h-8 gap-1.5 px-3 text-xs"
                       >
                         {opt.icon}
                         <span>{opt.label}</span>
-                      </button>
+                      </ToggleGroupItem>
                     ))}
-                  </div>
+                  </ToggleGroup>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <Label>{i18n.settings.accentColor}</Label>
                   <div className="flex items-center gap-1.5">
                     {SHADCN_THEMES.map(t => (
@@ -170,12 +190,14 @@ export default function SettingsPage() {
                         <TooltipTrigger asChild>
                           <button
                             onClick={() => applyColor(t.id)}
-                            className={`w-4 h-4 rounded-full border-2 transition-all ${
+                            className={cn(
+                              'size-5 rounded-full border-2 transition-all',
                               colorScheme === t.id
-                                ? 'border-foreground scale-125'
-                                : 'border-transparent hover:scale-110'
-                            }`}
+                                ? 'border-foreground scale-110'
+                                : 'border-transparent hover:scale-105',
+                            )}
                             style={{ background: THEME_ACCENT_COLORS[t.id] }}
+                            aria-label={t.label}
                           />
                         </TooltipTrigger>
                         <TooltipContent>{t.label}</TooltipContent>
@@ -186,17 +208,26 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
-            <Card id="third-party" className="scroll-mt-20">
-              <CardHeader>
-                <CardTitle>{i18n.settings.thirdParty}</CardTitle>
+            <Card id="third-party" className="scroll-mt-20 overflow-hidden border-muted/60 shadow-sm">
+              <CardHeader className="border-b border-border/50 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-9 items-center justify-center rounded-md border bg-muted/40">
+                    <PanelsTopLeft className="size-4 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base">{i18n.settings.thirdParty}</CardTitle>
+                    <CardDescription className="text-xs">{(i18n.settings as any).thirdPartyDesc}</CardDescription>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-6">
                 {extPanels.length === 0 ? (
                   <p className="text-muted-foreground text-sm">{i18n.settings.noThirdParty}</p>
                 ) : (
                   extPanels.map(p => (
-                    <div key={p.plugin_id} className="text-sm py-1">
-                      <strong>{p.title}</strong> — {p.plugin_id}
+                    <div key={p.plugin_id} className="flex items-center justify-between gap-3 py-1 text-sm">
+                      <strong>{p.title}</strong>
+                      <Badge variant="outline" className="font-mono text-[10px]">{p.plugin_id}</Badge>
                     </div>
                   ))
                 )}
