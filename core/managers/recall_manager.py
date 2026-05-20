@@ -32,7 +32,7 @@ from ..utils.formatter import (
 from ..retrieval.rrf import rrf_scores
 from .base import BaseRecallManager
 from ..utils.injection_compat import resolve_injection_position
-from ..social.soul_state import SoulState, apply_decay, apply_tanh_elastic, format_soul_for_prompt, from_config
+from ..social.soul_state import SoulState, format_soul_for_prompt, from_config, update_from_signals
 
 if TYPE_CHECKING:
     from ..config import InjectionConfig, RetrievalConfig, SoulConfig
@@ -215,6 +215,7 @@ class RecallManager(BaseRecallManager):
         )
         self._last_recall_debug: dict[str, dict] = {}
         self._last_injection_debug: dict[str, dict] = {}
+        self._last_injected_ids: dict[str, list[str]] = {}
 
     async def _hydrate_raw_details(self, events: list[Event]) -> list[Event]:
         if self._raw_message_repo is None or not events:
@@ -256,6 +257,38 @@ class RecallManager(BaseRecallManager):
     def pop_injection_debug(self, session_id: str) -> dict | None:
         """Return and remove the last sanitized injection debug info for a session."""
         return self._last_injection_debug.pop(session_id, None)
+
+    def get_last_injected_ids(self, session_id: str) -> list[str]:
+        """Return the event IDs injected in the most recent recall_and_inject for a session."""
+        return self._last_injected_ids.get(session_id, [])
+
+    async def bump_salience_on_use(
+        self,
+        event_ids: list[str],
+        response_text: str,
+        boost: float = 0.05,
+    ) -> None:
+        """Increase salience for events whose tags overlap with response_text.
+
+        Events with empty chat_content_tags are always bumped (no filter basis).
+        Events with tags that have no overlap with response_text are skipped.
+        """
+        import time as _time
+        event_repo = self._retriever._event_repo
+        now = _time.time()
+        response_lower = response_text.lower()
+
+        for eid in event_ids:
+            event = await event_repo.get(eid)
+            if event is None:
+                continue
+            tags = event.chat_content_tags
+            if tags and not any(tag.lower() in response_lower for tag in tags):
+                continue
+            new_salience = min(1.0, event.salience + boost)
+            await event_repo.update_salience(eid, new_salience)
+            await event_repo.update_last_accessed(eid, now)
+            await event_repo.increment_access_count(eid)
 
     def get_soul_states(self) -> dict[str, Any]:
         """Return all active soul states as a dict of dicts."""
@@ -639,7 +672,7 @@ class RecallManager(BaseRecallManager):
                 except Exception:
                     return None
 
-            events, persona_obj_pre, (relation_segment, relation_debug) = await asyncio.gather(
+            events, persona_obj_pre, relation_result = await asyncio.gather(
                 self.recall(query, group_id=group_id, scope_mode=scope_mode),
                 _prefetch_persona(),
                 self._build_relation_segment(
@@ -654,10 +687,10 @@ class RecallManager(BaseRecallManager):
                 events = []
             if isinstance(persona_obj_pre, Exception):
                 persona_obj_pre = None
-            if isinstance(relation_segment, Exception) or not isinstance(relation_segment, tuple):
+            if isinstance(relation_result, Exception) or not isinstance(relation_result, tuple):
                 relation_segment, relation_debug = "", None
             else:
-                relation_segment, relation_debug = relation_segment
+                relation_segment, relation_debug = relation_result
 
             events = await self._hydrate_raw_details(events)
             await tracker.record_hit("recall", len(events))
@@ -705,6 +738,7 @@ class RecallManager(BaseRecallManager):
                         if contexts is None:
                             return 0
                         contexts.extend(messages)
+                    self._last_injected_ids[session_id] = [e.event_id for e in events]
                     return len(events) if messages else 0
 
                 # Build memory body (may be empty if no events).
@@ -727,14 +761,24 @@ class RecallManager(BaseRecallManager):
                     state = self._soul_states.get(session_id)
                     if state is None:
                         state = from_config(self._soul_cfg)
-                    # Decay first, then boost recall_depth based on how many events were found.
-                    state = apply_decay(state, self._soul_cfg.decay_rate)
-                    delta_recall = min(5.0, len(events) * 0.5)
-                    state = SoulState(
-                        recall_depth=apply_tanh_elastic(state.recall_depth, delta_recall),
-                        impression_depth=state.impression_depth,
-                        expression_desire=state.expression_desire,
-                        creativity=state.creativity,
+                    # Extract IPC signals from relation_debug (already prefetched).
+                    _rel = relation_debug if isinstance(relation_debug, dict) else {}
+                    _items = _rel.get("items") or []
+                    _ben = (
+                        sum(float(it.get("benevolence", 0.0) or 0.0) for it in _items) / len(_items)
+                        if _items else 0.0
+                    )
+                    _pow = (
+                        sum(float(it.get("power", 0.0) or 0.0) for it in _items) / len(_items)
+                        if _items else 0.0
+                    )
+                    state = update_from_signals(
+                        state,
+                        decay_rate=self._soul_cfg.decay_rate,
+                        events=events,
+                        benevolence=_ben,
+                        power=_pow,
+                        relation_count=len(_items),
                     )
                     self._soul_states[session_id] = state
                     self._soul_state_accessed[session_id] = time.time()
@@ -798,6 +842,7 @@ class RecallManager(BaseRecallManager):
                     sep = "\n\n" if getattr(req, "system_prompt", "") else ""
                     req.system_prompt = getattr(req, "system_prompt", "") + sep + wrapped
 
+                self._last_injected_ids[session_id] = [e.event_id for e in events]
                 return len(events)
             finally:
                 await tracker.record("recall_inject", time.perf_counter() - _inject_t0)

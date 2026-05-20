@@ -1,5 +1,35 @@
 # 变更日志
 
+## [v0.15.0] - 2026-05-20
+
+### 记忆反馈回路 & Soul Layer 信号驱动重构
+
+#### 记忆反馈回路（Feedback Loop）
+
+- `Event` 模型新增 `access_count: int` 字段，记录每条记忆被注入给 LLM 的累计次数。
+- 新增数据库迁移 `014_access_count.sql`，为存量数据补全该字段（默认 0）。
+- `RecallManager` 新增 `_last_injected_ids` 缓存：每次 `recall_and_inject` 成功注入后，将本轮 event_ids 记录至 `session_id → [event_ids]`，供 LLM 回复后的 bump 使用。
+- 新增 `RecallManager.get_last_injected_ids(session_id)`：读取最近一次注入的 event ID 列表。
+- 新增 `RecallManager.bump_salience_on_use(event_ids, response_text, boost)`：LLM 回复后，对注入的记忆执行 salience 提升、`last_accessed_at` 更新、`access_count` 自增。内置 **token overlap 过滤**：仅 `chat_content_tags` 中有词出现在回复文本中的事件才触发 boost；无 tags 的事件默认 bump（无过滤依据）。
+- `EventRepository` 接口新增 `increment_access_count(event_id)`，`SQLiteEventRepository` 与 `InMemoryEventRepository` 均已实现。
+
+#### 访问加权衰减（Access-Weighted Decay）
+
+- `core/tasks/decay.py` 新增 `run_access_weighted_decay`：衰减速率按 `λ_eff = λ_base / (1 + access_count × 0.1)` 计算，高频访问的记忆自然衰减更慢，从不被召回的记忆正常衰减直至归档。
+
+#### Soul Layer 信号驱动重构
+
+- `soul_state.py` 新增 `update_from_signals` 函数，四个轴改为由真实信号驱动，不再是静态衰减的空转旋钮：
+  - `recall_depth` ← 召回事件数 × 平均 salience（认知投入度）
+  - `expression_desire` ← IPC benevolence 均值（关系温度 → 表达欲）
+  - `impression_depth` ← relation_count × power 加权（社交投入度）
+  - `creativity` ← 事件时间跨度 + EPISODE/NARRATIVE 混合度（记忆广度 → 发散性）
+- `RecallManager` soul state 更新块从 `apply_decay + 手写 SoulState(...)` 改为调用 `update_from_signals`，IPC 信号从已预取的 `relation_debug` 中零成本提取。
+
+#### Bug Fix
+
+- 修复 `recall_and_inject` 中 `asyncio.gather` 返回值的嵌套解构 bug：`relation_debug` 之前因 `isinstance(relation_segment, tuple)` 判断在解构后恒为 False，导致 impression 数据从未传入 soul state 及 injection debug，现已改为对原始 `relation_result` 做类型检查。
+
 ## [v0.14.1] - 2026-05-20
 
 ### 配置文案与设置页整理

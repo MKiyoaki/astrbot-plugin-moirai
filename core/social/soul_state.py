@@ -2,12 +2,18 @@
 
 Four energy dimensions, each in [-20, +20], updated each conversation turn
 with tanh-elastic clamping and exponential decay toward neutral.
+
+Axes are driven by real signals rather than being static knobs:
+  recall_depth      ← event count × avg salience  (cognitive engagement)
+  expression_desire ← IPC benevolence              (relational warmth → verbosity)
+  impression_depth  ← relation_count × power       (social investment)
+  creativity        ← event time-spread + type mix (recall breadth → exploration)
 """
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..config import SoulConfig
@@ -34,6 +40,60 @@ def apply_decay(state: SoulState, decay_rate: float) -> SoulState:
         impression_depth=state.impression_depth * factor,
         expression_desire=state.expression_desire * factor,
         creativity=state.creativity * factor,
+    )
+
+
+def update_from_signals(
+    state: SoulState,
+    *,
+    decay_rate: float,
+    events: list[Any],
+    benevolence: float = 0.0,
+    power: float = 0.0,
+    relation_count: int = 0,
+) -> SoulState:
+    """Decay then boost all four axes from concrete signals.
+
+    Args:
+        state:          Current soul state.
+        decay_rate:     Fraction to decay each axis toward 0 before boosting.
+        events:         Recalled events (need .salience, .event_type, .end_time).
+        benevolence:    Avg IPC benevolence from relation_debug [-1, 1].
+        power:          Avg IPC power from relation_debug [-1, 1].
+        relation_count: Number of impression records available.
+    """
+    state = apply_decay(state, decay_rate)
+
+    # recall_depth: count × weighted salience
+    if events:
+        avg_salience = sum(getattr(e, "salience", 0.5) for e in events) / len(events)
+        delta_recall = min(5.0, len(events) * 0.5 * (0.5 + avg_salience))
+    else:
+        delta_recall = 0.0
+
+    # expression_desire: IPC benevolence → relational warmth
+    delta_expression = benevolence * 3.0
+
+    # impression_depth: relation_count × power bonus
+    capped_count = min(relation_count, 5)
+    delta_impression = capped_count * 0.4 * (1.0 + power * 0.5)
+
+    # creativity: time spread + type diversity of recalled events
+    if len(events) >= 2:
+        times = [getattr(e, "end_time", 0.0) for e in events]
+        spread_days = (max(times) - min(times)) / 86400.0
+        has_episode   = any(getattr(e, "event_type", "") == "episode"   for e in events)
+        has_narrative = any(getattr(e, "event_type", "") == "narrative" for e in events)
+        type_mix = 1.5 if (has_episode and has_narrative) else 0.8
+        delta_creativity = min(spread_days / 30.0, 1.0) * type_mix
+    else:
+        delta_creativity = 0.0
+
+    return SoulState(
+        recall_depth=apply_tanh_elastic(state.recall_depth, delta_recall),
+        impression_depth=apply_tanh_elastic(state.impression_depth, delta_impression),
+        expression_desire=apply_tanh_elastic(state.expression_desire, delta_expression),
+        creativity=apply_tanh_elastic(state.creativity, delta_creativity),
     )
 
 

@@ -127,6 +127,11 @@ class EventRepository(ABC):
         ...
 
     @abstractmethod
+    async def increment_access_count(self, event_id: str) -> bool:
+        """Increment access_count by 1. Return False if event_id not found."""
+        ...
+
+    @abstractmethod
     async def decay_all_salience(self, lambda_: float) -> int:
         """Multiply every event's salience by exp(-lambda_). Return count updated.
         Intended to be called once per day by the periodic task scheduler.

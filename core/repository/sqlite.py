@@ -325,6 +325,7 @@ def _row_to_event(row: aiosqlite.Row) -> Event:
         confidence=row["confidence"],
         inherit_from=json.loads(row["inherit_from"]),
         last_accessed_at=row["last_accessed_at"],
+        access_count=int(row["access_count"]) if "access_count" in keys else 0,
         status=status,
         is_locked=is_locked,
         bot_persona_name=bot_persona_name,
@@ -579,7 +580,7 @@ class SQLitePersonaRepository(PersonaRepository):
 _EVENT_COLS = (
     "event_id, group_id, start_time, end_time, participants, "
     "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
-    "inherit_from, last_accessed_at, status, is_locked, bot_persona_name, event_type"
+    "inherit_from, last_accessed_at, access_count, status, is_locked, bot_persona_name, event_type"
 )
 
 # Search hot-path columns: interaction_flow excluded to reduce I/O;
@@ -587,7 +588,7 @@ _EVENT_COLS = (
 _EVENT_SEARCH_COLS = (
     "e.event_id, e.group_id, e.start_time, e.end_time, e.participants, "
     "'[]' AS interaction_flow, e.topic, e.summary, e.chat_content_tags, e.salience, e.confidence, "
-    "e.inherit_from, e.last_accessed_at, e.status, e.is_locked, e.event_type"
+    "e.inherit_from, e.last_accessed_at, e.access_count, e.status, e.is_locked, e.event_type"
 )
 
 # Legacy alias kept for any non-search callers that still import this name.
@@ -774,8 +775,8 @@ class SQLiteEventRepository(EventRepository):
             await self._db.execute(
                 "INSERT INTO events(event_id, group_id, start_time, end_time, participants, "
                 "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
-                "inherit_from, last_accessed_at, status, is_locked, bot_persona_name, event_type) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                "inherit_from, last_accessed_at, access_count, status, is_locked, bot_persona_name, event_type) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(event_id) DO UPDATE SET "
                 "group_id=excluded.group_id, "
                 "start_time=excluded.start_time, "
@@ -789,6 +790,7 @@ class SQLiteEventRepository(EventRepository):
                 "confidence=excluded.confidence, "
                 "inherit_from=excluded.inherit_from, "
                 "last_accessed_at=excluded.last_accessed_at, "
+                "access_count=excluded.access_count, "
                 "status=excluded.status, "
                 "is_locked=excluded.is_locked, "
                 "bot_persona_name=excluded.bot_persona_name, "
@@ -807,6 +809,7 @@ class SQLiteEventRepository(EventRepository):
                     event.confidence,
                     _j(event.inherit_from),
                     event.last_accessed_at,
+                    event.access_count,
                     event.status,
                     int(event.is_locked),
                     event.bot_persona_name,
@@ -1076,6 +1079,15 @@ class SQLiteEventRepository(EventRepository):
             cursor = await self._db.execute(
                 "UPDATE events SET last_accessed_at = ? WHERE event_id = ?",
                 (timestamp, event_id),
+            )
+            rowcount = cursor.rowcount
+        return rowcount > 0
+
+    async def increment_access_count(self, event_id: str) -> bool:
+        async with _txn(self._db, self._lock):
+            cursor = await self._db.execute(
+                "UPDATE events SET access_count = access_count + 1 WHERE event_id = ?",
+                (event_id,),
             )
             rowcount = cursor.rowcount
         return rowcount > 0

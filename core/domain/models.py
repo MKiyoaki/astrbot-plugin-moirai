@@ -124,6 +124,7 @@ class Event(SerializableMixin, ValidationMixin):
     confidence: float = 0.8
     inherit_from: list[str] = field(default_factory=list)
     last_accessed_at: float = 0.0
+    access_count: int = 0
     status: str = field(default=EventStatus.ACTIVE)
     is_locked: bool = field(default=False)
     bot_persona_name: str | None = None
