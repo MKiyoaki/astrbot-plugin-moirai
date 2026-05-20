@@ -36,11 +36,13 @@ from .managers import MemoryManager, RecallManager
 from .managers.context_manager import ContextManager
 from .managers.embedding_manager import EmbeddingManager
 from .managers.llm_manager import LLMTaskManager
+from .managers.raw_message_writer import RawMessageWriter
 from .projector.projector import MarkdownProjector
 from .repository.sqlite import (
     SQLiteEventRepository,
     SQLiteImpressionRepository,
     SQLitePersonaRepository,
+    SQLiteRawMessageRepository,
     db_open,
 )
 from .retrieval.hybrid import HybridRetriever
@@ -50,7 +52,7 @@ from .sync.syncer import ReverseSyncer
 from .sync.watcher import FileWatcher
 from .utils.frontend_build import build_frontend, write_redirect_page
 from .utils.version import get_plugin_version
-from .tasks.cleanup import run_memory_cleanup
+from .tasks.cleanup import run_memory_cleanup, run_raw_message_cleanup
 from .tasks.backup import run_database_backup
 from .tasks.scheduler import TaskScheduler
 from .tasks.summary import run_group_summary
@@ -125,6 +127,7 @@ class PluginInitializer:
         self.watcher: FileWatcher | None = None
         self.syncer: ReverseSyncer | None = None
         self.persona_repo = None
+        self.raw_message_writer: RawMessageWriter | None = None
         self.resolver = None
         self.command_manager = None
         self._periodic_flush_task: asyncio.Task | None = None
@@ -182,6 +185,9 @@ class PluginInitializer:
         persona_repo = SQLitePersonaRepository(db)
         event_repo = SQLiteEventRepository(db)
         impression_repo = SQLiteImpressionRepository(db)
+        raw_message_repo = SQLiteRawMessageRepository(db)
+        self.raw_message_writer = RawMessageWriter(raw_message_repo)
+        await self.raw_message_writer.start()
 
         self.projector = MarkdownProjector(
             data_dir=data_dir,
@@ -241,6 +247,7 @@ class PluginInitializer:
             persona_repo=persona_repo,
             impression_repo=impression_repo,
             soul_config=cfg.get_soul_config(),
+            raw_message_repo=raw_message_repo,
         )
 
         ipc_cfg = cfg.get_ipc_config()
@@ -292,6 +299,8 @@ class PluginInitializer:
             persona_repo=persona_repo,
             llm_manager=self.llm_manager,
             events_persisted_callback=_handle_persisted_events,
+            raw_message_repo=raw_message_repo,
+            raw_message_writer=self.raw_message_writer,
         )
 
         async def on_event_close(window: MessageWindow) -> None:
@@ -313,6 +322,7 @@ class PluginInitializer:
             context_manager=self.context_manager,
             encoder=self.embedding_manager,
             on_event_close=on_event_close,
+            raw_message_writer=self.raw_message_writer,
         )
 
         # Periodic window flush: turns stable prefixes into Events on a cadence
@@ -351,6 +361,10 @@ class PluginInitializer:
                 await self.memory.apply_decay()
             if cleanup_cfg.enabled:
                 await run_memory_cleanup(event_repo, cleanup_cfg)
+            await run_raw_message_cleanup(
+                raw_message_repo,
+                retention_days=cleanup_cfg.raw_message_retention_days,
+            )
             if cfg.markdown_projection_enabled:
                 if self.projector:
                     await self.projector.render_all_personas()
@@ -459,6 +473,7 @@ class PluginInitializer:
             encoder=self.embedding_manager,
             context_manager=self.context_manager,
             summary_trigger_rounds=cfg.get_boundary_config().summary_trigger_rounds,
+            raw_message_repo=raw_message_repo,
         )
         if cfg.webui_enabled:
             self._ensure_pages_built()
@@ -493,6 +508,7 @@ class PluginInitializer:
                 encoder=self.embedding_manager,
                 context_manager=self.context_manager,
                 summary_trigger_rounds=cfg.get_boundary_config().summary_trigger_rounds,
+                raw_message_repo=raw_message_repo,
             )
         except Exception as e:
             self.webui_error = str(e) or repr(e) or "unknown error"
@@ -601,6 +617,8 @@ class PluginInitializer:
             await self.embedding_manager.stop()
         if self.router is not None:
             await self.router.flush_all()
+        if self.raw_message_writer is not None:
+            await self.raw_message_writer.stop()
         if self._exit_stack is not None:
             await self._exit_stack.aclose()
         astrbot_logger.info("[%s] terminated", _PLUGIN_NAME)

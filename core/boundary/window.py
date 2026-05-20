@@ -14,6 +14,11 @@ class RawMessage:
     embedding: list[float] | None = None
     # Name of the bot persona that produced this message; None for user messages.
     bot_persona_name: str | None = None
+    message_id: str = ""
+    platform: str = ""
+    physical_id: str = ""
+    role: str = "user"
+    content_hash: str = ""
 
 
 @dataclass
@@ -51,10 +56,14 @@ class MessageWindow:
     def add_message(
         self, uid: str, text: str, timestamp: float, display_name: str = "",
         embedding: list[float] | None = None, bot_persona_name: str | None = None,
+        message_id: str = "", platform: str = "", physical_id: str = "",
+        role: str = "user", content_hash: str = "",
     ) -> None:
         msg = RawMessage(
             uid=uid, text=text, timestamp=timestamp, display_name=display_name,
             embedding=embedding, bot_persona_name=bot_persona_name,
+            message_id=message_id, platform=platform, physical_id=physical_id,
+            role=role, content_hash=content_hash,
         )
         self.messages.append(msg)
         self.last_message_time = timestamp

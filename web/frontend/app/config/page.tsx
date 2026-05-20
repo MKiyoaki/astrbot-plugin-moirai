@@ -407,7 +407,8 @@ export default function ConfigPage() {
         'memory_cleanup_enabled', 
         'memory_cleanup_threshold', 
         'memory_cleanup_interval_days', 
-        'memory_cleanup_retention_days'
+        'memory_cleanup_retention_days',
+        'raw_message_retention_days'
       ],
     },
     {
@@ -415,8 +416,7 @@ export default function ConfigPage() {
       label: i18n.config.sections.summaries,
       keys: [
         'summary_enabled',
-        'summary_interval_hours', 
-        'summary_word_limit', 
+        'summary_interval_hours',
         'summary_mood_source'
       ],
     },

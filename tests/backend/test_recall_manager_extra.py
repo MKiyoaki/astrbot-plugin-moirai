@@ -2,8 +2,9 @@ import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 from core.managers.recall_manager import RecallManager, _classify_granularity
-from core.domain.models import Event, EventType, Persona, Impression
+from core.domain.models import Event, EventType, Persona, Impression, RawStoredMessage
 from core.config import RetrievalConfig, InjectionConfig, SoulConfig
+from core.repository.memory import InMemoryRawMessageRepository
 
 @pytest.fixture
 def recall_manager():
@@ -112,3 +113,43 @@ async def test_soul_state_update(recall_manager):
     await rm.recall_and_inject("hi", req, "s1")
     state2 = rm._soul_states["s1"]
     assert state2 is not state1
+
+
+@pytest.mark.asyncio
+async def test_recall_and_inject_hydrates_raw_message_details() -> None:
+    retriever = AsyncMock()
+    raw_repo = InMemoryRawMessageRepository()
+    event = Event(event_id="e1", topic="raw topic", summary="summary", end_time=1000.0)
+    retriever.search_raw.return_value = ([event], [event])
+    await raw_repo.upsert_many([
+        RawStoredMessage(
+            message_id="m1",
+            session_id="s1",
+            group_id="g1",
+            platform="test",
+            physical_id="u1",
+            sender_uid="u1",
+            display_name="Alice",
+            role="user",
+            text="hydrated raw detail",
+            content_hash="h1",
+            created_at=1000.0,
+            ingested_at=1000.1,
+        )
+    ])
+    await raw_repo.link_event_messages("e1", ["m1"])
+    rm = RecallManager(
+        retriever,
+        RetrievalConfig(final_limit=5),
+        InjectionConfig(position="system_prompt", token_budget=500),
+        raw_message_repo=raw_repo,
+    )
+    req = MagicMock()
+    req.system_prompt = ""
+    req.prompt = ""
+    req.model = "gpt-4"
+
+    count = await rm.recall_and_inject("query", req, "s1")
+
+    assert count == 1
+    assert "hydrated raw detail" in req.system_prompt

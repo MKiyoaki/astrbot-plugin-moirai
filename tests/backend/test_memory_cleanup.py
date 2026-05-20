@@ -1,9 +1,10 @@
 """Tests for memory cleanup and protection."""
 import pytest
 import asyncio
-from core.domain.models import Event, MessageRef, EventStatus
-from core.repository.sqlite import SQLiteEventRepository, db_open
-from core.tasks.cleanup import run_memory_cleanup
+import time
+from core.domain.models import Event, MessageRef, EventStatus, RawStoredMessage
+from core.repository.sqlite import SQLiteEventRepository, SQLiteRawMessageRepository, db_open
+from core.tasks.cleanup import run_memory_cleanup, run_raw_message_cleanup
 from core.config import CleanupConfig
 
 @pytest.fixture
@@ -106,3 +107,66 @@ async def test_set_locked(event_repo):
     
     await event_repo.set_locked("e1", False)
     assert (await event_repo.get("e1")).is_locked is False
+
+
+async def test_raw_message_cleanup_deletes_only_expired_raw_messages(tmp_path):
+    now = time.time()
+    async with db_open(tmp_path / "raw-cleanup.db") as db:
+        event_repo = SQLiteEventRepository(db)
+        raw_repo = SQLiteRawMessageRepository(db)
+        await event_repo.upsert(Event(
+            event_id="e1",
+            group_id="g1",
+            start_time=now - 10,
+            end_time=now,
+            participants=["u1", "u2"],
+            interaction_flow=[],
+            topic="Raw cleanup anchor",
+            summary="Raw cleanup anchor summary",
+            chat_content_tags=[],
+            salience=0.8,
+            confidence=0.9,
+            inherit_from=[],
+            last_accessed_at=now,
+            status=EventStatus.ACTIVE,
+        ))
+        await raw_repo.upsert_many([
+            RawStoredMessage(
+                message_id="old",
+                session_id="s",
+                group_id="g1",
+                platform="test",
+                physical_id="u1",
+                sender_uid="u1",
+                display_name="Alice",
+                role="user",
+                text="old raw detail",
+                content_hash="h-old",
+                created_at=now - 3 * 86400.0,
+                ingested_at=now - 3 * 86400.0,
+            ),
+            RawStoredMessage(
+                message_id="fresh",
+                session_id="s",
+                group_id="g1",
+                platform="test",
+                physical_id="u2",
+                sender_uid="u2",
+                display_name="Bob",
+                role="user",
+                text="fresh raw detail",
+                content_hash="h-fresh",
+                created_at=now,
+                ingested_at=now,
+            ),
+        ])
+        await raw_repo.link_event_messages("e1", ["old", "fresh"])
+
+        deleted = await run_raw_message_cleanup(raw_repo, retention_days=1)
+
+        assert deleted == 1
+        assert await raw_repo.get("old") is None
+        assert await raw_repo.get("fresh") is not None
+        assert await event_repo.get("e1") is not None
+        linked = await raw_repo.list_by_event("e1")
+        assert [message.message_id for message in linked] == ["fresh"]

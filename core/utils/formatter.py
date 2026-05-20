@@ -97,6 +97,14 @@ def format_events_for_prompt(
                 entry += "（" + "、".join(ev.chat_content_tags) + "）"
             if ev.summary and ev.event_type == EventType.NARRATIVE:
                 entry += f"：{ev.summary[:80]}"
+            if ev.interaction_flow and ev.event_type != EventType.NARRATIVE:
+                previews = [
+                    ref.content_preview.strip()
+                    for ref in ev.interaction_flow[:4]
+                    if ref.content_preview and ref.content_preview.strip()
+                ]
+                if previews:
+                    entry += " | details: " + " / ".join(previews)
             cost = _estimate_tokens(entry + "\n")
             if used + cost > budget:
                 break

@@ -13,11 +13,12 @@ from pathlib import Path
 
 import pytest
 
-from core.domain.models import Event, Impression, MessageRef, Persona
+from core.domain.models import Event, Impression, MessageRef, Persona, RawStoredMessage
 from core.repository.sqlite import (
     SQLiteEventRepository,
     SQLiteImpressionRepository,
     SQLitePersonaRepository,
+    SQLiteRawMessageRepository,
     db_open,
 )
 
@@ -348,8 +349,8 @@ async def test_event_decay_keeps_salience_nonnegative(event_repo) -> None:
 
 async def test_event_interaction_flow_roundtrip(event_repo) -> None:
     refs = [
-        MessageRef("uid-a", NOW, "hash1", "hello"),
-        MessageRef("uid-bot", NOW + 1, "hash2", "hi there"),
+        MessageRef("uid-a", NOW, "hash1", "hello", "msg-1"),
+        MessageRef("uid-bot", NOW + 1, "hash2", "hi there", "msg-2"),
     ]
     e = make_event()
     e.interaction_flow = refs
@@ -358,6 +359,61 @@ async def test_event_interaction_flow_roundtrip(event_repo) -> None:
     assert len(result.interaction_flow) == 2
     assert result.interaction_flow[0].sender_uid == "uid-a"
     assert result.interaction_flow[1].content_preview == "hi there"
+    assert result.interaction_flow[0].message_id == "msg-1"
+
+
+async def test_raw_message_repository_roundtrip_link_and_cleanup(db, event_repo) -> None:
+    raw_repo = SQLiteRawMessageRepository(db)
+    event = make_event("raw-event")
+    await event_repo.upsert(event)
+    messages = [
+        RawStoredMessage(
+            message_id="raw-1",
+            session_id="qq:g1",
+            group_id="g1",
+            platform="qq",
+            physical_id="u1",
+            sender_uid="uid-a",
+            display_name="Alice",
+            role="user",
+            text="hello",
+            content_hash="h1",
+            created_at=NOW,
+            ingested_at=NOW + 1,
+        ),
+        RawStoredMessage(
+            message_id="raw-2",
+            session_id="qq:g1",
+            group_id="g1",
+            platform="internal",
+            physical_id="bot",
+            sender_uid="uid-bot",
+            display_name="Bot",
+            role="assistant",
+            text="hi",
+            content_hash="h2",
+            bot_persona_name="Moirai",
+            created_at=NOW + 2,
+            ingested_at=NOW + 3,
+        ),
+    ]
+
+    await raw_repo.upsert_many(messages)
+    stored = await raw_repo.get("raw-2")
+    assert stored is not None
+    assert stored.role == "assistant"
+    assert stored.bot_persona_name == "Moirai"
+
+    await raw_repo.link_event_messages("raw-event", ["raw-1", "raw-2"])
+    linked = await raw_repo.list_by_event("raw-event")
+    assert [m.message_id for m in linked] == ["raw-1", "raw-2"]
+
+    deleted = await raw_repo.delete_older_than(NOW + 1)
+    assert deleted == 1
+    assert await raw_repo.get("raw-1") is None
+    assert await raw_repo.get("raw-2") is not None
+    linked_after_cleanup = await raw_repo.list_by_event("raw-event")
+    assert [m.message_id for m in linked_after_cleanup] == ["raw-2"]
 
 
 # ===========================================================================

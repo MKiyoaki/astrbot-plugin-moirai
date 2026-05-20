@@ -33,8 +33,16 @@ from typing import Any, AsyncIterator
 
 import aiosqlite
 
-from ..domain.models import Event, EventStatus, EventType, Impression, MessageRef, Persona
-from .base import EventRepository, ImpressionRepository, PersonaRepository
+from ..domain.models import (
+    Event,
+    EventStatus,
+    EventType,
+    Impression,
+    MessageRef,
+    Persona,
+    RawStoredMessage,
+)
+from .base import EventRepository, ImpressionRepository, PersonaRepository, RawMessageRepository
 
 logger = logging.getLogger(__name__)
 
@@ -268,10 +276,31 @@ def _dump_message_refs(refs: list[MessageRef]) -> str:
                 "timestamp": r.timestamp,
                 "content_hash": r.content_hash,
                 "content_preview": r.content_preview,
+                "message_id": r.message_id,
             }
             for r in refs
         ],
         ensure_ascii=False,
+    )
+
+
+def _row_to_raw_message(row: aiosqlite.Row) -> RawStoredMessage:
+    return RawStoredMessage(
+        message_id=row["message_id"],
+        session_id=row["session_id"],
+        group_id=row["group_id"],
+        platform=row["platform"],
+        physical_id=row["physical_id"],
+        sender_uid=row["sender_uid"],
+        display_name=row["display_name"],
+        role=row["role"],
+        text=row["text"],
+        content_hash=row["content_hash"],
+        message_chain_json=row["message_chain_json"],
+        metadata_json=row["metadata_json"],
+        bot_persona_name=row["bot_persona_name"],
+        created_at=row["created_at"],
+        ingested_at=row["ingested_at"],
     )
 
 
@@ -368,6 +397,87 @@ def _event_scope_where(alias: str, group_id: str | None, scope_mode: str) -> tup
     if scope_mode == "private":
         return f"{alias}.group_id IS NULL", []
     return "", []
+
+
+# ---------------------------------------------------------------------------
+# RawMessageRepository
+# ---------------------------------------------------------------------------
+
+class SQLiteRawMessageRepository(RawMessageRepository):
+    def __init__(self, db: aiosqlite.Connection) -> None:
+        self._db = db
+        self._lock = _get_db_lock(db)
+
+    async def upsert_many(self, messages: list[RawStoredMessage]) -> None:
+        if not messages:
+            return
+        rows = [
+            (
+                m.message_id,
+                m.session_id,
+                m.group_id,
+                m.platform,
+                m.physical_id,
+                m.sender_uid,
+                m.display_name,
+                m.role,
+                m.text,
+                m.content_hash,
+                m.message_chain_json,
+                m.metadata_json,
+                m.bot_persona_name,
+                m.created_at,
+                m.ingested_at,
+            )
+            for m in messages
+        ]
+        async with _txn(self._db, self._lock):
+            await self._db.executemany(
+                "INSERT OR IGNORE INTO raw_messages("
+                "message_id, session_id, group_id, platform, physical_id, sender_uid, "
+                "display_name, role, text, content_hash, message_chain_json, metadata_json, "
+                "bot_persona_name, created_at, ingested_at"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                rows,
+            )
+
+    async def get(self, message_id: str) -> RawStoredMessage | None:
+        async with self._db.execute(
+            "SELECT * FROM raw_messages WHERE message_id = ?", (message_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return _row_to_raw_message(row) if row else None
+
+    async def list_by_event(self, event_id: str) -> list[RawStoredMessage]:
+        async with self._db.execute(
+            "SELECT rm.* FROM event_messages em "
+            "JOIN raw_messages rm ON rm.message_id = em.message_id "
+            "WHERE em.event_id = ? ORDER BY em.ordinal ASC",
+            (event_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_raw_message(row) for row in rows]
+
+    async def link_event_messages(self, event_id: str, message_ids: list[str]) -> None:
+        if not message_ids:
+            return
+        rows = [
+            (event_id, idx, message_id)
+            for idx, message_id in enumerate(message_ids)
+        ]
+        async with _txn(self._db, self._lock):
+            await self._db.executemany(
+                "INSERT OR IGNORE INTO event_messages(event_id, message_id, ordinal) "
+                "SELECT ?, message_id, ? FROM raw_messages WHERE message_id = ?",
+                rows,
+            )
+
+    async def delete_older_than(self, cutoff_ts: float) -> int:
+        async with _txn(self._db, self._lock):
+            cursor = await self._db.execute(
+                "DELETE FROM raw_messages WHERE created_at < ?", (cutoff_ts,)
+            )
+            return int(cursor.rowcount or 0)
 
 
 # ---------------------------------------------------------------------------

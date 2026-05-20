@@ -77,6 +77,8 @@ if TYPE_CHECKING:
     from ..social.big_five_scorer import BigFiveBuffer
     from ..social.orientation_analyzer import SocialOrientationAnalyzer
     from ..managers.llm_manager import LLMTaskManager
+    from ..managers.raw_message_writer import RawMessageWriter
+    from ..repository.base import RawMessageRepository
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +111,8 @@ class EventExtractor:
         persona_repo: PersonaRepository | None = None,
         llm_manager: LLMTaskManager | None = None,
         events_persisted_callback: Callable[[list], Awaitable[None]] | None = None,
+        raw_message_repo: RawMessageRepository | None = None,
+        raw_message_writer: RawMessageWriter | None = None,
     ) -> None:
         from ..config import ExtractorConfig as _EC
         cfg = extractor_config or _EC()
@@ -118,6 +122,8 @@ class EventExtractor:
         self._encoder: Encoder = encoder or NullEncoder()
         self._llm_manager = llm_manager
         self._events_persisted_callback = events_persisted_callback
+        self._raw_message_repo = raw_message_repo
+        self._raw_message_writer = raw_message_writer
         self._max_context_messages = cfg.max_context_messages
         self._system_prompt = cfg.system_prompt
         self._distillation_system_prompt = cfg.distillation_system_prompt
@@ -274,8 +280,9 @@ class EventExtractor:
                     MessageRef(
                         sender_uid=m.uid,
                         timestamp=m.timestamp,
-                        content_hash="",
+                        content_hash=getattr(m, "content_hash", "") or "",
                         content_preview=m.text[:100],
+                        message_id=getattr(m, "message_id", "") or "",
                     )
                     for m in sub_messages
                 ],
@@ -303,6 +310,7 @@ class EventExtractor:
 
             await self._event_repo.upsert(event)
             await self._index_vector(event)
+            await self._link_raw_messages(event.event_id, sub_messages)
             persisted_events.append(event)
 
             if self._ipc_enabled:
@@ -655,3 +663,20 @@ class EventExtractor:
             await self._event_repo.upsert_vector(event.event_id, embedding)
         except Exception as exc:
             logger.warning("[EventExtractor] vector indexing failed: %s", exc)
+
+    async def _link_raw_messages(self, event_id: str, messages: list) -> None:
+        if self._raw_message_repo is None:
+            return
+        message_ids = [
+            str(getattr(message, "message_id", "") or "")
+            for message in messages
+            if getattr(message, "message_id", "")
+        ]
+        if not message_ids:
+            return
+        try:
+            if self._raw_message_writer is not None:
+                await self._raw_message_writer.ensure_flushed(message_ids)
+            await self._raw_message_repo.link_event_messages(event_id, message_ids)
+        except Exception as exc:
+            logger.warning("[EventExtractor] raw message link failed: %s", exc)

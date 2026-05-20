@@ -412,6 +412,15 @@
                 "hint": "已归档事件在真正删除前保留的天数，超过后才会被永久清除",
                 "default": 30,
                 "level": "advanced"
+            },
+            "raw_message_retention_days": {
+                "description": "Raw message retention days",
+                "type": "int",
+                "hint": "How many days to keep recent raw messages for re-extraction and recall detail hydration. Backend clamps this value to 1-14 days.",
+                "default": 14,
+                "min": 1,
+                "max": 14,
+                "level": "advanced"
             }
         }
     },
@@ -433,13 +442,6 @@
                 "options": ["1", "2", "3", "4", "8", "12", "24", "48"],
                 "default": "24",
                 "hint": "每隔多少小时为每个活跃群组生成一次叙事摘要 Markdown",
-                "level": "advanced"
-            },
-            "summary_word_limit": {
-                "description": "摘要字数限制",
-                "type": "int",
-                "default": 300,
-                "hint": "生成的每日摘要正文字数上限（200-500字之间）",
                 "level": "advanced"
             },
             "summary_mood_source": {

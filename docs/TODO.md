@@ -1,17 +1,299 @@
 # TODO
 
-## Deferred Cleanup After Redundancy Pass
+## TODO 规范（写入指南）
 
-- Persona synthesis follow-up: evaluate persisted dirty-UID queues if in-memory trigger state is not enough across restarts.
-- Rename `summary_trigger_rounds` to an event-window threshold name, with backward-compatible config loading for the old key.
-- Split `context_window_size` into extractor context size and VCM session window size; keep the old key as compatibility input.
-- Make `memory_cleanup_interval_days` independently effective, or remove it from user-facing config if cleanup remains tied to daily maintenance.
-- Split `daily_maintenance` into clearer task entries for salience decay, memory cleanup, and Markdown projection fallback.
-- Rework group summaries toward calendar-day generation plus "only when new events exist", instead of arbitrary repeated hourly rewrites.
-- Keep `periodic_flush` as an idle-window fallback, not the primary event segmentation mechanism.
-- Move low-impact operational knobs such as context cleanup batch sizes and embedding fine-tuning parameters into advanced settings.
+本文件记录 Moirai 插件的开发计划、进行中的任务和待处理事项。所有参与者（包括 AI Agent）在读写本文件时请遵守以下规范。
 
-## Memory recall scope + robustness plan (2026-05-18)
+### 状态标记
+
+| 标记 | 含义 |
+|------|------|
+| `[x]` | 已完成 |
+| `[ ]` | 待实现 |
+| `🚧` | 进行中（当前 session 正在执行） |
+| `❌` | 明确不做（已决策 defer/放弃） |
+| `✅` | 整体完成（用于小节标题） |
+| `💬` | 待讨论（Backlog 中未确认优先级的条目，执行前需先讨论） |
+
+### 版本号规范
+
+- 每个计划 section 的标题格式：`## vX.Y.Z 计划名称 (状态)`，例如 `## v0.13.0 Raw message persistence plan (completed)`
+- 状态用英文：`planning` / `in progress` / `completed`
+- 版本号来自 `metadata.yaml`；计划完成后在标题末尾改为 `(completed)`
+
+### 新建计划规范
+
+1. 在 **未实现功能 Backlog** 中找到或新增对应条目
+2. 在本文件顶部（Backlog 之后）新建版本 section
+3. section 内按以下顺序组织：
+   - `### User constraints / 约束`：用户明确要求的限制
+   - `### Technical implementation path`：按 Phase 划分，每条加 `[ ]` / `[x]`
+   - `### Verification`：验证命令和结果（格式：`命令` → `结果`）
+4. 完成后：把 Backlog 中对应条目移除或标记 `[x]`；标题改为 `(completed)`
+
+### Agent 专项提示
+
+- **先更新 TODO，再动代码**：每轮工作开始前先在本文件勾 `[x]` 或追加子项，再修改源码
+- **测试通过后再标完成**：`[x]` 代表代码已落地且相关测试已过，不是"我已经写完"
+- **Deferred 项不删除**：推迟的条目保留在 Backlog，注明推迟版本和原因
+- **语言约定**：验证命令和代码标识符用英文；设计讨论和中文注释保持原语言
+- **不要改 Completed 计划的内部细节**：已完成的 Phase 技术实现记录用于历史查阅，除修正错误外不得改动
+
+---
+
+## 💬 待讨论 Backlog
+
+> 以下所有条目均处于**待讨论**状态，尚未纳入任何版本计划。执行前须明确优先级、设计方案并获得确认，以防与未来改动产生冲突。
+
+### Bug / 补丁
+
+- [ ] **`reanalyze_impressions_llm` i18n prompt fix**（延迟自 v0.13.1）
+  - 当前提示词为硬编码英文，未走插件 `cfg.language` 国际化，且缺少 `system_prompt`，鲁棒性低于其他 LLM 调用点
+  - 修复方向：参照 synthesis / summary prompt 结构，用 `cfg.language` 选语言，加 `system_prompt` 常量
+  - 需要新增专用 prompt 常量或 config 字段
+
+### 架构 / 清理
+
+- [ ] **Persona synthesis 脏 UID 队列评估**：v0.12.14 已将 `BigFiveBuffer` 改为 `BoundedKeysMixin(maxkeys=500)` 有界内存（`_on_evict` 清理全部平行 dict 并取消 in-flight task），内存无限增长问题已解决；残留问题是跨重启的 trigger state 是否需要持久化——v0.12.11 新增了基于事件计数的实时触发机制（`persona_synthesis_trigger_messages` / `persona_synthesis_min_events`），大幅降低了对重启后状态恢复的依赖，但仍需评估是否完全不需要持久化
+- [ ] **重命名 `summary_trigger_rounds`**：改为事件窗口阈值语义名称，同时保留旧 key 向后兼容加载
+- [ ] **拆分 `context_window_size`**：分为 extractor context size 和 VCM session window size；旧 key 作为兼容性输入保留
+- [ ] **`memory_cleanup_interval_days` 独立生效**：使其不依赖 daily maintenance 单独运行，或从用户配置中移除
+- [ ] **拆分 `daily_maintenance`**：拆为 salience decay、memory cleanup、Markdown projection fallback 三个更清晰的任务项
+- [ ] **群组摘要改为日历日生成**：仅在当天有新事件时才重新生成，替代当前每小时任意重写
+- [ ] **`periodic_flush` 降级为 idle-window 兜底**：不再是主要事件分段机制
+- [ ] **低影响运营参数移至高级设置**：v0.12.13 已将 `markdown_projection_enabled` 移至 level `advanced`；剩余未移的包括 context cleanup batch sizes、embedding 微调参数等
+
+### Persona 隔离遗留（Phase 3a defer）
+
+- [ ] `core/adapters/identity.py`：创建 Persona 时填 `bot_persona_name`（当前 defer：persona 是共享实体，不必按 bot 隔离；视后续 UI 需求决定）
+- [ ] `core/sync/parser.py` / `core/sync/syncer.py`：Impression 构造传 `bot_persona_name=None`（MD 同步是旁路，先不动）
+
+### Memory Recall Phase 7 — 发布说明（Phase 6 已完成，待补充 CHANGELOG）
+
+- [x] Memory Recall Phase 6 注入兼容适配器 — **已实现**（commit `8fd2f66`, 2026-05-18）
+  - `core/utils/injection_compat.py`：`resolve_injection_position(model, configured)` 适配器，已知不兼容 pattern：o-series（o1/o3…）、Gemini
+  - `core/managers/recall_manager.py`：在 `recall_and_inject` 中提取 `req.model` 并调用适配器，降级时记录 debug 日志
+  - `tests/backend/test_injection_compat.py`：20 个单元测试，覆盖兼容 / 不兼容 / 无 metadata 三种分支
+- [ ] **Phase 7**：在 `CHANGELOG.md` / `docs/CHANGELOG.md` 补充 injection compat 的发布说明（功能描述、已知兼容 provider 列表、token impact 声明）
+
+### 待讨论 Feature
+
+- [ ] **预设关系（Preset Impressions）**：管理员/用户预设 bot 对某人的先验态度（朋友/仇人/亲人），关闭 LLM 提取时也生效
+  - 讨论中的分歧：枚举模板映射到 benevolence × power 双轴 vs 数据一致性问题
+  - 倾向方案：方案 B（独立 `PresetRelation` 表）+ 仅可视化作为 MVP，后续再开 prompt 注入开关
+  - 两个待决定子问题：① 是否注入 system prompt ② 数据存储位置
+- [ ] **WebUI Library 页面 Impression 直接删除入口**：Library 当前主要管理事件/人格/群组；后续增加 impression 表视图再接入
+
+### 待确认设计决策
+
+- [ ] **Narrative Event `inherit_from` 下钻**：向 `inherit_from` 写入当天所有 episode event_id 的 payload 开销评估（每天数十个 ID），以及对"宏观→微观"上下文展开的实际价值
+- [ ] **`IMPRESSIONS.md` 反向同步长期去向**：当前 FileWatcher（30s 轮询）+ 正则解析维护成本高；评估是否新增 WebUI 直接 impression 表单提交 API，将 FileWatcher 降级为"离线备份"入口
+- [ ] **分层 RAG 查询分类器精度提升**：当前关键词计数投票；评估接入轻量 embedding 相似度或 LLM 分类，但需权衡延迟开销
+
+---
+
+## v0.13.1 Manual summary & relation fixes (completed)
+
+### Changes
+- [x] Remove unused `summary_word_limit` user config; hardcode 300-char default in `SummaryConfig`.
+- [x] Fix `regenerate_single_summary`: pass `summary_config`, `llm_manager`, `encoder` from call site so manual re-generation respects user settings, goes through LLM concurrency control, and keeps the NARRATIVE event in DB in sync with the Markdown file.
+- [x] Fix `_handle_reanalyze_impressions_guarded` (LLM branch): pass `persona_repo` so `reanalyze_impressions_llm` can resolve UIDs to display names in the prompt.
+- [x] Fix `reanalyze_impressions_llm`: remove dead `extractor_config` parameter; add optional `persona_repo`; build `uid_to_name` map; use display names in prompt.
+
+### Deferred to later patch
+- [ ] `reanalyze_impressions_llm` uses a hardcoded English prompt with empty `system_prompt`, inconsistent with the plugin's i18n system and lower format robustness than other LLM call sites. Should be replaced with a localized prompt using `cfg.language` and a proper system prompt (analogous to synthesis / summary prompts). Requires dedicated config / prompt constant.
+
+### Verification
+- `python -m py_compile core/config.py core/tasks/summary.py core/tasks/reanalyze_llm.py web/plugin_routes.py web/server.py` → passed.
+- `python -m json.tool _conf_schema.json` → passed.
+- `pytest tests/backend/test_reanalyze_llm.py tests/backend/test_new_configs.py tests/backend/test_reextract.py tests/backend/test_web_reextract_raw.py -q` → 18 passed.
+- `pytest tests/backend -q` → 580 passed, 1 external faiss/numpy deprecation warning.
+
+---
+
+## v0.12.14 缓存工具统一 & 无界 dict 修复 (completed)
+
+- [x] 新增 `core/utils/cache.py`：`_LRUCache[V]`（泛型有界 LRU，`maxsize` 必填）+ `BoundedKeysMixin`（多平行 dict 统一驱逐框架）
+- [x] `IdentityResolver._cache` 改为 `_LRUCache(maxsize=2000)`，防止大规模用户场景内存无限增长
+- [x] `BigFiveBuffer` 继承 `BoundedKeysMixin(maxkeys=500)`；`add_message()` 调用 `_touch(uid)`；`_on_evict()` 清理 5 个平行 dict 并取消 in-flight scoring task
+- [x] `encoder.py` 复用 `utils.cache._LRUCache`，不再自定义
+- [x] 5 个新测试（总计 552 个通过）
+
+## v0.12.13 Encoder 性能优化 & 默认配置调整 (completed)
+
+- [x] `_normalise(text)`：折叠空白、截断至 200 字符，作为统一 LRU cache key 和推理输入
+- [x] `SentenceTransformerEncoder` 使用独立 `ThreadPoolExecutor(max_workers=1)` 保持模型权重常驻同一线程 CPU cache
+- [x] `ApiEncoder.encode()` 同步接入归一化逻辑
+- [x] `markdown_projection_enabled` 默认值改为 `false`，level 升为 `advanced`（WebUI 已有完整管理界面，文件投影对大多数用户是冗余 I/O）
+- [x] 6 个新测试（归一化、等价 query 同 key、专用 Executor 类型验证）
+
+## v0.12.12 高优先级性能优化批次 (completed)
+
+- [x] SQLite 新增 PRAGMA：`mmap_size=256MB`、`temp_store=MEMORY`、`wal_autocheckpoint=500`
+- [x] 迁移 `012_perf_composite_index.sql`：`events` 表新增复合索引 `(status, event_type, group_id)`
+- [x] `search_vector` 热路径改用 `_EVENT_SEARCH_COLS` 剥离 `interaction_flow` 大 JSON，降低单次向量检索 I/O
+- [x] Embedding LRU 缓存（128 条）接入 `SentenceTransformerEncoder` 与 `ApiEncoder`
+- [x] `HybridRetriever.search_raw()` 新增可选 `embedding` 参数；`RecallManager.recall()` 统一编码一次 query，同时传入 narrative 和 episode 两层，消除重复 CPU 推理
+- [x] `RecallManager._soul_states` 新增 TTL 驱逐（`_evict_soul_states()`）；新增配置 `soul_states_ttl_hours`（默认 24h，范围 1–168h）
+- [x] 13 个新测试（总计 542 个通过）
+
+## v0.12.11 事件边界智能分割 & 关系重分析 LLM 模式 (completed)
+
+- [x] **冗余实现清理**：人格合成抽出单人 helper，`run_persona_synthesis()` / `run_consolidated_maintenance()` 复用；`reindex_all` 保持手动任务语义（`interval <= 0` 跳过调度循环）；`file_watcher_poll_seconds` 接入 `FileWatcher`
+- [x] **人格合成触发机制改造**：主路径改为基于事件计数触发（达到 `persona_synthesis_trigger_messages` 新增消息数后合成对应 UID）；新增配置 `persona_synthesis_trigger_messages` / `persona_synthesis_min_events` / `persona_synthesis_cooldown_hours`；`persona_synthesis_interval_hours` 降为兜底扫描间隔
+- [x] **事件边界智能分割（Smart Split）**：窗口触达容量上限时，`EventBoundaryDetector.find_split_index()` 寻找最自然话题断点（优先 encoder 余弦距离，降级时间间隔）；`MessageRouter._flush_window_smart_split()` 无损分段，前段提交为事件、后段作为种子继续
+- [x] **重新分析关系 LLM 深度模式**：新增 `core/tasks/reanalyze_llm.py`，Semaphore(3) 并发 LLM 调用，`{benevolence, power}` JSON 解析，α=0.4 混合旧印象；路由层读取 `body.method`（`"llm"` / `"heuristic"`）；前端新增 `ReanalyzeMethodDialog` 弹出模式选择
+- [x] 新增配置 i18n（三语）；5 个边界检测测试 + 6 个 reanalyze_llm 测试
+
+---
+
+## v0.13.0 Raw message persistence plan (completed)
+
+### User constraints
+- [x] Planning completed; Phase 1-9 implementation approved and executed.
+- [x] Keep all future code changes inside `astrbot-plugin-enhanced-memory/`.
+- [x] Minimize new user-facing parameters. Prefer conservative constants for internal batching/queue behavior unless runtime tuning is clearly needed.
+- [x] Keep `events` as the primary long-term memory layer; raw messages are an auxiliary evidence/detail layer with short retention.
+- [x] Update this section after each completed phase with status and verification notes.
+
+### Minimal parameter surface
+- [x] Add only one required user-facing setting for MVP: `raw_message_retention_days`, default `14`, hard-clamped to `1..14`.
+- [x] Prefer no exposed switch for raw storage in MVP. If a kill switch proves necessary during implementation, add `raw_message_storage_enabled`, default `true`.
+- [x] Keep internal write tuning as code constants at first:
+  - `RAW_MESSAGE_BATCH_SIZE = 32`
+  - `RAW_MESSAGE_FLUSH_INTERVAL_MS = 1000`
+  - `RAW_MESSAGE_QUEUE_MAX_SIZE = 2000`
+  - `RAW_MESSAGE_MAX_TEXT_CHARS = 4000`
+  - `RAW_MESSAGE_DETAIL_PER_EVENT = 8`
+- [x] Do not add separate public knobs for batch size, queue size, flush interval, max text chars, or recall detail count unless tests or production behavior show a real need.
+- [x] Existing parameters whose meaning must remain stable:
+  - `context_max_history_messages`: still controls event-summary history pressure, not raw-message retention.
+  - `context_cleanup_batch_size`: still applies to event-level pruning, not raw-message cleanup.
+  - `retrieval_token_budget`: remains the final prompt budget guard if raw details are hydrated.
+
+### Raw message storage metadata
+- [x] Identity and stream metadata:
+  - `message_id`: stable plugin-generated id, unique.
+  - `session_id`: router stream key, e.g. group/channel/private session.
+  - `group_id`: persisted memory scope, `NULL` for private chat.
+  - `platform`: source platform for the sender identity.
+  - `physical_id`: sender platform id.
+  - `sender_uid`: resolved persona UID.
+  - `display_name`: normalized visible name at ingest time.
+- [x] Content metadata:
+  - `role`: `user`, `assistant`, or future system/meta value.
+  - `text`: normalized text used by memory logic.
+  - `content_hash`: hash of normalized text plus identity/time salt as needed for dedupe/debug.
+  - `message_chain_json`: serialized structured message segments; default `[]`.
+  - `metadata_json`: small adapter-specific metadata; default `{}`.
+- [x] Persona and lifecycle metadata:
+  - `bot_persona_name`: active bot persona for bot replies, nullable.
+  - `created_at`: platform/event timestamp.
+  - `ingested_at`: plugin persistence timestamp.
+- [x] Event-link metadata:
+  - `event_messages.event_id`: linked long-term event.
+  - `event_messages.message_id`: linked raw message.
+  - `event_messages.ordinal`: message order inside that event.
+- [x] Deliberately excluded from MVP:
+  - Raw unnormalized text storage by default.
+  - Per-message embedding table.
+  - Full platform payload blobs beyond compact `message_chain_json` / `metadata_json`.
+
+### Technical implementation path
+
+#### Phase 0 - Baseline and tests
+- [x] Review current tests before code changes:
+  - `tests/backend/test_message_router.py`
+  - `tests/backend/test_sqlite_repo.py`
+  - `tests/backend/test_reextract.py`
+  - `tests/backend/test_retrieval.py`
+  - `tests/backend/test_memory_manager.py`
+- [x] Run baseline targeted backend tests and record results here.
+  - `pytest tests/backend/test_message_router.py tests/backend/test_sqlite_repo.py tests/backend/test_reextract.py tests/backend/test_retrieval.py tests/backend/test_memory_manager.py` → 100 passed.
+- [x] Confirm no core framework code changes are needed.
+
+#### Phase 1 - Schema and domain compatibility
+- [x] Add migration `013_raw_messages.sql`.
+- [x] Add `raw_messages` table, `event_messages` table, indexes, and optional `raw_messages_fts`.
+- [x] Extend `MessageRef` with optional trailing `message_id: str = ""` to keep old positional construction compatible.
+- [x] Verify migrations are idempotent on a fresh DB and an existing DB.
+  - Covered by `tests/backend/test_sqlite_repo.py::test_migrations_are_idempotent`.
+
+#### Phase 2 - Repository layer
+- [x] Add `RawMessageRepository` abstraction in `core/repository/base.py`.
+- [x] Implement `SQLiteRawMessageRepository`.
+- [x] Implement `InMemoryRawMessageRepository` for tests.
+- [x] Add tests for roundtrip, event linking, cleanup, and expired raw-message fallback behavior.
+  - Added SQLite roundtrip/link/cleanup coverage in `tests/backend/test_sqlite_repo.py`.
+
+#### Phase 3 - Optimized async write path
+- [x] Add `RawMessageWriter` with an in-memory async queue.
+- [x] `MessageRouter.process()` should enqueue raw-message writes without waiting for SQLite in the normal path.
+- [x] Batch writer behavior:
+  - Batch insert with short transactions.
+  - Use `INSERT OR IGNORE` for idempotent retry safety.
+  - Truncate text to internal max length before enqueue.
+  - If the queue is full, wait only briefly; if still full, skip raw persistence and log a warning.
+- [x] Add `ensure_flushed(message_ids)` so event extraction can wait for only the messages it needs.
+- [x] Add shutdown drain in plugin teardown.
+
+#### Phase 4 - Message router integration
+- [x] Generate `message_id` per incoming user message and bot response.
+- [x] Attach `message_id` and minimal metadata to `RawMessage` / `MessageWindow`.
+- [x] Keep message processing functional if raw-message enqueue/write fails.
+- [x] Cover user message, bot reply, Discord/channel session, group, and private paths.
+  - Added router raw-message persistence coverage in `tests/backend/test_message_router.py`.
+
+#### Phase 5 - Event extractor integration
+- [x] Include `message_id` in `Event.interaction_flow` previews.
+- [x] Before linking event messages, call `RawMessageWriter.ensure_flushed(...)`.
+- [x] Write `event_messages` mapping with ordinal order.
+- [x] Keep event upsert/vector indexing behavior unchanged.
+- [x] If raw messages are missing, event persistence must still succeed with preview-only `interaction_flow`.
+  - Added extractor event-link coverage in `tests/backend/test_extractor.py`.
+
+#### Phase 6 - Read-path enhancement
+- [x] Update `reextract_event()` to prefer raw messages linked through `event_messages`.
+- [x] Fall back to existing `interaction_flow.content_preview` when raw details are expired or unavailable.
+- [x] Extend recall formatting to hydrate only a small internal number of raw details per selected event.
+- [x] Enforce `retrieval_token_budget` as the final guard; raw details must not cause uncontrolled prompt growth.
+  - Added reextract raw-detail preference coverage in `tests/backend/test_reextract.py`.
+  - Added recall hydration coverage in `tests/backend/test_recall_manager_extra.py`.
+
+#### Phase 7 - Cleanup lifecycle
+- [x] Add raw-message cleanup task using `raw_message_retention_days` with a 14-day default.
+- [x] Delete expired raw messages without deleting long-term `events`.
+- [x] Ensure `event_messages` is cleaned through foreign keys or explicit cleanup.
+- [x] Wire cleanup into existing maintenance with no extra public interval parameter for MVP.
+  - Raw cleanup runs independently of low-salience memory cleanup enablement to preserve the short raw-data lifecycle.
+  - Added raw cleanup lifecycle coverage in `tests/backend/test_memory_cleanup.py`.
+
+#### Phase 8 - Config and WebUI sync
+- [x] Add `raw_message_retention_days` to `core/config.py` and clamp to `1..14`.
+- [x] Add the setting to `_conf_schema.json`.
+- [x] Only update WebUI code if schema-driven config rendering is insufficient.
+  - No frontend source changes required; AstrBot config UI reads `_conf_schema.json`.
+
+#### Phase 9 - Verification and release notes
+- [x] Run targeted backend tests after each backend phase.
+- [x] Run broader `pytest tests/backend` before handoff.
+- [x] Update `CHANGELOG.md` / `docs/CHANGELOG.md` with schema, behavior, migration, and privacy notes after implementation.
+- [x] Document residual risk: DB size growth, short-term privacy exposure, and raw-detail prompt token pressure.
+
+### Verification
+- `python -m py_compile core\domain\models.py core\boundary\window.py core\repository\base.py core\repository\sqlite.py core\repository\memory.py core\managers\raw_message_writer.py core\adapters\astrbot.py core\plugin_initializer.py` → passed.
+- `pytest tests/backend/test_message_router.py tests/backend/test_sqlite_repo.py` → 58 passed.
+- `pytest tests/backend/test_message_router.py tests/backend/test_sqlite_repo.py tests/backend/test_reextract.py tests/backend/test_retrieval.py tests/backend/test_memory_manager.py tests/backend/test_periodic_flush.py` → 111 passed.
+- `python -m py_compile core\extractor\extractor.py core\tasks\reextract.py core\managers\recall_manager.py core\utils\formatter.py core\tasks\cleanup.py core\plugin_initializer.py tests\backend\test_extractor.py tests\backend\test_reextract.py tests\backend\test_recall_manager_extra.py tests\backend\test_memory_cleanup.py` → passed.
+- `pytest tests/backend/test_memory_cleanup.py tests/backend/test_extractor.py tests/backend/test_reextract.py tests/backend/test_recall_manager_extra.py tests/backend/test_message_router.py tests/backend/test_sqlite_repo.py` → 104 passed.
+- `pytest tests/backend` → 578 passed, 1 external faiss/numpy deprecation warning.
+- `python -m json.tool _conf_schema.json` → passed.
+- `pytest tests/backend/test_new_configs.py tests/backend/test_memory_cleanup.py tests/backend/test_extractor.py tests/backend/test_reextract.py tests/backend/test_recall_manager_extra.py tests/backend/test_message_router.py tests/backend/test_sqlite_repo.py` → 107 passed.
+- `pytest tests/backend` → 579 passed, 1 external faiss/numpy deprecation warning.
+
+---
+
+## Memory recall scope + robustness plan (completed, 2026-05-18)
 
 ### Phase 0 - Baseline and planning
 - [x] Read AGENTS.md and current tests before code changes.
@@ -26,10 +308,10 @@
 - [x] Keep global search efficient: `scope_mode="all"` emits no `group_id` SQL predicate or `OR` branch.
 - [x] Make automatic LLM-request recall use the current conversation scope: group conversations use `scope_mode="group"`, private conversations use `scope_mode="private"`.
 - [x] Run targeted retrieval/repository tests after implementation.
-  - `python -m pytest tests\test_retrieval.py tests\test_sqlite_repo.py tests\test_memory_repo.py -q` -> 106 passed.
-  - `python -m pytest tests\test_retrieval.py tests\test_prompt_injection.py tests\test_session_progress.py tests\test_tasks.py -q` -> 85 passed, 1 external faiss/numpy deprecation warning.
-  - Final quick check after cleanup: `python -m py_compile main.py core\api.py core\event_handler.py core\managers\base.py core\managers\command_manager.py core\managers\recall_manager.py core\repository\base.py core\repository\memory.py core\repository\sqlite.py core\retrieval\hybrid.py` -> passed.
-  - Final quick check after cleanup: `python -m pytest tests\test_retrieval.py tests\test_sqlite_repo.py -q` -> 66 passed.
+  - `python -m pytest tests\test_retrieval.py tests\test_sqlite_repo.py tests\test_memory_repo.py -q` → 106 passed.
+  - `python -m pytest tests\test_retrieval.py tests\test_prompt_injection.py tests\test_session_progress.py tests\test_tasks.py -q` → 85 passed, 1 external faiss/numpy deprecation warning.
+  - Final quick check after cleanup: `python -m py_compile main.py core\api.py core\event_handler.py core\managers\base.py core\managers\command_manager.py core\managers\recall_manager.py core\repository\base.py core\repository\memory.py core\repository\sqlite.py core\retrieval\hybrid.py` → passed.
+  - Final quick check after cleanup: `python -m pytest tests\test_retrieval.py tests\test_sqlite_repo.py -q` → 66 passed.
 
 ### Phase 2 - Recall hot-path degradation
 - [x] BM25 and vector search now degrade independently: if one side fails, recall continues with the other side.
@@ -45,9 +327,9 @@
 - [x] Token impact for Phase 3: no added LLM calls. This reduces dependency on LLM success and writes fallback summaries locally.
 - [x] Frontend impact for Phase 3: none.
 - [x] Verification:
-  - `python -m py_compile main.py core\utils\formatter.py core\retrieval\formatter.py core\retrieval\hybrid.py core\managers\recall_manager.py core\managers\command_manager.py core\extractor\extractor.py core\extractor\parser.py core\extractor\noise_filter.py` -> passed.
-  - `python -m pytest tests\test_retrieval.py tests\test_prompt_injection.py tests\test_extractor.py tests\test_llm_manager.py -q` -> 73 passed.
-  - `python -m pytest tests\test_retrieval.py tests\test_prompt_injection.py tests\test_extractor.py tests\test_sqlite_repo.py tests\test_memory_repo.py tests\test_tasks.py -q` -> 186 passed.
+  - `python -m py_compile main.py core\utils\formatter.py core\retrieval\formatter.py core\retrieval\hybrid.py core\managers\recall_manager.py core\managers\command_manager.py core\extractor\extractor.py core\extractor\parser.py core\extractor\noise_filter.py` → passed.
+  - `python -m pytest tests\test_retrieval.py tests\test_prompt_injection.py tests\test_extractor.py tests\test_llm_manager.py -q` → 73 passed.
+  - `python -m pytest tests\test_retrieval.py tests\test_prompt_injection.py tests\test_extractor.py tests\test_sqlite_repo.py tests\test_memory_repo.py tests\test_tasks.py -q` → 186 passed.
 
 ### Phase 4 - Relationship / impression soft injection
 - [x] Wire `ImpressionRepository` into `RecallManager` and plugin initialization.
@@ -69,40 +351,26 @@
 - [x] Token impact for Phase 5: no added prompt tokens and no added LLM calls.
 - [x] Frontend impact for Phase 5: modified WebUI config page, i18n labels, stats API types, stats token panel, and synchronized `pages/moirai` static assets.
 - [x] Verification:
-  - `python -m py_compile core\config.py core\managers\base.py core\managers\recall_manager.py core\managers\llm_manager.py core\api.py core\event_handler.py core\plugin_initializer.py web\server.py web\plugin_routes.py` -> passed.
-  - `python -m json.tool _conf_schema.json` -> passed.
-  - `python -m pytest tests\test_retrieval.py tests\test_prompt_injection.py tests\test_extractor.py tests\test_sqlite_repo.py tests\test_memory_repo.py tests\test_tasks.py tests\test_llm_manager.py tests\test_new_configs.py tests\test_debug_visibility.py tests\test_perf.py tests\test_session_progress.py -q` -> 221 passed, 1 external faiss/numpy deprecation warning.
-  - `npm.cmd run build` -> passed after allowing network access for Google Fonts.
-  - `python tools\sync_frontend.py -f` -> passed after allowing network access for the build step.
+  - `python -m py_compile core\config.py core\managers\base.py core\managers\recall_manager.py core\managers\llm_manager.py core\api.py core\event_handler.py core\plugin_initializer.py web\server.py web\plugin_routes.py` → passed.
+  - `python -m json.tool _conf_schema.json` → passed.
+  - `python -m pytest tests\test_retrieval.py tests\test_prompt_injection.py tests\test_extractor.py tests\test_sqlite_repo.py tests\test_memory_repo.py tests\test_tasks.py tests\test_llm_manager.py tests\test_new_configs.py tests\test_debug_visibility.py tests\test_perf.py tests\test_session_progress.py -q` → 221 passed, 1 external faiss/numpy deprecation warning.
+  - `npm.cmd run build` → passed after allowing network access for Google Fonts.
+  - `python tools\sync_frontend.py -f` → passed.
 
-### Phase 6 - Injection compatibility adapter (planned, not executed)
-- [ ] Goal: isolate provider-specific injection behavior so configured `fake_tool_call` can gracefully downgrade for providers that reject tool-call shaped context.
-- [ ] Add an adapter function, for example `resolve_injection_position(provider_info, configured_position) -> {effective_position, reason}`.
-- [ ] Detection inputs:
-  - Provider id/name/model from AstrBot provider metadata where available.
-  - Conservative fallback when metadata is unavailable: keep configured position.
-  - Known-problem providers/models can downgrade `fake_tool_call` to `user_message_before` or `system_prompt` based on safest local behavior.
-- [ ] Hook point:
-  - Resolve the effective position in `EventHandler.handle_llm_request` before calling `RecallManager.recall_and_inject`, or pass an override into `RecallManager` without mutating persisted config.
-  - Keep configured position visible in debug, and add effective position + reason to injection debug.
-- [ ] Compatibility behavior:
-  - OpenAI-compatible providers that accept tool calls keep `fake_tool_call`.
-  - Providers that fail on synthetic tool call messages use text injection while preserving the same recalled memory payload.
-  - If adapter resolution fails, fall back to current configured behavior and record a debug warning.
-- [ ] Tests to add:
-  - Provider metadata says compatible -> `fake_tool_call` remains unchanged.
-  - Provider metadata says incompatible -> effective position downgrades and debug records reason.
-  - No provider metadata -> configured position remains unchanged.
-  - Downgrade path still uses formatter fallback and does not break recall count.
-- [ ] Token impact estimate: no added LLM calls. Downgrading from fake-tool-call to text injection may move the same memory text into prompt/system context; token count should be approximately unchanged versus existing formatted memory text.
-- [ ] Frontend impact: none required unless exposing configured/effective injection position in WebUI debug summaries.
+### Phase 6 - Injection compatibility adapter (✅ 完成，commit `8fd2f66`, 2026-05-18)
+- [x] `core/utils/injection_compat.py` — `resolve_injection_position(model, configured)` 适配器；已知不兼容 pattern：o-series（`^o\d`）、Gemini（`^gemini`），均降级为 `user_message_before`
+- [x] `core/managers/recall_manager.py` — `recall_and_inject` 提取 `req.model`，调用适配器，降级时 debug 记录 reason；injection_debug 同步记录 `compat_reason`
+- [x] `tests/backend/test_injection_compat.py` — 20 个单元测试：兼容 / 不兼容 / 无 metadata / 非 fake_tool_call 保持不变
+- [x] Token impact: 无新增 LLM 调用；降级后 token 数与格式化文本近似不变
+- [x] Frontend impact: 无需前端改动
 
-### Later phases - Deferred
-- [ ] Phase 7: broader verification and release notes.
+### Phase 7 - Broader verification and release notes
+- [x] Phase 6 实现和测试已完成
+- [ ] 在 `CHANGELOG.md` / `docs/CHANGELOG.md` 补充 injection compat 发布说明（功能描述、已知兼容 provider 列表、token impact）
 
-## 🚧 进行中：Persona 隔离 + 配置拆分 + WebUI 主架构升级
+---
 
-Plan 文件：`C:\Users\Drgar\.claude\plans\1-bug-2-streamed-abelson.md`
+## 🚧 Persona 隔离 + 配置拆分 + WebUI 主架构升级 (completed)
 
 ### 📋 大计划：整体架构（交接必读）
 
@@ -146,7 +414,7 @@ AstrBot 消息 → MessageRouter → MessageWindow
 - 每个 page 在 useEffect 依赖 store 的 persona 状态，变化时重新 fetch
 
 **Persona 合并 (Phase 4)**：
-- 后端 `POST /api/personas/{src}/merge/{target}` 用事务 UPDATE 把 events/impressions/personas 的 bot_persona_name 从 src 改为 target
+- 后端 `POST /api/personas/merge` body `{src, target, mode}` — 事务内 DELETE 冲突 impressions + UPDATE events/impressions/personas (target wins 策略)
 - 难点：impressions 的 unique index 可能在合并时冲突（如果 src 和 target 都有 (obs, subj, scope) 同 tuple 的行）。采用"target wins"策略：先 DELETE src 中和 target 冲突的行，再 UPDATE 剩余
 - 审计日志（可关）：`data_dir/audit/persona_merge.jsonl`
 
@@ -156,10 +424,10 @@ AstrBot 消息 → MessageRouter → MessageWindow
 - 登录 UI：仅 polish 保留布局
 
 **主动 defer（明确不做）**：
-- Partitioner 按 persona 拆窗（窗口本就单 persona）
-- 每 persona 独立 sqlite db（与"汇总视图"冲突）
-- Personas 表实际填 `bot_persona_name`（persona 是共享实体；只在 impressions/events 上做隔离即可）
-- 多用户 / 协作 / 权限
+- ❌ Partitioner 按 persona 拆窗（窗口本就单 persona）
+- ❌ 每 persona 独立 sqlite db（与"汇总视图"冲突）
+- ❌ Personas 表实际填 `bot_persona_name`（persona 是共享实体；只在 impressions/events 上做隔离即可）
+- ❌ 多用户 / 协作 / 权限
 
 **关键文件总览**：
 - 配置：`_conf_schema.json`、`core/config.py`、`web/frontend/app/config/page.tsx`、`web/frontend/lib/i18n.ts`
@@ -170,20 +438,20 @@ AstrBot 消息 → MessageRouter → MessageWindow
 
 ---
 
-### Phase 1 — 配置拆分 + 4 个新配置键
+### Phase 1 — 配置拆分 + 4 个新配置键 (✅ 完成)
 - [x] `_conf_schema.json` 把 `relation`（19 字段）拆为 `relation` / `scheduled` / `debug_display` 三组
 - [x] `relation` 组内新增 `persona_isolation_legacy_visible` / `persona_merge_audit_enabled` / `persona_default_view_mode` 三键，`persona_isolation_enabled` 默认改为 `true`
 - [x] `core/config.py` 加 3 个新 getter property
 - [x] `web/frontend/app/config/page.tsx` 同步拆 SECTIONS + 加 FIELD_DEPENDENCIES 联动禁用
 - [x] `web/frontend/lib/i18n.ts` 三语 (zh/ja/en) 全部加 section / field 标签
 
-### Phase 2 — 后端 Persona 隔离骨架（向前兼容）
+### Phase 2 — 后端 Persona 隔离骨架（向前兼容）(✅ 完成)
 - [x] `migrations/010_persona_isolation_scope.sql` — personas 加列；impressions 重建表 + `CREATE UNIQUE INDEX ... ifnull(bot_persona_name, '')`；events 加索引
 - [x] `core/domain/models.py` — `Persona.bot_persona_name` / `Impression.bot_persona_name` 字段，默认 None
 - [x] `core/repository/sqlite.py` — read/write 路径都处理 bot_persona_name；`ON CONFLICT(...,ifnull(bot_persona_name,''))` 配合新索引；`_safe_get` 兼容旧 row factory
 - [x] Smoke test：全 10 migration 干净跑通；Upsert NULL→NULL 覆盖；NULL/Alice/Bob 三行并存；现有 455 tests 全过
 
-### Phase 3 — WebUI Persona 上下文 + API 透传 + 写路径 wiring（✅ 完成）
+### Phase 3 — WebUI Persona 上下文 + API 透传 + 写路径 wiring (✅ 完成)
 
 **Phase 3a — 后端写路径 wiring**
 - [x] `core/social/orientation_analyzer.py` — `analyze()` / `_upsert_impression()` 接受 `bot_persona_name`，传给 Impression
@@ -307,7 +575,7 @@ export function PersonaSelector({ compact = false }: { compact?: boolean }) {
 ```tsx
 export function FirstLaunchPersonaPicker({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { i18n, setCurrentPersona, setFirstLaunchDone } = useApp()
-  const [bots, setBots] = useState<...>([])
+  const [bots, setBots] = useState<{ name: string | null; event_count: number }[]>([])
   useEffect(() => { if (open) api.personas.listBots().then(r => setBots(r.items)) }, [open])
   
   const pick = (name: string | null, mode: 'single' | 'all') => {
@@ -341,7 +609,7 @@ export function FirstLaunchPersonaPicker({ open, onClose }: { open: boolean; onC
 **5. AppShell 挂 modal** — [`web/frontend/components/layout/app-shell.tsx`](web/frontend/components/layout/app-shell.tsx)
 
 ```tsx
-const { authenticated, firstLaunchDone, /* persona_default_view_mode from /api/config */ } = useApp()
+const { authenticated, firstLaunchDone } = useApp()
 const [pickerOpen, setPickerOpen] = useState(false)
 
 useEffect(() => {
@@ -350,9 +618,9 @@ useEffect(() => {
   const mode = pluginConfigValues.persona_default_view_mode || 'remember'
   if (mode === 'all') {
     setCurrentPersona(null, 'all')
-    setFirstLaunchDone(true)  // 不弹窗，直接进入
+    setFirstLaunchDone(true)
   } else if (mode === 'force_pick' || mode === 'remember') {
-    setPickerOpen(true)  // 弹
+    setPickerOpen(true)
   }
 }, [authenticated, firstLaunchDone])
 
@@ -377,7 +645,7 @@ const personaParam = scopeMode === 'all' ? null : currentPersonaName
 const loadEvents = useCallback(async () => {
   const data = await api.events.list(1000, personaParam)
   setRawEvents(data.items)
-}, [setRawEvents, appToast, i18n.events.loadError, personaParam])  // ← 关键：加入依赖
+}, [setRawEvents, appToast, i18n.events.loadError, personaParam])
 
 useEffect(() => { loadEvents() }, [loadEvents])
 ```
@@ -420,9 +688,9 @@ persona: {
 4. Sidebar 顶部切到"全部 Persona" → 数据汇总显示
 5. devtools Network 面板：选了 persona 时 `/api/events` 带 `?persona=Alice`
 6. 刷新页面：选项保持不变（localStorage 起效）
-7. 配置页关闭 `persona_isolation_enabled`：刷新后**不**弹 picker，全部使用汇总视图（✅ 已落实：`store.tsx` 在 auth resolved 后读取 `/api/config` 的 values，并由 `FirstLaunchPersonaPicker` / `PersonaSelector` 统一尊重主开关）
+7. 配置页关闭 `persona_isolation_enabled`：刷新后**不**弹 picker，全部使用汇总视图
 
-### Phase 4 — Persona 合并 / 转移（✅ 完成）
+### Phase 4 — Persona 合并 / 转移 (✅ 完成)
 - [x] 后端 `core/repository/sqlite.py` 加 `preview_bot_persona_merge` / `merge_bot_persona` 共享工具 — 事务内 DELETE 冲突 impressions + UPDATE events/impressions/personas (target wins 策略)
 - [x] 后端 `POST /api/personas/merge` body `{src, target, mode}` — `plugin_routes.py` + `server.py` 双服务实现，包 `sudo` wrap
 - [x] 后端 `GET /api/personas/merge/preview?src=&target=&mode=` — 返回 4 项 counts
@@ -482,119 +750,24 @@ UPDATE personas SET bot_persona_name = :target WHERE bot_persona_name = :src;
 
 整个流程必须在**单个事务**内，用 `_txn(self._db, self._lock)` 包住。
 
-**3. 后端 handler 模板**
+**3. 路由注册**
 
 ```python
-async def _handle_persona_merge_preview(self, request):
-    src = request.rel_url.query.get('src') or ''
-    target = request.rel_url.query.get('target') or ''
-    if not src or not target:
-        return _json({'error': 'src/target required'}, 400)
-    
-    db = self._event_repo._db  # type: ignore
-    async with db.execute("SELECT COUNT(*) FROM events WHERE bot_persona_name = ?", (src,)) as cur:
-        events_n = (await cur.fetchone())[0]
-    async with db.execute("SELECT COUNT(*) FROM impressions WHERE bot_persona_name = ?", (src,)) as cur:
-        imps_total = (await cur.fetchone())[0]
-    async with db.execute("""
-        SELECT COUNT(*) FROM impressions s WHERE s.bot_persona_name = ?
-        AND EXISTS (SELECT 1 FROM impressions t WHERE t.observer_uid=s.observer_uid
-            AND t.subject_uid=s.subject_uid AND t.scope=s.scope
-            AND ifnull(t.bot_persona_name,'') = ifnull(?, ''))
-    """, (src, target)) as cur:
-        imps_conflicts = (await cur.fetchone())[0]
-    async with db.execute("SELECT COUNT(*) FROM personas WHERE bot_persona_name = ?", (src,)) as cur:
-        personas_n = (await cur.fetchone())[0]
-    
-    return _json({
-        'events_moved': events_n,
-        'impressions_moved': imps_total - imps_conflicts,
-        'impressions_dropped': imps_conflicts,
-        'personas_moved': personas_n,
-    })
-
-async def _handle_persona_merge(self, request):
-    body = await _request_json(request)
-    src, target = body.get('src'), body.get('target')
-    if not src or not target or src == target:
-        return _json({'error': 'invalid src/target'}, 400)
-    
-    db = self._event_repo._db  # type: ignore
-    async with _txn(db, _get_db_lock(db)):
-        # ... 上面那四条 SQL
-    
-    # 审计日志
-    if self._cfg.persona_merge_audit_enabled:
-        audit_path = self._data_dir / 'audit' / 'persona_merge.jsonl'
-        audit_path.parent.mkdir(parents=True, exist_ok=True)
-        with audit_path.open('a', encoding='utf-8') as f:
-            f.write(json.dumps({
-                'ts': time.time(), 'src': src, 'target': target,
-                'events_moved': ..., 'impressions_moved': ..., 'personas_moved': ...,
-            }, ensure_ascii=False) + '\n')
-    
-    return _json({...})
-```
-
-**注意**：在 dev 环境 `_event_repo._db` 可能是 None（in-memory repo）。Production 始终是 SQLite。建议加 isinstance 检查或在 repository base 暴露一个 `execute_raw()` 方法。
-
-**4. 路由注册**（plugin_routes.py 第 ~228 行附近）
-
-```python
-(f"/api/personas/merge",            self._handle_persona_merge_guarded,   ["POST"], "Merge persona A → B"),
-(f"/api/personas/merge/preview",    self._handle_persona_merge_preview,   ["GET"],  "Preview merge impact"),
+(f"/api/personas/merge",         self._handle_persona_merge_guarded,  ["POST"], "Merge persona A → B"),
+(f"/api/personas/merge/preview", self._handle_persona_merge_preview,  ["GET"],  "Preview merge impact"),
 ```
 
 合并要 sudo 模式，包 `self._wrap("sudo", ...)`。
 
-**5. 前端 API**
-
-```ts
-// web/frontend/lib/api.ts
-personas.mergePreview = (src: string, target: string, mode: 'all' | 'impressions_only') =>
-  request<{ events_moved: number; impressions_moved: number; impressions_dropped: number; personas_moved: number }>(
-    `/api/personas/merge/preview?src=${encodeURIComponent(src)}&target=${encodeURIComponent(target)}&mode=${mode}`
-  )
-
-personas.merge = (src: string, target: string, mode: 'all' | 'impressions_only') =>
-  request<...>('/api/personas/merge', { method: 'POST', body: JSON.stringify({ src, target, mode }) })
-```
-
-**6. PersonaOwnershipManager 组件** — `web/frontend/components/config/persona-ownership-manager.tsx`
-
-- 位于「插件配置 → 社会关系与印象」下，作为全局数据域维护工具，而不是 Graph 局部工具
-- Source / Target 支持已有 bot、`__legacy__` 旧数据域、自定义 `bot_persona_name`
-- mode 支持 `all` 和 `impressions_only`
-- 操作需要 sudo，先 preview，再二次确认
-
-**7. 合并后状态切换**
-
-```tsx
-const handleMerged = (target: string) => {
-  if (app.currentPersonaName === src || (src === '__legacy__' && app.currentPersonaName === null)) {
-    app.setCurrentPersona(target, 'single')  // 自动切到 target
-  }
-  // 刷新 bot persona 列表
-  loadBots()
-}
-```
-
-**8. 陷阱 / 注意**
+**4. 陷阱 / 注意**
 
 - **src / target 校验**：必须不相等、必须非空；允许不在 `/api/personas/bots` 返回列表里的自定义 `bot_persona_name`
 - **legacy 语义**：前端用 `__legacy__`，后端转成 SQL `IS NULL`；不要用空字符串表示 legacy
 - **AstrBot 端 personas 表的 `(platform="internal", physical_id="bot")` 绑定**：合并 personas 表中的 bot persona 后，相应的 identity_binding 也要 reattach 到 target uid。否则后续 `_get_bot_persona()` 可能找不到 bot
 - **审计日志位置**：`data_dir/audit/`，确保 `parent.mkdir(parents=True, exist_ok=True)`
 - **回滚**：当前方案无回滚（事务提交后不可逆）。如果担心，可以在事务前先备份 db 文件
-- **测试**：写 `tests/test_persona_merge.py`：
-  - happy path：src→target，事件 / 印象 / 人格行数符合预期
-  - src=target 拒绝（400）
-  - legacy→named / named→legacy
-  - impressions_only 不移动 events / personas
-  - 冲突 impressions 数量正确报告
-  - 审计日志生成 / 关闭开关时不生成
 
-### Phase 5 — 登录界面 polish（✅ 完成）
+### Phase 5 — 登录界面 polish (✅ 完成)
 - [x] 右侧表单加 `radial-gradient` 背景光晕 — 用 `color-mix(in srgb, var(--color-primary) 7%, transparent)` 椭圆径向；input 失焦时 opacity 0.55，聚焦时 1.0，700ms 过渡
 - [x] 密码 input 聚焦时丝线动画提速 1.5× — 加 `.thread-accent.silk-fast { animation-duration: 4.6s; stroke-width: 0.9 }`；React `passwordFocused` state 控制 className
 - [x] 错误提示加 `slide-in-from-top-2 fade-in` + 红色脉冲 — `key={error}` 强制重挂载使动画每次重放；`AlertCircle` 图标 `animate-pulse`
@@ -602,7 +775,7 @@ const handleMerged = (target: string) => {
 - [x] 品牌 logo 微悬浮（仅桌面）— h1 加 `transition-transform duration-500 hover:-translate-y-0.5`（位于 `hidden md:flex` 左面板内，仅桌面生效）
 - [x] 验证：483 backend tests pass、49 frontend structure tests pass
 
-### Phase 6 —"全 Persona 主界面"图谱（✅ 完成）
+### Phase 6 —"全 Persona 主界面"图谱 (✅ 完成)
 - [x] graph 在 `scopeMode === 'all'` 时把每个 bot persona 渲染为超级节点（前端展示层聚合，不新增核心数据模型）
 - [x] 点击超级节点下钻到该 persona 的子图（通过全局 persona store 切换到 `single` scope 后重新加载图谱）
 - [x] 修复 legacy/default persona 查询歧义：前端用 `__legacy__` token，后端映射为仅查询 `bot_persona_name IS NULL`
@@ -614,22 +787,7 @@ const handleMerged = (target: string) => {
 
 ---
 
-### 插件多语言支持（i18n）（✅ 完成）
-在 `.astrbot-plugin/i18n/` 下创建 `zh-CN.json` 和 `en-US.json`，覆盖：
-- `metadata.yaml` 的 `display_name`、`desc`
-- `_conf_schema.json` 所有字段的 `description`、`hint`、`labels`
-
-不动源码，只新增两个 JSON 文件。（当前 `.astrbot-plugin/i18n/zh-CN.json` 与 `en-US.json` 已存在）
-
-### 前端对于 archived 事件的相关管理显示和支持功能（✅ 基础能力完成）
-- [x] `/api/archived_events` 列表
-- [x] `/api/events/{event_id}/archive` 手动归档
-- [x] `/api/events/{event_id}/unarchive` 恢复为活跃
-- [x] Events / Library 页面归档事件弹窗与恢复入口
-
----
-
-## 后端架构优化与演进 (Refinement & Evolution)
+## 后端架构优化与演进（参考记录）
 
 ### ✅ [设计] 叙事轴摘要向量化与分层 RAG（已实现）
 - `events.event_type` 列区分 `episode` / `narrative`
@@ -648,64 +806,14 @@ const handleMerged = (target: string) => {
 - DB 是唯一事实源；MD 文件是只读投影
 - 仅 `IMPRESSIONS.md` 允许反向同步，其他文件禁止反向同步
 
----
+### ✅ [功能] 插件多语言支持（i18n）（已完成）
+在 `.astrbot-plugin/i18n/` 下创建 `zh-CN.json` 和 `en-US.json`，覆盖 `metadata.yaml` 的 `display_name`、`desc`，以及 `_conf_schema.json` 所有字段的 `description`、`hint`、`labels`。
 
-## 待讨论的功能方向（Feature Discussions）
+### ✅ [功能] 前端对于 archived 事件的相关管理显示和支持功能（基础能力完成）
+- [x] `/api/archived_events` 列表
+- [x] `/api/events/{event_id}/archive` 手动归档
+- [x] `/api/events/{event_id}/unarchive` 恢复为活跃
+- [x] Events / Library 页面归档事件弹窗与恢复入口
 
-### [设计] 用户预设关系（Preset Impressions）
-
-**背景**：目前 Impression 完全由 LLM 从对话中自动提取。希望支持管理员/用户为 bot 预设对某人的先验态度（如"朋友""仇人""亲人"），在 LLM 提取功能关闭时也能对 agent 行为生效。
-
-**讨论中的分歧**：
-- 预设关系使用枚举模板（朋友/仇人/亲人），由系统映射到 benevolence × power 双轴数值，`confidence` 设低（约 0.2）标记为先验；随真实对话积累会被更高置信度数据覆盖
-- 担忧：双轴数值是从真实行为拟合来的，手动填入破坏数据来源一致性；且先验关系在 agent 判断中的权重理应很低
-
-**两个待决定的子问题**：
-
-1. **是否注入 system prompt？**
-   - 仅可视化：出现在关系图中，不影响 agent 行为，完全安全
-   - 注入 prompt：用弱化语气（"据初始设定，与 TA 关系为朋友"），对 agent 有实际影响，但权重难以精确控制
-   - 折中：作为独立字段注入，与自动提取的 impression 分开，prompt 里明确区分两者来源
-
-2. **数据存储位置**
-   - 方案 A：写入现有 `Impression` 表，加 `is_pinned` flag 区分人工 vs 自动，extractor upsert 时跳过 pinned 记录
-   - 方案 B：独立的 `PresetRelation` 表，完全不混入自动提取数据，判断结构无污染，但需要新增 repo/schema
-
-**倾向**：方案 B + 仅可视化作为 MVP，后续视需求再开启 prompt 注入开关。
-
----
-
-### [设计] 关系图管理操作（Graph CRUD）
-
-**背景**：目前缺少对关系数据的精细化管理入口。
-
-**合理的操作（当前状态）**：
-- [x] 删除单条 impression：`DELETE /api/impressions/{observer}/{subject}/{scope}`，支持 `?persona=` 精确删除隔离域
-- [x] 按 group 批量清除 impression：`POST /api/impressions/bulk-delete`，Graph 参数面板提供当前 group 的确认删除入口
-- [ ] WebUI Library 页面对 impression 的直接删除入口（Library 当前主要管理事件/人格/群组；如后续增加 impression 表视图再接入）
-
-**不合理的操作（不做）**：
-- 手动新建 persona（无行为依据，产生"无根"节点）
-- 手动拖拽/重排关系图拓扑（破坏事件驱动的数据一致性）
-
----
-
-## 待确认的设计决策（Deferred Decisions）
-
-### [设计] narrative Event 的 inherit_from 下钻
-当前 narrative Events 的 `inherit_from` 为空列表，不指向当天的 episode events。
-待评估：向 `inherit_from` 写入当天所有 episode event_id 的 payload 开销（每天数十个 ID），
-以及是否对”宏观→微观”上下文展开有实际价值。
-
-### [架构] IMPRESSIONS.md 反向同步的长期去向
-当前：FileWatcher（30s 轮询）+ 正则解析器，维护成本较高。
-待评估：是否在 WebUI 新增直接的 impression 表单提交 API，将 FileWatcher 降级为”离线备份”入口。
-
-### [设计] 分层 RAG 查询分类器精度提升
-当前实现：关键词计数投票（`_MACRO_KWS` / `_MICRO_KWS`）。
-待评估：接入轻量 embedding 相似度或 LLM 分类提升精度，但需权衡延迟开销。
-
-### ✅ [可选优化] `run_memory_cleanup` 同轮归档/硬删语义
-已修复：`core/tasks/cleanup.py` 现在先删除进入本轮前已经超过保留期的 archived 事件，再归档本轮新发现的低显著度 active 事件。
-这样新归档事件至少保留一个 cleanup 周期，不会同一轮被硬删并造成统计语义混淆。新增回归测试覆盖该场景。
-
+### ✅ [可选优化] `run_memory_cleanup` 同轮归档/硬删语义（已修复）
+`core/tasks/cleanup.py` 现在先删除进入本轮前已经超过保留期的 archived 事件，再归档本轮新发现的低显著度 active 事件。新增回归测试覆盖该场景。

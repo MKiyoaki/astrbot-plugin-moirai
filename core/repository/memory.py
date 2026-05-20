@@ -9,9 +9,9 @@ from __future__ import annotations
 import math
 from copy import deepcopy
 
-from ..domain.models import Event, Impression, Persona
+from ..domain.models import Event, Impression, Persona, RawStoredMessage
 
-from .base import EventRepository, ImpressionRepository, PersonaRepository
+from .base import EventRepository, ImpressionRepository, PersonaRepository, RawMessageRepository
 
 
 class InMemoryPersonaRepository(PersonaRepository):
@@ -313,6 +313,50 @@ class InMemoryEventRepository(EventRepository):
     async def upsert_canonical_tag(self, tag_text: str, embedding: list[float]) -> None:
         # Stub: memory repo just accepts it
         pass
+
+
+class InMemoryRawMessageRepository(RawMessageRepository):
+    def __init__(self) -> None:
+        self._store: dict[str, RawStoredMessage] = {}
+        self._event_links: dict[str, list[str]] = {}
+
+    async def upsert_many(self, messages: list[RawStoredMessage]) -> None:
+        for message in messages:
+            self._store.setdefault(message.message_id, deepcopy(message))
+
+    async def get(self, message_id: str) -> RawStoredMessage | None:
+        message = self._store.get(message_id)
+        return deepcopy(message) if message is not None else None
+
+    async def list_by_event(self, event_id: str) -> list[RawStoredMessage]:
+        result: list[RawStoredMessage] = []
+        for message_id in self._event_links.get(event_id, []):
+            message = self._store.get(message_id)
+            if message is not None:
+                result.append(deepcopy(message))
+        return result
+
+    async def link_event_messages(self, event_id: str, message_ids: list[str]) -> None:
+        existing = self._event_links.setdefault(event_id, [])
+        for message_id in message_ids:
+            if message_id in self._store and message_id not in existing:
+                existing.append(message_id)
+
+    async def delete_older_than(self, cutoff_ts: float) -> int:
+        to_delete = [
+            message_id
+            for message_id, message in self._store.items()
+            if message.created_at < cutoff_ts
+        ]
+        for message_id in to_delete:
+            del self._store[message_id]
+        for event_id, linked_ids in list(self._event_links.items()):
+            kept = [mid for mid in linked_ids if mid in self._store]
+            if kept:
+                self._event_links[event_id] = kept
+            else:
+                del self._event_links[event_id]
+        return len(to_delete)
 
 
 class InMemoryImpressionRepository(ImpressionRepository):

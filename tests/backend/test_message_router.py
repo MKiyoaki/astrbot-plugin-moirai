@@ -10,7 +10,9 @@ from core.embedding.encoder import NullEncoder
 from core.domain.models import Event
 from core.repository.memory import InMemoryEventRepository, InMemoryPersonaRepository
 from core.managers.context_manager import ContextManager
+from core.managers.raw_message_writer import RawMessageWriter
 from core.config import ContextConfig
+from core.repository.memory import InMemoryRawMessageRepository
 
 
 def make_router(
@@ -277,6 +279,41 @@ async def test_discord_bot_reply_without_group_id_should_join_user_window() -> N
     assert len(router._context_manager._windows) == 1
     window = next(iter(router._context_manager._windows.values()))
     assert window.message_count == 2
+
+
+async def test_router_enqueues_raw_message_persistence() -> None:
+    raw_repo = InMemoryRawMessageRepository()
+    writer = RawMessageWriter(raw_repo, flush_interval_ms=1)
+
+    persona_repo = InMemoryPersonaRepository()
+    event_repo = InMemoryEventRepository()
+    router = MessageRouter(
+        event_repo=event_repo,
+        identity_resolver=IdentityResolver(persona_repo),
+        detector=EventBoundaryDetector(BoundaryConfig(max_messages=999)),
+        context_manager=ContextManager(ContextConfig()),
+        encoder=NullEncoder(),
+        raw_message_writer=writer,
+    )
+
+    await router.process("qq", "u1", "Alice", "hello", "g1", now=1000.0)
+    window = next(iter(router._context_manager._windows.values()))
+    message_id = window.messages[0].message_id
+    assert message_id
+    assert await writer.ensure_flushed([message_id])
+
+    stored = await raw_repo.get(message_id)
+    assert stored is not None
+    assert stored.session_id == "qq:g1"
+    assert stored.group_id == "g1"
+    assert stored.platform == "qq"
+    assert stored.physical_id == "u1"
+    assert stored.display_name == "Alice"
+    assert stored.role == "user"
+    assert stored.text == "hello"
+    assert stored.content_hash
+
+    await writer.stop()
 
 
 async def test_discord_same_user_different_channels_are_separate_streams() -> None:

@@ -1,5 +1,59 @@
 ﻿# CHANGELOG
 
+## [v0.13.1] — 2026-05-20
+
+### Manual summary & relation fixes
+
+**移除无效配置项**
+
+- 删除 `summary_word_limit` 用户配置字段；字数上限固定为内部常量 300 字，不再对外暴露。
+
+**修复手动总结与自动总结不一致问题**
+
+- `regenerate_single_summary` 新增 `summary_config`、`llm_manager`、`encoder` 参数，与 `run_group_summary` 对齐：
+  - 手动总结现在会读取 `summary_mood_source`、`summary_interval_hours` 等用户配置，不再使用 `SummaryConfig()` 默认值。
+  - LLM 调用通过 `llm_manager.run()` 受 `llm_concurrency` 并发控制，不再绕过任务队列。
+  - 总结生成后同步调用 `_upsert_narrative_event()`，保持数据库中的 NARRATIVE 事件与 Markdown 文件一致，向量检索层不再读到过期摘要。
+- `_handle_regenerate_summary`（`plugin_routes.py` 和 `server.py`）同步补传上述参数。
+
+**修复 LLM 关系重分析 prompt 质量问题**
+
+- `reanalyze_impressions_llm` 移除未使用的 `extractor_config` 参数（死代码）。
+- 新增可选 `persona_repo` 参数；在函数入口构建 `uid_to_name` 映射，prompt 中用参与者显示名替代原始 UID 字符串，提升 LLM 分析质量。
+- `_handle_reanalyze_impressions_guarded`（LLM 分支）补传 `persona_repo=self._persona_repo`。
+
+## [v0.13.0] — 2026-05-20
+
+### Raw message persistence
+
+**新增短期 raw message 证据层**
+
+- 新增迁移 `013_raw_messages.sql`，创建 `raw_messages` 与 `event_messages` 表；`events` 仍是长期记忆主表，raw messages 作为短期证据与细节补充层。
+- 新增 `RawStoredMessage` / `RawMessageRepository`，并提供 SQLite 与 InMemory 实现；SQLite 侧包含 session/group/sender/time 索引与 FTS 触发器。
+- `MessageRouter` 会为用户消息和 bot 回复生成稳定 `message_id` 与 `content_hash`，并通过 `RawMessageWriter` 异步批量写入，避免在消息热路径等待 SQLite。
+
+**事件链接与读路径增强**
+
+- `EventExtractor` 在事件落库后将 `interaction_flow` 中的 `message_id` 链接到 `event_messages`，并在链接前等待相关 raw messages flush。
+- `reextract_event()` 优先使用已链接 raw messages 重新构造提取窗口；raw 数据过期或不可用时回退到原有 `interaction_flow.content_preview`。
+- Recall 注入会按内部上限 hydrate 事件 raw details，并继续由 `retrieval_token_budget` 控制最终 prompt 增长。
+
+**配置与清理**
+
+- 新增用户配置 `raw_message_retention_days`，默认 14 天，后端硬限制为 1-14 天。
+- raw message cleanup 接入每日维护任务，独立清理过期 raw messages 和 `event_messages` 链接，不删除长期 `events`。
+- raw cleanup 不依赖低 salience 事件清理开关，避免用户关闭事件清理时意外保留短期 raw 数据。
+
+**隐私与数据影响**
+
+- 数据库会在短期内保存更详尽的消息文本，便于重新提取与更细粒度召回；默认 14 天后清理。
+- 主要风险是 DB 体积增长、短期隐私暴露面扩大，以及 raw details 增加 prompt token 压力；实现中通过保留天数、内部详情条数上限和 token budget 做约束。
+
+**测试**
+
+- 新增/扩展 extractor、reextract、recall、cleanup、router、SQLite repository 测试。
+- 后端全量测试：`pytest tests/backend` -> 579 passed，1 个外部 `faiss/numpy` deprecation warning。
+
 ## [v0.12.14] — 2026-05-20
 
 ### 缓存工具统一 & 无界 dict 修复

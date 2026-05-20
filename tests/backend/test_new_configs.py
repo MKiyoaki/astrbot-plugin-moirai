@@ -36,6 +36,9 @@ class TestNewConfigs(unittest.IsolatedAsyncioTestCase):
                 "backup_enabled": True,
                 "backup_retention_days": 7
             },
+            "cleanup": {
+                "raw_message_retention_days": 9
+            },
             "boundary": {
                 "summary_trigger_rounds": 30
             }
@@ -74,6 +77,10 @@ class TestNewConfigs(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(backup.enabled)
         self.assertEqual(backup.retention_days, 7)
 
+        # Test raw message retention clamp surface
+        cleanup = self.cfg.get_cleanup_config()
+        self.assertEqual(cleanup.raw_message_retention_days, 9)
+
         # Test Boundary
         boundary = self.cfg.get_boundary_config()
         self.assertEqual(boundary.summary_trigger_rounds, 30)
@@ -101,6 +108,20 @@ class TestNewConfigs(unittest.IsolatedAsyncioTestCase):
         should, reason = detector.should_close(window, 1005)
         self.assertTrue(should)
         self.assertEqual(reason, "summary_trigger_rounds")
+
+    def test_raw_message_retention_days_clamped(self):
+        self.assertEqual(
+            PluginConfig({"cleanup": {"raw_message_retention_days": 0}})
+            .get_cleanup_config()
+            .raw_message_retention_days,
+            1,
+        )
+        self.assertEqual(
+            PluginConfig({"cleanup": {"raw_message_retention_days": 99}})
+            .get_cleanup_config()
+            .raw_message_retention_days,
+            14,
+        )
 
 if __name__ == "__main__":
     unittest.main()

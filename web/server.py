@@ -19,7 +19,12 @@ from .registry import PanelRegistry
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from core.repository.base import EventRepository, ImpressionRepository, PersonaRepository
+    from core.repository.base import (
+        EventRepository,
+        ImpressionRepository,
+        PersonaRepository,
+        RawMessageRepository,
+    )
     from core.managers.base import BaseRecallManager
 
     TaskRunner = Callable[[str], Awaitable[bool]]
@@ -149,6 +154,7 @@ class WebuiServer:
         encoder: Any = None,
         context_manager: Any = None,
         summary_trigger_rounds: int = 30,
+        raw_message_repo: RawMessageRepository | None = None,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
@@ -162,6 +168,7 @@ class WebuiServer:
         self._encoder = encoder
         self._context_manager = context_manager
         self._summary_trigger_rounds = summary_trigger_rounds
+        self._raw_message_repo = raw_message_repo
 
         self._initial_config = initial_config or {}
         # 1. 检查是否有持久化哈希文件
@@ -615,8 +622,18 @@ class WebuiServer:
         body = await request.json()
         date = body.get("date", "")
         try:
+            from core.config import PluginConfig
             from core.tasks.summary import regenerate_single_summary
-            content = await regenerate_single_summary(self._event_repo, self._data_dir, self._provider_getter, body.get("group_id"), date, persona_repo=self._persona_repo, impression_repo=self._impression_repo)
+            content = await regenerate_single_summary(
+                event_repo=self._event_repo,
+                data_dir=self._data_dir,
+                provider_getter=self._provider_getter,
+                group_id=body.get("group_id"),
+                date=date,
+                summary_config=PluginConfig(getattr(self, "_initial_config", {})).get_summary_config(),
+                persona_repo=self._persona_repo,
+                impression_repo=self._impression_repo,
+            )
         except Exception as e: return _json({"error": str(e)}, status=500)
         if content is None: return _json({"error": "failed"}, status=503)
         return _json({"content": content})
@@ -671,6 +688,7 @@ class WebuiServer:
                 extractor_config=PluginConfig(self._initial_config).get_extractor_config(),
                 llm_manager=self._llm_manager,
                 encoder=self._encoder,
+                raw_message_repo=self._raw_message_repo,
             )
         except ReextractError as exc:
             status = 404 if exc.code == "not_found" else 400

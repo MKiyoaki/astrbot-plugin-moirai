@@ -6,7 +6,9 @@ the window is persisted as an Event and the on_event_close callback is invoked.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import uuid
 from typing import TYPE_CHECKING, Set
 
 if TYPE_CHECKING:
@@ -15,6 +17,7 @@ if TYPE_CHECKING:
     from ..boundary.window import MessageWindow
     from ..repository.base import EventRepository
     from ..managers.context_manager import ContextManager
+    from ..managers.raw_message_writer import RawMessageWriter
     from ..embedding.encoder import Encoder
     from .identity import IdentityResolver
 
@@ -30,6 +33,7 @@ class MessageRouter:
         context_manager: ContextManager,
         encoder: Encoder,
         on_event_close: Callable[[MessageWindow], Awaitable[None]] | None = None,
+        raw_message_writer: RawMessageWriter | None = None,
     ) -> None:
         self._event_repo = event_repo
         self._resolver = identity_resolver
@@ -37,6 +41,7 @@ class MessageRouter:
         self._context_manager = context_manager
         self._encoder = encoder
         self._on_event_close = on_event_close
+        self._raw_message_writer = raw_message_writer
         
         # Track background brain tasks to allow waiting for them (Phase 1 performance)
         self._brain_tasks: Set[asyncio.Task] = set()
@@ -104,11 +109,43 @@ class MessageRouter:
             window = self._context_manager.get_window(session_id, create=True, group_id=group_id, now=now)
             window.drift_detected = False
 
+        message_id = f"msg_{uuid.uuid4().hex}"
+        content_hash = hashlib.sha256(
+            f"{platform}\0{physical_id}\0{now:.6f}\0{text}".encode("utf-8", "ignore")
+        ).hexdigest()
+        role = "assistant" if platform == "internal" else "user"
+
         # 1. Add message to window immediately (no delay)
         msg_idx = window.message_count
-        window.add_message(uid, text, now, display_name, bot_persona_name=bot_persona_name)
+        window.add_message(
+            uid,
+            text,
+            now,
+            display_name,
+            bot_persona_name=bot_persona_name,
+            message_id=message_id,
+            platform=platform,
+            physical_id=physical_id,
+            role=role,
+            content_hash=content_hash,
+        )
         if bot_persona_name:
             window.last_active_persona = bot_persona_name
+
+        await self._enqueue_raw_message(
+            message_id=message_id,
+            session_id=session_id,
+            group_id=group_id,
+            platform=platform,
+            physical_id=physical_id,
+            sender_uid=uid,
+            display_name=display_name,
+            role=role,
+            text=text,
+            content_hash=content_hash,
+            bot_persona_name=bot_persona_name,
+            created_at=now,
+        )
         
         # 2. Update basic state (without drift info yet)
         self._context_manager.update_state(session_id, drift_detected=False)
@@ -117,6 +154,48 @@ class MessageRouter:
         task = asyncio.create_task(self._process_brain_async(window, msg_idx, text))
         self._brain_tasks.add(task)
         task.add_done_callback(self._brain_tasks.discard)
+
+    async def _enqueue_raw_message(
+        self,
+        *,
+        message_id: str,
+        session_id: str,
+        group_id: str | None,
+        platform: str,
+        physical_id: str,
+        sender_uid: str,
+        display_name: str,
+        role: str,
+        text: str,
+        content_hash: str,
+        bot_persona_name: str | None,
+        created_at: float,
+    ) -> None:
+        if self._raw_message_writer is None:
+            return
+        try:
+            import time as _time
+            from ..domain.models import RawStoredMessage
+
+            await self._raw_message_writer.enqueue(
+                RawStoredMessage(
+                    message_id=message_id,
+                    session_id=session_id,
+                    group_id=group_id,
+                    platform=platform,
+                    physical_id=physical_id,
+                    sender_uid=sender_uid,
+                    display_name=display_name,
+                    role=role,
+                    text=text,
+                    content_hash=content_hash,
+                    bot_persona_name=bot_persona_name,
+                    created_at=created_at,
+                    ingested_at=_time.time(),
+                )
+            )
+        except Exception as exc:
+            logger.warning("[MessageRouter] raw message enqueue failed: %s", exc)
 
     async def _process_brain_async(self, window: MessageWindow, msg_idx: int, text: str) -> None:
         """Background task for embedding calculation and drift detection."""

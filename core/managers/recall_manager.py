@@ -11,6 +11,7 @@ Owns the full hot-path from raw query to ProviderRequest mutation:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import re
 import time
@@ -22,7 +23,7 @@ from ..config import (
     MEMORY_INJECTION_FOOTER,
     MEMORY_INJECTION_HEADER,
 )
-from ..domain.models import Event, EventType
+from ..domain.models import Event, EventType, MessageRef
 from ..utils.formatter import (
     format_events_for_fake_tool_call,
     format_events_for_prompt_safe,
@@ -36,9 +37,10 @@ from ..social.soul_state import SoulState, apply_decay, apply_tanh_elastic, form
 if TYPE_CHECKING:
     from ..config import InjectionConfig, RetrievalConfig, SoulConfig
     from ..retrieval.hybrid import HybridRetriever
-    from ..repository.base import ImpressionRepository, PersonaRepository
+    from ..repository.base import ImpressionRepository, PersonaRepository, RawMessageRepository
 
 _LOG2 = log(2)
+_RAW_DETAIL_PER_EVENT = 8
 
 # Keywords that signal a broad / temporal / summary-type query (macro layer).
 _MACRO_KWS = frozenset([
@@ -196,6 +198,7 @@ class RecallManager(BaseRecallManager):
         persona_repo: PersonaRepository | None = None,
         impression_repo: ImpressionRepository | None = None,
         soul_config: SoulConfig | None = None,
+        raw_message_repo: RawMessageRepository | None = None,
     ) -> None:
         super().__init__()
         self._retriever = retriever
@@ -203,6 +206,7 @@ class RecallManager(BaseRecallManager):
         self._icfg = injection_config
         self._persona_repo = persona_repo
         self._impression_repo = impression_repo
+        self._raw_message_repo = raw_message_repo
         self._soul_cfg = soul_config
         self._soul_states: dict[str, SoulState] = {}
         self._soul_state_accessed: dict[str, float] = {}
@@ -211,6 +215,39 @@ class RecallManager(BaseRecallManager):
         )
         self._last_recall_debug: dict[str, dict] = {}
         self._last_injection_debug: dict[str, dict] = {}
+
+    async def _hydrate_raw_details(self, events: list[Event]) -> list[Event]:
+        if self._raw_message_repo is None or not events:
+            return events
+
+        async def _hydrate(event: Event) -> Event:
+            try:
+                raw_messages = await self._raw_message_repo.list_by_event(event.event_id)
+            except Exception:
+                return event
+            refs = [
+                MessageRef(
+                    sender_uid=message.sender_uid,
+                    timestamp=message.created_at,
+                    content_hash=message.content_hash,
+                    content_preview=message.text[:160],
+                    message_id=message.message_id,
+                )
+                for message in raw_messages[:_RAW_DETAIL_PER_EVENT]
+                if (message.text or "").strip()
+            ]
+            if not refs:
+                return event
+            return dataclasses.replace(event, interaction_flow=refs)
+
+        hydrated = await asyncio.gather(
+            *(_hydrate(event) for event in events),
+            return_exceptions=True,
+        )
+        result: list[Event] = []
+        for original, item in zip(events, hydrated):
+            result.append(original if isinstance(item, Exception) else item)
+        return result
 
     def pop_recall_debug(self, session_id: str) -> dict | None:
         """Return and remove the last recall debug info for a session."""
@@ -531,6 +568,7 @@ class RecallManager(BaseRecallManager):
                 return 0
 
             events = await self.recall(query, group_id=group_id, scope_mode=scope_mode)
+            events = await self._hydrate_raw_details(events)
             await tracker.record_hit("recall", len(events))
 
             if store_debug:

@@ -295,6 +295,7 @@ class CleanupConfig:
     threshold: float = 0.3
     interval_days: int = 7
     retention_days: int = 30
+    raw_message_retention_days: int = 14
 
 
 @dataclass
@@ -461,12 +462,9 @@ class PluginConfig:
         prompt = self._str("summary_system_prompt", "").strip()
         mood_prompt = self._str("summary_mood_system_prompt", "").strip()
         unified_prompt = self._str("summary_unified_system_prompt", "").strip()
-        limit = self._int("summary_word_limit", 300)
-        limit = max(200, min(500, limit))
         return SummaryConfig(
             llm_timeout=self._float("summary_llm_timeout_seconds", 45.0),
             max_events=self._int("summary_max_events", 20),
-            word_limit=limit,
             system_prompt=prompt or _DEFAULT_SUMMARY_SYSTEM_PROMPT,
             mood_source=self._str("summary_mood_source", "llm"),
             mood_prompt=mood_prompt or _DEFAULT_SUMMARY_MOOD_PROMPT,
@@ -584,11 +582,14 @@ class PluginConfig:
         )
 
     def get_cleanup_config(self) -> CleanupConfig:
+        raw_retention_days = self._int("raw_message_retention_days", 14)
+        raw_retention_days = max(1, min(14, raw_retention_days))
         return CleanupConfig(
             enabled=self._bool("memory_cleanup_enabled", True),
             threshold=self._float("memory_cleanup_threshold", 0.3),
             interval_days=self._int("memory_cleanup_interval_days", 7),
             retention_days=self._int("memory_cleanup_retention_days", 30),
+            raw_message_retention_days=raw_retention_days,
         )
 
     def get_embedding_config(self) -> EmbeddingConfig:

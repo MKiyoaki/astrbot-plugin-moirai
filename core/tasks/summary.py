@@ -497,10 +497,14 @@ async def regenerate_single_summary(
     summary_config: SummaryConfig | None = None,
     persona_repo: PersonaRepository | None = None,
     impression_repo: ImpressionRepository | None = None,
+    llm_manager: LLMTaskManager | None = None,
+    encoder: Encoder | None = None,
 ) -> str | None:
     """Regenerate summary for a specific group + date and return new content.
 
-    Used by the WebUI [调用LLM重新总结] button.
+    Used by the WebUI [调用LLM重新总结] button.  Mirrors run_group_summary so
+    that user config, LLM concurrency control, and the NARRATIVE event in DB
+    all stay consistent with automatic generation.
     """
     from ..config import SummaryConfig as _SC
     cfg = summary_config or _SC()
@@ -524,8 +528,9 @@ async def regenerate_single_summary(
     if not events:
         return None
 
-    content, _ = await _generate_summary_for_group(
-        group_id, events, date, provider, cfg, uid_to_name, impression_repo, persona_repo
+    content, topic_text = await _generate_summary_for_group(
+        group_id, events, date, provider, cfg, uid_to_name, impression_repo, persona_repo,
+        llm_manager=llm_manager,
     )
 
     if group_id is None:
@@ -534,4 +539,7 @@ async def regenerate_single_summary(
         summary_dir = data_dir / "groups" / group_id / "summaries"
     summary_dir.mkdir(parents=True, exist_ok=True)
     (summary_dir / f"{date}.md").write_text(content, encoding="utf-8")
+
+    await _upsert_narrative_event(event_repo, group_id, topic_text, date, events, encoder)
+
     return content

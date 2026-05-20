@@ -14,10 +14,11 @@ import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..repository.base import EventRepository
+    from ..repository.base import EventRepository, RawMessageRepository
     from ..config import CleanupConfig
 
 logger = logging.getLogger(__name__)
+RAW_MESSAGE_RETENTION_DAYS = 14
 
 
 async def run_memory_cleanup(
@@ -57,3 +58,27 @@ async def run_memory_cleanup(
         logger.error("[CleanupTask] failed: %s", exc)
 
     return total
+
+
+async def run_raw_message_cleanup(
+    raw_message_repo: RawMessageRepository,
+    retention_days: int = RAW_MESSAGE_RETENTION_DAYS,
+) -> int:
+    """Delete expired raw-message evidence without deleting long-term events."""
+    from ..utils.perf import performance_timer
+
+    async with performance_timer("task_raw_message_cleanup"):
+        days = max(1, min(RAW_MESSAGE_RETENTION_DAYS, int(retention_days)))
+        cutoff_ts = time.time() - days * 86400.0
+        try:
+            deleted = await raw_message_repo.delete_older_than(cutoff_ts)
+            if deleted > 0:
+                logger.info(
+                    "[CleanupTask] deleted %d raw messages (retention=%d days)",
+                    deleted,
+                    days,
+                )
+            return deleted
+        except Exception as exc:
+            logger.error("[CleanupTask] raw message cleanup failed: %s", exc)
+            return 0

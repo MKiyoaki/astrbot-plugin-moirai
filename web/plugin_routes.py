@@ -25,7 +25,12 @@ from .server import _PASSWORD_MASK
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from core.repository.base import EventRepository, ImpressionRepository, PersonaRepository
+    from core.repository.base import (
+        EventRepository,
+        ImpressionRepository,
+        PersonaRepository,
+        RawMessageRepository,
+    )
     from core.managers.base import BaseRecallManager
 
     TaskRunner = Callable[[str], Awaitable[bool]]
@@ -272,6 +277,7 @@ class PluginRoutes:
         encoder: Any = None,
         context_manager: Any = None,
         summary_trigger_rounds: int = 30,
+        raw_message_repo: RawMessageRepository | None = None,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
@@ -289,6 +295,7 @@ class PluginRoutes:
         self._encoder = encoder
         self._context_manager = context_manager
         self._summary_trigger_rounds = summary_trigger_rounds
+        self._raw_message_repo = raw_message_repo
 
         self._relation_enabled: bool = bool(self._initial_config.get("relation_enabled", True))
         self._config_path = data_dir / "plugin_config.json"
@@ -668,6 +675,7 @@ class PluginRoutes:
                 extractor_config=PluginConfig(self._initial_config).get_extractor_config(),
                 llm_manager=self._llm_manager,
                 encoder=self._encoder,
+                raw_message_repo=self._raw_message_repo,
             )
         except ReextractError as exc:
             status = 404 if exc.code == "not_found" else 400
@@ -811,6 +819,7 @@ class PluginRoutes:
                     self._event_repo, self._impression_repo,
                     scope, bot_persona_name,
                     self._provider_getter,
+                    persona_repo=self._persona_repo,
                     llm_manager=self._llm_manager,
                 )
             else:
@@ -873,6 +882,7 @@ class PluginRoutes:
         if not date:
             return _json({"error": "date required"}, status=400)
         try:
+            from core.config import PluginConfig
             from core.tasks.summary import regenerate_single_summary
             content = await regenerate_single_summary(
                 event_repo=self._event_repo,
@@ -880,8 +890,11 @@ class PluginRoutes:
                 provider_getter=self._provider_getter,
                 group_id=group_id,
                 date=date,
+                summary_config=PluginConfig(self._initial_config).get_summary_config(),
                 persona_repo=self._persona_repo,
                 impression_repo=self._impression_repo,
+                llm_manager=self._llm_manager,
+                encoder=self._encoder,
             )
         except Exception as exc:
             logger.warning("[PluginRoutes] regenerate_summary failed: %s", exc)

@@ -15,7 +15,7 @@ from ..extractor.prompts import build_user_prompt
 
 if TYPE_CHECKING:
     from ..embedding.encoder import Encoder
-    from ..repository.base import EventRepository, PersonaRepository
+    from ..repository.base import EventRepository, PersonaRepository, RawMessageRepository
     from ..managers.llm_manager import LLMTaskManager
     from ..domain.models import Event
 
@@ -75,7 +75,40 @@ async def _display_name(persona_repo: PersonaRepository | None, uid: str) -> str
 async def _build_window_from_event(
     event: Event,
     persona_repo: PersonaRepository | None,
+    raw_message_repo: RawMessageRepository | None = None,
 ) -> MessageWindow:
+    if raw_message_repo is not None:
+        try:
+            raw_messages = [
+                message for message in await raw_message_repo.list_by_event(event.event_id)
+                if _is_meaningful_source(message.text or "")
+            ]
+        except Exception:
+            raw_messages = []
+        if raw_messages:
+            window = MessageWindow(
+                session_id=f"reextract:{event.event_id}",
+                group_id=event.group_id,
+                start_time=min(message.created_at for message in raw_messages),
+                last_message_time=max(message.created_at for message in raw_messages),
+            )
+            for message in raw_messages:
+                window.add_message(
+                    uid=message.sender_uid,
+                    text=(message.text or "").strip(),
+                    timestamp=message.created_at,
+                    display_name=message.display_name or await _display_name(
+                        persona_repo, message.sender_uid
+                    ),
+                    bot_persona_name=message.bot_persona_name,
+                    message_id=message.message_id,
+                    platform=message.platform,
+                    physical_id=message.physical_id,
+                    role=message.role,
+                    content_hash=message.content_hash,
+                )
+            return window
+
     refs = event.interaction_flow or []
     source_refs = [
         ref for ref in refs
@@ -111,6 +144,7 @@ async def reextract_event(
     extractor_config: ExtractorConfig | None = None,
     llm_manager: LLMTaskManager | None = None,
     encoder: Encoder | None = None,
+    raw_message_repo: RawMessageRepository | None = None,
 ) -> ReextractResult:
     """Re-run LLM extraction for one existing event.
 
@@ -125,7 +159,7 @@ async def reextract_event(
         raise ReextractError("locked", "重新提取失败：事件已锁定。")
 
     cfg = extractor_config or ExtractorConfig()
-    window = await _build_window_from_event(event, persona_repo)
+    window = await _build_window_from_event(event, persona_repo, raw_message_repo)
     bot_name, bot_desc = await resolve_bot_persona_context(
         persona_repo,
         cfg.persona_influenced_summary,

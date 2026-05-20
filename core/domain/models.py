@@ -48,6 +48,28 @@ class MessageRef:
     timestamp: float
     content_hash: str
     content_preview: str
+    message_id: str = ""
+
+
+@dataclass(slots=True, frozen=True)
+class RawStoredMessage:
+    """Recent raw message persisted as an evidence/detail layer."""
+
+    message_id: str
+    session_id: str
+    group_id: str | None
+    platform: str
+    physical_id: str
+    sender_uid: str
+    display_name: str
+    role: str
+    text: str
+    content_hash: str
+    message_chain_json: str = "[]"
+    metadata_json: str = "{}"
+    bot_persona_name: str | None = None
+    created_at: float = 0.0
+    ingested_at: float = 0.0
 
 
 @dataclass(slots=True)

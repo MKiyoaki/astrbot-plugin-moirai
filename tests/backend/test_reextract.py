@@ -5,8 +5,12 @@ from types import SimpleNamespace
 import pytest
 
 from core.config import ExtractorConfig
-from core.domain.models import Event, MessageRef, Persona
-from core.repository.memory import InMemoryEventRepository, InMemoryPersonaRepository
+from core.domain.models import Event, MessageRef, Persona, RawStoredMessage
+from core.repository.memory import (
+    InMemoryEventRepository,
+    InMemoryPersonaRepository,
+    InMemoryRawMessageRepository,
+)
 from core.tasks.reextract import ReextractError, reextract_event
 
 
@@ -218,3 +222,58 @@ async def test_reextract_event_locked_event_fails() -> None:
 
     assert exc.value.code == "locked"
     assert provider.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_reextract_event_prefers_linked_raw_messages() -> None:
+    event_repo = InMemoryEventRepository()
+    raw_repo = InMemoryRawMessageRepository()
+    await event_repo.upsert(_event(refs=[
+        MessageRef("u1", 1000.0, "old-h1", "stale preview one", "m1"),
+        MessageRef("u2", 1005.0, "old-h2", "stale preview two", "m2"),
+    ]))
+    await raw_repo.upsert_many([
+        RawStoredMessage(
+            message_id="m1",
+            session_id="discord:channel-1",
+            group_id="discord:channel-1",
+            platform="discord",
+            physical_id="u1",
+            sender_uid="u1",
+            display_name="Alice",
+            role="user",
+            text="fresh raw message one",
+            content_hash="h1",
+            created_at=1000.0,
+            ingested_at=1000.1,
+        ),
+        RawStoredMessage(
+            message_id="m2",
+            session_id="discord:channel-1",
+            group_id="discord:channel-1",
+            platform="discord",
+            physical_id="u2",
+            sender_uid="u2",
+            display_name="Bob",
+            role="user",
+            text="fresh raw message two",
+            content_hash="h2",
+            created_at=1005.0,
+            ingested_at=1005.1,
+        ),
+    ])
+    await raw_repo.link_event_messages("e1", ["m1", "m2"])
+    provider = _MockProvider(_json_result())
+
+    result = await reextract_event(
+        event_repo,
+        None,
+        "e1",
+        lambda: provider,
+        raw_message_repo=raw_repo,
+    )
+
+    assert result.source_count == 2
+    assert "fresh raw message one" in provider.last_prompt
+    assert "fresh raw message two" in provider.last_prompt
+    assert "stale preview one" not in provider.last_prompt

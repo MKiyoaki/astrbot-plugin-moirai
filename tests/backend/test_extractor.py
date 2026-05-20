@@ -7,11 +7,11 @@ import pytest
 
 from core.boundary.window import MessageWindow
 from core.config import ExtractorConfig, PluginConfig
-from core.domain.models import Event, MessageRef, Persona
+from core.domain.models import Event, MessageRef, Persona, RawStoredMessage
 from core.extractor.extractor import EventExtractor
 from core.extractor.parser import fallback_extraction, fallback_single_extraction, parse_llm_output
 from core.extractor.prompts import build_user_prompt
-from core.repository.memory import InMemoryEventRepository
+from core.repository.memory import InMemoryEventRepository, InMemoryRawMessageRepository
 
 
 # ---------------------------------------------------------------------------
@@ -383,6 +383,63 @@ async def test_extractor_creates_events_from_llm(tmp_path) -> None:
     assert events[0].topic == "话题1"
     assert events[0].summary == "摘要1"
     assert events[0].salience == pytest.approx(0.8)
+
+
+async def test_extractor_links_persisted_raw_messages() -> None:
+    event_repo = InMemoryEventRepository()
+    raw_repo = InMemoryRawMessageRepository()
+    await raw_repo.upsert_many([
+        RawStoredMessage(
+            message_id="m1",
+            session_id="s",
+            group_id="g1",
+            platform="test",
+            physical_id="u1",
+            sender_uid="u1",
+            display_name="Alice",
+            role="user",
+            text="first raw detail",
+            content_hash="h1",
+            created_at=1000.0,
+            ingested_at=1000.1,
+        ),
+        RawStoredMessage(
+            message_id="m2",
+            session_id="s",
+            group_id="g1",
+            platform="test",
+            physical_id="u2",
+            sender_uid="u2",
+            display_name="Bob",
+            role="user",
+            text="second raw detail",
+            content_hash="h2",
+            created_at=1010.0,
+            ingested_at=1010.1,
+        ),
+    ])
+
+    provider = _MockProvider(
+        '[{"start_idx": 0, "end_idx": 1, "topic": "linked", '
+        '"summary": "linked summary", "chat_content_tags": ["raw"], '
+        '"salience": 0.8, "confidence": 0.9}]'
+    )
+    extractor = EventExtractor(
+        event_repo=event_repo,
+        provider_getter=lambda: provider,
+        raw_message_repo=raw_repo,
+    )
+    w = MessageWindow(session_id="s", group_id="g1", start_time=1000.0, last_message_time=1000.0)
+    w.add_message("u1", "first raw detail", 1000.0, "Alice", message_id="m1", content_hash="h1")
+    w.add_message("u2", "second raw detail", 1010.0, "Bob", message_id="m2", content_hash="h2")
+
+    await extractor(w)
+
+    events = await event_repo.list_by_group("g1")
+    assert len(events) == 1
+    assert [ref.message_id for ref in events[0].interaction_flow] == ["m1", "m2"]
+    linked = await raw_repo.list_by_event(events[0].event_id)
+    assert [message.message_id for message in linked] == ["m1", "m2"]
 
 
 def test_fallback_single_extraction_uses_representative_messages() -> None:

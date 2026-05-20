@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from ..domain.models import Event, Impression, Persona
+from ..domain.models import Event, Impression, Persona, RawStoredMessage
 
 
 class PersonaRepository(ABC):
@@ -254,6 +254,33 @@ class EventRepository(ABC):
     @abstractmethod
     async def upsert_canonical_tag(self, tag_text: str, embedding: list[float]) -> None:
         """Store a new canonical tag and its embedding."""
+        ...
+
+
+class RawMessageRepository(ABC):
+    @abstractmethod
+    async def upsert_many(self, messages: list[RawStoredMessage]) -> None:
+        """Persist raw messages idempotently."""
+        ...
+
+    @abstractmethod
+    async def get(self, message_id: str) -> RawStoredMessage | None:
+        """Return one raw message by id."""
+        ...
+
+    @abstractmethod
+    async def list_by_event(self, event_id: str) -> list[RawStoredMessage]:
+        """Return raw messages linked to an event ordered by event ordinal."""
+        ...
+
+    @abstractmethod
+    async def link_event_messages(self, event_id: str, message_ids: list[str]) -> None:
+        """Persist event -> raw-message links in event-local order."""
+        ...
+
+    @abstractmethod
+    async def delete_older_than(self, cutoff_ts: float) -> int:
+        """Delete raw messages older than cutoff_ts. Returns count deleted."""
         ...
 
 

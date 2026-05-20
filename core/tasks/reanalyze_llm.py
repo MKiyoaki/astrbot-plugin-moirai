@@ -9,7 +9,7 @@ from itertools import permutations
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
-    from core.repository.base import EventRepository, ImpressionRepository
+    from core.repository.base import EventRepository, ImpressionRepository, PersonaRepository
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ async def reanalyze_impressions_llm(
     scope: str,
     bot_persona_name: str | None,
     provider_getter: Callable[[], Any],
-    extractor_config: Any = None,
+    persona_repo: "PersonaRepository | None" = None,
     llm_manager: Any = None,
 ) -> int:
     """Reanalyze all participant-pair impressions in *scope* using an LLM.
@@ -45,6 +45,14 @@ async def reanalyze_impressions_llm(
 
     group_id = None if scope == "global" else scope
     events = await event_repo.list_by_group(group_id, limit=1000, bot_persona_name=bot_persona_name)
+
+    uid_to_name: dict[str, str] = {}
+    if persona_repo is not None:
+        try:
+            personas = await persona_repo.list_all()
+            uid_to_name = {p.uid: p.primary_name for p in personas if p.primary_name}
+        except Exception:
+            pass
 
     participant_events: dict[str, list] = {}
     for ev in events:
@@ -66,12 +74,14 @@ async def reanalyze_impressions_llm(
         if not shared:
             return False
 
+        obs_name = uid_to_name.get(obs_uid, obs_uid)
+        subj_name = uid_to_name.get(subj_uid, subj_uid)
         summary_text = "\n".join(
             f"- [{ev.topic}] {ev.summary}" for ev in shared[-10:]
         )
         prompt = (
-            f"Based on the following shared interaction events between {obs_uid} (observer) "
-            f"and {subj_uid} (subject), rate the observer's impression of the subject.\n\n"
+            f"Based on the following shared interaction events between {obs_name} (observer) "
+            f"and {subj_name} (subject), rate the observer's impression of the subject.\n\n"
             f"{summary_text}\n\n"
             f"Return JSON with exactly two keys: \"benevolence\" (0.0-1.0, higher = more friendly/positive) "
             f"and \"power\" (0.0-1.0, higher = more dominant/authoritative). "
