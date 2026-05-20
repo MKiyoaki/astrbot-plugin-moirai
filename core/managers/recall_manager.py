@@ -429,43 +429,76 @@ class RecallManager(BaseRecallManager):
             episode_limit = final_limit
 
         async with performance_timer("recall_search"):
-            # Encode query once and share across both tiers to avoid double CPU inference.
-            shared_embedding: list[float] | None = None
-            try:
-                _enc_dim = self._retriever._encoder.dim
-                if isinstance(_enc_dim, int) and _enc_dim > 0:
-                    shared_embedding = await self._retriever._encoder.encode(query)
-            except Exception as _enc_exc:
-                logging.getLogger(__name__).warning(
-                    "[RecallManager] pre-encode failed: %s", _enc_exc
+            _log = logging.getLogger(__name__)
+            event_repo = self._retriever._event_repo
+            encoder = self._retriever._encoder
+            enc_dim = encoder.dim
+            bm25_limit = self._retriever._bm25_limit
+            vec_limit = self._retriever._vec_limit
+            common = dict(
+                active_only=cfg.active_only, group_id=group_id, scope_mode=scope_mode
+            )
+
+            # Fast pre-flight: skip encode + vector when the DB has no active events.
+            # COUNT(*) on an empty SQLite table is ~0.1 ms vs 5 s for an API encode call.
+            if enc_dim > 0:
+                from ..domain.models import EventStatus
+                active_count = await event_repo.count_by_status(EventStatus.ACTIVE)
+                if active_count == 0:
+                    narrative_bm25, narrative_vec, bm25, vec = [], [], [], []
+                    _log.debug("[RecallManager] pre-flight: 0 active events, skipping encode+search")
+                    # jump to rerank (which immediately returns [])
+                    goto_rerank = True
+                else:
+                    goto_rerank = False
+            else:
+                goto_rerank = False
+
+            if not goto_rerank:
+                # Run BM25 for both tiers AND encoding in parallel — BM25 needs no embedding.
+                async def _bm25(event_type: str) -> list[Event]:
+                    return await event_repo.search_fts(
+                        query, limit=bm25_limit, event_type=event_type, **common
+                    )
+
+                async def _null_encode() -> None:
+                    return None
+                encode_coro = encoder.encode(query) if enc_dim > 0 else _null_encode()
+                (
+                    narrative_bm25_raw,
+                    episode_bm25_raw,
+                    shared_embedding_raw,
+                ) = await asyncio.gather(
+                    _bm25(EventType.NARRATIVE),
+                    _bm25(EventType.EPISODE),
+                    encode_coro,
+                    return_exceptions=True,
                 )
 
-            # Parallel searches for each tier
-            narrative_task = self._retriever.search_raw(
-                query, active_only=cfg.active_only, group_id=group_id,
-                event_type=EventType.NARRATIVE, scope_mode=scope_mode,
-                embedding=shared_embedding,
-            )
-            episode_task = self._retriever.search_raw(
-                query, active_only=cfg.active_only, group_id=group_id,
-                event_type=EventType.EPISODE, scope_mode=scope_mode,
-                embedding=shared_embedding,
-            )
-            narrative_result, episode_result = await asyncio.gather(
-                narrative_task, episode_task, return_exceptions=True
-            )
-            if isinstance(narrative_result, Exception):
-                _log = logging.getLogger(__name__)
-                _log.warning("[RecallManager] narrative recall tier failed: %s", narrative_result)
-                narrative_bm25, narrative_vec = [], []
-            else:
-                narrative_bm25, narrative_vec = narrative_result
-            if isinstance(episode_result, Exception):
-                _log = logging.getLogger(__name__)
-                _log.warning("[RecallManager] episode recall tier failed: %s", episode_result)
-                bm25, vec = [], []
-            else:
-                bm25, vec = episode_result
+                narrative_bm25 = narrative_bm25_raw if not isinstance(narrative_bm25_raw, Exception) else []
+                bm25 = episode_bm25_raw if not isinstance(episode_bm25_raw, Exception) else []
+                if isinstance(shared_embedding_raw, Exception):
+                    _log.warning("[RecallManager] pre-encode failed: %s", shared_embedding_raw)
+                    shared_embedding: list[float] | None = None
+                else:
+                    shared_embedding = shared_embedding_raw
+
+                # Vector searches run in parallel after embedding is ready.
+                if shared_embedding and enc_dim > 0:
+                    async def _vec(event_type: str) -> list[Event]:
+                        return await event_repo.search_vector(
+                            shared_embedding, limit=vec_limit, event_type=event_type, **common
+                        )
+
+                    narrative_vec_raw, episode_vec_raw = await asyncio.gather(
+                        _vec(EventType.NARRATIVE),
+                        _vec(EventType.EPISODE),
+                        return_exceptions=True,
+                    )
+                    narrative_vec = narrative_vec_raw if not isinstance(narrative_vec_raw, Exception) else []
+                    vec = episode_vec_raw if not isinstance(episode_vec_raw, Exception) else []
+                else:
+                    narrative_vec, vec = [], []
         
         _log = logging.getLogger(__name__)
         _log.debug(
@@ -533,12 +566,25 @@ class RecallManager(BaseRecallManager):
             top_ep = episode_anchors[0]
             _add_event_sync(top_ep)
             async with performance_timer("recall_expand"):
-                if top_ep.inherit_from:
-                    for parent_id in top_ep.inherit_from:
-                        parent = await self._retriever._event_repo.get(parent_id)
-                        if parent:
-                            _add_event_sync(parent)
-                children = await self._retriever._event_repo.get_children(top_ep.event_id)
+                # Fetch all parents and children in parallel instead of sequentially.
+                parent_coros = [self._retriever._event_repo.get(pid) for pid in (top_ep.inherit_from or [])]
+                async def _gather_parents() -> list:
+                    if not parent_coros:
+                        return []
+                    return await asyncio.gather(*parent_coros, return_exceptions=True)
+
+                parents_raw, children = await asyncio.gather(
+                    _gather_parents(),
+                    self._retriever._event_repo.get_children(top_ep.event_id),
+                    return_exceptions=True,
+                )
+                if isinstance(parents_raw, Exception):
+                    parents_raw = []
+                if isinstance(children, Exception):
+                    children = []
+                for item in parents_raw:
+                    if not isinstance(item, Exception) and item:
+                        _add_event_sync(item)
                 for child in children:
                     _add_event_sync(child)
             for anchor in episode_anchors[1:]:
@@ -567,7 +613,52 @@ class RecallManager(BaseRecallManager):
             if self._rcfg.final_limit <= 0:
                 return 0
 
-            events = await self.recall(query, group_id=group_id, scope_mode=scope_mode)
+            # Resolve position up-front (pure CPU) so we know whether to pre-fetch
+            # persona / relation before recall finishes.
+            model_name = getattr(req, "model", None)
+            position, compat_reason = resolve_injection_position(
+                model_name, self._icfg.position
+            )
+            if compat_reason:
+                logger.debug(
+                    "injection_compat: downgraded fake_tool_call → %s for model=%r (%s)",
+                    position, model_name, compat_reason,
+                )
+            token_budget = self._icfg.token_budget
+
+            # Pre-fetch persona and relation in parallel with the recall pipeline.
+            # Both depend only on sender_uid / group_id which are already available,
+            # and the DB queries complete during the encoder's wait time.
+            _needs_persona_relation = position in ("system_prompt", None, "")
+
+            async def _prefetch_persona() -> object:
+                if not (_needs_persona_relation and sender_uid and self._persona_repo):
+                    return None
+                try:
+                    return await self._persona_repo.get(sender_uid)
+                except Exception:
+                    return None
+
+            events, persona_obj_pre, (relation_segment, relation_debug) = await asyncio.gather(
+                self.recall(query, group_id=group_id, scope_mode=scope_mode),
+                _prefetch_persona(),
+                self._build_relation_segment(
+                    sender_uid=sender_uid,
+                    group_id=group_id,
+                    bot_persona_name=bot_persona_name,
+                    position=position,
+                ),
+                return_exceptions=True,
+            )
+            if isinstance(events, Exception):
+                events = []
+            if isinstance(persona_obj_pre, Exception):
+                persona_obj_pre = None
+            if isinstance(relation_segment, Exception) or not isinstance(relation_segment, tuple):
+                relation_segment, relation_debug = "", None
+            else:
+                relation_segment, relation_debug = relation_segment
+
             events = await self._hydrate_raw_details(events)
             await tracker.record_hit("recall", len(events))
 
@@ -583,20 +674,76 @@ class RecallManager(BaseRecallManager):
                     "position": self._icfg.position,
                 }
 
-            async with performance_timer("recall_inject"):
-                model_name = getattr(req, "model", None)
-                position, compat_reason = resolve_injection_position(
-                    model_name, self._icfg.position
-                )
-                if compat_reason:
-                    logger.debug(
-                        "injection_compat: downgraded fake_tool_call → %s for model=%r (%s)",
-                        position, model_name, compat_reason,
+            _inject_t0 = time.perf_counter()
+            try:
+                if position == "fake_tool_call":
+                    if not events:
+                        if store_injection_debug:
+                            self._last_injection_debug[session_id] = _build_injection_debug(
+                                position=position,
+                                events=[],
+                                injected=False,
+                                memory_injected=False,
+                                configured_position=self._icfg.position,
+                                compat_reason=compat_reason,
+                            )
+                        return 0
+                    messages = format_events_for_fake_tool_call(
+                        events, query, token_budget=token_budget
                     )
-                token_budget = self._icfg.token_budget
+                    if store_injection_debug:
+                        self._last_injection_debug[session_id] = _build_injection_debug(
+                            position=position,
+                            events=events,
+                            injected=bool(messages),
+                            memory_injected=bool(messages),
+                            configured_position=self._icfg.position,
+                            compat_reason=compat_reason,
+                        )
+                    if messages:
+                        contexts = getattr(req, "contexts", None)
+                        if contexts is None:
+                            return 0
+                        contexts.extend(messages)
+                    return len(events) if messages else 0
 
-            if position == "fake_tool_call":
-                if not events:
+                # Build memory body (may be empty if no events).
+                body = format_events_for_prompt_safe(events, token_budget=token_budget) if events else ""
+
+                # OCEAN persona injection — use pre-fetched result.
+                persona_segment = ""
+                persona_obj = None
+                if _needs_persona_relation and persona_obj_pre:
+                    try:
+                        persona_segment = format_persona_for_prompt(persona_obj_pre)
+                        persona_obj = persona_obj_pre if persona_segment else None
+                    except Exception:
+                        pass
+
+                soul_segment = ""
+                soul_state_for_debug = None
+                if self._soul_cfg and self._soul_cfg.enabled:
+                    self._evict_soul_states()
+                    state = self._soul_states.get(session_id)
+                    if state is None:
+                        state = from_config(self._soul_cfg)
+                    # Decay first, then boost recall_depth based on how many events were found.
+                    state = apply_decay(state, self._soul_cfg.decay_rate)
+                    delta_recall = min(5.0, len(events) * 0.5)
+                    state = SoulState(
+                        recall_depth=apply_tanh_elastic(state.recall_depth, delta_recall),
+                        impression_depth=state.impression_depth,
+                        expression_desire=state.expression_desire,
+                        creativity=state.creativity,
+                    )
+                    self._soul_states[session_id] = state
+                    self._soul_state_accessed[session_id] = time.time()
+                    soul_segment = format_soul_for_prompt(state)
+                    if soul_segment:
+                        soul_state_for_debug = state
+
+                # Nothing to inject — exit early only if all three segments are empty.
+                if not body and not persona_segment and not relation_segment and not soul_segment:
                     if store_injection_debug:
                         self._last_injection_debug[session_id] = _build_injection_debug(
                             position=position,
@@ -607,126 +754,53 @@ class RecallManager(BaseRecallManager):
                             compat_reason=compat_reason,
                         )
                     return 0
-                messages = format_events_for_fake_tool_call(
-                    events, query, token_budget=token_budget
+
+                # Assemble injection block.
+                segments: list[str] = []
+                if body:
+                    segments.append(body)
+                if persona_segment:
+                    segments.append(persona_segment)
+                if relation_segment:
+                    segments.append(relation_segment)
+                if soul_segment:
+                    segments.append(soul_segment)
+
+                wrapped = (
+                    MEMORY_INJECTION_HEADER
+                    + "\n"
+                    + "\n\n".join(segments)
+                    + "\n"
+                    + MEMORY_INJECTION_FOOTER
                 )
+
                 if store_injection_debug:
                     self._last_injection_debug[session_id] = _build_injection_debug(
                         position=position,
                         events=events,
-                        injected=bool(messages),
-                        memory_injected=bool(messages),
+                        injected=True,
+                        memory_injected=bool(body),
+                        persona=persona_obj if persona_segment else None,
+                        relation=relation_debug,
+                        soul_state=soul_state_for_debug,
                         configured_position=self._icfg.position,
                         compat_reason=compat_reason,
                     )
-                if messages:
-                    contexts = getattr(req, "contexts", None)
-                    if contexts is None:
-                        return 0
-                    contexts.extend(messages)
-                return len(events) if messages else 0
 
-            # Build memory body (may be empty if no events).
-            body = format_events_for_prompt_safe(events, token_budget=token_budget) if events else ""
+                if position == "system_prompt":
+                    sep = "\n\n" if getattr(req, "system_prompt", "") else ""
+                    req.system_prompt = getattr(req, "system_prompt", "") + sep + wrapped
+                elif position == "user_message_before":
+                    req.prompt = wrapped + "\n\n" + getattr(req, "prompt", "")
+                elif position == "user_message_after":
+                    req.prompt = getattr(req, "prompt", "") + "\n\n" + wrapped
+                else:
+                    sep = "\n\n" if getattr(req, "system_prompt", "") else ""
+                    req.system_prompt = getattr(req, "system_prompt", "") + sep + wrapped
 
-            # OCEAN persona injection — soft stylistic heuristic, system_prompt only.
-            persona_segment = ""
-            persona_obj = None
-            if sender_uid and self._persona_repo and position in ("system_prompt", None, ""):
-                try:
-                    persona_obj = await self._persona_repo.get(sender_uid)
-                    if persona_obj:
-                        persona_segment = format_persona_for_prompt(persona_obj)
-                except Exception:
-                    pass
-
-            # Soul Layer injection — short-term emotional state.
-            relation_segment, relation_debug = await self._build_relation_segment(
-                sender_uid=sender_uid,
-                group_id=group_id,
-                bot_persona_name=bot_persona_name,
-                position=position,
-            )
-
-            soul_segment = ""
-            soul_state_for_debug = None
-            if self._soul_cfg and self._soul_cfg.enabled:
-                self._evict_soul_states()
-                state = self._soul_states.get(session_id)
-                if state is None:
-                    state = from_config(self._soul_cfg)
-                # Decay first, then boost recall_depth based on how many events were found.
-                state = apply_decay(state, self._soul_cfg.decay_rate)
-                delta_recall = min(5.0, len(events) * 0.5)
-                state = SoulState(
-                    recall_depth=apply_tanh_elastic(state.recall_depth, delta_recall),
-                    impression_depth=state.impression_depth,
-                    expression_desire=state.expression_desire,
-                    creativity=state.creativity,
-                )
-                self._soul_states[session_id] = state
-                self._soul_state_accessed[session_id] = time.time()
-                soul_segment = format_soul_for_prompt(state)
-                if soul_segment:
-                    soul_state_for_debug = state
-
-            # Nothing to inject — exit early only if all three segments are empty.
-            if not body and not persona_segment and not relation_segment and not soul_segment:
-                if store_injection_debug:
-                    self._last_injection_debug[session_id] = _build_injection_debug(
-                        position=position,
-                        events=[],
-                        injected=False,
-                        memory_injected=False,
-                        configured_position=self._icfg.position,
-                        compat_reason=compat_reason,
-                    )
-                return 0
-
-            # Assemble injection block.
-            segments: list[str] = []
-            if body:
-                segments.append(body)
-            if persona_segment:
-                segments.append(persona_segment)
-            if relation_segment:
-                segments.append(relation_segment)
-            if soul_segment:
-                segments.append(soul_segment)
-
-            wrapped = (
-                MEMORY_INJECTION_HEADER
-                + "\n"
-                + "\n\n".join(segments)
-                + "\n"
-                + MEMORY_INJECTION_FOOTER
-            )
-
-            if store_injection_debug:
-                self._last_injection_debug[session_id] = _build_injection_debug(
-                    position=position,
-                    events=events,
-                    injected=True,
-                    memory_injected=bool(body),
-                    persona=persona_obj if persona_segment else None,
-                    relation=relation_debug,
-                    soul_state=soul_state_for_debug,
-                    configured_position=self._icfg.position,
-                    compat_reason=compat_reason,
-                )
-
-            if position == "system_prompt":
-                sep = "\n\n" if getattr(req, "system_prompt", "") else ""
-                req.system_prompt = getattr(req, "system_prompt", "") + sep + wrapped
-            elif position == "user_message_before":
-                req.prompt = wrapped + "\n\n" + getattr(req, "prompt", "")
-            elif position == "user_message_after":
-                req.prompt = getattr(req, "prompt", "") + "\n\n" + wrapped
-            else:
-                sep = "\n\n" if getattr(req, "system_prompt", "") else ""
-                req.system_prompt = getattr(req, "system_prompt", "") + sep + wrapped
-
-            return len(events)
+                return len(events)
+            finally:
+                await tracker.record("recall_inject", time.perf_counter() - _inject_t0)
 
     def clear_previous_injection(self, req: object) -> int:
         """Strip all injection markers from req. Returns count of blocks removed."""

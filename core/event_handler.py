@@ -409,140 +409,136 @@ class EventHandler:
         self, event: AstrMessageEvent, req: ProviderRequest
     ) -> None:
         """Inject relevant memory context into the request before LLM generation."""
-        from .utils.perf import performance_timer
-        async with performance_timer("response"):
-            recall = self._init.recall
-            if recall is None:
-                return
+        recall = self._init.recall
+        if recall is None:
+            return
 
-            # Use the raw message text as the query to avoid injecting stale memory
-            # as part of the query (req.prompt may already contain injected content).
-            query = event.message_str
-            if not query:
-                query = req.prompt or ""
-            if not query:
-                return
+        # Use the raw message text as the query to avoid injecting stale memory
+        # as part of the query (req.prompt may already contain injected content).
+        query = event.message_str
+        if not query:
+            query = req.prompt or ""
+        if not query:
+            return
 
-            icfg = None
-            session_id = event.unified_msg_origin
-            try:
-                session_id_override, group_id = _resolve_stream_scope(event)
-                if session_id_override:
-                    session_id = session_id_override
-                recall_scope_mode = "group" if group_id is not None else "private"
+        icfg = None
+        session_id = event.unified_msg_origin
+        try:
+            session_id_override, group_id = _resolve_stream_scope(event)
+            if session_id_override:
+                session_id = session_id_override
+            recall_scope_mode = "group" if group_id is not None else "private"
 
-                icfg = self._init.cfg.get_injection_config()
-                astrbot_logger.debug(
-                    "[%s] debug config on request: show_thinking_process=%s, show_system_prompt=%s, show_injection_summary=%s",
-                    _PLUGIN_NAME,
-                    icfg.show_thinking_process,
-                    icfg.show_system_prompt,
-                    icfg.show_injection_summary,
-                )
+            icfg = self._init.cfg.get_injection_config()
+            astrbot_logger.debug(
+                "[%s] debug config on request: show_thinking_process=%s, show_system_prompt=%s, show_injection_summary=%s",
+                _PLUGIN_NAME,
+                icfg.show_thinking_process,
+                icfg.show_system_prompt,
+                icfg.show_injection_summary,
+            )
 
-                # Always capture the active persona so handle_llm_response can
-                # attribute the bot reply under the correct persona name.
-                new_persona = await self._resolve_persona_name(event, req)
-                self._pre_inject_persona_name[session_id] = new_persona
+            # Always capture the active persona so handle_llm_response can
+            # attribute the bot reply under the correct persona name.
+            new_persona = await self._resolve_persona_name(event, req)
+            self._pre_inject_persona_name[session_id] = new_persona
 
-                # Persona-switch detection: if this session's previous request
-                # used a different persona, flush the prior window (minus the
-                # current trigger message) as an Event under the OLD persona so
-                # the streams don't get mixed.
-                old_persona = self._last_active_persona.get(session_id)
-                router = self._init.router
-                if (
-                    old_persona and new_persona
-                    and old_persona != new_persona
-                    and old_persona != "无" and new_persona != "无"
-                    and router is not None
-                ):
-                    try:
-                        await router.flush_window_split_tail(
-                            session_id, tail=1, new_persona=new_persona,
-                        )
-                    except Exception as exc:
-                        astrbot_logger.warning(
-                            "[%s] persona-switch flush failed: %s", _PLUGIN_NAME, exc,
-                        )
-
-                # Stamp the active persona on the current window so 0-bot
-                # Events can still be attributed when extracted.
-                if router is not None and new_persona and new_persona != "无":
-                    try:
-                        router.note_session_persona(session_id, new_persona)
-                    except Exception:
-                        pass
-
-                if new_persona and new_persona != "无":
-                    self._last_active_persona[session_id] = new_persona
-
-                # Capture system_prompt before injection for show_system_prompt feature.
-                if icfg.show_system_prompt:
-                    raw_system_prompt = getattr(req, "system_prompt", "") or ""
-                    self._pre_inject_sys_prompt[session_id] = (
-                        raw_system_prompt
+            # Persona-switch detection: if this session's previous request
+            # used a different persona, flush the prior window (minus the
+            # current trigger message) as an Event under the OLD persona so
+            # the streams don't get mixed.
+            old_persona = self._last_active_persona.get(session_id)
+            router = self._init.router
+            if (
+                old_persona and new_persona
+                and old_persona != new_persona
+                and old_persona != "无" and new_persona != "无"
+                and router is not None
+            ):
+                try:
+                    await router.flush_window_split_tail(
+                        session_id, tail=1, new_persona=new_persona,
                     )
-                    self._pre_inject_skill_names[session_id] = _extract_system_prompt_skill_names(
-                        raw_system_prompt
+                except Exception as exc:
+                    astrbot_logger.warning(
+                        "[%s] persona-switch flush failed: %s", _PLUGIN_NAME, exc,
                     )
 
-                # Resolve sender uid for OCEAN persona injection (best-effort).
-                sender_uid: str | None = None
-                resolver = self._init.resolver
-                if resolver is not None:
-                    try:
-                        sender_uid = await resolver.get_or_create_uid(
-                            platform=event.get_platform_name(),
-                            physical_id=event.get_sender_id(),
-                            display_name=event.get_sender_name(),
-                        )
-                    except Exception:
-                        pass
+            # Stamp the active persona on the current window so 0-bot
+            # Events can still be attributed when extracted.
+            if router is not None and new_persona and new_persona != "无":
+                try:
+                    router.note_session_persona(session_id, new_persona)
+                except Exception:
+                    pass
 
-                if icfg.show_injection_summary:
-                    try:
-                        recall._last_injection_debug[session_id] = {
-                            "injected": False,
-                            "position": "unknown",
-                            "memory": {"injected": False, "count": 0, "events": []},
-                            "persona": None,
-                            "soul": None,
-                            "hidden": [],
-                            "_error": "recall_and_inject 未生成注入摘要",
-                        }
-                    except Exception:
-                        pass
+            if new_persona and new_persona != "无":
+                self._last_active_persona[session_id] = new_persona
 
-                injected_count = await recall.recall_and_inject(
-                    query=query,
-                    req=req,
-                    session_id=session_id,
-                    group_id=group_id,
-                    sender_uid=sender_uid,
-                    store_debug=icfg.show_thinking_process,
-                    store_injection_debug=icfg.show_injection_summary,
-                    scope_mode=recall_scope_mode,
-                    bot_persona_name=new_persona if new_persona and new_persona != "无" else None,
+            # Capture system_prompt before injection for show_system_prompt feature.
+            if icfg.show_system_prompt:
+                raw_system_prompt = getattr(req, "system_prompt", "") or ""
+                self._pre_inject_sys_prompt[session_id] = raw_system_prompt
+                self._pre_inject_skill_names[session_id] = _extract_system_prompt_skill_names(
+                    raw_system_prompt
                 )
-                
-                # Sync VCM state with hit rate feedback
-                cm = self._init.context_manager
-                if cm is not None:
-                    cm.update_state(session_id, recall_hit=(injected_count > 0))
-                    
-            except Exception as exc:
-                astrbot_logger.warning("[%s] recall hook failed: %s", _PLUGIN_NAME, exc)
-                if icfg is not None and icfg.show_injection_summary:
-                    try:
-                        recall._last_injection_debug[session_id] = {
-                            "injected": False, "position": "unknown",
-                            "memory": {"injected": False, "count": 0, "events": []},
-                            "persona": None, "soul": None,
-                            "hidden": [], "_error": str(exc),
-                        }
-                    except Exception:
-                        pass
+
+            # Resolve sender uid for OCEAN persona injection (best-effort).
+            sender_uid: str | None = None
+            resolver = self._init.resolver
+            if resolver is not None:
+                try:
+                    sender_uid = await resolver.get_or_create_uid(
+                        platform=event.get_platform_name(),
+                        physical_id=event.get_sender_id(),
+                        display_name=event.get_sender_name(),
+                    )
+                except Exception:
+                    pass
+
+            if icfg.show_injection_summary:
+                try:
+                    recall._last_injection_debug[session_id] = {
+                        "injected": False,
+                        "position": "unknown",
+                        "memory": {"injected": False, "count": 0, "events": []},
+                        "persona": None,
+                        "soul": None,
+                        "hidden": [],
+                        "_error": "recall_and_inject 未生成注入摘要",
+                    }
+                except Exception:
+                    pass
+
+            injected_count = await recall.recall_and_inject(
+                query=query,
+                req=req,
+                session_id=session_id,
+                group_id=group_id,
+                sender_uid=sender_uid,
+                store_debug=icfg.show_thinking_process,
+                store_injection_debug=icfg.show_injection_summary,
+                scope_mode=recall_scope_mode,
+                bot_persona_name=new_persona if new_persona and new_persona != "无" else None,
+            )
+
+            # Sync VCM state with hit rate feedback
+            cm = self._init.context_manager
+            if cm is not None:
+                cm.update_state(session_id, recall_hit=(injected_count > 0))
+
+        except Exception as exc:
+            astrbot_logger.warning("[%s] recall hook failed: %s", _PLUGIN_NAME, exc)
+            if icfg is not None and icfg.show_injection_summary:
+                try:
+                    recall._last_injection_debug[session_id] = {
+                        "injected": False, "position": "unknown",
+                        "memory": {"injected": False, "count": 0, "events": []},
+                        "persona": None, "soul": None,
+                        "hidden": [], "_error": str(exc),
+                    }
+                except Exception:
+                    pass
 
     async def handle_message(self, event: AstrMessageEvent) -> None:
         """Route incoming messages through the event boundary detector."""

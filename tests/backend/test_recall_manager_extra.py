@@ -6,9 +6,36 @@ from core.domain.models import Event, EventType, Persona, Impression, RawStoredM
 from core.config import RetrievalConfig, InjectionConfig, SoulConfig
 from core.repository.memory import InMemoryRawMessageRepository
 
+def _make_retriever(events_by_type=None):
+    """Build a MagicMock retriever whose _event_repo and _encoder are properly wired."""
+    events_by_type = events_by_type or {}
+    event_repo = AsyncMock()
+    event_repo.count_by_status = AsyncMock(return_value=1)
+    event_repo.get_children = AsyncMock(return_value=[])
+    event_repo.get = AsyncMock(return_value=None)
+
+    def _fts(query, *, limit=20, active_only=True, group_id=None, event_type=None, scope_mode="all"):
+        return events_by_type.get(event_type, [])
+    def _vec(embedding, *, limit=20, active_only=True, group_id=None, event_type=None, scope_mode="all"):
+        return events_by_type.get(event_type, [])
+
+    event_repo.search_fts = AsyncMock(side_effect=_fts)
+    event_repo.search_vector = AsyncMock(side_effect=_vec)
+
+    encoder = MagicMock()
+    encoder.dim = 0  # NullEncoder: skip vector search
+
+    retriever = MagicMock()
+    retriever._event_repo = event_repo
+    retriever._encoder = encoder
+    retriever._bm25_limit = 20
+    retriever._vec_limit = 20
+    return retriever, event_repo
+
+
 @pytest.fixture
 def recall_manager():
-    retriever = AsyncMock()
+    retriever, _ = _make_retriever()
     retrieval_cfg = RetrievalConfig(final_limit=10)
     injection_cfg = InjectionConfig(position="system_prompt")
     persona_repo = AsyncMock()
@@ -24,16 +51,16 @@ def test_classify_granularity():
 @pytest.mark.asyncio
 async def test_recall_macro_granularity(recall_manager):
     rm, retriever, pr, ir = recall_manager
-    
-    # Mock retriever results
+
     narrative_ev = Event(event_id="n1", event_type=EventType.NARRATIVE, end_time=1000.0)
     episode_ev = Event(event_id="e1", event_type=EventType.EPISODE, end_time=1000.0)
-    
-    retriever.search_raw.side_effect = lambda q, **kwargs: (
-        ([narrative_ev], [narrative_ev]) if kwargs.get("event_type") == EventType.NARRATIVE
-        else ([episode_ev], [episode_ev])
+
+    retriever._event_repo.search_fts.side_effect = (
+        lambda q, *, limit=20, active_only=True, group_id=None, event_type=None, scope_mode="all": (
+            [narrative_ev] if event_type == EventType.NARRATIVE else [episode_ev]
+        )
     )
-    
+
     events = await rm.recall("最近总结")
     assert any(e.event_id == "n1" for e in events)
     assert any(e.event_id == "e1" for e in events)
@@ -42,23 +69,22 @@ async def test_recall_macro_granularity(recall_manager):
 async def test_recall_and_inject_system_prompt(recall_manager):
     rm, retriever, pr, ir = recall_manager
     rm._rcfg.final_limit = 5
-    
-    # Mock events
+
     e1 = Event(event_id="e1", topic="test", end_time=1000.0)
-    retriever.search_raw.return_value = ([e1], [e1])
-    
+    retriever._event_repo.search_fts = AsyncMock(return_value=[e1])
+    retriever._event_repo.count_by_status = AsyncMock(return_value=1)
+
     req = MagicMock()
     req.system_prompt = "Existing prompt"
     req.prompt = ""
     req.model = "gpt-4"
-    
-    # Mock persona and impressions
+
     pr.get.return_value = Persona("u1", [], "Alice", {"big_five": {"O": 0.5}}, 0.5, 0.0, 0.0)
     ir.list_by_subject.return_value = []
     ir.list_by_observer.return_value = []
-    
+
     count = await rm.recall_and_inject("query", req, "s1", sender_uid="u1")
-    
+
     assert count == 1
     assert "相关历史记忆" in req.system_prompt
     assert "Alice" in req.system_prompt
@@ -67,31 +93,32 @@ async def test_recall_and_inject_system_prompt(recall_manager):
 async def test_recall_and_inject_fake_tool_call(recall_manager):
     rm, retriever, pr, ir = recall_manager
     rm._icfg.position = "fake_tool_call"
-    
+
     e1 = Event(event_id="e1", topic="test", end_time=1000.0)
-    retriever.search_raw.return_value = ([e1], [e1])
-    
+    retriever._event_repo.search_fts = AsyncMock(return_value=[e1])
+    retriever._event_repo.count_by_status = AsyncMock(return_value=1)
+
     req = MagicMock()
     req.contexts = []
     req.system_prompt = ""
     req.prompt = ""
-    req.model = "gpt-4" # supports tool calls
-    
+    req.model = "gpt-4"
+
     count = await rm.recall_and_inject("query", req, "s1")
     assert count == 1
-    assert len(req.contexts) == 2 # assistant + tool result
+    assert len(req.contexts) == 2  # assistant + tool result
 
 @pytest.mark.asyncio
 async def test_clear_previous_injection(recall_manager):
     rm, retriever, pr, ir = recall_manager
-    
+
     req = MagicMock()
     from core.config import MEMORY_INJECTION_HEADER, MEMORY_INJECTION_FOOTER
     injected_text = f"{MEMORY_INJECTION_HEADER}\nsome content\n{MEMORY_INJECTION_FOOTER}"
     req.system_prompt = f"Original {injected_text}"
     req.prompt = ""
     req.contexts = [{"role": "user", "content": f"Hi {injected_text}"}]
-    
+
     removed = rm.clear_previous_injection(req)
     assert removed >= 2
     assert injected_text not in req.system_prompt
@@ -103,13 +130,12 @@ async def test_soul_state_update(recall_manager):
     req = MagicMock()
     req.system_prompt = ""
     req.prompt = ""
-    retriever.search_raw.return_value = ([], []) # no events
-    
-    # First call - init soul state
+    retriever._event_repo.search_fts = AsyncMock(return_value=[])
+    retriever._event_repo.count_by_status = AsyncMock(return_value=0)
+
     await rm.recall_and_inject("hi", req, "s1")
     state1 = rm._soul_states["s1"]
-    
-    # Second call - state should change (decay)
+
     await rm.recall_and_inject("hi", req, "s1")
     state2 = rm._soul_states["s1"]
     assert state2 is not state1
@@ -117,10 +143,11 @@ async def test_soul_state_update(recall_manager):
 
 @pytest.mark.asyncio
 async def test_recall_and_inject_hydrates_raw_message_details() -> None:
-    retriever = AsyncMock()
+    retriever, event_repo = _make_retriever()
     raw_repo = InMemoryRawMessageRepository()
     event = Event(event_id="e1", topic="raw topic", summary="summary", end_time=1000.0)
-    retriever.search_raw.return_value = ([event], [event])
+    event_repo.search_fts = AsyncMock(return_value=[event])
+    event_repo.count_by_status = AsyncMock(return_value=1)
     await raw_repo.upsert_many([
         RawStoredMessage(
             message_id="m1",

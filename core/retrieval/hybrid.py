@@ -91,67 +91,63 @@ class HybridRetriever:
         scope_mode: str = "all",
     ) -> list[Event]:
         """Return up to `limit` events most relevant to the query string."""
-        from ..utils.perf import performance_timer
-        async with performance_timer("retrieval"):
-            bm25, vec = await self.search_raw(
-                query, active_only=active_only, group_id=group_id, scope_mode=scope_mode
-            )
+        bm25, vec = await self.search_raw(
+            query, active_only=active_only, group_id=group_id, scope_mode=scope_mode
+        )
 
-            if not vec:
-                candidates = bm25
-            else:
-                # Get all candidates with their RRF scores
-                scores_dict = rrf_scores([bm25, vec], k=self._rrf_k)
-                # Map back to event objects
-                event_map = {e.event_id: e for e in (bm25 + vec)}
-                candidates = [event_map[eid] for eid in sorted(scores_dict, key=lambda x: -scores_dict[x])]
+        if not vec:
+            candidates = bm25
+        else:
+            # Get all candidates with their RRF scores
+            scores_dict = rrf_scores([bm25, vec], k=self._rrf_k)
+            # Map back to event objects
+            event_map = {e.event_id: e for e in (bm25 + vec)}
+            candidates = [event_map[eid] for eid in sorted(scores_dict, key=lambda x: -scores_dict[x])]
 
-            if not candidates:
-                return []
+        if not candidates:
+            return []
 
-            if not self._weighted_random or len(candidates) <= 1:
-                return candidates[:limit]
+        if not self._weighted_random or len(candidates) <= 1:
+            return candidates[:limit]
 
-            # Weighted Random Retrieval (Softmax Sampling)
-            # 1. Re-calculate scores for all candidates (if not already done via rrf_scores)
-            if not vec:
-                # BM25-only: use 1/(rank) as proxy for score
-                scores = [1.0 / (i + 1) for i in range(len(candidates))]
-            else:
-                scores = [scores_dict[e.event_id] for e in candidates]
+        # Weighted Random Retrieval (Softmax Sampling)
+        # 1. Re-calculate scores for all candidates (if not already done via rrf_scores)
+        if not vec:
+            # BM25-only: use 1/(rank) as proxy for score
+            scores = [1.0 / (i + 1) for i in range(len(candidates))]
+        else:
+            scores = [scores_dict[e.event_id] for e in candidates]
 
-            # 2. Apply Softmax with Temperature
-            # Softmax(x_i) = exp(x_i / T) / sum(exp(x_j / T))
-            # To avoid overflow, subtract max score
-            max_s = max(scores)
-            exp_scores = [math.exp((s - max_s) / self._sampling_temperature) for s in scores]
-            total = sum(exp_scores)
-            probs = [s / total for s in exp_scores]
+        # 2. Apply Softmax with Temperature
+        # Softmax(x_i) = exp(x_i / T) / sum(exp(x_j / T))
+        # To avoid overflow, subtract max score
+        max_s = max(scores)
+        exp_scores = [math.exp((s - max_s) / self._sampling_temperature) for s in scores]
+        total = sum(exp_scores)
+        probs = [s / total for s in exp_scores]
 
-            # 3. Sample without replacement
-            # Use random.choices to sample indices
-            try:
-                sampled_indices = []
-                remaining_indices = list(range(len(candidates)))
-                remaining_probs = list(probs)
-                
-                count = min(limit, len(candidates))
-                for _ in range(count):
-                    idx_in_remaining = random.choices(range(len(remaining_indices)), weights=remaining_probs, k=1)[0]
-                    sampled_indices.append(remaining_indices.pop(idx_in_remaining))
-                    # Remove and re-normalize remaining probs
-                    remaining_probs.pop(idx_in_remaining)
-                    p_sum = sum(remaining_probs)
-                    if p_sum > 0:
-                        remaining_probs = [p / p_sum for p in remaining_probs]
-                    else:
-                        break
-                        
-                return [candidates[i] for i in sampled_indices]
-            except Exception as exc:
-                import logging
-                logging.getLogger(__name__).error("[HybridRetriever] sampling failed: %s", exc)
-                return candidates[:limit]
+        # 3. Sample without replacement
+        try:
+            sampled_indices = []
+            remaining_indices = list(range(len(candidates)))
+            remaining_probs = list(probs)
+
+            count = min(limit, len(candidates))
+            for _ in range(count):
+                idx_in_remaining = random.choices(range(len(remaining_indices)), weights=remaining_probs, k=1)[0]
+                sampled_indices.append(remaining_indices.pop(idx_in_remaining))
+                remaining_probs.pop(idx_in_remaining)
+                p_sum = sum(remaining_probs)
+                if p_sum > 0:
+                    remaining_probs = [p / p_sum for p in remaining_probs]
+                else:
+                    break
+
+            return [candidates[i] for i in sampled_indices]
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).error("[HybridRetriever] sampling failed: %s", exc)
+            return candidates[:limit]
 
     async def index_event(self, event: Event) -> None:
         """Compute and store the embedding for a single event (background use)."""
