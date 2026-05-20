@@ -78,6 +78,7 @@
 
 ### 待讨论 Feature
 
+- [x] **Event Stream 可视化重构**：已并入 v0.15.0，见下方计划。
 - [ ] **预设关系（Preset Impressions）**：管理员/用户预设 bot 对某人的先验态度（朋友/仇人/亲人），关闭 LLM 提取时也生效
   - 讨论中的分歧：枚举模板映射到 benevolence × power 双轴 vs 数据一致性问题
   - 倾向方案：方案 B（独立 `PresetRelation` 表）+ 仅可视化作为 MVP，后续再开 prompt 注入开关
@@ -89,6 +90,94 @@
 - [ ] **Narrative Event `inherit_from` 下钻**：向 `inherit_from` 写入当天所有 episode event_id 的 payload 开销评估（每天数十个 ID），以及对"宏观→微观"上下文展开的实际价值
 - [ ] **`IMPRESSIONS.md` 反向同步长期去向**：当前 FileWatcher（30s 轮询）+ 正则解析维护成本高；评估是否新增 WebUI 直接 impression 表单提交 API，将 FileWatcher 降级为"离线备份"入口
 - [ ] **分层 RAG 查询分类器精度提升**：当前关键词计数投票；评估接入轻量 embedding 相似度或 LLM 分类，但需权衡延迟开销
+
+---
+
+## v0.15.0 Release metadata & changelog finalization (completed)
+
+### User constraints / 约束
+- 补齐 Event Stream 重构后的 changelog，并确认不单独 bump 版本。
+- 根目录 `CHANGELOG.md` 与 `docs/CHANGELOG.md` 都要记录本次用户可见变化。
+
+### Technical implementation path
+- [x] Phase 1 — 确认 `metadata.yaml` 保持 `v0.15.0`，并补充双 changelog。
+
+### Verification
+- `git status --short -- metadata.yaml CHANGELOG.md docs\CHANGELOG.md` → changed as expected
+
+---
+
+## v0.15.0 Event Stream centered mobius orbit hotfix (completed)
+
+### User constraints / 约束
+- 修正 knot active 指示：不是在锚点旁边画一个莫比乌斯符号，而是让小圆沿以锚点为中心的莫比乌斯/∞ 轨迹运动。
+- 锚点本体作为轨迹中心保持稳定。
+
+### Technical implementation path
+- [x] Phase 1 — 替换侧边 animated path 为 centered animateMotion orbit。
+
+### Verification
+- `cd web/frontend && npm.cmd run typecheck` → passed
+- `pytest tests\frontend\test_loom_layout.py -q` → passed, 45 passed
+
+---
+
+## v0.15.0 Event Stream knot mobius indicator (completed)
+
+### User constraints / 约束
+- 将 thread view 中 knot 的圆形脉冲效果改为锚点旁边的莫比乌斯/∞ 运动指示。
+- 锚点本体保持稳定，不再用扩大圆环表达焦点或选中。
+
+### Technical implementation path
+- [x] Phase 1 — 替换 active/focus knot 的视觉指示，从圆形 glow 改为侧边 animated mobius path。
+
+### Verification
+- `cd web/frontend && npm.cmd run typecheck` → passed
+- `pytest tests\frontend\test_loom_layout.py -q` → passed, 45 passed
+
+---
+
+## v0.15.0 Event Stream focus outline hotfix (completed)
+
+### User constraints / 约束
+- 修复 thread view 中移动/点击圆形 knot 时出现的矩形默认 focus outline。
+- 保留 knot 的键盘可访问性，不移除 `role="button"` / `tabIndex`。
+
+### Technical implementation path
+- [x] Phase 1 — 去除 SVG 默认矩形 outline，改用节点自身的圆形 focus 高亮。
+
+### Verification
+- `cd web/frontend && npm.cmd run typecheck` → passed
+- `pytest tests\frontend\test_loom_layout.py -q` → passed, 45 passed
+
+---
+
+## v0.15.0 Event Stream reconfiguration (completed)
+
+### User constraints / 约束
+- 所有代码改动仅限 `astrbot-plugin-enhanced-memory/` 工作区内。
+- 先更新 TODO，再改源码；每个阶段完成并通过相关验证后再勾选。
+- 不改后端 API、`ApiEvent` 数据形状、全局 store、事件 dialogs，也不修改 core framework 代码。
+- 以 `IMPLEMENTATION.md` 为实现规格，`Event Stream - Demo.html` 为视觉参考；保留既有脏工作区变更，不回滚用户或已有产物改动。
+
+### Technical implementation path
+- [x] Phase 0 — 任务登记与基线验证：登记本计划；已确认 `pytest tests\frontend\test_loom_layout.py tests\frontend\test_ui_polish.py` 与 `npm.cmd run typecheck` 基线通过。
+- [x] Phase 1 — 数据层：新增 `events-aggregator.ts` 与 `session-clustering.ts`，稳定派生 spindle/group 统计与 thread session layout 输入。
+- [x] Phase 2 — Spindle 一级视图：新增 `spindle-grid.tsx`、`spindle-card.tsx`、`mini-thread.tsx`，`/events` 默认渲染 spindle grid。
+- [x] Phase 3 — Thread 二级视图：新增 `event-thread.tsx`，按 `expandedGroupId` 只渲染当前 group，并保留事件选择、highlight、CRUD 入口。
+- [x] Phase 4 — Detail panel 与页面接入：重做 `DetailPanel` 内部视觉，保留 props；完善 `em_focus_event` / `em_highlight_events` 自动展开链路。
+- [x] Phase 5 — 动画、i18n、测试：追加 silk/keyframe CSS 和三语 i18n 新键；更新前端结构测试覆盖新架构。
+- [x] Phase 6 — 构建与同步：运行前端类型检查、结构测试、build，并同步静态产物到运行环境。
+
+### Verification
+- `pytest tests\frontend\test_loom_layout.py tests\frontend\test_ui_polish.py` → baseline passed, 75 passed
+- `cd web/frontend && npm.cmd run typecheck` → baseline passed
+- `pytest tests\frontend -q` → passed, 218 passed, 1 warning
+- `cd web/frontend && npm.cmd run typecheck` → passed
+- `cd web/frontend && npm.cmd run lint` → passed with 2 existing warnings outside this change (`graph/page.tsx`, `sidebar-user-menu.tsx`)
+- `cd web/frontend && npm.cmd run build` → passed（首次普通沙箱构建因 Google Fonts 网络获取失败；批准网络访问后通过）
+- `python tools/sync_frontend.py -f` → passed（同步到 `pages/moirai/`；普通沙箱同样受 Google Fonts 网络限制，批准网络访问后通过）
+- `python run_webui_dev.py` / `cd web/frontend && npm.cmd run dev` → existing local services verified: `http://localhost:2654/api/stats` 200, `http://localhost:3000/events/` 200
 
 ---
 

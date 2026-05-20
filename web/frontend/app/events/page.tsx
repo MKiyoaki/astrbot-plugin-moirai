@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Plus, Trash2, Archive, Search, X, MessageSquareOff } from 'lucide-react'
+import { ChevronLeft, Plus, Trash2, Archive, Search, X, MessageSquareOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -9,7 +9,8 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { PageHeader } from '@/components/layout/page-header'
-import { EventTimeline } from '@/components/events/event-timeline'
+import { SpindleGrid } from '@/components/events/spindle-grid'
+import { EventThread } from '@/components/events/event-thread'
 import { DetailPanel } from '@/components/events/detail-panel'
 import {
   CreateEventDialog, EditEventDialog, RecycleBinDialog, ArchiveEventsDialog, type EventFormData,
@@ -20,36 +21,9 @@ import { TimeGapSelector } from '@/components/shared/time-gap-selector'
 import { FilterBar } from '@/components/shared/filter-bar'
 import { useApp } from '@/lib/store'
 import { getStored, removeStored } from '@/lib/safe-storage'
+import { buildSpindleCards, eventGroupId } from '@/lib/events-aggregator'
 import * as api from '@/lib/api'
 import { DateRange } from 'react-day-picker'
-
-// ── Loom legend ────────────────────────────────────────────────────────────────
-
-function LoomLegend() {
-  return (
-    <>
-      <span className="flex items-center gap-1">
-        <svg width="10" height="10" viewBox="0 0 10 10">
-          <circle cx="5" cy="5" r="4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.7" />
-        </svg>
-        事件
-      </span>
-      <span className="flex items-center gap-1">
-        <svg width="10" height="10" viewBox="0 0 10 10">
-          <circle cx="5" cy="5" r="4" fill="currentColor" fillOpacity="0.7" stroke="currentColor" strokeWidth="1" strokeOpacity="0.7" />
-          <circle cx="5" cy="5" r="1.5" fill="white" />
-        </svg>
-        锁定
-      </span>
-      <span className="flex items-center gap-1">
-        <svg width="10" height="10" viewBox="0 0 10 10">
-          <path d="M5 1 L9 5 L5 9 L1 5 Z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeOpacity="0.6" strokeDasharray="2 1.5" />
-        </svg>
-        封存
-      </span>
-    </>
-  )
-}
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
@@ -70,6 +44,7 @@ export default function EventsPage() {
   const [highlightIds, setHighlightIds]       = useState<Set<string>>(new Set())
   const [detailEvent, setDetailEvent]         = useState<api.ApiEvent | null>(null)
   const [isRefreshing, setIsRefreshing]       = useState(false)
+  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null)
 
   // CRUD dialogs
   const [createOpen, setCreateOpen]           = useState(false)
@@ -123,11 +98,22 @@ export default function EventsPage() {
           removeStored('em_focus_event', 'session')
           setHighlightIds(new Set([focusId]))
           const ev = app.rawEvents.find(e => e.id === focusId)
-          if (ev) setDetailEvent(ev)
+          if (ev) {
+            setExpandedGroupId(eventGroupId(ev))
+            setDetailEvent(ev)
+          }
         }
         if (highlightRaw) {
           removeStored('em_highlight_events', 'session')
-          try { setHighlightIds(new Set(JSON.parse(highlightRaw))) } catch {}
+          try {
+            const ids = JSON.parse(highlightRaw) as string[]
+            setHighlightIds(new Set(ids))
+            const ev = app.rawEvents.find(e => ids.includes(e.id))
+            if (ev) {
+              setExpandedGroupId(eventGroupId(ev))
+              setDetailEvent(ev)
+            }
+          } catch {}
         }
       }, 0)
       hasHandledFocusRef.current = true
@@ -162,13 +148,27 @@ export default function EventsPage() {
   }, [app.rawEvents, search, dateRange, activeTags])
 
   const hasActiveFilters = search || activeTags.size > 0 || !!dateRange
+  const spindles = useMemo(
+    () => buildSpindleCards(app.rawEvents, i18n.events.privateChat),
+    [app.rawEvents, i18n.events.privateChat]
+  )
+  const currentSpindle = useMemo(
+    () => spindles.find(spindle => spindle.groupId === expandedGroupId) ?? null,
+    [spindles, expandedGroupId]
+  )
+  const threadEvents = useMemo(() => {
+    if (!expandedGroupId) return filtered
+    return filtered
+      .filter(ev => eventGroupId(ev) === expandedGroupId)
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+  }, [filtered, expandedGroupId])
 
   const axisEvents = useMemo(() => {
-    if (!detailEvent) return []
+    if (!detailEvent) return currentSpindle?.events ?? []
     return app.rawEvents
-      .filter(e => e.group === detailEvent.group)
+      .filter(e => eventGroupId(e) === eventGroupId(detailEvent))
       .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
-  }, [app.rawEvents, detailEvent])
+  }, [app.rawEvents, currentSpindle, detailEvent])
 
   // ── CRUD handlers ───────────────────────────────────────────────────────────
 
@@ -304,6 +304,20 @@ export default function EventsPage() {
 
   const listActions = (
     <div className="flex items-center gap-2">
+      {expandedGroupId && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 px-2"
+          onClick={() => {
+            setExpandedGroupId(null)
+            setDetailEvent(null)
+          }}
+        >
+          <ChevronLeft className="size-3.5" />
+          <span className="hidden sm:inline text-xs">{i18n.events.backToSpindles}</span>
+        </Button>
+      )}
       <div className="relative hidden md:block">
         <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
         <Input
@@ -348,10 +362,10 @@ export default function EventsPage() {
     <div className="flex h-svh flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out fill-mode-both">
       <PageHeader
         variant="loom"
-        title={i18n.page.events.title}
+        title={currentSpindle?.name ?? i18n.page.events.title}
         loomIssue="ΑΡΓΑΛΕΙΟΣ"
         loomWindow={i18n.page.events.loomWindow}
-        loomLegend={<LoomLegend />}
+        loomLegend={expandedGroupId ? <span>{i18n.events.unspooled}</span> : undefined}
         actions={listActions}
         globalActions={globalActions}
         noToolbarBorder={true}
@@ -389,33 +403,48 @@ export default function EventsPage() {
         />
       ) : (
       <div className="flex flex-1 overflow-hidden" data-testid="loom-layout">
-        <div className="flex flex-1 flex-col overflow-hidden">
-            <EventTimeline
-              events={filtered}
-              timeGap={timeGap}
-              highlightIds={highlightIds}
-              onEventClick={setDetailEvent}
-              selectedEventId={detailEvent?.id || null}
-              onSelectionChange={id => { if (!id) setDetailEvent(null) }}
+        {!expandedGroupId ? (
+          <SpindleGrid
+            spindles={spindles}
+            search={search}
+            activeTags={activeTags}
+            dateRange={dateRange}
+            onOpen={groupId => {
+              setExpandedGroupId(groupId)
+              setDetailEvent(null)
+            }}
+          />
+        ) : (
+          <>
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <EventThread
+                events={threadEvents}
+                timeGap={timeGap}
+                highlightIds={highlightIds}
+                onEventClick={setDetailEvent}
+                selectedEventId={detailEvent?.id || null}
+                onSelectionChange={id => { if (!id) setDetailEvent(null) }}
+                onEdit={ev => { if (app.sudo) setEditEvent(ev); else app.toast(i18n.common.needSudo, 'destructive') }}
+                onDelete={handleDelete}
+                onArchive={handleArchive}
+                accent={currentSpindle?.accent ?? 'var(--primary)'}
+              />
+            </div>
+
+            <DetailPanel
+              focusedEvent={detailEvent}
+              axisEvents={axisEvents}
+              allEvents={currentSpindle?.events ?? threadEvents}
+              onClose={() => setDetailEvent(null)}
               onEdit={ev => { if (app.sudo) setEditEvent(ev); else app.toast(i18n.common.needSudo, 'destructive') }}
               onDelete={handleDelete}
+              onLockToggle={handleLockToggle}
               onArchive={handleArchive}
+              onReextract={handleReextract}
+              onSelect={setDetailEvent}
             />
-        </div>
-
-        {/* Right Detail Panel */}
-        <DetailPanel
-          focusedEvent={detailEvent}
-          axisEvents={axisEvents}
-          allEvents={app.rawEvents}
-          onClose={() => setDetailEvent(null)}
-          onEdit={ev => { if (app.sudo) setEditEvent(ev); else app.toast(i18n.common.needSudo, 'destructive') }}
-          onDelete={handleDelete}
-          onLockToggle={handleLockToggle}
-          onArchive={handleArchive}
-          onReextract={handleReextract}
-          onSelect={setDetailEvent}
-        />
+          </>
+        )}
       </div>
       )}
 

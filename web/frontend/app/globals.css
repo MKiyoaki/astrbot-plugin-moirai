@@ -134,6 +134,68 @@
   will-change: auto;
 }
 
+@keyframes silk-flow {
+  0% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -800; }
+}
+
+@keyframes silk-flow-fast {
+  0% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -1200; }
+}
+
+@keyframes silk-shimmer {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.95; }
+}
+
+@keyframes knot-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.18); }
+}
+
+@keyframes thread-draw {
+  from { stroke-dashoffset: var(--len, 2000); }
+  to { stroke-dashoffset: 0; }
+}
+
+.silk-flow {
+  stroke-dasharray: 380 140;
+  animation: silk-flow 9s linear infinite, silk-shimmer 5s ease-in-out infinite;
+}
+
+.silk-flow.fast {
+  animation: silk-flow-fast 5s linear infinite, silk-shimmer 3s ease-in-out infinite;
+}
+
+.knot-glow {
+  transform-origin: center;
+  animation: knot-pulse 3s ease-in-out infinite;
+}
+
+.knot-mobius-orbit {
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--primary) 45%, transparent));
+}
+
+.event-knot,
+.event-knot:focus,
+.event-knot:focus-visible {
+  outline: none;
+}
+
+.event-knot[data-focused="true"] {
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--primary) 45%, transparent));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .silk-flow,
+  .silk-flow.fast,
+  .knot-glow,
+  .loom-axis-flow {
+    animation: none !important;
+  }
+}
+
 /* Base chart colors and constants */
 :root {
   --chart-1: oklch(0.6 0.11 245);

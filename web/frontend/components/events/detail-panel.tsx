@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useEffect } from 'react'
-import { X, Tag, Users, Zap, BarChart2, Lock } from 'lucide-react'
+import { Archive, X, Tag, Users, Zap, BarChart2, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -14,6 +14,7 @@ import { useApp } from '@/lib/store'
 import { type ApiEvent } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { getTagColor } from '@/lib/colors'
+import { eventGroupId, groupAccent } from '@/lib/events-aggregator'
 
 interface DetailPanelProps {
   focusedEvent: ApiEvent | null
@@ -31,8 +32,18 @@ interface DetailPanelProps {
 
 // ── Mini stats panel shown when no event is selected ─────────────────────────
 
+function SilkStrip({ accent }: { accent: string }) {
+  return (
+    <svg className="h-2 w-full shrink-0" viewBox="0 0 320 8" preserveAspectRatio="none" aria-hidden>
+      <path d="M 0 5 Q 80 -1 160 5 T 320 4" fill="none" stroke={accent} strokeWidth="1.1" strokeLinecap="round" className="silk-flow" />
+    </svg>
+  )
+}
+
 function MiniStats({ events }: { events: ApiEvent[] }) {
+  const { i18n } = useApp()
   if (!events.length) return null
+  const accent = groupAccent(events[0] ? eventGroupId(events[0]) : '__pvt__')
 
   // Top tags
   const tagCounts: Record<string, number> = {}
@@ -67,24 +78,26 @@ function MiniStats({ events }: { events: ApiEvent[] }) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      <SilkStrip accent={accent} />
       {/* Header */}
       <div className="px-4 py-3 border-b shrink-0">
-        <span className="text-sm font-semibold">统计概览</span>
-        <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/60 mt-0.5">
-          EVENT STREAM · SUMMARY
+        <span className="font-serif text-base font-semibold">{i18n.events.unspooled}</span>
+        <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/60">
+          EVENT STREAM / SUMMARY
         </p>
       </div>
 
       <ScrollArea className="flex-1">
-        <div className="p-4 space-y-5">
+        <div className="flex flex-col gap-5 p-4">
 
           {/* Counts */}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {[
-              { label: '总事件', value: events.length, icon: <BarChart2 className="size-3" /> },
-              { label: '已锁定', value: locked, icon: <Lock className="size-3" /> },
+              { label: i18n.events.knotsLabel, value: events.length, icon: <BarChart2 className="size-3" /> },
+              { label: i18n.events.lock, value: locked, icon: <Lock className="size-3" /> },
+              { label: i18n.events.archive, value: archived, icon: <Archive className="size-3" /> },
             ].map(({ label, value, icon }) => (
-              <div key={label} className="rounded-md border bg-muted/20 px-3 py-2 flex flex-col gap-1">
+              <div key={label} className="flex flex-col gap-1 rounded-md border bg-muted/20 px-3 py-2">
                 <div className="flex items-center gap-1 text-[10px] text-muted-foreground">{icon}{label}</div>
                 <span className="text-lg font-semibold font-mono leading-none">{value}</span>
               </div>
@@ -94,7 +107,7 @@ function MiniStats({ events }: { events: ApiEvent[] }) {
           {/* Salience distribution */}
           <div>
             <div className="flex items-center gap-1.5 mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-              <Zap className="size-3" />显著度分布
+              <Zap className="size-3" />{i18n.events.salience}
             </div>
             <div className="flex items-end gap-1 h-14">
               {buckets.map((count, i) => {
@@ -126,7 +139,7 @@ function MiniStats({ events }: { events: ApiEvent[] }) {
           {topTags.length > 0 && (
             <div>
               <div className="flex items-center gap-1.5 mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                <Tag className="size-3" />热门标签
+                <Tag className="size-3" />{i18n.events.tags}
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {topTags.map(([tag, count]) => {
@@ -152,7 +165,7 @@ function MiniStats({ events }: { events: ApiEvent[] }) {
           {topParticipants.length > 0 && (
             <div>
               <div className="flex items-center gap-1.5 mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                <Users className="size-3" />参与者
+                <Users className="size-3" />{i18n.events.participants}
               </div>
               <div className="space-y-1.5">
                 {topParticipants.map(([name, count]) => (
@@ -174,7 +187,7 @@ function MiniStats({ events }: { events: ApiEvent[] }) {
           {/* Archived count */}
           {archived > 0 && (
             <p className="text-[10px] text-muted-foreground/40 font-mono">
-              {archived} 个事件已封存
+              {archived} {i18n.events.archive}
             </p>
           )}
         </div>
@@ -190,6 +203,7 @@ function DetailBody({
 }: DetailPanelProps) {
   const { i18n, sudo } = useApp()
   const focusedCardRef = useRef<HTMLDivElement>(null)
+  const accent = focusedEvent ? groupAccent(eventGroupId(focusedEvent)) : 'var(--primary)'
 
   useEffect(() => {
     if (!focusedEvent) return
@@ -201,9 +215,13 @@ function DetailBody({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      <SilkStrip accent={accent} />
       <div className="flex items-center justify-between px-4 py-3 border-b shrink-0 bg-background/80 backdrop-blur sticky top-0 z-10">
         <div className="flex flex-col min-w-0 pr-4">
-          <span className="text-sm font-semibold truncate">{i18n.events.detailTitle}</span>
+          <span className="font-mono text-[9px] uppercase tracking-[0.2em]" style={{ color: accent }}>
+            {i18n.events.knotPrefix} · {focusedEvent?.id.slice(-6)}
+          </span>
+          <span className="truncate font-serif text-[21px] font-semibold leading-tight">{i18n.events.detailTitle}</span>
           <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/60 truncate">
             {focusedEvent?.group || i18n.events.privateChat} · AXIS
           </p>

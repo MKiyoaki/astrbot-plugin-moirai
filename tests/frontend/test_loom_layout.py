@@ -177,16 +177,14 @@ class TestDetailPanel:
 # ── events/page.tsx ───────────────────────────────────────────────────────────
 
 class TestEventsPageLayout:
-    def test_no_filter_bar_import(self):
+    def test_uses_filter_bar(self):
         src = _read("app/events/page.tsx")
-        # CURRENT IMPLEMENTATION USES FilterBar
         assert "FilterBar" in src, (
-            "events/page.tsx should use FilterBar in current implementation"
+            "events/page.tsx should keep FilterBar for tag/date filtering"
         )
 
-    def test_uses_source_panel(self):
+    def test_does_not_use_source_panel(self):
         src = _read("app/events/page.tsx")
-        # CURRENT IMPLEMENTATION DOES NOT USE SourcePanel yet
         assert "SourcePanel" not in src
 
     def test_uses_detail_panel(self):
@@ -207,14 +205,32 @@ class TestEventsPageLayout:
 
     def test_build_threads_imported(self):
         src = _read("app/events/page.tsx")
-        # CURRENT IMPLEMENTATION DOES NOT USE buildThreads here
         assert "buildThreads" not in src
 
-    def test_loom_legend_rendered(self):
+    def test_uses_spindle_grid_and_event_thread(self):
         src = _read("app/events/page.tsx")
-        assert "LoomLegend" in src, (
-            "events/page.tsx must render LoomLegend component in header"
+        assert "SpindleGrid" in src, "events/page.tsx must render the spindle grid"
+        assert "EventThread" in src, "events/page.tsx must render the expanded thread view"
+        assert "EventTimeline" not in src, (
+            "events/page.tsx should no longer import/render the old multi-column timeline"
         )
+
+    def test_uses_spindle_aggregation(self):
+        src = _read("app/events/page.tsx")
+        assert "buildSpindleCards" in src
+        assert "eventGroupId" in src
+        assert "expandedGroupId" in src
+
+    def test_focus_event_expands_group(self):
+        src = _read("app/events/page.tsx")
+        assert "em_focus_event" in src
+        assert "em_highlight_events" in src
+        assert "setExpandedGroupId(eventGroupId(ev))" in src
+
+    def test_back_to_spindles_action(self):
+        src = _read("app/events/page.tsx")
+        assert "backToSpindles" in src
+        assert "setExpandedGroupId(null)" in src
 
     def test_no_sheet_directly(self):
         """Detail Sheet is now managed by DetailPanel, not inline in events/page."""
@@ -223,6 +239,46 @@ class TestEventsPageLayout:
         assert "SheetContent" not in src, (
             "events/page.tsx must not import SheetContent directly — use DetailPanel"
         )
+
+
+# ── New Event Stream reconfiguration components ───────────────────────────────
+
+class TestEventStreamReconfigurationFiles:
+    def test_aggregator_exists(self):
+        src = _read("lib/events-aggregator.ts")
+        assert "export function buildSpindleCards" in src
+        assert "export interface SpindleCard" in src
+        assert "groupAccent" in src
+
+    def test_session_clustering_exists(self):
+        src = _read("lib/session-clustering.ts")
+        assert "export function buildSessions" in src
+        assert "export interface EventSession" in src
+
+    def test_spindle_grid_exists(self):
+        src = _read("components/events/spindle-grid.tsx")
+        assert "export function SpindleGrid" in src
+        assert "spindles:" in src
+        assert "onOpen" in src
+
+    def test_spindle_card_uses_mini_thread(self):
+        src = _read("components/events/spindle-card.tsx")
+        assert "export function SpindleCard" in src
+        assert "MiniThread" in src
+        assert "unspool" in src
+
+    def test_mini_thread_renders_svg_knots(self):
+        src = _read("components/events/mini-thread.tsx")
+        assert "export function MiniThread" in src
+        assert "silk-flow" in src
+        assert "status === 'archived'" in src
+
+    def test_event_thread_filters_by_page_input(self):
+        src = _read("components/events/event-thread.tsx")
+        assert "export function EventThread" in src
+        assert "buildSessions" in src
+        assert "foreignObject" in src
+        assert "onSelectionChange(null)" in src
 
 
 # ── event-timeline.tsx ────────────────────────────────────────────────────────

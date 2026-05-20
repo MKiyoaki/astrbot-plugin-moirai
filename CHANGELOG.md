@@ -4,6 +4,17 @@
 
 ### 记忆反馈回路 & Soul Layer 信号驱动重构
 
+#### Event Stream 可视化重构
+
+- `/events` 默认视图从旧的多列 `EventTimeline` 改为 spindle grid：按群组 / 私聊聚合事件，展示 knot 数、锁定数、归档数、高显著度统计、热门标签和 mini-thread 预览。
+- 点击 spindle 后进入单组 thread view：只渲染当前群组事件，保留时间间隔聚类、日期分隔、会话括号、事件卡片、编辑 / 删除 / 归档入口和右侧详情面板。
+- 从关系图跳转事件的 `em_focus_event` / `em_highlight_events` 链路保持可用：进入 `/events` 会自动展开对应 spindle 并高亮 knot。
+- `DetailPanel` 保持对外 props 不变，内部更新为更贴合 Moirai 视觉的丝线装饰、KNOT 标识、空态统计与分组 accent。
+- 新增 `events-aggregator.ts` 与 `session-clustering.ts`，前端派生 spindle 数据和 thread session layout；后端 API、`ApiEvent` 数据形状、全局 store 与事件 dialogs 均未改动。
+- 新增 silk/thread/knot 动画，并支持 `prefers-reduced-motion` 收敛；i18n 补充 spindle / knot / unspool 等三语文案。
+- 修复 SVG knot 焦点矩形框问题，并将选中 / 聚焦指示调整为以锚点为中心的莫比乌斯轨道运动效果。
+- 前端结构测试更新至新架构，静态产物已同步到 `pages/moirai/`。
+
 #### 记忆反馈回路（Feedback Loop）
 
 - `Event` 模型新增 `access_count: int` 字段，记录每条记忆被注入给 LLM 的累计次数。

@@ -1,5 +1,36 @@
 ﻿# 变更日志
 
+## [v0.15.0] — 2026-05-20
+
+### Event Stream 可视化重构
+
+**Spindle 一级视图**
+
+- `/events` 默认进入 spindle grid，不再直接显示旧多列 timeline。
+- 事件按群组 / 私聊聚合成 spindle 卡片，展示 knot 数、锁定数、归档数、高显著度统计、热门标签和 mini-thread 预览。
+- 搜索、标签、日期过滤、创建、回收站、归档箱、时间间隔控制等原有入口保留。
+
+**Thread 二级视图**
+
+- 点击 spindle 后进入单组 thread view，只渲染当前 group 的事件。
+- 新 thread view 支持 session 聚类、日期分隔、会话括号、丝线曲线、knot 节点、事件卡片和编辑 / 删除 / 归档入口。
+- `em_focus_event` / `em_highlight_events` 跳转链路保持可用：从关系图进入事件页会自动展开对应 spindle 并高亮 knot。
+
+**Detail Panel 与视觉修正**
+
+- `DetailPanel` 对外 props 不变，内部更新为 Moirai 丝线视觉：顶部 silk 装饰、KNOT 标识、分组 accent、空态统计整理。
+- 修复 SVG knot 聚焦后出现浏览器默认矩形框的问题。
+- 选中 / 聚焦 knot 的指示改为以锚点为中心的莫比乌斯轨道运动效果，而不是额外圆环或旁侧符号。
+
+**实现与兼容**
+
+- 新增 `events-aggregator.ts` 派生 spindle 数据，新增 `session-clustering.ts` 复用 session 分组逻辑。
+- 后端 API、`ApiEvent` 数据形状、全局 store、事件 dialogs 均未改动。
+- 新增 spindle / knot / unspool 等三语 i18n 文案，追加 silk/thread/knot 动画并支持 `prefers-reduced-motion`。
+- 前端结构测试更新至新架构，静态产物已同步到 `pages/moirai/`。
+
+
+
 ## [v0.14.1] — 2026-05-20
 
 ### 配置文案与设置页整理
