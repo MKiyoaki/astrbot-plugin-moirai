@@ -126,13 +126,15 @@ export default function SummaryPage() {
     setConfirmOpen(false)
     setRegenerating(true)
     try {
-      const { content } = await api.summaries.regenerate(current.groupId, current.date)
+      const { content } = await app.runTask(
+        i18n.tasks.regenerateSummary,
+        () => api.summaries.regenerate(current.groupId, current.date),
+      )
       setCurrent(prev => ({ ...prev, content }))
       setSections(parseSections(content))
       setEditing(false)
-      app.toast(i18n.summary.regenerateSuccess)
-    } catch (e: unknown) {
-      app.toast(`${i18n.summary.regenerateError}: ${(e as api.ApiError).body}`, 'destructive')
+    } catch {
+      /* running / failure state surfaced by the TaskDock */
     } finally {
       setRegenerating(false)
     }

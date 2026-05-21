@@ -368,16 +368,17 @@ class EventHandler:
         self._last_active_persona: dict[str, str] = {}
 
     async def _resolve_persona_name(self, event: AstrMessageEvent, req: ProviderRequest) -> str | None:
-        # SSOT short-circuit: an explicit bucket override pins every reply (and
-        # therefore every Event / Impression) to one persona name regardless of
-        # platform or AstrBot session config.
+        # SSOT short-circuit candidate: an explicit bucket override pins every
+        # reply (and therefore every Event / Impression) to one persona name
+        # regardless of platform or AstrBot session config.
         try:
             override = self._init.cfg.bot_persona_name_override
         except Exception:
             override = ""
-        if override:
-            return override
 
+        # Collect EVERY candidate source up front so the resolution is fully
+        # diagnosable from a single log line (see [persona-resolve] below).
+        session_cfg_name: str | None = None
         try:
             from astrbot.core import sp
 
@@ -387,17 +388,14 @@ class EventHandler:
                 key="session_service_config",
                 default={},
             )
-            name = _normalize_persona_name(session_cfg.get("persona_id"))
-            if name:
-                return name
+            session_cfg_name = _normalize_persona_name(session_cfg.get("persona_id"))
         except Exception:
             pass
 
         conversation = getattr(req, "conversation", None)
-        name = _normalize_persona_name(getattr(conversation, "persona_id", None))
-        if name:
-            return name
+        conv_name = _normalize_persona_name(getattr(conversation, "persona_id", None))
 
+        default_name: str | None = None
         try:
             context = getattr(self._init, "_context", None)
             get_config = getattr(context, "get_config", None)
@@ -409,11 +407,54 @@ class EventHandler:
                 if isinstance(cfg, dict):
                     provider_settings = cfg.get("provider_settings", cfg)
                     if isinstance(provider_settings, dict):
-                        return _normalize_persona_name(provider_settings.get("default_personality"))
+                        default_name = _normalize_persona_name(
+                            provider_settings.get("default_personality")
+                        )
         except Exception:
             pass
 
-        return None
+        # Resolve by priority: explicit override > AstrBot session-service force
+        # rule > conversation persona > global default. This mirrors AstrBot's
+        # own precedence — a session_service_config persona shadows /persona
+        # switches (AstrBot's /persona command only writes conversation.persona_id).
+        if override:
+            resolved, source = override, "override"
+        elif session_cfg_name:
+            resolved, source = session_cfg_name, "session_service_config"
+        elif conv_name:
+            resolved, source = conv_name, "conversation"
+        elif default_name:
+            resolved, source = default_name, "default_personality"
+        else:
+            resolved, source = None, "none"
+
+        astrbot_logger.info(
+            "[%s] [persona-resolve] override=%r session_cfg=%r conv=%r default=%r -> %r (source=%s)",
+            _PLUGIN_NAME, override or "", session_cfg_name, conv_name, default_name,
+            resolved, source,
+        )
+
+        # Mismatch warning: AstrBot's session-level force rule silently overrides
+        # a /persona switch. If the two disagree the user almost certainly
+        # switched via /persona but a stale force rule keeps pinning the old
+        # persona — which is exactly why new memory events keep landing under
+        # the old name.
+        if (
+            not override
+            and session_cfg_name
+            and conv_name
+            and session_cfg_name != conv_name
+            and session_cfg_name != "无" and conv_name != "无"
+        ):
+            astrbot_logger.warning(
+                "[%s] [persona-resolve] AstrBot 会话级强制人格规则 "
+                "(session_service_config.persona_id=%r) 正在覆盖对话人格 (%r)，"
+                "事件将持续归入 %r。如需让 /persona 切换生效，请在 AstrBot 面板 → "
+                "会话管理 中清除该会话的人格『自定义规则』。",
+                _PLUGIN_NAME, session_cfg_name, conv_name, session_cfg_name,
+            )
+
+        return resolved
 
     async def handle_llm_request(
         self, event: AstrMessageEvent, req: ProviderRequest

@@ -804,6 +804,15 @@ export const zh = {
       backup_retention_days: { label: '备份保留天数', hint: '超过该天数的旧备份将被自动删除' },
     },
   },
+  tasks: {
+    reextract: '重新抽取事件',
+    regenerateSummary: '重新生成摘要',
+    reanalyzeImpressions: '重新分析印象',
+    mergePersonas: '合并人格',
+    running: '运行中',
+    success: '已完成',
+    failed: '失败',
+  },
   common: {
     onThisPage: '本页导览',
     create: '创建',
@@ -1701,6 +1710,15 @@ export const ja = {
       backup_retention_days: { label: 'バックアップ保持日数', hint: '指定した日数を超えたバックアップを自動削除' },
     },
       },
+      tasks: {
+    reextract: 'イベント再抽出',
+    regenerateSummary: '要約を再生成',
+    reanalyzeImpressions: '印象を再分析',
+    mergePersonas: 'ペルソナ統合',
+    running: '実行中',
+    success: '完了',
+    failed: '失敗',
+  },
       common: {
     onThisPage: 'このページの構成',
     create: '作成',
@@ -2615,6 +2633,15 @@ export const en = {
       backup_enabled: { label: 'Enable Daily Backup', hint: 'Automatically back up database daily' },
       backup_retention_days: { label: 'Backup Retention Days', hint: 'Days to keep old backups before deletion' },
     },
+  },
+  tasks: {
+    reextract: 'Re-extract Event',
+    regenerateSummary: 'Regenerate Summary',
+    reanalyzeImpressions: 'Reanalyze Impressions',
+    mergePersonas: 'Merge Personas',
+    running: 'Running',
+    success: 'Done',
+    failed: 'Failed',
   },
   common: {
     onThisPage: 'On This Page',

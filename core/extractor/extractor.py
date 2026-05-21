@@ -49,6 +49,31 @@ def _is_valid_tag(tag: str) -> bool:
     if _SENTENCE_RE.search(t):
         return False
     return True
+
+
+def _latest_persona_name(messages: list) -> str | None:
+    """Return the ``bot_persona_name`` carried by the most recent message that
+    has one.
+
+    Recency beats frequency: a window that straddles a persona switch must be
+    attributed to whichever persona was active when the window closed, not the
+    one that merely contributed more messages. Falls back to iteration order
+    when timestamps are missing.
+    """
+    latest_key: tuple[float, int] | None = None
+    latest_name: str | None = None
+    for idx, msg in enumerate(messages):
+        name = getattr(msg, "bot_persona_name", None)
+        if not name:
+            continue
+        ts = getattr(msg, "timestamp", None)
+        key = (float(ts) if ts is not None else 0.0, idx)
+        if latest_key is None or key >= latest_key:
+            latest_key = key
+            latest_name = name
+    return latest_name
+
+
 _last_no_provider_warn_ts: float = 0.0
 
 
@@ -162,9 +187,6 @@ class EventExtractor:
             )
         else:
             self._partitioner = LlmPartitioner()
-
-        # Cache for bot persona: (name, description)
-        self._bot_persona_cache: tuple[str | None, str | None] | None = None
 
     async def _init_tag_seeds(self) -> None:
         """Initialize canonical_tags from configuration seeds via a single batch encode."""
@@ -312,15 +334,11 @@ class EventExtractor:
                     event, bot_persona_name=self._bot_persona_override
                 )
             elif self._persona_influenced_summary:
-                # Prefer persona name from this event's own sub_messages; fall back to the
-                # window-level winner so events with no bot message still get tagged.
-                from collections import Counter as _Counter
-                sub_counts: _Counter[str] = _Counter()
-                for m in sub_messages:
-                    n = getattr(m, "bot_persona_name", None)
-                    if n:
-                        sub_counts[n] += 1
-                event_persona = (sub_counts.most_common(1)[0][0] if sub_counts else bot_name)
+                # Prefer the persona of the most RECENT bot message in this
+                # event's own sub_messages (recency, not frequency); fall back
+                # to the window-level winner so events with no bot message
+                # still get tagged.
+                event_persona = _latest_persona_name(sub_messages) or bot_name
                 if event_persona:
                     event = dataclasses.replace(event, bot_persona_name=event_persona)
 
@@ -386,24 +404,22 @@ class EventExtractor:
     async def _resolve_window_persona(self, window: MessageWindow) -> tuple[str | None, str | None]:
         """Return (persona_name, persona_description) inferred from the window's bot messages.
 
-        If the window contains messages tagged with a `bot_persona_name`, pick the most
-        frequent one and resolve its description from the persona repository (by name).
-        Falls back to the legacy `_get_bot_persona()` (internal-bound persona) when no
-        bot message in the window carries a persona name.
+        Picks the persona carried by the **most recent** bot message in the
+        window (recency, not frequency): a window that straddles a persona
+        switch must be attributed to whichever persona was active when the
+        window closed, not the one that merely has more messages.
+        Falls back to the session's last known active persona, then to the
+        legacy `_get_bot_persona()` (internal-bound persona).
         """
         if not self._persona_influenced_summary:
             return None, None
 
-        # Count personas carried by bot messages in this window.
-        from collections import Counter
-        counts: Counter[str] = Counter()
-        for msg in window.messages:
-            name = getattr(msg, "bot_persona_name", None)
-            if name:
-                counts[name] += 1
-
-        if counts:
-            best_name, _ = counts.most_common(1)[0]
+        best_name = _latest_persona_name(window.messages)
+        if best_name:
+            logger.debug(
+                "[EventExtractor] [window-persona] %d msgs -> latest bot persona %r",
+                len(window.messages), best_name,
+            )
             desc = await self._lookup_persona_description(best_name)
             return best_name, desc or best_name
 
@@ -411,9 +427,16 @@ class EventExtractor:
         # active persona (set by handle_llm_request via note_session_persona).
         last = getattr(window, "last_active_persona", None)
         if last:
+            logger.debug(
+                "[EventExtractor] [window-persona] no bot msg, using last_active_persona %r",
+                last,
+            )
             desc = await self._lookup_persona_description(last)
             return last, desc or last
 
+        logger.debug(
+            "[EventExtractor] [window-persona] no bot msg / no last persona, legacy fallback"
+        )
         return await self._get_bot_persona()
 
     async def _lookup_persona_description(self, persona_name: str) -> str | None:
@@ -433,17 +456,16 @@ class EventExtractor:
         return None
 
     async def _get_bot_persona(self) -> tuple[str | None, str | None]:
-        """Return (primary_name, description) for the bot persona. Use cache if available.
-        """
-        if self._bot_persona_cache is not None:
-            return self._bot_persona_cache
+        """Return (primary_name, description) for the bot persona.
 
+        Resolved fresh on every call — caching it permanently meant a global
+        persona change was never picked up without a plugin reload.
+        """
         try:
-            self._bot_persona_cache = await resolve_bot_persona_context(
+            return await resolve_bot_persona_context(
                 self._persona_repo,
                 self._persona_influenced_summary,
             )
-            return self._bot_persona_cache
         except Exception as exc:
             logger.debug("[EventExtractor] bot persona lookup failed: %s", exc)
         return None, None

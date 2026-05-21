@@ -1,5 +1,47 @@
 ﻿# 变更日志
 
+## [v0.16.1] — 2026-05-21
+
+### 人格归属修复 & 手动操作进度弹窗
+
+**人格归属诊断与修复**
+
+切换人格后，新抽取的记忆事件仍持续归入旧人格。根因在于
+AstrBot 的 `/persona` 命令只更新对话人格 `conversation.persona_id`，而在 AstrBot 面板
+「会话管理」里设置的会话级强制人格规则 `session_service_config.persona_id` 优先级更高，
+会持续盖过 `/persona` 切换 —— AstrBot 自身也会就此发出提醒。
+
+- `event_handler._resolve_persona_name`：新增 `[persona-resolve]` 诊断日志，每次请求一行
+  列出 override / session_cfg / conversation / default 全部候选来源与最终胜出者，让归属
+  来源一目了然。
+- 当会话级强制人格规则与对话人格不一致时输出 WARNING，明确提示前往 AstrBot 面板 →
+  会话管理 清除该会话的人格「自定义规则」。
+- `extractor._resolve_window_persona` 及逐事件归属：由「出现次数最多的 `bot_persona_name`」
+  改为「最近一条 bot 消息的 `bot_persona_name`」（recency 而非 frequency）。新增模块级
+  辅助函数 `_latest_persona_name`。跨人格切换或长期不关闭的窗口不再被旧人格的消息票数
+  压过，正确归属到窗口关闭时生效的人格。
+- `extractor._get_bot_persona`：移除永久缓存 `_bot_persona_cache`，全局人格变更无需重载
+  插件即可被识别。
+- 新增测试 `test_extractor_window_persona_uses_recency_not_frequency`，extractor 全量
+  31 个测试通过。
+
+**手动 LLM 操作进度弹窗（TaskDock）**
+
+手动触发的 LLM 操作（重新抽取、重新生成摘要、重新分析印象、合并人格）此前仅有按钮置灰
++ 2.8 秒 toast，长操作状态不清晰。
+
+- 新增右下角常驻 TaskDock：每个任务一张卡片，运行中显示不定长动画进度条，结束后翻为
+  成功（绿色对勾，4 秒后自动消失）或失败（红色叉，常驻并显示错误信息），并显示耗时。
+- `lib/store.tsx` 新增任务 store 与 `runTask(label, fn)` 辅助函数；上述四个同步 LLM
+  操作全部接入。
+- 新增 `components/shared/task-dock.tsx`、`globals.css` 不定长进度条关键帧，任务文案
+  三语补全。
+
+**其他**
+
+- 修复 Event Stream 展开视图（`EventThread`）左侧 loom 轴占位过宽（208px → 132px）、
+  最小宽度过大（552px → 392px）导致开启详情面板时事件卡片被横向裁切的问题。
+
 ## [v0.16.0] — 2026-05-21
 
 ### 多账号绑定 / 跨平台人格合并

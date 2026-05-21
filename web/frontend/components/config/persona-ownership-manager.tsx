@@ -17,7 +17,7 @@ type PersonaChoice = string
 const CUSTOM = '__custom__'
 
 export function PersonaOwnershipManager({ embedded = false }: { embedded?: boolean }) {
-  const { i18n, sudo, toast, setCurrentPersona, currentPersonaName } = useApp()
+  const { i18n, sudo, toast, setCurrentPersona, currentPersonaName, runTask } = useApp()
   const t = i18n.config.ownership
   const [bots, setBots] = useState<api.BotPersonaItem[]>([])
   const [source, setSource] = useState<PersonaChoice>(api.LEGACY_PERSONA_TOKEN)
@@ -94,17 +94,19 @@ export function PersonaOwnershipManager({ embedded = false }: { embedded?: boole
     if (!canSubmit) return
     setSubmitting(true)
     try {
-      const result = await api.graph.mergePersonas(resolvedSource, resolvedTarget, mode)
+      const result = await runTask(
+        i18n.tasks.mergePersonas,
+        () => api.graph.mergePersonas(resolvedSource, resolvedTarget, mode),
+      )
       setPreview(result)
-      toast(t.success)
       const sourceName = resolvedSource === api.LEGACY_PERSONA_TOKEN ? null : resolvedSource
       if (currentPersonaName === sourceName) {
         setCurrentPersona(resolvedTarget === api.LEGACY_PERSONA_TOKEN ? null : resolvedTarget, 'single')
       }
       await loadBots()
       setConfirming(false)
-    } catch (e) {
-      toast(`${t.failed}: ${(e as api.ApiError).body || ''}`, 'destructive')
+    } catch {
+      /* running / failure state surfaced by the TaskDock */
     } finally {
       setSubmitting(false)
     }

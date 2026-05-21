@@ -455,6 +455,40 @@ async def test_extractor_same_persona_name_shares_bucket_across_platforms() -> N
     assert events[0].bot_persona_name == "Gariton Ver 2"
 
 
+async def test_extractor_window_persona_uses_recency_not_frequency() -> None:
+    """A window that straddles a persona switch attributes to the persona of
+    the MOST RECENT bot message, not the one with the most messages."""
+    event_repo = InMemoryEventRepository()
+    json_resp = (
+        '[{"start_idx": 0, "end_idx": 3, "topic": "t", "summary": "s", '
+        '"chat_content_tags": [], "salience": 0.5, "confidence": 0.5}]'
+    )
+    extractor = EventExtractor(
+        event_repo=event_repo,
+        provider_getter=lambda: _MockProvider(json_resp),
+        extractor_config=ExtractorConfig(persona_influenced_summary=True),
+    )
+
+    w = MessageWindow(session_id="s", group_id="g1", start_time=1000.0,
+                      last_message_time=1000.0)
+    # Three older replies under the OLD persona...
+    w.add_message("bot", "old reply 1", 1000.0, "丰川祥子",
+                  bot_persona_name="丰川祥子", platform="qq", role="assistant")
+    w.add_message("bot", "old reply 2", 1010.0, "丰川祥子",
+                  bot_persona_name="丰川祥子", platform="qq", role="assistant")
+    w.add_message("bot", "old reply 3", 1020.0, "丰川祥子",
+                  bot_persona_name="丰川祥子", platform="qq", role="assistant")
+    # ...then a single newer reply under the NEW persona after the switch.
+    w.add_message("bot", "new reply", 1030.0, "OC",
+                  bot_persona_name="OC", platform="qq", role="assistant")
+    await extractor(w)
+
+    events = await event_repo.list_by_group("g1")
+    assert len(events) == 1
+    # Frequency would pick 丰川祥子 (3 > 1); recency must pick OC.
+    assert events[0].bot_persona_name == "OC"
+
+
 async def test_extractor_creates_events_from_llm(tmp_path) -> None:
     event_repo = InMemoryEventRepository()
     

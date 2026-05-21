@@ -244,13 +244,12 @@ export default function EventsPage() {
       i18n.events.reextractConfirm,
       async () => {
         try {
-          const result = await api.events.reextract(ev.id)
-          app.toast(i18n.events.reextractSuccess.replace('{n}', String(result.source_count)))
+          const result = await app.runTask(i18n.tasks.reextract, () => api.events.reextract(ev.id))
           setDetailEvent(result.event)
           await loadEvents()
           app.refreshStats()
-        } catch (e: any) {
-          app.toast(e?.body || e?.message || i18n.events.reextractFailed, 'destructive')
+        } catch {
+          /* running / failure state surfaced by the TaskDock */
         }
       }
     )

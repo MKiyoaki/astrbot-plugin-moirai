@@ -332,13 +332,14 @@ export default function GraphPage() {
   const handleReanalyzeConfirm = async (method: ReanalyzeMethod) => {
     setIsReanalyzing(true)
     try {
-      const result = await api.graph.reanalyzeImpressions(pendingReanalyzeScope, personaFilter, method)
-      app.toast(i18n.graph.reanalyzeImpressionsSuccess.replace('{count}', String(result.updated)))
+      await app.runTask(
+        i18n.tasks.reanalyzeImpressions,
+        () => api.graph.reanalyzeImpressions(pendingReanalyzeScope, personaFilter, method),
+      )
       await loadGraph()
       await app.refreshStats()
-    } catch (e: unknown) {
-      const detail = (e as import('@/lib/api').ApiError)?.body
-      app.toast(detail ? `${i18n.graph.reanalyzeImpressionsError}: ${detail}` : i18n.graph.reanalyzeImpressionsError, 'destructive')
+    } catch {
+      /* running / failure state surfaced by the TaskDock */
     } finally {
       setIsReanalyzing(false)
     }

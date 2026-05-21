@@ -7,6 +7,7 @@ import { Activity, Search, Settings } from 'lucide-react'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from './app-sidebar'
 import { Toaster } from '@/components/shared/toaster'
+import { TaskDock } from '@/components/shared/task-dock'
 import { LoginScreen } from '@/components/shared/login-screen'
 import { FirstLaunchPersonaPicker } from '@/components/shared/first-launch-persona-picker'
 import { QuickSetupWizard } from '@/components/config/quick-setup-wizard'
@@ -169,6 +170,7 @@ function Shell({ children }: { children: ReactNode }) {
       </SidebarInset>
       <MobileTabBar />
       <Toaster />
+      <TaskDock />
       <FirstLaunchPersonaPicker />
       <QuickSetupWizard
         open={wizardOpen}

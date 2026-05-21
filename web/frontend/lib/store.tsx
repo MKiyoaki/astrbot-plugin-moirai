@@ -8,6 +8,19 @@ import { getStored, setStored } from './safe-storage'
 // ── Types ─────────────────────────────────────────────────────────────────
 export interface ToastMessage { id: string; message: string; variant?: 'default' | 'destructive' }
 
+export type TaskStatus = 'running' | 'success' | 'error'
+
+/** A long-running manual operation (LLM re-extract / regenerate / reanalyze /
+ *  persona merge) tracked in the bottom-right TaskDock. */
+export interface TaskItem {
+  id: string
+  label: string
+  status: TaskStatus
+  detail?: string
+  startedAt: number
+  finishedAt?: number
+}
+
 export type PersonaViewMode = 'remember' | 'all' | 'force_pick'
 
 export interface PersonaConfig {
@@ -45,6 +58,8 @@ interface AppState {
   isDirty: boolean
   // Toast
   toasts: ToastMessage[]
+  // Long-running manual tasks (TaskDock)
+  tasks: TaskItem[]
 }
 
 interface AppActions {
@@ -61,6 +76,12 @@ interface AppActions {
   setIsDirty: (v: boolean) => void
   toast: (msg: string, variant?: 'default' | 'destructive', ms?: number) => void
   dismissToast: (id: string) => void
+  // Task tracking — used to surface long-running manual LLM operations
+  startTask: (label: string) => string
+  finishTask: (id: string, status: 'success' | 'error', detail?: string) => void
+  dismissTask: (id: string) => void
+  /** Track an async operation as a TaskDock entry: running → success/error. */
+  runTask: <T>(label: string, fn: () => Promise<T>) => Promise<T>
 }
 
 const AppContext = createContext<(AppState & AppActions) | null>(null)
@@ -94,6 +115,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [rawEvents, setRawEvents] = useState<api.ApiEvent[]>([])
   const [isDirty, setIsDirty] = useState(false)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
+  const [tasks, setTasks] = useState<TaskItem[]>([])
 
   // i18n - Initialise with 'zh' to match SSR default
   const [lang, _setLang] = useState<'zh' | 'en' | 'ja'>('zh')
@@ -219,6 +241,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setToasts(prev => prev.filter(t => t.id !== id))
   }, [])
 
+  // ── Task tracking ──────────────────────────────────────────────────────────
+  const taskTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  const startTask = useCallback((label: string) => {
+    const id = Math.random().toString(36).slice(2)
+    setTasks(prev => [...prev, { id, label, status: 'running', startedAt: Date.now() }])
+    return id
+  }, [])
+
+  const dismissTask = useCallback((id: string) => {
+    const timer = taskTimers.current.get(id)
+    if (timer) { clearTimeout(timer); taskTimers.current.delete(id) }
+    setTasks(prev => prev.filter(t => t.id !== id))
+  }, [])
+
+  const finishTask = useCallback((id: string, status: 'success' | 'error', detail?: string) => {
+    setTasks(prev => prev.map(t =>
+      t.id === id ? { ...t, status, detail, finishedAt: Date.now() } : t
+    ))
+    // Success auto-dismisses; errors stay until the user closes them.
+    if (status === 'success') {
+      const timer = setTimeout(() => {
+        setTasks(prev => prev.filter(t => t.id !== id))
+        taskTimers.current.delete(id)
+      }, 4000)
+      taskTimers.current.set(id, timer)
+    }
+  }, [])
+
+  const runTask = useCallback(async <T,>(label: string, fn: () => Promise<T>): Promise<T> => {
+    const id = startTask(label)
+    try {
+      const result = await fn()
+      finishTask(id, 'success')
+      return result
+    } catch (e: any) {
+      finishTask(id, 'error', e?.body || e?.message || String(e))
+      throw e
+    }
+  }, [startTask, finishTask])
+
   // Apply saved color scheme on mount
   useEffect(() => {
     const saved = getStored('em_color_scheme') ?? 'moirai'
@@ -244,7 +307,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     quickSetupDone,
     personaConfig,
     lang, i18n,
-    stats, rawGraph, rawEvents, isDirty, toasts,
+    stats, rawGraph, rawEvents, isDirty, toasts, tasks,
     setDefaultPersonaConfidence,
     setCurrentPersona,
     setFirstLaunchDone,
@@ -256,15 +319,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setIsDirty,
     toast,
     dismissToast,
+    startTask,
+    finishTask,
+    dismissTask,
+    runTask,
   }), [
     sudo, authEnabled, authenticated, authLoading, preAuthVersion,
     defaultPersonaConfidence,
     currentPersonaName, scopeMode, firstLaunchDone, quickSetupDone,
     personaConfig,
     lang, i18n,
-    stats, rawGraph, rawEvents, isDirty, toasts,
+    stats, rawGraph, rawEvents, isDirty, toasts, tasks,
     refreshStats, setDefaultPersonaConfidence, setCurrentPersona, setFirstLaunchDone,
-    setQuickSetupDone, setLang, setIsDirty, toast, dismissToast
+    setQuickSetupDone, setLang, setIsDirty, toast, dismissToast,
+    startTask, finishTask, dismissTask, runTask,
   ])
 
   return <AppContext.Provider value={ctx}>{children}</AppContext.Provider>
