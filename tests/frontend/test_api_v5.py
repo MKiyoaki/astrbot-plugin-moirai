@@ -87,5 +87,7 @@ async def test_handle_update_config(routes, tmp_path):
     config_file = tmp_path / "plugin_config.json"
     assert config_file.exists()
     saved = json.loads(config_file.read_text(encoding="utf-8"))
-    assert saved["key1"] == "new_val"
-    assert saved["key2"] == 20
+    assert saved["group1"]["key1"] == "new_val"
+    assert saved["group1"]["key2"] == 20
+    assert "key1" not in saved
+    assert "key2" not in saved

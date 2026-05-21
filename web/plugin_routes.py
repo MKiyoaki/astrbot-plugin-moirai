@@ -21,6 +21,12 @@ from typing import TYPE_CHECKING, Any
 from quart import Response, request as quart_request
 
 from core.domain.models import Event, Impression, Persona, MessageRef
+from .config_schema import (
+    apply_config_update_to_mapping,
+    flatten_conf_schema,
+    merge_config_values,
+    normalize_config_document,
+)
 from .registry import PanelRegistry
 from .server import _PASSWORD_MASK
 
@@ -1159,17 +1165,14 @@ class PluginRoutes:
     def _read_config(self) -> dict:
         raw = self._load_conf_schema()
         # 展平：把每个 group 的 items 合并到一个 flat dict
-        flat_schema: dict = {}
-        for group_data in raw.values():
-            if isinstance(group_data, dict) and group_data.get("type") == "object":
-                flat_schema.update(group_data.get("items", {}))
+        flat_schema = flatten_conf_schema(raw)
 
         merged: dict = {k: v.get("default") for k, v in flat_schema.items()}
-        merged.update(self._initial_config)
+        merge_config_values(merged, self._initial_config, flat_schema)
         if self._config_path.exists():
             try:
                 saved = json.loads(self._config_path.read_text(encoding="utf-8"))
-                merged.update(saved)
+                merge_config_values(merged, saved, flat_schema)
             except Exception:
                 pass
         return merged
@@ -1177,20 +1180,17 @@ class PluginRoutes:
     async def _handle_get_config(self, request: web.Request) -> web.Response:
         raw = self._load_conf_schema()
         # 展平
-        flat_schema: dict = {}
-        for group_data in raw.values():
-            if isinstance(group_data, dict) and group_data.get("type") == "object":
-                flat_schema.update(group_data.get("items", {}))
+        flat_schema = flatten_conf_schema(raw)
         
         # Construct values from flat_schema default
         values: dict = {k: v.get("default") for k, v in flat_schema.items()}
         
         # Priority: 1. Live AstrBot config, 2. Local file, 3. Initial config
-        values.update(self._initial_config)
+        merge_config_values(values, self._initial_config, flat_schema)
         if self._config_path.exists():
             try:
                 saved = json.loads(self._config_path.read_text(encoding="utf-8"))
-                values.update(saved)
+                merge_config_values(values, saved, flat_schema)
             except: pass
 
         if self._star and hasattr(self._star, "config"):
@@ -1208,10 +1208,7 @@ class PluginRoutes:
 
     async def _handle_get_config_schema(self, request: web.Request) -> web.Response:
         raw = self._load_conf_schema()
-        flat_schema: dict = {}
-        for group_data in raw.values():
-            if isinstance(group_data, dict) and group_data.get("type") == "object":
-                flat_schema.update(group_data.get("items", {}))
+        flat_schema = flatten_conf_schema(raw)
         return _json(flat_schema)
 
     def _sync_password_to_file(self, password: str):
@@ -1233,10 +1230,7 @@ class PluginRoutes:
         body = await _request_json(request)
         raw = self._load_conf_schema()
         # 构建 flat schema 用于类型校验
-        flat_schema: dict = {}
-        for group_data in raw.values():
-            if isinstance(group_data, dict) and group_data.get("type") == "object":
-                flat_schema.update(group_data.get("items", {}))
+        flat_schema = flatten_conf_schema(raw)
 
         coerced: dict = {}
         for key, val in body.items():
@@ -1280,7 +1274,7 @@ class PluginRoutes:
                     loaded = json.loads(self._config_path.read_text(encoding="utf-8"))
                     if isinstance(loaded, dict):
                         current.update(loaded)
-                current.update(coerced)
+                current = normalize_config_document(current, coerced, raw)
                 self._config_path.parent.mkdir(parents=True, exist_ok=True)
                 self._config_path.write_text(
                     json.dumps(current, ensure_ascii=False, indent=2),
@@ -1292,22 +1286,8 @@ class PluginRoutes:
         # Sync to AstrBot
         if self._star and hasattr(self._star, "config"):
             try:
-                if hasattr(self._star.config, "update"):
-                    self._star.config.update(coerced)
+                apply_config_update_to_mapping(self._star.config, coerced, raw)
 
-                # Update AstrBot's live config (handles nested structure)
-                for k, v in coerced.items():
-                    found_in_sub = False
-                    # 1. 检查嵌套结构 (例如 webui.webui_password)
-                    for group_k, group_v in self._star.config.items():
-                        if isinstance(group_v, dict) and k in group_v:
-                            group_v[k] = v
-                            found_in_sub = True
-                    
-                    # 2. 如果没在嵌套里找到，直接写在根部 (或者覆盖已有的根部键)
-                    if not found_in_sub or k in self._star.config:
-                        self._star.config[k] = v
-                
                 if hasattr(self._star.config, "save_config"):
                     self._star.config.save_config()
             except Exception as e:

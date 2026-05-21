@@ -93,6 +93,30 @@
 
 ---
 
+## v0.15.0 AstrBot config grouping hotfix (completed)
+
+### User constraints / 约束
+- 修复 AstrBot 原生 config 页面底部出现未分类配置项的问题。
+- 不修改 AstrBot core framework；只修插件自身的配置保存/读取路径。
+- 版本统一归入 v0.15.0，不新增其他 patch version。
+
+### Root cause
+- `_conf_schema.json` 已经把 `embedding_provider`、`llm_concurrency`、`retrieval_top_k` 等字段放在分组下。
+- WebUI quick setup/config save 发送 flat payload，保存 handler 直接把这些字段写入 root config，并同步到 AstrBot live config root。
+- AstrBot 原生配置页按 schema group 渲染 nested 字段，root 中多出的 flat 字段因此显示为未分类设置。
+
+### Technical implementation path
+- [x] Phase 1 - Add schema-aware config helpers to flatten schema, read nested values, and normalize flat updates into schema groups.
+- [x] Phase 2 - Update plugin route config save/read path to write known fields into nested groups and remove stale root duplicates.
+- [x] Phase 3 - Update standalone WebUI server config save/read path with the same behavior.
+- [x] Phase 4 - Add regression tests covering flat payload -> nested storage and AstrBot live config sync.
+
+### Verification
+- [x] `python -m py_compile web/plugin_routes.py web/server.py web/config_schema.py` -> passed
+- [x] `pytest tests\frontend\test_config_sync.py -q` -> passed, 3 passed, 1 warning
+- [x] `pytest tests\frontend\test_config_sync.py tests\frontend\test_api_v5.py -q` -> passed, 6 passed, 1 warning
+- [x] `pytest tests\frontend -q` -> passed, 218 passed, 1 warning
+
 ## v0.15.0 Release metadata & changelog finalization (completed)
 
 ### User constraints / 约束

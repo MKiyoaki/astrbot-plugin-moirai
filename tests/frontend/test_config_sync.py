@@ -6,6 +6,10 @@ from web.plugin_routes import PluginRoutes
 from web.server import WebuiServer
 from core.repository.memory import InMemoryPersonaRepository, InMemoryEventRepository, InMemoryImpressionRepository
 
+class ConfigDict(dict):
+    pass
+
+
 @pytest.mark.asyncio
 async def test_plugin_routes_config_sync(tmp_path):
     # Mock repositories
@@ -15,10 +19,9 @@ async def test_plugin_routes_config_sync(tmp_path):
     
     # Mock Star instance
     mock_star = MagicMock()
-    mock_star.config = MagicMock()
-    # Mock the behavior of a dict-like object for config
-    config_dict = {}
-    mock_star.config.update = MagicMock(side_effect=config_dict.update)
+    mock_star.config = ConfigDict()
+    mock_star.config["webui_enabled"] = False
+    mock_star.config["embedding_provider"] = "api"
     mock_star.config.save_config = MagicMock()
     
     # Instantiate PluginRoutes
@@ -32,6 +35,12 @@ async def test_plugin_routes_config_sync(tmp_path):
     
     # Mock _conf_schema.json for validation
     schema_content = {
+        "embedding": {
+            "type": "object",
+            "items": {
+                "embedding_provider": {"type": "string", "default": "local"}
+            }
+        },
         "webui": {
             "type": "object",
             "items": {
@@ -50,6 +59,7 @@ async def test_plugin_routes_config_sync(tmp_path):
         mock_request.json = AsyncMock(return_value={
             "webui_port": "1234", # Should be coerced to int
             "webui_enabled": True,
+            "embedding_provider": "local",
             "non_existent_key": "ignore"
         })
         
@@ -62,19 +72,27 @@ async def test_plugin_routes_config_sync(tmp_path):
         assert resp_data["ok"] is True
         assert "webui_port" in resp_data["saved"]
         assert "webui_enabled" in resp_data["saved"]
+        assert "embedding_provider" in resp_data["saved"]
         assert "non_existent_key" not in resp_data["saved"]
         
-        # 2. Check local file (Step 1 of implementation)
+        # 2. Check local file: flat API payload is stored in schema groups
         local_cfg_path = tmp_path / "plugin_config.json"
         assert local_cfg_path.exists()
         local_cfg = json.loads(local_cfg_path.read_text())
-        assert local_cfg["webui_port"] == 1234
-        assert local_cfg["webui_enabled"] is True
+        assert local_cfg["webui"]["webui_port"] == 1234
+        assert local_cfg["webui"]["webui_enabled"] is True
+        assert local_cfg["embedding"]["embedding_provider"] == "local"
+        assert "webui_port" not in local_cfg
+        assert "webui_enabled" not in local_cfg
+        assert "embedding_provider" not in local_cfg
         
-        # 3. Check Star sync (Step 2 & 3 of implementation)
-        mock_star.config.update.assert_called()
-        assert config_dict["webui_port"] == 1234
-        assert config_dict["webui_enabled"] is True
+        # 3. Check Star sync: known schema fields are not written to root
+        assert mock_star.config["webui"]["webui_port"] == 1234
+        assert mock_star.config["webui"]["webui_enabled"] is True
+        assert mock_star.config["embedding"]["embedding_provider"] == "local"
+        assert "webui_port" not in mock_star.config
+        assert "webui_enabled" not in mock_star.config
+        assert "embedding_provider" not in mock_star.config
         mock_star.config.save_config.assert_called_once()
 
 
@@ -87,9 +105,7 @@ async def test_webui_server_config_sync(tmp_path):
     
     # Mock Star instance
     mock_star = MagicMock()
-    mock_star.config = MagicMock()
-    config_dict = {}
-    mock_star.config.update = MagicMock(side_effect=config_dict.update)
+    mock_star.config = ConfigDict()
     mock_star.config.save_config = MagicMock()
     
     # Instantiate WebuiServer
@@ -131,11 +147,12 @@ async def test_webui_server_config_sync(tmp_path):
         local_cfg_path = tmp_path / "plugin_config.json"
         assert local_cfg_path.exists()
         local_cfg = json.loads(local_cfg_path.read_text())
-        assert local_cfg["webui_port"] == 8888
+        assert local_cfg["webui"]["webui_port"] == 8888
+        assert "webui_port" not in local_cfg
         
         # 3. Check Star sync
-        mock_star.config.update.assert_called()
-        assert config_dict["webui_port"] == 8888
+        assert mock_star.config["webui"]["webui_port"] == 8888
+        assert "webui_port" not in mock_star.config
         mock_star.config.save_config.assert_called_once()
 
 @pytest.mark.asyncio
@@ -150,7 +167,7 @@ async def test_config_read_priority(tmp_path):
     
     # 2. Local config from previous WebUI save
     local_cfg_path = tmp_path / "plugin_config.json"
-    local_cfg_path.write_text(json.dumps({"webui_port": 2222}))
+    local_cfg_path.write_text(json.dumps({"webui": {"webui_port": 2222}}))
     
     # Mock _conf_schema.json
     schema_content = {

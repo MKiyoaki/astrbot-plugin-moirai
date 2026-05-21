@@ -15,6 +15,12 @@ from aiohttp import web
 
 from core.domain.models import Event, Impression, Persona, MessageRef
 from .auth import AuthManager, AuthState, PermLevel
+from .config_schema import (
+    apply_config_update_to_mapping,
+    flatten_conf_schema,
+    merge_config_values,
+    normalize_config_document,
+)
 from .registry import PanelRegistry
 
 if TYPE_CHECKING:
@@ -472,16 +478,17 @@ class WebuiServer:
 
     def _read_config(self) -> dict:
         raw = json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {}
-        flat_schema: dict = {}
-        for group_data in raw.values():
-            if isinstance(group_data, dict) and group_data.get("type") == "object":
-                flat_schema.update(group_data.get("items", {}))
+        flat_schema = flatten_conf_schema(raw)
 
         values: dict = {k: v.get("default") for k, v in flat_schema.items()}
-        values.update(self._initial_config)
+        merge_config_values(values, self._initial_config, flat_schema)
         if self._config_path.exists():
             try:
-                values.update(json.loads(self._config_path.read_text(encoding="utf-8")))
+                merge_config_values(
+                    values,
+                    json.loads(self._config_path.read_text(encoding="utf-8")),
+                    flat_schema,
+                )
             except Exception:
                 pass
         if self._star and hasattr(self._star, "config"):
@@ -901,19 +908,20 @@ class WebuiServer:
         raw = json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {}
         
         # Merge each group into one flat dict
-        flat_schema: dict = {}
-        for group_data in raw.values():
-            if isinstance(group_data, dict) and group_data.get("type") == "object":
-                flat_schema.update(group_data.get("items", {}))
+        flat_schema = flatten_conf_schema(raw)
 
         # Construct values from flat_schema default
         values: dict = {k: v.get("default") for k, v in flat_schema.items()}
         
         # Priority: 1. Live AstrBot config, 2. Local file, 3. Initial config
-        values.update(self._initial_config)
+        merge_config_values(values, self._initial_config, flat_schema)
         if self._config_path.exists():
             try:
-                values.update(json.loads(self._config_path.read_text(encoding="utf-8")))
+                merge_config_values(
+                    values,
+                    json.loads(self._config_path.read_text(encoding="utf-8")),
+                    flat_schema,
+                )
             except: pass
         
         if self._star and hasattr(self._star, "config"):
@@ -956,10 +964,7 @@ class WebuiServer:
         body = await request.json()
         raw = json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {}
         
-        flat_schema: dict = {}
-        for group_data in raw.values():
-            if isinstance(group_data, dict) and group_data.get("type") == "object":
-                flat_schema.update(group_data.get("items", {}))
+        flat_schema = flatten_conf_schema(raw)
         
         coerced = {}
         for k, v in body.items():
@@ -990,7 +995,7 @@ class WebuiServer:
                     loaded = json.loads(self._config_path.read_text(encoding="utf-8"))
                     if isinstance(loaded, dict):
                         current.update(loaded)
-                current.update(coerced)
+                current = normalize_config_document(current, coerced, raw)
                 self._config_path.parent.mkdir(parents=True, exist_ok=True)
                 self._config_path.write_text(
                     json.dumps(current, ensure_ascii=False, indent=2),
@@ -1002,22 +1007,8 @@ class WebuiServer:
         # Sync to AstrBot
         if self._star and hasattr(self._star, "config"):
             try:
-                if hasattr(self._star.config, "update"):
-                    self._star.config.update(coerced)
+                apply_config_update_to_mapping(self._star.config, coerced, raw)
 
-                # Update AstrBot's live config (handles nested structure)
-                for k, v in coerced.items():
-                    found_in_sub = False
-                    # 1. 检查嵌套结构 (例如 webui.webui_password)
-                    for group_k, group_v in self._star.config.items():
-                        if isinstance(group_v, dict) and k in group_v:
-                            group_v[k] = v
-                            found_in_sub = True
-                    
-                    # 2. 如果没在嵌套里找到，直接写在根部 (或者覆盖已有的根部键)
-                    if not found_in_sub or k in self._star.config:
-                        self._star.config[k] = v
-                
                 if hasattr(self._star.config, "save_config"):
                     self._star.config.save_config()
             except Exception as e:

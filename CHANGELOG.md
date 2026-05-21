@@ -15,6 +15,12 @@
 - 修复 SVG knot 焦点矩形框问题，并将选中 / 聚焦指示调整为以锚点为中心的莫比乌斯轨道运动效果。
 - 前端结构测试更新至新架构，静态产物已同步到 `pages/moirai/`。
 
+#### AstrBot 配置归组修复
+
+- 修复 WebUI 保存配置时把 `embedding_provider`、`llm_concurrency`、`retrieval_top_k`、`webui_enabled` 等 schema 字段写入 root config 的问题。
+- 配置保存现在会按 `_conf_schema.json` 自动归组后再写入本地配置并同步 AstrBot live config，避免 AstrBot 原生配置页底部出现未分类设置。
+- WebUI 配置读取兼容旧 flat 保存和新的 grouped 配置文档。
+
 #### 记忆反馈回路（Feedback Loop）
 
 - `Event` 模型新增 `access_count: int` 字段，记录每条记忆被注入给 LLM 的累计次数。
