@@ -15,12 +15,12 @@ const SESSION_GAP = 56
 const DAY_GAP = 20
 const TOP_PAD = 80
 const BOTTOM_PAD = 70
-const THREAD_AMP = 28
-const THREAD_X = 156
-const CARD_X = 208
-const CARD_MIN_W = 320
-const RIGHT_PAD = 24
-const TIME_X = 14
+const THREAD_AMP = 16
+const THREAD_X = 96
+const CARD_X = 132
+const CARD_MIN_W = 240
+const RIGHT_PAD = 20
+const TIME_X = 10
 
 interface EventThreadProps {
   events: ApiEvent[]
@@ -356,8 +356,8 @@ export function EventThread({
                   strokeWidth="1"
                   strokeOpacity="0.34"
                 />
-                <text x={THREAD_X - 82} y={(mark.minY + mark.maxY) / 2} fontSize="10" style={{ fontFamily: 'var(--font-mono)' }} fill="currentColor" opacity="0.46">
-                  x {mark.count}
+                <text x={THREAD_X - 36} y={(mark.minY + mark.maxY) / 2} textAnchor="middle" fontSize="9" style={{ fontFamily: 'var(--font-mono)' }} fill="currentColor" opacity="0.46">
+                  ×{mark.count}
                 </text>
               </g>
             ))}
