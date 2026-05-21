@@ -341,7 +341,7 @@ export function EventThread({
             {dayMarks.map(mark => (
               <g key={`${mark.label}-${mark.y}`}>
                 <line x1={TIME_X} y1={mark.y} x2={svgW - RIGHT_PAD} y2={mark.y} stroke="currentColor" strokeOpacity="0.08" strokeDasharray="4 8" />
-                <text x={TIME_X} y={mark.y - 6} fontSize="10" fontFamily="monospace" fill="currentColor" opacity="0.48">
+                <text x={TIME_X} y={mark.y - 6} fontSize="10" style={{ fontFamily: 'var(--font-mono)' }} fill="currentColor" opacity="0.48">
                   {mark.label}
                 </text>
               </g>
@@ -356,16 +356,16 @@ export function EventThread({
                   strokeWidth="1"
                   strokeOpacity="0.34"
                 />
-                <text x={THREAD_X - 82} y={(mark.minY + mark.maxY) / 2} fontSize="10" fontFamily="monospace" fill="currentColor" opacity="0.46">
+                <text x={THREAD_X - 82} y={(mark.minY + mark.maxY) / 2} fontSize="10" style={{ fontFamily: 'var(--font-mono)' }} fill="currentColor" opacity="0.46">
                   x {mark.count}
                 </text>
               </g>
             ))}
 
-            <text x={THREAD_X - 26} y={32} fontSize="10" fontFamily="serif" fill="currentColor" opacity="0.45">
+            <text x={THREAD_X - 26} y={32} fontSize="10" style={{ fontFamily: 'var(--font-serif)' }} fill="currentColor" opacity="0.45">
               ΚΛΩΘΩ
             </text>
-            <text x={THREAD_X - 34} y={height - 24} fontSize="10" fontFamily="serif" fill="currentColor" opacity="0.45">
+            <text x={THREAD_X - 34} y={height - 24} fontSize="10" style={{ fontFamily: 'var(--font-serif)' }} fill="currentColor" opacity="0.45">
               ΑΤΡΟΠΟΣ
             </text>
 
@@ -412,7 +412,7 @@ export function EventThread({
                   }}
                   className="event-knot cursor-pointer"
                 >
-                  <text x={TIME_X} y={row.y + 3} fontSize="10" fontFamily="monospace" fill="currentColor" opacity="0.48">
+                  <text x={TIME_X} y={row.y + 3} fontSize="10" style={{ fontFamily: 'var(--font-mono)' }} fill="currentColor" opacity="0.48">
                     {fmtClock(row.ev.start)}
                   </text>
                   <line x1={row.x + 9} y1={row.y} x2={CARD_X - 10} y2={row.y} stroke={accent} strokeWidth="0.9" strokeOpacity={active ? 0.62 : 0.24} />

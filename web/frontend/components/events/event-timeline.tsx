@@ -351,7 +351,7 @@ export function EventTimeline({
                     strokeWidth={1} strokeDasharray="3 5" />
                   {row.showDayLabel && (
                     <text x={LP - 6} y={row.y + 3}
-                      textAnchor="end" fontSize={9} fontFamily="monospace"
+                      textAnchor="end" fontSize={9} style={{ fontFamily: 'var(--font-mono)' }}
                       fill="currentColor" fillOpacity={0.45}>
                       {fmtDay(row.day)}
                     </text>
