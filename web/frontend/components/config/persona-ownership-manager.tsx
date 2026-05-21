@@ -49,7 +49,7 @@ export function PersonaOwnershipManager({ embedded = false }: { embedded?: boole
     const items = [{ value: api.LEGACY_PERSONA_TOKEN, label: t.legacy }]
     seen.add(api.LEGACY_PERSONA_TOKEN)
     for (const bot of bots) {
-      const value = bot.name ?? api.LEGACY_PERSONA_TOKEN
+      const value = bot.name || api.LEGACY_PERSONA_TOKEN
       if (seen.has(value)) continue
       seen.add(value)
       items.push({ value, label: `${bot.name} (${bot.event_count})` })

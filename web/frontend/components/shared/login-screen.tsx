@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { useApp } from '@/lib/store'
 import { getStored, setStored } from '@/lib/safe-storage'
 import * as api from '@/lib/api'
+import { SilkThreadBg } from '@/components/shared/silk-thread-bg'
 
 const THEMES = [
   { id: 'moirai', label: 'Moirai' },
@@ -127,53 +128,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
         {/* Left panel — editorial cover (desktop only) */}
         <div className="hidden md:flex md:w-2/5 flex-col justify-between p-10 border-r border-border relative overflow-hidden select-none">
           {/* Silk thread background */}
-          <svg className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden preserveAspectRatio="none" viewBox="0 0 400 700">
-            <defs>
-              <style>{`
-                @keyframes silk-flow {
-                  0%   { stroke-dashoffset: 0; }
-                  100% { stroke-dashoffset: -600; }
-                }
-                @keyframes silk-shimmer {
-                  0%, 100% { opacity: 0.55; }
-                  50%       { opacity: 0.85; }
-                }
-                .thread-accent {
-                  stroke-dasharray: 320 120;
-                  animation: silk-flow 7s linear infinite, silk-shimmer 4s ease-in-out infinite;
-                  transition: stroke-width 0.4s ease-out;
-                }
-                .thread-accent.silk-fast {
-                  animation: silk-flow 4.6s linear infinite, silk-shimmer 2.8s ease-in-out infinite;
-                  stroke-width: 0.9;
-                }
-              `}</style>
-            </defs>
-
-            {/* Background threads — muted, subtly curved */}
-            <path d="M-10,148 Q80,142 180,155 Q280,168 410,151" fill="none" stroke="currentColor" strokeWidth="0.4" opacity="0.18" />
-            <path d="M-10,220 Q60,228 160,215 Q260,202 410,224" fill="none" stroke="currentColor" strokeWidth="0.3" opacity="0.14" />
-            <path d="M-10,310 Q100,298 200,318 Q300,328 410,308" fill="none" stroke="currentColor" strokeWidth="0.45" opacity="0.16" />
-            <path d="M-10,420 Q90,432 190,418 Q290,405 410,428" fill="none" stroke="currentColor" strokeWidth="0.3" opacity="0.12" />
-            <path d="M-10,510 Q120,502 210,516 Q310,525 410,506" fill="none" stroke="currentColor" strokeWidth="0.4" opacity="0.15" />
-            <path d="M-10,580 Q70,575 170,588 Q270,598 410,574" fill="none" stroke="currentColor" strokeWidth="0.3" opacity="0.10" />
-
-            {/* Accent silk thread — animated flow */}
-            <path
-              className={passwordFocused ? 'thread-accent silk-fast' : 'thread-accent'}
-              d="M-10,265 Q60,252 140,270 Q220,288 310,260 Q360,247 410,268"
-              fill="none"
-              stroke="var(--color-primary, oklch(0.53 0.130 295))"
-              strokeWidth="0.7"
-              strokeLinecap="round"
-            />
-
-            {/* Knot-like nodes where threads cross */}
-            <circle cx="112" cy="155" r="1.8" fill="currentColor" opacity="0.20" />
-            <circle cx="248" cy="310" r="1.4" fill="currentColor" opacity="0.16" />
-            <circle cx="310" cy="261" r="2" fill="var(--color-primary, oklch(0.53 0.130 295))" opacity="0.30" />
-            <circle cx="168" cy="510" r="1.3" fill="currentColor" opacity="0.14" />
-          </svg>
+          <SilkThreadBg variant="login" fast={passwordFocused} />
 
           {/* Cover top label */}
           <div className="relative z-10">

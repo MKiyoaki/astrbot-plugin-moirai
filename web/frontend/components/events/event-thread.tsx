@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Archive, Lock, Pencil, Trash2, Users } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { ApiEvent } from '@/lib/api'
 import { buildSessions, dayStart } from '@/lib/session-clustering'
 import { useApp } from '@/lib/store'
@@ -168,6 +169,103 @@ function SalienceMeter({ value, accent }: { value: number; accent: string }) {
   )
 }
 
+interface ThreadEventCardProps {
+  ev: ApiEvent
+  y: number
+  cardW: number
+  accent: string
+  selected: boolean
+  highlighted: boolean
+  onSelect: () => void
+  onEdit: (ev: ApiEvent) => void
+  onDelete: (ev: ApiEvent) => void
+  onArchive?: (ev: ApiEvent) => void
+}
+
+function ThreadEventCard({ ev, y, cardW, accent, selected, highlighted, onSelect, onEdit, onDelete, onArchive }: ThreadEventCardProps) {
+  const { i18n } = useApp()
+
+  return (
+    <foreignObject x={CARD_X} y={y - 32} width={cardW} height={70}>
+      <div
+        className={cn(
+          'flex h-[64px] cursor-pointer flex-col justify-center gap-1 rounded-md border bg-card/95 px-3 shadow-sm transition-transform hover:translate-x-0.5',
+          selected || highlighted ? 'shadow-md' : 'border-border/70'
+        )}
+        style={{ borderLeft: `3px solid ${accent}` }}
+        onClick={event => { event.stopPropagation(); onSelect() }}
+      >
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate font-serif text-sm font-semibold leading-tight">
+              {ev.topic || ev.content || ev.id}
+            </span>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  {ev.is_locked ? <Lock className="size-3 shrink-0 text-muted-foreground cursor-default" /> : <span />}
+                </TooltipTrigger>
+                <TooltipContent><p>{i18n.events.lockedMemory}</p></TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            {ev.status === 'archived' && (
+              <Badge variant="outline" className="h-4 shrink-0 rounded px-1 font-mono text-[9px]">{i18n.events.archive}</Badge>
+            )}
+          </div>
+          <SalienceMeter value={ev.salience ?? 0} accent={accent} />
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-wrap gap-1 overflow-hidden">
+            {(ev.tags ?? []).slice(0, 4).map(tag => (
+              <Badge key={tag} variant="secondary" className="h-4 rounded px-1 font-mono text-[9px]">
+                #{tag}
+              </Badge>
+            ))}
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <span className="inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
+              <Users className="size-3" />
+              {(ev.participants ?? []).length}
+            </span>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="size-6" onClick={event => { event.stopPropagation(); onEdit(ev) }}>
+                    <Pencil className="size-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>{i18n.common.edit}</p></TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            {onArchive && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="size-6" onClick={event => { event.stopPropagation(); onArchive(ev) }}>
+                      <Archive className="size-3" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent><p>{i18n.events.archive}</p></TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="size-6 text-destructive" onClick={event => { event.stopPropagation(); onDelete(ev) }}>
+                    <Trash2 className="size-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>{i18n.common.delete}</p></TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </div>
+      </div>
+    </foreignObject>
+  )
+}
+
 export function EventThread({
   events,
   timeGap,
@@ -236,7 +334,6 @@ export function EventThread({
             role="img"
             aria-label={i18n.events.threadAxis}
           >
-            <title>{i18n.events.threadAxis}</title>
 
             <path d={`M 32 20 Q 74 ${height * 0.28} 32 ${height - 20}`} fill="none" stroke={accent} strokeWidth="0.8" strokeOpacity="0.2" strokeDasharray="18 12" className="loom-axis-flow" />
             <path d={`M ${svgW - 38} 20 Q ${svgW - 88} ${height * 0.55} ${svgW - 40} ${height - 20}`} fill="none" stroke={accent} strokeWidth="0.8" strokeOpacity="0.16" strokeDasharray="16 14" className="loom-axis-flow" />
@@ -284,7 +381,6 @@ export function EventThread({
               strokeDashoffset={pathLen}
               style={{ animation: 'thread-draw 1.2s cubic-bezier(.4,0,.2,1) forwards' }}
             />
-            <path d={threadPath} fill="none" stroke={accent} strokeWidth="1" strokeLinecap="round" strokeDasharray="22 12" strokeOpacity="0.66" className="silk-flow" />
 
             {rows.map(row => {
               const selected = selectedEventId === row.ev.id
@@ -345,62 +441,21 @@ export function EventThread({
               )
             })}
 
-            {rows.map(row => {
-              const selected = selectedEventId === row.ev.id
-              const highlighted = highlightIds?.has(row.ev.id) ?? false
-              return (
-                <foreignObject key={`card-${row.ev.id}`} x={CARD_X} y={row.y - 32} width={cardW} height={70}>
-                  <div
-                    className={cn(
-                      'flex h-[64px] cursor-pointer flex-col justify-center gap-1 rounded-md border bg-card/95 px-3 shadow-sm transition-transform hover:translate-x-0.5',
-                      selected || highlighted ? 'shadow-md' : 'border-border/70'
-                    )}
-                    style={{ borderLeft: `3px solid ${accent}` }}
-                    onClick={event => {
-                      event.stopPropagation()
-                      selectEvent(row.ev)
-                    }}
-                  >
-                    <div className="flex min-w-0 items-center justify-between gap-3">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <span className="truncate font-serif text-sm font-semibold leading-tight">
-                          {row.ev.topic || row.ev.content || row.ev.id}
-                        </span>
-                        {row.ev.is_locked && <Lock className="size-3 shrink-0 text-muted-foreground" />}
-                        {row.ev.status === 'archived' && <Badge variant="outline" className="h-4 shrink-0 rounded px-1 font-mono text-[9px]">{i18n.events.archive}</Badge>}
-                      </div>
-                      <SalienceMeter value={row.ev.salience ?? 0} accent={accent} />
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex min-w-0 flex-wrap gap-1 overflow-hidden">
-                        {(row.ev.tags ?? []).slice(0, 4).map(tag => (
-                          <Badge key={tag} variant="secondary" className="h-4 rounded px-1 font-mono text-[9px]">
-                            #{tag}
-                          </Badge>
-                        ))}
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <span className="inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
-                          <Users className="size-3" />
-                          {(row.ev.participants ?? []).length}
-                        </span>
-                        <Button variant="ghost" size="icon" className="size-6" onClick={event => { event.stopPropagation(); onEdit(row.ev) }}>
-                          <Pencil className="size-3" />
-                        </Button>
-                        {onArchive && (
-                          <Button variant="ghost" size="icon" className="size-6" onClick={event => { event.stopPropagation(); onArchive(row.ev) }}>
-                            <Archive className="size-3" />
-                          </Button>
-                        )}
-                        <Button variant="ghost" size="icon" className="size-6 text-destructive" onClick={event => { event.stopPropagation(); onDelete(row.ev) }}>
-                          <Trash2 className="size-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </foreignObject>
-              )
-            })}
+            {rows.map(row => (
+              <ThreadEventCard
+                key={`card-${row.ev.id}`}
+                ev={row.ev}
+                y={row.y}
+                cardW={cardW}
+                accent={accent}
+                selected={selectedEventId === row.ev.id}
+                highlighted={highlightIds?.has(row.ev.id) ?? false}
+                onSelect={() => selectEvent(row.ev)}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onArchive={onArchive}
+              />
+            ))}
           </svg>
         </div>
       </div>

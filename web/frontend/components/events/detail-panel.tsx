@@ -34,8 +34,16 @@ interface DetailPanelProps {
 
 function SilkStrip({ accent }: { accent: string }) {
   return (
-    <svg className="h-2 w-full shrink-0" viewBox="0 0 320 8" preserveAspectRatio="none" aria-hidden>
-      <path d="M 0 5 Q 80 -1 160 5 T 320 4" fill="none" stroke={accent} strokeWidth="1.1" strokeLinecap="round" className="silk-flow" />
+    <svg className="h-3 w-full shrink-0" viewBox="0 0 320 10" preserveAspectRatio="none" aria-hidden>
+      <path
+        className="strip-line"
+        d="M 0 6 Q 80 2 160 6 T 320 5"
+        fill="none"
+        stroke={accent}
+        strokeWidth="1.1"
+        strokeLinecap="round"
+      />
+      <circle className="strip-knot" cx="200" cy="5" r="2" fill={accent} />
     </svg>
   )
 }
