@@ -1,5 +1,26 @@
 # 变更日志
 
+## [v0.16.2] - 2026-05-21
+
+### Soul Layer 增强 & 注入架构优化
+
+#### Soul Layer 行为指令化
+
+- `format_soul_for_prompt` 输出从抽象数值描述（`表达欲 +5.0/20（偏高）`）改为面向 LLM 的具体行为指令。四个维度各有强弱两档文本，例如 `expression_desire > 7` 输出"表达欲强，可主动展开话题，回复可以详细"；以 ±0.5 为强弱分界，近零维度依然跳过不注入。
+- Creativity 信号重新设计：原公式单纯依赖事件时间跨度（满格需 30 天，最大 delta 0.8），实际几乎不变化。新公式叠加三路信号：时间跨度（7 天满格，贡献 2.0）+ 召回事件显著度方差（高低对比贡献 1.5）+ 召回事件标签多样性（5 个不同 tag 贡献 1.5），最大 delta 从 0.8 提升至 5.0，日常对话中 creativity 可稳定维持在可见范围。
+
+#### Soul 注入块与记忆块分离（方案 B）
+
+- 新增常量 `SOUL_INJECTION_HEADER / FOOTER`（`<!-- EM:SOUL:START/END -->`），Soul 状态拥有独立的注入块标记，与记忆块的 `<!-- EM:MEMORY:START/END -->` 完全分离。
+- **Soul 块始终注入 `system_prompt`**，不受 `injection_position` 配置影响（行为指令属于角色底层设定，不应随用户消息位置飘移）。
+- 记忆块（事件 + 人格摘要 + 社交印象）继续遵循 `injection_position` 配置。
+- `clear_previous_injection` 扩展，在清除 MEMORY 标记后额外扫描并清除 SOUL 标记，两处字段均做防御性清除。
+- 新增 `_SOUL_INJECTION_RE` 正则；新增测试文件 `tests/backend/test_soul_injection_separation.py`（12 个测试，覆盖标记隔离、位置固定、双块清除及各类边界情况）。
+
+#### 记忆注入默认位置调整
+
+- `injection_position` 默认值从 `system_prompt` 改为 `user_message_before`。记忆内容注入用户消息头部，保持 system_prompt 稳定，有利于 DeepSeek / Claude 等提供商的前缀缓存命中，降低 API 成本。已有用户配置中显式设置过此项的不受影响。
+
 ## [v0.16.1] - 2026-05-21
 
 ### 人格归属修复 & 手动操作进度弹窗

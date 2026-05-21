@@ -213,6 +213,9 @@ class RetrievalConfig:
 # Sentinel strings used to wrap injected memory blocks for auto-clear.
 MEMORY_INJECTION_HEADER = "<!-- EM:MEMORY:START -->"
 MEMORY_INJECTION_FOOTER = "<!-- EM:MEMORY:END -->"
+# Soul state is always injected into system_prompt via its own separate markers.
+SOUL_INJECTION_HEADER = "<!-- EM:SOUL:START -->"
+SOUL_INJECTION_FOOTER = "<!-- EM:SOUL:END -->"
 # Prefix for fake tool-call IDs so they can be cleaned up later.
 FAKE_TOOL_CALL_ID_PREFIX = "em_recall_"
 
@@ -503,12 +506,12 @@ class PluginConfig:
         )
 
     def get_injection_config(self) -> InjectionConfig:
-        pos = self._str("injection_position", "system_prompt").strip()
+        pos = self._str("injection_position", "user_message_before").strip()
         valid = {"system_prompt", "user_message_before",
                  "user_message_after", "fake_tool_call"}
         relation_enabled = self._bool("relation_enabled", True)
         return InjectionConfig(
-            position=pos if pos in valid else "system_prompt",
+            position=pos if pos in valid else "user_message_before",
             auto_clear=self._bool("injection_auto_clear", True),
             token_budget=self._int("retrieval_token_budget", 800),
             show_thinking_process=self._bool("show_thinking_process", False),

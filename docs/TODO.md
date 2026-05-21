@@ -80,9 +80,19 @@
 
 - [x] **Event Stream 可视化重构**：已并入 v0.15.0，见下方计划。
 - [ ] **预设关系（Preset Impressions）**：管理员/用户预设 bot 对某人的先验态度（朋友/仇人/亲人），关闭 LLM 提取时也生效
-  - 讨论中的分歧：枚举模板映射到 benevolence × power 双轴 vs 数据一致性问题
-  - 倾向方案：方案 B（独立 `PresetRelation` 表）+ 仅可视化作为 MVP，后续再开 prompt 注入开关
-  - 两个待决定子问题：① 是否注入 system prompt ② 数据存储位置
+  - **设计方向已确认（2026-05-21）**：
+    - 不新建独立表；直接 upsert 到现有 `Impression` 行，`confidence=1.0` 表示用户显式设定，权重最高
+    - 阈值方案：`benevolence > 0.5` 为正向强，`0 < b ≤ 0.5` 为正向弱，`-0.5 ≤ b < 0` 为负向弱，`b < -0.5` 为负向强（用 ±0.5 作对称边界，非启发式）
+    - 预设枚举 → `(benevolence, power)` 坐标映射：
+      - `lover`  → (0.85, -0.2)；`friend` → (0.55, 0.0)；`neutral` → (0.0, 0.0)
+      - `cold`   → (-0.4, 0.1)；`hostile` → (-0.8, 0.3)
+    - 交互入口：`/mrm benevolence <uid> <preset>`；如果记录不存在则新建，存在则覆盖 benevolence/power 并强制 confidence=1.0
+    - impression 注入段（`_build_relation_segment`）需同步加阈值行为指令（如 `benevolence > 0.5` → "可以用较温暖的语气回应"），实现类 Lily 好感度的 prompt 效果
+  - 待实现子项：
+    - [ ] `command_manager.py` 新增 `/mrm benevolence` 子命令，解析 uid + preset，调用 impression_repo.upsert
+    - [ ] `recall_manager._build_relation_segment` 追加阈值行为指令文本
+    - [ ] i18n 三语（preset 名称 + 命令帮助 + 行为指令文本）
+    - [ ] 测试：preset upsert 覆盖旧行 / 新建行 / 阈值指令文本输出
 - [ ] **WebUI Library 页面 Impression 直接删除入口**：Library 当前主要管理事件/人格/群组；后续增加 impression 表视图再接入
 
 ### 待确认设计决策

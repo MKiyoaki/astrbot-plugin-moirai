@@ -25,16 +25,26 @@ def test_apply_decay():
 def test_format_soul_for_prompt():
     state = SoulState()
     assert format_soul_for_prompt(state) == ""
-    
+
+    # expression_desire=5.0 → mild high instruction
     state.expression_desire = 5.0
     prompt = format_soul_for_prompt(state)
-    assert "表达欲 +5.0/20" in prompt
-    assert "偏高" in prompt
-    
+    assert "表达欲稍强" in prompt
+
+    # expression_desire=10.0 → strong high instruction
+    state.expression_desire = 10.0
+    prompt = format_soul_for_prompt(state)
+    assert "表达欲强" in prompt
+
+    # recall_depth=-2.0 → mild low instruction
     state.recall_depth = -2.0
     prompt = format_soul_for_prompt(state)
-    assert "记忆检索驱动 -2.0/20" in prompt
-    assert "偏低" in prompt
+    assert "专注当下话题" in prompt
+
+    # recall_depth=-10.0 → strong low instruction
+    state.recall_depth = -10.0
+    prompt = format_soul_for_prompt(state)
+    assert "避免主动引入历史经历" in prompt
 
 def test_from_config():
     from core.social.soul_state import from_config

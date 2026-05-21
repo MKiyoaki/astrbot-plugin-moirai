@@ -240,7 +240,7 @@
                     "fake_tool_call"
                 ],
                 "hint": "选择将检索到的记忆内容注入到哪个位置。fake_tool_call 会模拟工具调用返回记忆。",
-                "default": "system_prompt",
+                "default": "user_message_before",
                 "level": "advanced"
             },
             "injection_auto_clear": {

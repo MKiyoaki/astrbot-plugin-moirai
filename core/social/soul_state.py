@@ -78,11 +78,32 @@ def update_from_signals(
     capped_count = min(relation_count, 5)
     delta_impression = capped_count * 0.4 * (1.0 + power * 0.5)
 
-    # creativity: time spread of recalled events
-    if len(events) >= 2:
-        times = [getattr(e, "end_time", 0.0) for e in events]
-        spread_days = (max(times) - min(times)) / 86400.0
-        delta_creativity = min(spread_days / 30.0, 1.0) * 0.8
+    # creativity: time spread + salience variance + tag diversity
+    if events:
+        if len(events) >= 2:
+            times = [getattr(e, "end_time", 0.0) for e in events]
+            spread_days = (max(times) - min(times)) / 86400.0
+            # 7 days to reach max spread contribution (was 30 days, too conservative)
+            spread_bonus = min(spread_days / 7.0, 1.0) * 2.0
+        else:
+            spread_bonus = 0.0
+
+        saliences = [getattr(e, "salience", 0.5) for e in events]
+        if len(saliences) >= 2:
+            mean_s = sum(saliences) / len(saliences)
+            variance = sum((s - mean_s) ** 2 for s in saliences) / len(saliences)
+            # variance of 0.08 reaches max; high contrast between mundane/significant events
+            variance_bonus = min(variance / 0.08, 1.0) * 1.5
+        else:
+            variance_bonus = 0.0
+
+        all_tags: set[str] = set()
+        for e in events:
+            all_tags.update(getattr(e, "chat_content_tags", []) or [])
+        # 5 unique tags across recalled events reaches max
+        tag_bonus = min(len(all_tags) / 5.0, 1.0) * 1.5
+
+        delta_creativity = spread_bonus + variance_bonus + tag_bonus
     else:
         delta_creativity = 0.0
 
@@ -103,29 +124,64 @@ def from_config(cfg: SoulConfig) -> SoulState:
     )
 
 
-_THRESHOLD = 1.0  # minimum absolute value to bother mentioning in prompt
+_LOW_THRESHOLD = 1.0   # minimum absolute value to produce any instruction
+_HIGH_THRESHOLD = 7.0  # threshold for stronger behavioral phrasing
+
+# Behavioral instructions keyed by (dimension, direction_strength).
+# Tell the LLM *what to do*, not what a number means.
+_INSTRUCTIONS: dict[str, dict[str, str]] = {
+    "recall_depth": {
+        "high_strong": "回忆感较强，回复时可主动联系过去的经历或对话",
+        "high_mild":   "可适当联系过去经历，不必刻意引用",
+        "low_mild":    "专注当下话题，不必主动翻找旧事",
+        "low_strong":  "专注当下，避免主动引入历史经历",
+    },
+    "impression_depth": {
+        "high_strong": "高度关注当前对话者，留意情绪细节，回复可体现察觉",
+        "high_mild":   "对当前对话者保持一定关注",
+        "low_mild":    "保持基本礼貌，不必过度关注对方反应",
+        "low_strong":  "当前社交投入偏低，简短应对即可",
+    },
+    "expression_desire": {
+        "high_strong": "表达欲强，可主动展开话题，回复可以详细",
+        "high_mild":   "表达欲稍强，回复可适当延伸",
+        "low_mild":    "不太想多说，回复简短即可",
+        "low_strong":  "表达欲极低，回复尽量精简",
+    },
+    "creativity": {
+        "high_strong": "思维活跃，可使用比喻或联想，话题可适度跳跃",
+        "high_mild":   "思维略显发散，可适度使用类比",
+        "low_mild":    "保持直白清晰的表达",
+        "low_strong":  "专注直接表达，避免发散",
+    },
+}
+
+
+def _instruction(dim: str, val: float) -> str | None:
+    if abs(val) < _LOW_THRESHOLD:
+        return None
+    direction = "high" if val > 0 else "low"
+    strength = "strong" if abs(val) >= _HIGH_THRESHOLD else "mild"
+    return _INSTRUCTIONS[dim][f"{direction}_{strength}"]
 
 
 def format_soul_for_prompt(state: SoulState) -> str:
-    """Return a brief system-prompt segment describing the bot's current state.
+    """Return a system-prompt segment with concrete behavioral instructions.
 
     Only dimensions that deviate meaningfully from neutral are included.
     Returns empty string when all dimensions are near zero.
     """
     parts: list[str] = []
-    if abs(state.recall_depth) >= _THRESHOLD:
-        level = "偏高" if state.recall_depth > 0 else "偏低"
-        parts.append(f"记忆检索驱动 {state.recall_depth:+.1f}/20（{level}）")
-    if abs(state.impression_depth) >= _THRESHOLD:
-        level = "偏高" if state.impression_depth > 0 else "偏低"
-        parts.append(f"社交关注度 {state.impression_depth:+.1f}/20（{level}）")
-    if abs(state.expression_desire) >= _THRESHOLD:
-        level = "偏高" if state.expression_desire > 0 else "偏低"
-        parts.append(f"表达欲 {state.expression_desire:+.1f}/20（{level}）")
-    if abs(state.creativity) >= _THRESHOLD:
-        level = "偏高" if state.creativity > 0 else "偏低"
-        parts.append(f"创意度 {state.creativity:+.1f}/20（{level}）")
+    for dim, val in (
+        ("recall_depth", state.recall_depth),
+        ("impression_depth", state.impression_depth),
+        ("expression_desire", state.expression_desire),
+        ("creativity", state.creativity),
+    ):
+        inst = _instruction(dim, val)
+        if inst:
+            parts.append(inst)
     if not parts:
         return ""
-    lines = ["[当前情绪状态]\n（以下状态参数供参考，影响回复风格，不要在回复中提及）"] + [f"- {p}" for p in parts]
+    lines = ["[当前心理状态]\n（参考以下提示调整回复风格，勿在回复中直接提及）"] + [f"- {p}" for p in parts]
     return "\n".join(lines)

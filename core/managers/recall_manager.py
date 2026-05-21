@@ -22,6 +22,8 @@ from ..config import (
     FAKE_TOOL_CALL_ID_PREFIX,
     MEMORY_INJECTION_FOOTER,
     MEMORY_INJECTION_HEADER,
+    SOUL_INJECTION_FOOTER,
+    SOUL_INJECTION_HEADER,
 )
 from ..domain.models import Event, MessageRef
 from ..utils.formatter import (
@@ -44,6 +46,10 @@ _RAW_DETAIL_PER_EVENT = 8
 
 _INJECTION_RE = re.compile(
     re.escape(MEMORY_INJECTION_HEADER) + r".*?" + re.escape(MEMORY_INJECTION_FOOTER),
+    re.DOTALL,
+)
+_SOUL_INJECTION_RE = re.compile(
+    re.escape(SOUL_INJECTION_HEADER) + r".*?" + re.escape(SOUL_INJECTION_FOOTER),
     re.DOTALL,
 )
 
@@ -736,24 +742,47 @@ class RecallManager(BaseRecallManager):
                         )
                     return 0
 
-                # Assemble injection block.
-                segments: list[str] = []
+                # Assemble memory block (events + persona + relation) and inject
+                # per the configured position.
+                mem_segments: list[str] = []
                 if body:
-                    segments.append(body)
+                    mem_segments.append(body)
                 if persona_segment:
-                    segments.append(persona_segment)
+                    mem_segments.append(persona_segment)
                 if relation_segment:
-                    segments.append(relation_segment)
-                if soul_segment:
-                    segments.append(soul_segment)
+                    mem_segments.append(relation_segment)
 
-                wrapped = (
-                    MEMORY_INJECTION_HEADER
-                    + "\n"
-                    + "\n\n".join(segments)
-                    + "\n"
-                    + MEMORY_INJECTION_FOOTER
-                )
+                if mem_segments:
+                    memory_wrapped = (
+                        MEMORY_INJECTION_HEADER
+                        + "\n"
+                        + "\n\n".join(mem_segments)
+                        + "\n"
+                        + MEMORY_INJECTION_FOOTER
+                    )
+                    if position == "system_prompt":
+                        sep = "\n\n" if getattr(req, "system_prompt", "") else ""
+                        req.system_prompt = getattr(req, "system_prompt", "") + sep + memory_wrapped
+                    elif position == "user_message_before":
+                        req.prompt = memory_wrapped + "\n\n" + getattr(req, "prompt", "")
+                    elif position == "user_message_after":
+                        req.prompt = getattr(req, "prompt", "") + "\n\n" + memory_wrapped
+                    else:
+                        sep = "\n\n" if getattr(req, "system_prompt", "") else ""
+                        req.system_prompt = getattr(req, "system_prompt", "") + sep + memory_wrapped
+
+                # Soul block always goes to system_prompt, independent of position.
+                # It describes the bot's current inner state, not recalled facts.
+                if soul_segment:
+                    soul_wrapped = (
+                        SOUL_INJECTION_HEADER
+                        + "\n"
+                        + soul_segment
+                        + "\n"
+                        + SOUL_INJECTION_FOOTER
+                    )
+                    sep = "\n\n" if getattr(req, "system_prompt", "") else ""
+                    req.system_prompt = getattr(req, "system_prompt", "") + sep + soul_wrapped
 
                 if store_injection_debug:
                     self._last_injection_debug[session_id] = _build_injection_debug(
@@ -768,17 +797,6 @@ class RecallManager(BaseRecallManager):
                         compat_reason=compat_reason,
                     )
 
-                if position == "system_prompt":
-                    sep = "\n\n" if getattr(req, "system_prompt", "") else ""
-                    req.system_prompt = getattr(req, "system_prompt", "") + sep + wrapped
-                elif position == "user_message_before":
-                    req.prompt = wrapped + "\n\n" + getattr(req, "prompt", "")
-                elif position == "user_message_after":
-                    req.prompt = getattr(req, "prompt", "") + "\n\n" + wrapped
-                else:
-                    sep = "\n\n" if getattr(req, "system_prompt", "") else ""
-                    req.system_prompt = getattr(req, "system_prompt", "") + sep + wrapped
-
                 self._last_injected_ids[session_id] = [e.event_id for e in events]
                 return len(events)
             finally:
@@ -788,7 +806,7 @@ class RecallManager(BaseRecallManager):
         """Strip all injection markers from req. Returns count of blocks removed."""
         removed = 0
 
-        # Clear system_prompt
+        # Clear memory blocks from system_prompt and prompt
         sp = getattr(req, "system_prompt", None)
         if sp:
             new_sp, n = _INJECTION_RE.subn("", sp)
@@ -796,10 +814,25 @@ class RecallManager(BaseRecallManager):
                 req.system_prompt = new_sp.strip()
                 removed += n
 
-        # Clear prompt
         prompt = getattr(req, "prompt", None)
         if prompt:
             new_prompt, n = _INJECTION_RE.subn("", prompt)
+            if n:
+                req.prompt = new_prompt.strip()
+                removed += n
+
+        # Clear soul blocks — soul always targets system_prompt, but sweep both
+        # fields defensively in case of a position change between turns.
+        sp = getattr(req, "system_prompt", None)
+        if sp and SOUL_INJECTION_HEADER in sp:
+            new_sp, n = _SOUL_INJECTION_RE.subn("", sp)
+            if n:
+                req.system_prompt = new_sp.strip()
+                removed += n
+
+        prompt = getattr(req, "prompt", None)
+        if prompt and SOUL_INJECTION_HEADER in prompt:
+            new_prompt, n = _SOUL_INJECTION_RE.subn("", prompt)
             if n:
                 req.prompt = new_prompt.strip()
                 removed += n
