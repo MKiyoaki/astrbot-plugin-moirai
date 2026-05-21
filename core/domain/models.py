@@ -23,7 +23,6 @@ class EventStatus:
 
 class EventType:
     EPISODE = "episode"
-    NARRATIVE = "narrative"
 
 
 # ---------------------------------------------------------------------------

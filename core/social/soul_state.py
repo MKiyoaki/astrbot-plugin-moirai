@@ -78,14 +78,11 @@ def update_from_signals(
     capped_count = min(relation_count, 5)
     delta_impression = capped_count * 0.4 * (1.0 + power * 0.5)
 
-    # creativity: time spread + type diversity of recalled events
+    # creativity: time spread of recalled events
     if len(events) >= 2:
         times = [getattr(e, "end_time", 0.0) for e in events]
         spread_days = (max(times) - min(times)) / 86400.0
-        has_episode   = any(getattr(e, "event_type", "") == "episode"   for e in events)
-        has_narrative = any(getattr(e, "event_type", "") == "narrative" for e in events)
-        type_mix = 1.5 if (has_episode and has_narrative) else 0.8
-        delta_creativity = min(spread_days / 30.0, 1.0) * type_mix
+        delta_creativity = min(spread_days / 30.0, 1.0) * 0.8
     else:
         delta_creativity = 0.0
 

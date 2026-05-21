@@ -1,5 +1,8 @@
 /**
  * Unified color utility for the Moirai frontend.
+ *
+ * All cyclic colors come from --color-palette-N CSS variables defined per theme,
+ * so they automatically adapt to the active theme and light/dark mode.
  */
 
 export const CHART_COLORS = [
@@ -25,9 +28,19 @@ export const CHART_COLORS = [
   'var(--color-chart-20)',
 ]
 
-/**
- * Generates a stable hash for a string.
- */
+/** Theme-aware 8-slot palette for tags, thread borders, and graph clusters. */
+export const PALETTE_COLORS = [
+  'var(--color-palette-1)',
+  'var(--color-palette-2)',
+  'var(--color-palette-3)',
+  'var(--color-palette-4)',
+  'var(--color-palette-5)',
+  'var(--color-palette-6)',
+  'var(--color-palette-7)',
+  'var(--color-palette-8)',
+]
+
+/** Stable hash for a string. */
 export function hashString(str: string): number {
   let hash = 0
   for (let i = 0; i < str.length; i++) {
@@ -37,10 +50,27 @@ export function hashString(str: string): number {
 }
 
 /**
- * Returns a stable color from the CHART_COLORS palette for a given string (e.g. a tag name).
- * This ensures consistency across different views.
+ * Returns a stable CSS variable color from the theme palette for a tag name.
+ * Consistent across all views that use the same name.
  */
 export function getTagColor(name: string): string {
   const hash = hashString(name)
-  return CHART_COLORS[hash % CHART_COLORS.length]
+  return PALETTE_COLORS[hash % PALETTE_COLORS.length]
+}
+
+/**
+ * Returns a stable CSS variable color from the theme palette for an event/thread id.
+ * Used for conversation card left-border accents.
+ */
+export function getThreadColor(id: string): string {
+  const hash = hashString(id)
+  return PALETTE_COLORS[hash % PALETTE_COLORS.length]
+}
+
+/**
+ * Returns a CSS variable color from the theme palette by sequential index.
+ * Used for graph clusters where numeric stability matters more than string hashing.
+ */
+export function getPaletteColor(index: number): string {
+  return PALETTE_COLORS[Math.abs(index) % PALETTE_COLORS.length]
 }

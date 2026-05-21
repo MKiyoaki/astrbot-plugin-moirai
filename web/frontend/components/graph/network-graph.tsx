@@ -6,10 +6,9 @@ import { GraphNode } from '@/components/graph/graph-node'
 import { GraphEdge } from '@/components/graph/graph-edge'
 import { useApp } from '@/lib/store'
 import { getLocalizedOrientation } from '@/lib/i18n'
+import { getPaletteColor } from '@/lib/colors'
 
-// ── Cluster color palette (Leiden-style) ─────────────────────────────────────
-const CLUSTER_COLORS = ['#d4e4f7', '#d5f0dc', '#fde8e6', '#fef9e7', '#f0eaff', '#e8f8f5']
-const DEFAULT_FILL = '#e8e8e8'
+const DEFAULT_FILL = 'var(--muted)'
 const EDGE_POS_COLOR = '#2d7d46'
 const EDGE_NEG_COLOR = '#c0392b'
 const EDGE_NEU_COLOR = '#aaa'
@@ -93,7 +92,7 @@ export function NetworkGraph({
     if (n.data.is_bot) return 'var(--primary)'
     if (params.leidenEnabled) {
       const cid = clusterMap[n.data.id] ?? 0
-      return CLUSTER_COLORS[cid % CLUSTER_COLORS.length]
+      return getPaletteColor(cid)
     }
     return DEFAULT_FILL
   }, [params.leidenEnabled, clusterMap])

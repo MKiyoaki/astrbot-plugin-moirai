@@ -1,5 +1,28 @@
 # 变更日志
 
+## [v0.15.1] - 2026-05-21
+
+### 移除 Narrative 日摘要事件 & 主题调色盘统一
+
+#### 移除 Narrative 事件链路
+
+- 删除 `_upsert_narrative_event`：`run_group_summary` 和 `regenerate_single_summary` 不再将日摘要写入 events 表，消除了 Library 页面中日摘要事件污染列表的问题。
+- 根因说明：`TaskScheduler.last_run` 初始为 0，每次插件重启都会立即触发 summary 任务；跨天重启就会在 events 表中积累大量 narrative 条目。
+- `RecallManager.recall()` 简化为纯 episode 单层检索，移除 macro/micro/both 粒度分类（`_classify_granularity`）和两层并发搜索逻辑，代码量减少约 60 行。
+- `formatter.py` `format_events_for_prompt` 移除宏观背景 / 相关历史记忆双分区渲染，统一为单区。
+- `domain/models.py` 移除 `EventType.NARRATIVE` 常量；`soul_state.py` 移除 `has_narrative` 类型多样性加权。
+- `repository/base.py` 和 `sqlite.py` 移除 `list_by_group` 的 `exclude_type` 参数、`search_fts` / `search_vector` 的 `event_type` 参数。
+- `hybrid.py` `search_raw` 移除 `event_type` 参数。
+- 相关测试更新：删除 `_classify_granularity` 和 narrative 相关断言，594 个测试全部通过。
+
+#### 前端主题调色盘统一
+
+- 每个主题 CSS（moirai / augustus / folio / juno / nox / selune / venus）新增 `--color-palette-1` ~ `--color-palette-8`，颜色从各主题色系派生，自动跟随 light/dark 模式。
+- `lib/colors.ts` 新增 `PALETTE_COLORS`、`getThreadColor(id)`、`getPaletteColor(index)`，统一三处取色逻辑：
+  - `getTagColor`：tag badge 颜色（原 `CHART_COLORS` hash，改用 `PALETTE_COLORS`）
+  - `getThreadColor`：Library 事件行左边框 / Landing 最近事件卡片左边框（原 Tailwind 硬编码类名，改为 `style={{ borderLeftColor }}`）
+  - `getPaletteColor`：Graph cluster 填色（原硬编码 hex，改用 CSS 变量）
+
 ## [v0.15.0] - 2026-05-20
 
 ### 记忆反馈回路 & Soul Layer 信号驱动重构

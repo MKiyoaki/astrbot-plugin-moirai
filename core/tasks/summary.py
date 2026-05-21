@@ -14,8 +14,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, TYPE_CHECKING
@@ -23,7 +21,6 @@ from typing import Any, Callable, TYPE_CHECKING
 if TYPE_CHECKING:
     from ..config import SummaryConfig
     from ..domain.models import Event
-    from ..embedding.encoder import Encoder
     from ..repository.base import EventRepository, PersonaRepository, ImpressionRepository
     from ..managers.llm_manager import LLMTaskManager
 
@@ -374,47 +371,6 @@ async def _generate_summary_for_group(
     return content, topic_text
 
 
-async def _upsert_narrative_event(
-    event_repo: EventRepository,
-    group_id: str | None,
-    topic_text: str,
-    date_str: str,
-    events: list[Event],
-    encoder: Encoder | None,
-) -> None:
-    """Create (or replace) the narrative Event for a given group+date."""
-    from ..domain.models import Event as _Event, EventType, MessageRef
-    if not topic_text.strip():
-        return
-    start_ts = min(e.start_time for e in events)
-    end_ts = max(e.end_time for e in events)
-    participants: list[str] = list({uid for e in events for uid in (e.participants or [])})
-    label = group_id or "私聊"
-    narrative = _Event(
-        event_id=str(uuid.uuid5(uuid.NAMESPACE_DNS, f"narrative:{group_id}:{date_str}")),
-        group_id=group_id,
-        start_time=start_ts,
-        end_time=end_ts,
-        participants=participants,
-        interaction_flow=[],
-        topic=f"[{date_str}] {label} 日摘要",
-        summary=topic_text[:300],
-        chat_content_tags=["日摘要"],
-        salience=0.85,
-        confidence=0.95,
-        event_type=EventType.NARRATIVE,
-        last_accessed_at=time.time(),
-    )
-    await event_repo.upsert(narrative)
-    if encoder and encoder.dim > 0:
-        text = f"{narrative.topic} {narrative.summary}"
-        try:
-            emb = await encoder.encode(text)
-            await event_repo.upsert_vector(narrative.event_id, emb)
-        except Exception as exc:
-            logger.debug("[%s] narrative embedding failed: %s", _MODULE_NAME, exc)
-
-
 async def run_group_summary(
     event_repo: EventRepository,
     data_dir: Path,
@@ -423,13 +379,8 @@ async def run_group_summary(
     persona_repo: PersonaRepository | None = None,
     impression_repo: ImpressionRepository | None = None,
     llm_manager: LLMTaskManager | None = None,
-    encoder: Encoder | None = None,
 ) -> int:
-    """Generate and write a daily summary for every active group.
-
-    When encoder is provided, also persists each summary as a narrative Event
-    in the DB to enable hierarchical RAG retrieval.
-    """
+    """Generate and write a daily summary for every active group."""
     from ..utils.perf import performance_timer
     async with performance_timer("task_summary"):
         from ..config import SummaryConfig as _SC
@@ -453,11 +404,7 @@ async def run_group_summary(
     today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
 
     async def _process_one(group_id) -> bool:
-        # Exclude narrative events from the source pool to avoid summary-of-summary loops
-        from ..domain.models import EventType
-        events = await event_repo.list_by_group(
-            group_id, limit=cfg.max_events, exclude_type=EventType.NARRATIVE
-        )
+        events = await event_repo.list_by_group(group_id, limit=cfg.max_events)
         if not events:
             return False
 
@@ -472,9 +419,6 @@ async def run_group_summary(
                 summary_dir = data_dir / "groups" / group_id / "summaries"
             summary_dir.mkdir(parents=True, exist_ok=True)
             (summary_dir / f"{today}.md").write_text(content, encoding="utf-8")
-            await _upsert_narrative_event(
-                event_repo, group_id, topic_text, today, events, encoder
-            )
             logger.debug(f"[{_MODULE_NAME}] wrote summary for group %r", group_id or "私聊")
             return True
         except Exception as exc:
@@ -498,13 +442,10 @@ async def regenerate_single_summary(
     persona_repo: PersonaRepository | None = None,
     impression_repo: ImpressionRepository | None = None,
     llm_manager: LLMTaskManager | None = None,
-    encoder: Encoder | None = None,
 ) -> str | None:
     """Regenerate summary for a specific group + date and return new content.
 
-    Used by the WebUI [调用LLM重新总结] button.  Mirrors run_group_summary so
-    that user config, LLM concurrency control, and the NARRATIVE event in DB
-    all stay consistent with automatic generation.
+    Used by the WebUI [调用LLM重新总结] button.
     """
     from ..config import SummaryConfig as _SC
     cfg = summary_config or _SC()
@@ -521,10 +462,7 @@ async def regenerate_single_summary(
         except Exception:
             pass
 
-    from ..domain.models import EventType
-    events = await event_repo.list_by_group(
-        group_id, limit=cfg.max_events, exclude_type=EventType.NARRATIVE
-    )
+    events = await event_repo.list_by_group(group_id, limit=cfg.max_events)
     if not events:
         return None
 
@@ -539,7 +477,5 @@ async def regenerate_single_summary(
         summary_dir = data_dir / "groups" / group_id / "summaries"
     summary_dir.mkdir(parents=True, exist_ok=True)
     (summary_dir / f"{date}.md").write_text(content, encoding="utf-8")
-
-    await _upsert_narrative_event(event_repo, group_id, topic_text, date, events, encoder)
 
     return content

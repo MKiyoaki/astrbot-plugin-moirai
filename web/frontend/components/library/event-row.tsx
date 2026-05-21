@@ -10,17 +10,7 @@ import { TableCell, TableRow } from '@/components/ui/table'
 import { useApp } from '@/lib/store'
 import type { ApiEvent } from '@/lib/api'
 import { cn, parseSummaryTopics } from '@/lib/utils'
-
-// Deterministic thread color from event id (reuse same palette as landing)
-const THREAD_COLORS = [
-  'border-l-rose-500', 'border-l-amber-500', 'border-l-sky-500',
-  'border-l-violet-500', 'border-l-emerald-500',
-]
-function threadColor(id: string) {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffffffff
-  return THREAD_COLORS[Math.abs(h) % THREAD_COLORS.length]
-}
+import { getThreadColor } from '@/lib/colors'
 
 interface EventRowProps {
   ev: ApiEvent
@@ -45,16 +35,17 @@ export function EventRow({
   onToggleExpand, onToggleSelect, onEdit, onDelete, onLockToggle, onArchive, onGoToEvents, onTagClick,
 }: EventRowProps) {
   const { i18n } = useApp()
-  const color = threadColor(ev.id)
+  const threadColor = getThreadColor(ev.id)
 
   return (
     <Fragment>
       <TableRow
         className={cn(
           'cursor-pointer transition-colors border-b border-border/40',
-          expanded && `border-l-2 ${color}`,
+          expanded && 'border-l-2',
           ev.is_locked && 'bg-primary/[0.02]',
         )}
+        style={expanded ? { borderLeftColor: threadColor } : undefined}
         onClick={() => editMode ? onToggleSelect(ev.id) : onToggleExpand(ev.id)}
       >
         {editMode && (
@@ -112,7 +103,7 @@ export function EventRow({
       </TableRow>
 
       {expanded && (
-        <TableRow className={cn('border-l-2', color)}>
+        <TableRow className="border-l-2" style={{ borderLeftColor: threadColor }}>
           <TableCell colSpan={editMode ? 8 : 7} className="py-0 px-0">
             <EventDetailPanel
               ev={ev} sudoMode={sudoMode} lang={lang}

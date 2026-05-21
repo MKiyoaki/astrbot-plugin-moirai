@@ -901,7 +901,6 @@ class PluginRoutes:
                 persona_repo=self._persona_repo,
                 impression_repo=self._impression_repo,
                 llm_manager=self._llm_manager,
-                encoder=self._encoder,
             )
         except Exception as exc:
             logger.warning("[PluginRoutes] regenerate_summary failed: %s", exc)

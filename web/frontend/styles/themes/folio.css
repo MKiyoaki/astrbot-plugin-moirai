@@ -94,3 +94,15 @@
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.78 0.025 86);
 }
+
+/* ── Cyclic colour palette — shared across light & dark ─────────────────── */
+.theme-folio {
+  --color-palette-1: oklch(0.45 0.055 265);
+  --color-palette-2: oklch(0.58 0.080 86);
+  --color-palette-3: oklch(0.50 0.060 200);
+  --color-palette-4: oklch(0.55 0.070 30);
+  --color-palette-5: oklch(0.48 0.065 140);
+  --color-palette-6: oklch(0.60 0.075 60);
+  --color-palette-7: oklch(0.46 0.058 320);
+  --color-palette-8: oklch(0.53 0.062 170);
+}

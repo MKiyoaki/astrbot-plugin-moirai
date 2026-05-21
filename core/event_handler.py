@@ -274,7 +274,7 @@ def _format_injection_debug_for_display(debug: dict) -> str:
     if memory.get("injected"):
         lines.append(f"记忆注入：{memory.get('count', 0)} 条")
         for ev in memory.get("events", [])[:8]:
-            label = ev.get("label") or ("叙事" if ev.get("type") == "narrative" else "情节")
+            label = ev.get("label") or "情节"
             topic = ev.get("topic") or "未命名记忆"
             summary = ev.get("summary") or ""
             if summary:
@@ -666,12 +666,10 @@ class EventHandler:
                 lines = [
                     "[Moirai 记忆检索]",
                     f"查询词：\"{debug['query']}\"",
-                    f"分类策略：{debug['granularity']}",
                     f"召回数量：{debug['total']} 条",
                 ]
                 for ev in debug["events"]:
-                    tag = "叙事" if ev["type"] == "narrative" else "情节"
-                    lines.append(f"  ▸ [{tag}] {ev['topic']}")
+                    lines.append(f"  ▸ [情节] {ev['topic']}")
                 lines.append(f"注入位置：{debug['position']}")
                 lines.append("─" * 20)
                 prefix_parts.append("\n".join(lines))

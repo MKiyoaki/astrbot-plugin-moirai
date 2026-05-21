@@ -444,7 +444,6 @@ class PluginInitializer:
                     persona_repo=persona_repo,
                     impression_repo=impression_repo,
                     llm_manager=self.llm_manager,
-                    encoder=encoder,
                 ),
             )
         await self.scheduler.start()

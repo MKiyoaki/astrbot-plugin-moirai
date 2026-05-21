@@ -52,12 +52,11 @@ class EventRepository(ABC):
 
     @abstractmethod
     async def list_by_group(
-        self, group_id: str | None, limit: int = 100, exclude_type: str | None = None,
+        self, group_id: str | None, limit: int = 100,
         bot_persona_name: str | None = None, include_legacy: bool = True,
     ) -> list[Event]:
         """Return events for a group, sorted by start_time DESC.
         group_id=None returns private-chat events.
-        exclude_type skips events of the given event_type (e.g. 'narrative').
         bot_persona_name / include_legacy: see list_all docstring.
         """
         ...
@@ -77,28 +76,26 @@ class EventRepository(ABC):
     @abstractmethod
     async def search_fts(
         self, query: str, limit: int = 20, active_only: bool = True,
-        group_id: str | None = None, event_type: str | None = None,
+        group_id: str | None = None,
         scope_mode: str = "all",
     ) -> list[Event]:
         """Keyword search over topic and chat_content_tags.
 
         scope_mode="all" searches globally; "group" restricts to group_id;
         "private" restricts to private-chat events where group_id is NULL.
-        event_type restricts to 'episode' or 'narrative' when specified.
         """
         ...
 
     @abstractmethod
     async def search_vector(
         self, embedding: list[float], limit: int = 20, active_only: bool = True,
-        group_id: str | None = None, event_type: str | None = None,
+        group_id: str | None = None,
         scope_mode: str = "all",
     ) -> list[Event]:
         """Semantic search via embedding similarity.
 
         scope_mode="all" searches globally; "group" restricts to group_id;
         "private" restricts to private-chat events where group_id is NULL.
-        event_type restricts to 'episode' or 'narrative' when specified.
         Stub returns []; real implementation uses sqlite-vec vec0.
         """
         ...

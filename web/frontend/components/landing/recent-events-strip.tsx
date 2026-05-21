@@ -8,26 +8,12 @@ import { useApp } from '@/lib/store'
 import type { ApiEvent } from '@/lib/api'
 import { parseSummaryTopics } from '@/lib/utils'
 import { cn } from '@/lib/utils'
+import { getThreadColor } from '@/lib/colors'
 import Link from 'next/link'
 
 interface RecentEventsStripProps {
   events: ApiEvent[]
   loading: boolean
-}
-
-// Deterministic thread color from event id
-const THREAD_COLORS = [
-  'border-l-rose-500',
-  'border-l-amber-500',
-  'border-l-sky-500',
-  'border-l-violet-500',
-  'border-l-emerald-500',
-]
-
-function threadColor(id: string) {
-  let hash = 0
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) & 0xffffffff
-  return THREAD_COLORS[Math.abs(hash) % THREAD_COLORS.length]
 }
 
 export function RecentEventsStrip({ events, loading }: RecentEventsStripProps) {
@@ -67,12 +53,13 @@ export function RecentEventsStrip({ events, loading }: RecentEventsStripProps) {
                 lang === 'zh' ? 'zh-CN' : lang === 'ja' ? 'ja-JP' : 'en-US',
                 { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }
               )
-              const color = threadColor(ev.id)
+              const color = getThreadColor(ev.id)
 
               return (
                 <div
                   key={ev.id}
-                  className={cn('border-l-2 pl-4 py-5 pr-5 space-y-2', color)}
+                  className="border-l-2 pl-4 py-5 pr-5 space-y-2"
+                  style={{ borderLeftColor: color }}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <h4 className="font-medium text-sm leading-tight line-clamp-1 flex-1">

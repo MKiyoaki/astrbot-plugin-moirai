@@ -235,7 +235,9 @@ class MoiraiPlugin(Star):
         scope_mode = "group" if group_id else "private"
         yield event.plain_result(
             await self._initializer.command_manager.recall(
-                query, group_id=group_id, scope_mode=scope_mode
+                query, 
+                group_id=group_id, 
+                scope_mode=scope_mode
             )
         )
 

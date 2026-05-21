@@ -1,26 +1,19 @@
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
-from core.managers.recall_manager import RecallManager, _classify_granularity
+from core.managers.recall_manager import RecallManager
 from core.domain.models import Event, EventType, Persona, Impression, RawStoredMessage
 from core.config import RetrievalConfig, InjectionConfig, SoulConfig
 from core.repository.memory import InMemoryRawMessageRepository
 
-def _make_retriever(events_by_type=None):
+def _make_retriever(events=None):
     """Build a MagicMock retriever whose _event_repo and _encoder are properly wired."""
-    events_by_type = events_by_type or {}
     event_repo = AsyncMock()
     event_repo.count_by_status = AsyncMock(return_value=1)
     event_repo.get_children = AsyncMock(return_value=[])
     event_repo.get = AsyncMock(return_value=None)
-
-    def _fts(query, *, limit=20, active_only=True, group_id=None, event_type=None, scope_mode="all"):
-        return events_by_type.get(event_type, [])
-    def _vec(embedding, *, limit=20, active_only=True, group_id=None, event_type=None, scope_mode="all"):
-        return events_by_type.get(event_type, [])
-
-    event_repo.search_fts = AsyncMock(side_effect=_fts)
-    event_repo.search_vector = AsyncMock(side_effect=_vec)
+    event_repo.search_fts = AsyncMock(return_value=events or [])
+    event_repo.search_vector = AsyncMock(return_value=[])
 
     encoder = MagicMock()
     encoder.dim = 0  # NullEncoder: skip vector search
@@ -43,27 +36,16 @@ def recall_manager():
     soul_cfg = SoulConfig(enabled=True)
     return RecallManager(retriever, retrieval_cfg, injection_cfg, persona_repo, impression_repo, soul_cfg), retriever, persona_repo, impression_repo
 
-def test_classify_granularity():
-    assert _classify_granularity("总结一下最近发生了什么") == "macro"
-    assert _classify_granularity("他具体怎么说的") == "micro"
-    assert _classify_granularity("你好") == "both"
 
 @pytest.mark.asyncio
-async def test_recall_macro_granularity(recall_manager):
+async def test_recall_returns_episodes(recall_manager):
     rm, retriever, pr, ir = recall_manager
-
-    narrative_ev = Event(event_id="n1", event_type=EventType.NARRATIVE, end_time=1000.0)
     episode_ev = Event(event_id="e1", event_type=EventType.EPISODE, end_time=1000.0)
+    retriever._event_repo.search_fts = AsyncMock(return_value=[episode_ev])
 
-    retriever._event_repo.search_fts.side_effect = (
-        lambda q, *, limit=20, active_only=True, group_id=None, event_type=None, scope_mode="all": (
-            [narrative_ev] if event_type == EventType.NARRATIVE else [episode_ev]
-        )
-    )
-
-    events = await rm.recall("最近总结")
-    assert any(e.event_id == "n1" for e in events)
+    events = await rm.recall("some query")
     assert any(e.event_id == "e1" for e in events)
+
 
 @pytest.mark.asyncio
 async def test_recall_and_inject_system_prompt(recall_manager):

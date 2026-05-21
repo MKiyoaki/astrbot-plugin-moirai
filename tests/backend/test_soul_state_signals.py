@@ -127,21 +127,6 @@ def test_creativity_higher_with_wide_time_span():
     assert state_spread.creativity > state_recent.creativity
 
 
-def test_creativity_higher_with_mixed_event_types():
-    """Mix of EPISODE + NARRATIVE produces higher creativity than EPISODE-only."""
-    same_type = [
-        _event("e1", 0.5, EventType.EPISODE, end_time=1_000_000.0),
-        _event("e2", 0.5, EventType.EPISODE, end_time=1_010_000.0),
-    ]
-    mixed = [
-        _event("m1", 0.5, EventType.EPISODE,   end_time=1_000_000.0),
-        _event("m2", 0.5, EventType.NARRATIVE,  end_time=1_010_000.0),
-    ]
-    state_same  = update_from_signals(_neutral(), decay_rate=0.0, events=same_type)
-    state_mixed = update_from_signals(_neutral(), decay_rate=0.0, events=mixed)
-
-    assert state_mixed.creativity > state_same.creativity
-
 
 def test_creativity_zero_when_single_event():
     """Single event → no time spread → creativity stays near 0."""

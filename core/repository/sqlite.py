@@ -624,15 +624,11 @@ class SQLiteEventRepository(EventRepository):
 
     async def list_by_group(
         self, group_id: str | None, limit: int = 100,
-        exclude_type: str | None = None,
         bot_persona_name: str | None = None, include_legacy: bool = True,
     ) -> list[Event]:
         # IS ? correctly handles NULL comparison (group_id IS NULL)
         clauses = ["group_id IS ?"]
         params: list[Any] = [group_id]
-        if exclude_type:
-            clauses.append("event_type != ?")
-            params.append(exclude_type)
         persona_where, persona_params = _persona_where(bot_persona_name, include_legacy)
         if persona_where:
             clauses.append(persona_where)
@@ -660,26 +656,21 @@ class SQLiteEventRepository(EventRepository):
 
     async def search_fts(
         self, query: str, limit: int = 20, active_only: bool = True,
-        group_id: str | None = None, event_type: str | None = None,
+        group_id: str | None = None,
         scope_mode: str = "all",
     ) -> list[Event]:
         """BM25 full-text search over topic and chat_content_tags.
 
         group_id=None searches across all groups; pass a value to restrict to one scope.
-        event_type filters by 'episode' or 'narrative' when specified.
         """
         try:
             clauses = ["e.status = 'active'"] if active_only else []
             scope_clause, scope_params = _event_scope_where("e", group_id, scope_mode)
             if scope_clause:
                 clauses.append(scope_clause)
-            if event_type:
-                clauses.append("e.event_type = ?")
             where_tail = (" AND " + " AND ".join(clauses)) if clauses else ""
             params = [query, limit]
             params.extend(scope_params)
-            if event_type:
-                params.append(event_type)
             async with self._db.execute(
                 f"{_EVENT_SELECT} e WHERE e.rowid IN ("
                 "  SELECT rowid FROM events_fts WHERE events_fts MATCH ?"
@@ -695,13 +686,11 @@ class SQLiteEventRepository(EventRepository):
 
     async def search_vector(
         self, embedding: list[float], limit: int = 20, active_only: bool = True,
-        group_id: str | None = None, event_type: str | None = None,
+        group_id: str | None = None,
         scope_mode: str = "all",
     ) -> list[Event]:
         """Cosine-approximate nearest-neighbour search via sqlite-vec vec0.
 
-        group_id=None searches across all groups; pass a value to restrict to one scope.
-        event_type filters by 'episode' or 'narrative' when specified.
         Returns [] if sqlite-vec is not loaded or the embedding is empty.
         """
         if not embedding:
@@ -711,13 +700,9 @@ class SQLiteEventRepository(EventRepository):
             scope_clause, scope_params = _event_scope_where("e", group_id, scope_mode)
             if scope_clause:
                 clauses.append(scope_clause)
-            if event_type:
-                clauses.append("e.event_type = ?")
             join_tail = (" AND " + " AND ".join(clauses)) if clauses else ""
             params = [json.dumps(embedding), limit]
             params.extend(scope_params)
-            if event_type:
-                params.append(event_type)
             async with self._db.execute(
                 f"SELECT {_EVENT_SEARCH_COLS} FROM "
                 "(SELECT rowid, distance FROM events_vec WHERE embedding MATCH ? "

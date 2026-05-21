@@ -23,7 +23,7 @@ from ..config import (
     MEMORY_INJECTION_FOOTER,
     MEMORY_INJECTION_HEADER,
 )
-from ..domain.models import Event, EventType, MessageRef
+from ..domain.models import Event, MessageRef
 from ..utils.formatter import (
     format_events_for_fake_tool_call,
     format_events_for_prompt_safe,
@@ -42,30 +42,6 @@ if TYPE_CHECKING:
 _LOG2 = log(2)
 _RAW_DETAIL_PER_EVENT = 8
 
-# Keywords that signal a broad / temporal / summary-type query (macro layer).
-_MACRO_KWS = frozenset([
-    "最近", "这段时间", "这周", "本周", "这个月", "上周", "上个月",
-    "总结", "概括", "整体", "大概", "发生了什么", "有什么事", "都做了什么",
-    "最近怎么样", "一段时间", "过去", "回顾",
-])
-
-# Keywords that signal a specific / entity-focused query (micro layer).
-_MICRO_KWS = frozenset([
-    "具体", "说了什么", "怎么说", "什么时候", "为什么", "怎么了", "详细",
-    "哪次", "那次", "上次", "那时候",
-])
-
-
-def _classify_granularity(query: str) -> str:
-    """Return 'macro', 'micro', or 'both' based on keyword overlap."""
-    macro_hits = sum(1 for kw in _MACRO_KWS if kw in query)
-    micro_hits = sum(1 for kw in _MICRO_KWS if kw in query)
-    if macro_hits > micro_hits:
-        return "macro"
-    if micro_hits > macro_hits:
-        return "micro"
-    return "both"
-
 _INJECTION_RE = re.compile(
     re.escape(MEMORY_INJECTION_HEADER) + r".*?" + re.escape(MEMORY_INJECTION_FOOTER),
     re.DOTALL,
@@ -83,11 +59,10 @@ def _truncate(text: str, limit: int) -> str:
 
 def _event_debug_summary(ev: Event) -> dict[str, str]:
     event_type = getattr(ev, "event_type", "")
-    label = "叙事" if event_type == EventType.NARRATIVE or str(event_type) == "narrative" else "情节"
     summary = getattr(ev, "summary", "") or ""
     return {
         "type": str(event_type),
-        "label": label,
+        "label": "情节",
         "topic": _truncate(getattr(ev, "topic", "") or "未命名记忆", 48),
         "summary": _truncate(summary, 80) if summary else "",
     }
@@ -435,31 +410,13 @@ class RecallManager(BaseRecallManager):
         limit: int | None = None,
         scope_mode: str = "all",
     ) -> list[Event]:
-        """Return re-ranked events for injection.
-
-        Uses a two-tier hierarchical strategy when narrative events exist:
-        1. Macro layer: narrative daily summaries
-        2. Episode layer: raw conversation events
-        Allocation ratio depends on query granularity (classified via keywords).
-        """
+        """Return re-ranked events for injection."""
         from ..utils.perf import performance_timer
         cfg = self._rcfg
-        granularity = _classify_granularity(query)
         final_limit = limit if limit is not None else cfg.final_limit
 
         if final_limit <= 0:
             return []
-
-        # Determine per-tier limits based on granularity
-        if granularity == "macro":
-            narrative_limit = min(4, final_limit)
-            episode_limit = max(final_limit - 2, 1)
-        elif granularity == "micro":
-            narrative_limit = 1
-            episode_limit = final_limit
-        else:  # "both"
-            narrative_limit = min(2, final_limit)
-            episode_limit = final_limit
 
         async with performance_timer("recall_search"):
             _log = logging.getLogger(__name__)
@@ -473,14 +430,12 @@ class RecallManager(BaseRecallManager):
             )
 
             # Fast pre-flight: skip encode + vector when the DB has no active events.
-            # COUNT(*) on an empty SQLite table is ~0.1 ms vs 5 s for an API encode call.
             if enc_dim > 0:
                 from ..domain.models import EventStatus
                 active_count = await event_repo.count_by_status(EventStatus.ACTIVE)
                 if active_count == 0:
-                    narrative_bm25, narrative_vec, bm25, vec = [], [], [], []
+                    bm25, vec = [], []
                     _log.debug("[RecallManager] pre-flight: 0 active events, skipping encode+search")
-                    # jump to rerank (which immediately returns [])
                     goto_rerank = True
                 else:
                     goto_rerank = False
@@ -488,101 +443,74 @@ class RecallManager(BaseRecallManager):
                 goto_rerank = False
 
             if not goto_rerank:
-                # Run BM25 for both tiers AND encoding in parallel — BM25 needs no embedding.
-                async def _bm25(event_type: str) -> list[Event]:
-                    return await event_repo.search_fts(
-                        query, limit=bm25_limit, event_type=event_type, **common
-                    )
-
                 async def _null_encode() -> None:
                     return None
                 encode_coro = encoder.encode(query) if enc_dim > 0 else _null_encode()
-                (
-                    narrative_bm25_raw,
-                    episode_bm25_raw,
-                    shared_embedding_raw,
-                ) = await asyncio.gather(
-                    _bm25(EventType.NARRATIVE),
-                    _bm25(EventType.EPISODE),
+                bm25_raw, shared_embedding_raw = await asyncio.gather(
+                    event_repo.search_fts(query, limit=bm25_limit, **common),
                     encode_coro,
                     return_exceptions=True,
                 )
 
-                narrative_bm25 = narrative_bm25_raw if not isinstance(narrative_bm25_raw, Exception) else []
-                bm25 = episode_bm25_raw if not isinstance(episode_bm25_raw, Exception) else []
+                bm25 = bm25_raw if not isinstance(bm25_raw, Exception) else []
                 if isinstance(shared_embedding_raw, Exception):
                     _log.warning("[RecallManager] pre-encode failed: %s", shared_embedding_raw)
                     shared_embedding: list[float] | None = None
                 else:
                     shared_embedding = shared_embedding_raw
 
-                # Vector searches run in parallel after embedding is ready.
                 if shared_embedding and enc_dim > 0:
-                    async def _vec(event_type: str) -> list[Event]:
-                        return await event_repo.search_vector(
-                            shared_embedding, limit=vec_limit, event_type=event_type, **common
-                        )
-
-                    narrative_vec_raw, episode_vec_raw = await asyncio.gather(
-                        _vec(EventType.NARRATIVE),
-                        _vec(EventType.EPISODE),
-                        return_exceptions=True,
+                    vec_raw = await event_repo.search_vector(
+                        shared_embedding, limit=vec_limit, **common
                     )
-                    narrative_vec = narrative_vec_raw if not isinstance(narrative_vec_raw, Exception) else []
-                    vec = episode_vec_raw if not isinstance(episode_vec_raw, Exception) else []
+                    vec = vec_raw if not isinstance(vec_raw, Exception) else []
                 else:
-                    narrative_vec, vec = [], []
-        
+                    vec = []
+
         _log = logging.getLogger(__name__)
         _log.debug(
-            "[RecallManager] query: %r, granularity: %s, group_id: %r, scope_mode: %s",
-            query, granularity, group_id, scope_mode,
+            "[RecallManager] query: %r, group_id: %r, scope_mode: %s",
+            query, group_id, scope_mode,
         )
         _log.debug("[RecallManager] BM25 hits: %d, Vec hits: %d", len(bm25), len(vec))
 
         async with performance_timer("recall_rerank"):
             now = time.time()
 
-            def _rank_tier(
-                bm25_tier: list[Event], vec_tier: list[Event], limit: int
-            ) -> list[Event]:
-                """RRF + multi-signal rerank for a single event type tier."""
-                if not bm25_tier and cfg.vector_fallback_enabled and vec_tier:
-                    tier_candidates = vec_tier
-                    tier_scores: dict[str, float] = {
-                        e.event_id: 1.0 / (cfg.rrf_k + 1) for e in vec_tier
-                    }
-                else:
-                    tier_scores = rrf_scores([bm25_tier, vec_tier], k=cfg.rrf_k)
-                    seen: set[str] = set()
-                    tier_candidates = []
-                    for e in bm25_tier + vec_tier:
-                        if e.event_id not in seen:
-                            seen.add(e.event_id)
-                            tier_candidates.append(e)
-                if not tier_candidates:
-                    return []
-                max_rrf = max(tier_scores.values()) if tier_scores else 1.0
+            if not bm25 and cfg.vector_fallback_enabled and vec:
+                candidates = vec
+                scores: dict[str, float] = {
+                    e.event_id: 1.0 / (cfg.rrf_k + 1) for e in vec
+                }
+            else:
+                scores = rrf_scores([bm25, vec], k=cfg.rrf_k)
+                seen: set[str] = set()
+                candidates = []
+                for e in bm25 + vec:
+                    if e.event_id not in seen:
+                        seen.add(e.event_id)
+                        candidates.append(e)
 
-                def _score(ev: Event) -> float:
-                    days = (now - ev.end_time) / 86400.0
-                    recency = exp(-_LOG2 * days / cfg.recency_half_life_days)
-                    rrf = tier_scores.get(ev.event_id, 0.0)
-                    return (
-                        cfg.relevance_weight * rrf / max_rrf
-                        + cfg.salience_weight * ev.salience
-                        + cfg.recency_weight * recency
-                    )
-
-                return sorted(tier_candidates, key=_score, reverse=True)[:limit]
-
-            narrative_anchors = _rank_tier(narrative_bm25, narrative_vec, narrative_limit)
-            episode_anchors = _rank_tier(bm25, vec, episode_limit)
-
-            if not narrative_anchors and not episode_anchors:
+            if not candidates:
                 return []
 
-            # Build deduped result: narratives first, then episode thread expansion
+            max_rrf = max(scores.values()) if scores else 1.0
+
+            def _score(ev: Event) -> float:
+                days = (now - ev.end_time) / 86400.0
+                recency = exp(-_LOG2 * days / cfg.recency_half_life_days)
+                rrf = scores.get(ev.event_id, 0.0)
+                return (
+                    cfg.relevance_weight * rrf / max_rrf
+                    + cfg.salience_weight * ev.salience
+                    + cfg.recency_weight * recency
+                )
+
+            episode_anchors = sorted(candidates, key=_score, reverse=True)[:final_limit]
+
+            if not episode_anchors:
+                return []
+
             result_list: list[Event] = []
             seen_ids: set[str] = set()
 
@@ -590,9 +518,6 @@ class RecallManager(BaseRecallManager):
                 if ev.event_id not in seen_ids:
                     result_list.append(ev)
                     seen_ids.add(ev.event_id)
-
-            for n_ev in narrative_anchors:
-                _add_event_sync(n_ev)
 
         # Episode thread expansion (async I/O outside performance_timer)
         if episode_anchors:
@@ -698,7 +623,6 @@ class RecallManager(BaseRecallManager):
             if store_debug:
                 self._last_recall_debug[session_id] = {
                     "query": query,
-                    "granularity": _classify_granularity(query),
                     "total": len(events),
                     "events": [
                         {"topic": e.topic, "type": e.event_type}

@@ -45,19 +45,18 @@ class HybridRetriever:
 
     async def search_raw(
         self, query: str, active_only: bool = True, group_id: str | None = None,
-        event_type: str | None = None, scope_mode: str = "all",
+        scope_mode: str = "all",
         embedding: list[float] | None = None,
     ) -> tuple[list[Event], list[Event]]:
         """Return (bm25_results, vec_results) without fusion.
 
         scope_mode controls the conversation filter: all, group, or private.
-        event_type restricts to 'episode' or 'narrative' when specified.
         embedding: pre-computed query vector; if None, will be encoded here.
         """
         async def _bm25_search() -> list[Event]:
             return await self._event_repo.search_fts(
                 query, limit=self._bm25_limit, active_only=active_only,
-                group_id=group_id, event_type=event_type, scope_mode=scope_mode,
+                group_id=group_id, scope_mode=scope_mode,
             )
 
         async def _vector_search() -> list[Event]:
@@ -66,7 +65,7 @@ class HybridRetriever:
             vec = embedding if embedding is not None else await self._encoder.encode(query)
             return await self._event_repo.search_vector(
                 vec, limit=self._vec_limit, active_only=active_only,
-                group_id=group_id, event_type=event_type, scope_mode=scope_mode,
+                group_id=group_id, scope_mode=scope_mode,
             )
 
         bm25_result, vec_result = await asyncio.gather(
