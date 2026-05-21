@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from ..domain.models import Event, Impression, Persona, RawStoredMessage
+from ..domain.models import Event, Impression, Persona, PersonaGroup, RawStoredMessage
 
 
 class PersonaRepository(ABC):
@@ -30,6 +30,43 @@ class PersonaRepository(ABC):
     @abstractmethod
     async def bind_identity(self, uid: str, platform: str, physical_id: str) -> None:
         """Add a new (platform, physical_id) binding to an existing Persona."""
+        ...
+
+
+class PersonaGroupRepository(ABC):
+    """Cross-platform account binding groups.
+
+    A group links multiple per-platform Personas. Membership is stored on
+    ``Persona.group_id`` (mutated via ``set_member_group``); this repository
+    owns the ``persona_groups`` registry rows. No per-account data is moved.
+    """
+
+    @abstractmethod
+    async def upsert_group(self, group: PersonaGroup) -> None:
+        """Insert or update a group registry row (rename / re-point primary)."""
+        ...
+
+    @abstractmethod
+    async def get_group(self, group_id: str) -> PersonaGroup | None: ...
+
+    @abstractmethod
+    async def list_groups(self) -> list[PersonaGroup]: ...
+
+    @abstractmethod
+    async def delete_group(self, group_id: str) -> bool:
+        """Delete the group row and clear ``group_id`` on all its members.
+        Returns False if group_id was not found.
+        """
+        ...
+
+    @abstractmethod
+    async def set_member_group(self, uid: str, group_id: str | None) -> None:
+        """Assign a Persona to a group, or clear membership when group_id is None."""
+        ...
+
+    @abstractmethod
+    async def list_member_uids(self, group_id: str) -> list[str]:
+        """Return the uids of all Personas currently in the group."""
         ...
 
 

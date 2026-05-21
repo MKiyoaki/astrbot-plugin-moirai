@@ -41,6 +41,7 @@ from .projector.projector import MarkdownProjector
 from .repository.sqlite import (
     SQLiteEventRepository,
     SQLiteImpressionRepository,
+    SQLitePersonaGroupRepository,
     SQLitePersonaRepository,
     SQLiteRawMessageRepository,
     db_open,
@@ -127,9 +128,11 @@ class PluginInitializer:
         self.watcher: FileWatcher | None = None
         self.syncer: ReverseSyncer | None = None
         self.persona_repo = None
+        self.persona_group_repo = None
         self.raw_message_writer: RawMessageWriter | None = None
         self.resolver = None
         self.command_manager = None
+        self.account_link_manager = None
         self._periodic_flush_task: asyncio.Task | None = None
         self.plugin_routes = None
         self.webui_error: str | None = None
@@ -183,6 +186,7 @@ class PluginInitializer:
         )
 
         persona_repo = SQLitePersonaRepository(db)
+        persona_group_repo = SQLitePersonaGroupRepository(db)
         event_repo = SQLiteEventRepository(db)
         impression_repo = SQLiteImpressionRepository(db)
         raw_message_repo = SQLiteRawMessageRepository(db)
@@ -240,6 +244,7 @@ class PluginInitializer:
         )
 
         self.persona_repo = persona_repo
+        self.persona_group_repo = persona_group_repo
         self.recall = RecallManager(
             retriever=retriever,
             retrieval_config=cfg.get_retrieval_config(),
@@ -248,6 +253,7 @@ class PluginInitializer:
             impression_repo=impression_repo,
             soul_config=cfg.get_soul_config(),
             raw_message_repo=raw_message_repo,
+            persona_group_repo=persona_group_repo,
         )
 
         ipc_cfg = cfg.get_ipc_config()
@@ -282,6 +288,7 @@ class PluginInitializer:
                 min_events=cfg.persona_synthesis_min_events,
                 cooldown_hours=cfg.persona_synthesis_cooldown_hours,
                 fallback_staleness_hours=cfg.persona_synthesis_interval_seconds / 3600.0,
+                group_repo=persona_group_repo,
             )
 
         async def _handle_persisted_events(events: list[Event]) -> None:
@@ -413,6 +420,7 @@ class PluginInitializer:
                     persona_repo, event_repo, provider_getter,
                     synthesis_config=synthesis_cfg,
                     llm_manager=self.llm_manager,
+                    group_repo=persona_group_repo,
                 ),
             )
         if cfg.relation_enabled:
@@ -432,6 +440,7 @@ class PluginInitializer:
                     provider_getter,
                     synthesis_config=synthesis_cfg,
                     llm_manager=self.llm_manager,
+                    group_repo=persona_group_repo,
                 ),
             )
         if cfg.summary_enabled:
@@ -455,6 +464,16 @@ class PluginInitializer:
             fn=lambda: run_reindex_all(event_repo, retriever),
         )
 
+        from .managers.account_link_manager import AccountLinkManager
+        self.account_link_manager = AccountLinkManager(
+            persona_repo=persona_repo,
+            group_repo=persona_group_repo,
+            event_repo=event_repo,
+            provider_getter=provider_getter,
+            synthesis_config=synthesis_cfg,
+            llm_manager=self.llm_manager,
+        )
+
         PluginRoutes = _load_local_web_attr("plugin_routes", "PluginRoutes")
         self.plugin_routes = PluginRoutes(
             persona_repo=persona_repo,
@@ -473,6 +492,8 @@ class PluginInitializer:
             context_manager=self.context_manager,
             summary_trigger_rounds=cfg.get_boundary_config().summary_trigger_rounds,
             raw_message_repo=raw_message_repo,
+            persona_group_repo=persona_group_repo,
+            account_link_manager=self.account_link_manager,
         )
         if cfg.webui_enabled:
             self._ensure_pages_built()
@@ -557,6 +578,8 @@ class PluginInitializer:
             data_dir=data_dir,
             initial_lang=_lang_map.get(cfg.language, LANG_ZH),
             summary_trigger_rounds=cfg.get_boundary_config().summary_trigger_rounds,
+            account_link_manager=self.account_link_manager,
+            resolver=resolver,
         )
 
         astrbot_logger.info("[%s] initialized — DB at %s",

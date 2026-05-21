@@ -51,6 +51,8 @@ class CommandManager:
         data_dir: Path | None = None,
         initial_lang: str = LANG_ZH,
         summary_trigger_rounds: int = 30,
+        account_link_manager: object | None = None,
+        resolver: object | None = None,
     ) -> None:
         self._scheduler = scheduler
         self._recall = recall
@@ -62,6 +64,8 @@ class CommandManager:
         self._impression_repo = impression_repo
         self._data_dir = data_dir
         self._summary_trigger_rounds = summary_trigger_rounds
+        self._account_link_manager = account_link_manager
+        self._resolver = resolver
         # session_id → (confirm_key, expire_timestamp)
         self._pending: dict[str, tuple[str, float]] = {}
         # Language: try reading persisted preference, fall back to initial_lang
@@ -197,6 +201,53 @@ class CommandManager:
             lines.append(self._t("cmd.persona.tags", tags=", ".join(tags)))
         lines.append(self._t("cmd.persona.confidence", pct=round(p.confidence * 100)))
         return "\n".join(lines)
+
+    async def bind_account(
+        self, platform: str, physical_id: str, display_name: str, code: str = ""
+    ) -> str:
+        """`/mrm bind` — issue a pairing code, or redeem one to bind two accounts."""
+        if self._account_link_manager is None or self._resolver is None:
+            return "账号绑定功能不可用。"
+        uid = await self._resolver.get_or_create_uid(
+            platform, physical_id, display_name or physical_id
+        )
+        from .account_link_manager import AccountLinkError
+
+        code = (code or "").strip()
+        if not code:
+            pairing = self._account_link_manager.generate_pairing_code(uid)
+            return (
+                f"配对码：{pairing}\n"
+                f"请在要绑定的另一个账号上发送 /mrm bind {pairing} 完成绑定（5 分钟内有效）。"
+            )
+        try:
+            group = await self._account_link_manager.redeem_pairing_code(code, uid)
+        except AccountLinkError as exc:
+            return f"绑定失败：{exc}"
+        except Exception as exc:
+            logger.warning("[CommandManager] bind failed: %s", exc)
+            return "绑定失败：内部错误。"
+        return f"已绑定到用户「{group.display_name}」，正在后台重新合成人格。"
+
+    async def unbind_account(
+        self, platform: str, physical_id: str, display_name: str
+    ) -> str:
+        """`/mrm unbind` — remove the current account from its bound group."""
+        if self._account_link_manager is None or self._persona_repo is None:
+            return "账号绑定功能不可用。"
+        persona = await self._persona_repo.get_by_identity(platform, physical_id)
+        if persona is None:
+            return "未找到当前账号的记录。"
+        from .account_link_manager import AccountLinkError
+
+        try:
+            await self._account_link_manager.unbind(persona.uid)
+        except AccountLinkError as exc:
+            return f"解绑失败：{exc}"
+        except Exception as exc:
+            logger.warning("[CommandManager] unbind failed: %s", exc)
+            return "解绑失败：内部错误。"
+        return "已解绑当前账号，正在后台重新合成人格。"
 
     async def soul(self, session_id: str, soul_states: dict) -> str:
         state = soul_states.get(session_id)

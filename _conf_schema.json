@@ -666,6 +666,13 @@
                 "default": "",
                 "level": "advanced"
             },
+            "account_merge_synthesis_only": {
+                "description": "🔒账号绑定仅用于人格合成",
+                "type": "bool",
+                "hint": "用户把多个平台账号绑定到同一用户名后：关闭时（默认）人格合成与记忆召回都跨账号合并；开启后仅人格合成合并，记忆召回仍按单账号独立处理。",
+                "default": false,
+                "level": "advanced"
+            },
             "persona_isolation_enabled": {
                 "description": "🔒启用 Bot 人格数据隔离",
                 "type": "bool",

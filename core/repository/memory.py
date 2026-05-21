@@ -9,9 +9,15 @@ from __future__ import annotations
 import math
 from copy import deepcopy
 
-from ..domain.models import Event, Impression, Persona, RawStoredMessage
+from ..domain.models import Event, Impression, Persona, PersonaGroup, RawStoredMessage
 
-from .base import EventRepository, ImpressionRepository, PersonaRepository, RawMessageRepository
+from .base import (
+    EventRepository,
+    ImpressionRepository,
+    PersonaGroupRepository,
+    PersonaRepository,
+    RawMessageRepository,
+)
 
 
 class InMemoryPersonaRepository(PersonaRepository):
@@ -60,6 +66,49 @@ class InMemoryPersonaRepository(PersonaRepository):
             identity = (platform, physical_id)
             if identity not in persona.bound_identities:
                 persona.bound_identities.append(identity)
+
+
+class InMemoryPersonaGroupRepository(PersonaGroupRepository):
+    """In-memory persona groups; member assignment mutates the shared persona store."""
+
+    def __init__(self, persona_repo: InMemoryPersonaRepository) -> None:
+        self._persona_repo = persona_repo
+        self._groups: dict[str, PersonaGroup] = {}
+
+    async def upsert_group(self, group: PersonaGroup) -> None:
+        self._groups[group.group_id] = deepcopy(group)
+
+    async def get_group(self, group_id: str) -> PersonaGroup | None:
+        group = self._groups.get(group_id)
+        return deepcopy(group) if group is not None else None
+
+    async def list_groups(self) -> list[PersonaGroup]:
+        return sorted(
+            (deepcopy(g) for g in self._groups.values()),
+            key=lambda g: g.updated_at,
+            reverse=True,
+        )
+
+    async def delete_group(self, group_id: str) -> bool:
+        if group_id not in self._groups:
+            return False
+        for persona in self._persona_repo._store.values():
+            if persona.group_id == group_id:
+                persona.group_id = None
+        del self._groups[group_id]
+        return True
+
+    async def set_member_group(self, uid: str, group_id: str | None) -> None:
+        persona = self._persona_repo._store.get(uid)
+        if persona is not None:
+            persona.group_id = group_id
+
+    async def list_member_uids(self, group_id: str) -> list[str]:
+        return [
+            uid
+            for uid, persona in self._persona_repo._store.items()
+            if persona.group_id == group_id
+        ]
 
 
 class InMemoryEventRepository(EventRepository):

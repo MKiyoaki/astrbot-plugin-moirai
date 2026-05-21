@@ -239,6 +239,9 @@ class InjectionConfig:
     """Maximum social impression rows injected for the active sender."""
     impression_injection_min_confidence: float = 0.2
     """Minimum confidence required before a social impression can be injected."""
+    account_merge_synthesis_only: bool = False
+    """When True, bound-account merging applies to persona synthesis only;
+    recall does not expand a sender_uid across its bound group."""
 
 
 @dataclass
@@ -520,6 +523,9 @@ class PluginConfig:
             ),
             impression_injection_min_confidence=max(
                 0.0, min(1.0, self._float("impression_injection_min_confidence", 0.2))
+            ),
+            account_merge_synthesis_only=self._bool(
+                "account_merge_synthesis_only", False
             ),
         )
 

@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import {
   Activity, Share2, BookOpen, Search, Database, Settings, SlidersHorizontal,
-  Moon, Sun, Monitor, BarChart3, Lock, Unlock, Check,
+  Moon, Sun, Monitor, BarChart3, Lock, Unlock, Check, Link2,
 } from 'lucide-react'
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
@@ -41,8 +41,9 @@ const NAV_TOOLS = [
   { href: '/stats',   icon: BarChart3,          labelKey: 'stats' as const },
 ]
 const NAV_ADMIN = [
-  { href: '/library', icon: Database,           labelKey: 'library' as const },
-  { href: '/config',  icon: SlidersHorizontal,  labelKey: 'config' as const },
+  { href: '/library',  icon: Database,           labelKey: 'library' as const },
+  { href: '/bindings', icon: Link2,              labelKey: 'bindings' as const },
+  { href: '/config',   icon: SlidersHorizontal,  labelKey: 'config' as const },
 ]
 
 function EngineStatusBadge() {
@@ -141,6 +142,9 @@ export function AppSidebar() {
   const navLabel = (labelKey: string) => {
     if (labelKey === 'stats') {
       return lang === 'zh' ? '数据统计' : lang === 'ja' ? '統計' : 'Statistics'
+    }
+    if (labelKey === 'bindings') {
+      return lang === 'zh' ? '账号绑定' : lang === 'ja' ? 'アカウント連携' : 'Account Binding'
     }
     return (i18n.nav as Record<string, string>)[labelKey] ?? labelKey
   }

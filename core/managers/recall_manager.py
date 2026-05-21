@@ -174,6 +174,7 @@ class RecallManager(BaseRecallManager):
         impression_repo: ImpressionRepository | None = None,
         soul_config: SoulConfig | None = None,
         raw_message_repo: RawMessageRepository | None = None,
+        persona_group_repo: object | None = None,
     ) -> None:
         super().__init__()
         self._retriever = retriever
@@ -182,6 +183,7 @@ class RecallManager(BaseRecallManager):
         self._persona_repo = persona_repo
         self._impression_repo = impression_repo
         self._raw_message_repo = raw_message_repo
+        self._group_repo = persona_group_repo
         self._soul_cfg = soul_config
         self._soul_states: dict[str, SoulState] = {}
         self._soul_state_accessed: dict[str, float] = {}
@@ -313,27 +315,38 @@ class RecallManager(BaseRecallManager):
             return "", None
 
         scope = group_id or "global"
+
+        # Expand sender_uid across its bound account group, unless the merge is
+        # restricted to persona synthesis only.
+        uids = [sender_uid]
+        if (
+            not getattr(self._icfg, "account_merge_synthesis_only", False)
+            and self._group_repo is not None
+            and self._persona_repo is not None
+        ):
+            try:
+                from ..social.persona_group import expand_uids
+                uids = await expand_uids(self._persona_repo, self._group_repo, sender_uid)
+            except Exception:
+                uids = [sender_uid]
+
         try:
-            subject_rows, observer_rows = await asyncio.gather(
-                self._impression_repo.list_by_subject(
-                    sender_uid,
-                    scope=scope,
-                    bot_persona_name=bot_persona_name,
-                    include_legacy=True,
-                ),
-                self._impression_repo.list_by_observer(
-                    sender_uid,
-                    scope=scope,
-                    bot_persona_name=bot_persona_name,
-                    include_legacy=True,
-                ),
-                return_exceptions=True,
-            )
+            coros = []
+            for uid in uids:
+                coros.append(self._impression_repo.list_by_subject(
+                    uid, scope=scope,
+                    bot_persona_name=bot_persona_name, include_legacy=True,
+                ))
+                coros.append(self._impression_repo.list_by_observer(
+                    uid, scope=scope,
+                    bot_persona_name=bot_persona_name, include_legacy=True,
+                ))
+            results = await asyncio.gather(*coros, return_exceptions=True)
         except Exception:
             return "", None
 
         rows = []
-        for result in (subject_rows, observer_rows):
+        for result in results:
             if isinstance(result, Exception):
                 continue
             rows.extend(result)

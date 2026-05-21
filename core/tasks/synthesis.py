@@ -13,7 +13,12 @@ from typing import Callable, TYPE_CHECKING
 if TYPE_CHECKING:
     from ..config import SynthesisConfig
     from ..managers.llm_manager import LLMTaskManager
-    from ..repository.base import EventRepository, ImpressionRepository, PersonaRepository
+    from ..repository.base import (
+        EventRepository,
+        ImpressionRepository,
+        PersonaGroupRepository,
+        PersonaRepository,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +45,10 @@ async def _synthesize_one_persona(
     llm_manager=None,
     log_prefix: str = "Synthesis",
     total_message_count: int | None = None,
+    force: bool = False,
 ) -> bool:
     last_synth = persona.persona_attrs.get("last_synthesized_at", 0)
-    if persona.last_active_at <= last_synth and last_synth > 0:
+    if not force and persona.last_active_at <= last_synth and last_synth > 0:
         return False
 
     events = events[:cfg.max_events]
@@ -151,14 +157,152 @@ async def _synthesize_one_persona(
     return False
 
 
+# ---------------------------------------------------------------------------
+# Persona-group (cross-platform account binding) aware synthesis
+# ---------------------------------------------------------------------------
+
+async def _group_member_uids(group_repo, persona) -> list[str]:
+    """Return all uids bound to ``persona``'s group, or ``[persona.uid]``."""
+    if group_repo is None or not getattr(persona, "group_id", None):
+        return [persona.uid]
+    members = await group_repo.list_member_uids(persona.group_id)
+    if persona.uid not in members:
+        members.append(persona.uid)
+    return members
+
+
+async def _mirror_group_attrs(persona_repo, source_uid: str, member_uids: list[str]) -> None:
+    """Copy the synthesized persona_attrs/confidence of one member to the rest.
+
+    A bound group exposes one unified personality; mirroring keeps every
+    member Persona (and thus the graph node, /mrm persona, recall) consistent.
+    """
+    source = await persona_repo.get(source_uid)
+    if source is None:
+        return
+    for uid in member_uids:
+        if uid == source_uid:
+            continue
+        member = await persona_repo.get(uid)
+        if member is None:
+            continue
+        await persona_repo.upsert(
+            dataclasses.replace(
+                member,
+                persona_attrs=dict(source.persona_attrs),
+                confidence=source.confidence,
+            )
+        )
+
+
+async def _synthesize_persona_or_group(
+    *,
+    persona,
+    persona_repo,
+    event_repo,
+    group_repo,
+    provider,
+    cfg,
+    llm_manager,
+    log_prefix: str,
+    message_counts: dict,
+    force: bool = False,
+) -> bool:
+    """Synthesize one persona, aggregating across its bound group when present.
+
+    For a bound group: events of every member are unioned, message counts are
+    summed, the most-recently-active member is used as the synthesis target,
+    and the result is mirrored to all members.
+    """
+    from ..social.persona_group import aggregate_events
+
+    members = await _group_member_uids(group_repo, persona)
+
+    if len(members) > 1:
+        member_personas = [await persona_repo.get(u) for u in members]
+        member_personas = [p for p in member_personas if p is not None]
+        if not member_personas:
+            return False
+        target = max(member_personas, key=lambda p: p.last_active_at)
+        events = await aggregate_events(event_repo, members, cfg.max_events)
+        total = sum(int(message_counts.get(u, 0) or 0) for u in members)
+    else:
+        target = persona
+        events = await event_repo.list_by_participant(persona.uid, limit=cfg.max_events)
+        total = message_counts.get(persona.uid)
+
+    ok = await _synthesize_one_persona(
+        persona=target,
+        events=events,
+        persona_repo=persona_repo,
+        provider=provider,
+        cfg=cfg,
+        llm_manager=llm_manager,
+        log_prefix=log_prefix,
+        total_message_count=total,
+        force=force,
+    )
+    if ok and len(members) > 1:
+        await _mirror_group_attrs(persona_repo, target.uid, members)
+    return ok
+
+
+async def synthesize_persona_group(
+    persona_repo,
+    group_repo,
+    event_repo,
+    provider_getter: Callable,
+    group_id: str,
+    synthesis_config: SynthesisConfig | None = None,
+    llm_manager: LLMTaskManager | None = None,
+) -> bool:
+    """Force a fresh unified synthesis for one bound group.
+
+    Called right after a bind/unbind so the merged personality reflects the
+    new membership immediately.
+    """
+    from ..config import SynthesisConfig as _SC
+
+    cfg = synthesis_config or _SC()
+    provider = provider_getter()
+    if provider is None:
+        logger.debug("[Synthesis] no provider, skipping group synthesis for %s", group_id)
+        return False
+
+    member_uids = await group_repo.list_member_uids(group_id)
+    member_personas = [await persona_repo.get(u) for u in member_uids]
+    member_personas = [p for p in member_personas if p is not None]
+    if not member_personas:
+        return False
+
+    message_counts = await event_repo.count_messages_by_uid_bulk()
+    return await _synthesize_persona_or_group(
+        persona=max(member_personas, key=lambda p: p.last_active_at),
+        persona_repo=persona_repo,
+        event_repo=event_repo,
+        group_repo=group_repo,
+        provider=provider,
+        cfg=cfg,
+        llm_manager=llm_manager,
+        log_prefix="BindSynthesis",
+        message_counts=message_counts,
+        force=True,
+    )
+
+
 async def run_persona_synthesis(
     persona_repo: PersonaRepository,
     event_repo: EventRepository,
     provider_getter: Callable,
     synthesis_config: SynthesisConfig | None = None,
     llm_manager: LLMTaskManager | None = None,
+    group_repo: "PersonaGroupRepository | None" = None,
 ) -> int:
-    """Re-synthesize persona_attrs for all personas from recent events."""
+    """Re-synthesize persona_attrs for all personas from recent events.
+
+    When ``group_repo`` is provided, members of the same bound group are
+    collapsed into a single unified synthesis.
+    """
     from ..utils.perf import performance_timer
 
     async with performance_timer("task_synthesis"):
@@ -174,23 +318,32 @@ async def run_persona_synthesis(
     personas = await persona_repo.list_all()
     message_counts = await event_repo.count_messages_by_uid_bulk()
 
+    seen_groups: set[str] = set()
+    targets = []
+    for persona in personas:
+        if group_repo is not None and persona.group_id:
+            if persona.group_id in seen_groups:
+                continue
+            seen_groups.add(persona.group_id)
+        targets.append(persona)
+
     async def _process_one(persona) -> bool:
-        events = await event_repo.list_by_participant(persona.uid, limit=cfg.max_events)
-        return await _synthesize_one_persona(
+        return await _synthesize_persona_or_group(
             persona=persona,
-            events=events,
             persona_repo=persona_repo,
+            event_repo=event_repo,
+            group_repo=group_repo,
             provider=provider,
             cfg=cfg,
             llm_manager=llm_manager,
             log_prefix="Synthesis",
-            total_message_count=message_counts.get(persona.uid),
+            message_counts=message_counts,
         )
 
-    results = await asyncio.gather(*[_process_one(persona) for persona in personas])
+    results = await asyncio.gather(*[_process_one(persona) for persona in targets])
     updated_count = sum(1 for result in results if result)
 
-    logger.info("[Synthesis] persona synthesis: %d/%d updated", updated_count, len(personas))
+    logger.info("[Synthesis] persona synthesis: %d/%d updated", updated_count, len(targets))
     return updated_count
 
 
@@ -203,9 +356,12 @@ async def run_persona_synthesis_for_uid(
     llm_manager: LLMTaskManager | None = None,
     min_events: int = 1,
     total_message_count: int | None = None,
+    group_repo: "PersonaGroupRepository | None" = None,
+    force: bool = False,
 ) -> bool:
-    """Synthesize exactly one persona when enough event evidence exists."""
+    """Synthesize exactly one persona (or its bound group) given enough events."""
     from ..config import SynthesisConfig as _SC
+    from ..social.persona_group import aggregate_events
 
     cfg = synthesis_config or _SC()
     provider = provider_getter()
@@ -217,23 +373,27 @@ async def run_persona_synthesis_for_uid(
     if persona is None:
         return False
 
-    events = await event_repo.list_by_participant(uid, limit=max(cfg.max_events, min_events))
+    members = await _group_member_uids(group_repo, persona)
+    limit = max(cfg.max_events, min_events)
+    if len(members) > 1:
+        events = await aggregate_events(event_repo, members, limit)
+    else:
+        events = await event_repo.list_by_participant(uid, limit=limit)
     if len(events) < min_events:
         return False
 
-    if total_message_count is None:
-        message_counts = await event_repo.count_messages_by_uid_bulk()
-        total_message_count = message_counts.get(uid, 0)
-
-    return await _synthesize_one_persona(
+    message_counts = await event_repo.count_messages_by_uid_bulk()
+    return await _synthesize_persona_or_group(
         persona=persona,
-        events=events,
         persona_repo=persona_repo,
+        event_repo=event_repo,
+        group_repo=group_repo,
         provider=provider,
         cfg=cfg,
         llm_manager=llm_manager,
         log_prefix="SynthesisTrigger",
-        total_message_count=total_message_count,
+        message_counts=message_counts,
+        force=force,
     )
 
 
@@ -252,12 +412,14 @@ class PersonaSynthesisTrigger:
         min_events: int = 3,
         cooldown_hours: float = 3.0,
         fallback_staleness_hours: float = 72.0,
+        group_repo: "PersonaGroupRepository | None" = None,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
         self._provider_getter = provider_getter
         self._synthesis_config = synthesis_config
         self._llm_manager = llm_manager
+        self._group_repo = group_repo
         self._min_messages = max(1, int(min_messages))
         self._min_events = max(1, int(min_events))
         self._cooldown_seconds = max(0.0, float(cooldown_hours) * 3600.0)
@@ -306,12 +468,26 @@ class PersonaSynthesisTrigger:
         allow_stale: bool,
     ) -> int:
         updated = 0
+        seen_groups: set[str] = set()
         for uid in sorted(uids):
-            total_count = int(counts.get(uid, 0))
-            if total_count <= 0 or uid in self._running_uids:
+            if uid in self._running_uids:
                 continue
             persona = await self._persona_repo.get(uid)
             if persona is None:
+                continue
+            # Collapse bound-group members into a single unified synthesis,
+            # counting messages across the whole group.
+            if self._group_repo is not None and persona.group_id:
+                if persona.group_id in seen_groups:
+                    continue
+                seen_groups.add(persona.group_id)
+                members = await self._group_repo.list_member_uids(persona.group_id)
+                if uid not in members:
+                    members.append(uid)
+                total_count = sum(int(counts.get(m, 0) or 0) for m in members)
+            else:
+                total_count = int(counts.get(uid, 0))
+            if total_count <= 0:
                 continue
             if not self._eligible(
                 persona,
@@ -355,9 +531,23 @@ class PersonaSynthesisTrigger:
     async def _run_one(self, persona, total_count: int) -> bool:
         self._running_uids.add(persona.uid)
         try:
-            attrs = dict(persona.persona_attrs or {})
-            attrs["last_synthesis_attempt_at"] = time.time()
-            await self._persona_repo.upsert(dataclasses.replace(persona, persona_attrs=attrs))
+            now = time.time()
+            member_uids = [persona.uid]
+            if self._group_repo is not None and persona.group_id:
+                member_uids = await self._group_repo.list_member_uids(persona.group_id)
+                if persona.uid not in member_uids:
+                    member_uids.append(persona.uid)
+            # Stamp the attempt time on every member so the cooldown guard is
+            # consistent across the whole bound group.
+            for uid in member_uids:
+                member = await self._persona_repo.get(uid)
+                if member is None:
+                    continue
+                attrs = dict(member.persona_attrs or {})
+                attrs["last_synthesis_attempt_at"] = now
+                await self._persona_repo.upsert(
+                    dataclasses.replace(member, persona_attrs=attrs)
+                )
             return await run_persona_synthesis_for_uid(
                 self._persona_repo,
                 self._event_repo,
@@ -367,6 +557,7 @@ class PersonaSynthesisTrigger:
                 llm_manager=self._llm_manager,
                 min_events=self._min_events,
                 total_message_count=total_count,
+                group_repo=self._group_repo,
             )
         finally:
             self._running_uids.discard(persona.uid)
@@ -436,6 +627,7 @@ async def run_consolidated_maintenance(
     provider_getter: Callable,
     synthesis_config: SynthesisConfig | None = None,
     llm_manager: LLMTaskManager | None = None,
+    group_repo: "PersonaGroupRepository | None" = None,
 ) -> dict:
     """Run persona synthesis and impression recalculation with one shared preload."""
     from ..config import SynthesisConfig as _SC
@@ -455,19 +647,29 @@ async def run_consolidated_maintenance(
 
     synthesized = 0
     if provider is not None:
+        seen_groups: set[str] = set()
+        synth_targets = []
+        for persona in all_personas:
+            if group_repo is not None and persona.group_id:
+                if persona.group_id in seen_groups:
+                    continue
+                seen_groups.add(persona.group_id)
+            synth_targets.append(persona)
+
         async def _synthesize_one(persona) -> bool:
-            return await _synthesize_one_persona(
+            return await _synthesize_persona_or_group(
                 persona=persona,
-                events=uid_events.get(persona.uid, []),
                 persona_repo=persona_repo,
+                event_repo=event_repo,
+                group_repo=group_repo,
                 provider=provider,
                 cfg=cfg,
                 llm_manager=llm_manager,
                 log_prefix="ConsolidatedMaintenance",
-                total_message_count=message_counts.get(persona.uid),
+                message_counts=message_counts,
             )
 
-        results = await asyncio.gather(*[_synthesize_one(persona) for persona in all_personas])
+        results = await asyncio.gather(*[_synthesize_one(persona) for persona in synth_targets])
         synthesized = sum(1 for result in results if result)
 
     from ..social.ipc_model import derive_fields

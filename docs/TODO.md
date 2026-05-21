@@ -93,6 +93,82 @@
 
 ---
 
+## v0.16.0 多账号绑定 / 跨平台人格合并 (completed)
+
+### User constraints / 约束
+- 同一真人可能在多平台有多个账号（QQ + Discord 等），需手动把多个账号 ID 绑定到同一用户名下。
+- 绑定后人格分析数据合并看待；绑定可再次分离；每次绑定/解绑都立即重跑一次人格合成。
+- 采用**软分组覆盖层**（零数据迁移、完全可逆）：每个平台账号永久保留自身 `Persona`/`uid`
+  与全部原始数据，绑定只是关联进命名 group，合成时跨成员聚合后镜像写回。
+- 操作界面：Web UI 页面 + 聊天指令两者都要。
+- 合成始终合并；召回默认也合并，提供开关 `account_merge_synthesis_only`，开启后召回不合并。
+- 关系图谱/Library 中同 group 折叠为单一节点。
+- 所有改动限制在 `astrbot-plugin-enhanced-memory/` 内；先更新 TODO 再动代码。
+
+### Technical implementation path
+
+#### Phase 0 — 登记与基线
+- [x] 本计划写入 TODO；基线 `pytest tests/backend -q` → 614 passed。
+
+#### Phase 1 — 数据层
+- [x] 新建 `migrations/015_persona_groups.sql`：`persona_groups` 表 + `personas.group_id` 列 + 索引。
+- [x] `core/domain/models.py`：`Persona.group_id` 字段；新增 `PersonaGroup` dataclass。
+- [x] `core/repository/base.py` + `sqlite.py` + `memory.py`：persona `group_id` 读写；
+      新增 `PersonaGroupRepository`（抽象 + SQLite + 内存实现）。迁移 + CRUD smoke 通过。
+- [x] `core/plugin_initializer.py`：实例化 `persona_group_repo` 并接线。
+
+#### Phase 2 — 覆盖层
+- [x] 新建 `core/social/persona_group.py`：`expand_uids` / `aggregate_events`。
+
+#### Phase 3 — 人格合成 group 感知
+- [x] `core/tasks/synthesis.py`：`_synthesize_one_persona` 加 `force`；新增 `synthesize_persona_group`
+      与 `_synthesize_persona_or_group`/`_mirror_group_attrs`；`run_persona_synthesis` /
+      `run_persona_synthesis_for_uid` / `PersonaSynthesisTrigger` / `run_consolidated_maintenance`
+      折叠 group；`plugin_initializer` 全部接线 `persona_group_repo`。88 synth/persona 测试通过。
+
+#### Phase 4 — 绑定/解绑服务
+- [x] 新建 `core/managers/account_link_manager.py`：`bind_accounts` / `unbind` / `dissolve` /
+      `rename` / `list_groups` / `list_human_personas` + 后台强制重合成 + 配对码（内存 + TTL）。
+      `plugin_initializer` 接线 `account_link_manager`。smoke 通过。
+
+#### Phase 5 — Web API + 图谱折叠
+- [x] `web/plugin_routes.py` + `web/server.py`：persona-group API（list personas/groups、create、
+      rename、dissolve、add/remove member）+ `graph_data` 同 group 节点折叠/边重映射；
+      `run_webui_dev.py` 接线 dev 服务器。113 graph/web/persona 测试通过。
+
+#### Phase 6 — 配置开关 + 召回展开
+- [x] `_conf_schema.json` + `core/config.py`：`relation.account_merge_synthesis_only`（默认 false）
+      接入 `InjectionConfig`。
+- [x] `core/managers/recall_manager.py`：`_build_relation_segment` 在开关关闭时经
+      `expand_uids` 跨 group 成员汇总 impressions；`plugin_initializer` 接线 `persona_group_repo`。
+      75 recall/config 测试通过。
+
+#### Phase 7 — 聊天指令
+- [x] `main.py` + `core/managers/command_manager.py`：`/mrm bind`（无参取配对码 / 带码兑现）、
+      `/mrm unbind`；委派 `AccountLinkManager`。管理员直绑由 WebUI 覆盖，未做 4 参聊天指令。
+      全量 614 后端测试通过、无回归。
+
+#### Phase 8 — 前端
+- [x] `lib/api.ts` 新增 `personaGroups` API + 类型；`components/config/account-binding-manager.tsx`
+      绑定管理组件（三语内联标签）；`app/bindings/page.tsx` 页面；侧边栏新增「账号绑定」入口。
+      typecheck 通过、lint 0 error（3 个既有 warning 与本改动无关）。
+
+#### Phase 9 — 构建与验证
+- [x] 新增 `tests/backend/test_persona_groups.py`（10 测试）；`npm run build` + `sync_frontend.py -f`；
+      双 changelog 与 `metadata.yaml` 升至 v0.16.0。
+
+### Verification
+- `pytest tests/backend -q` → 624 passed（含 10 个新测试）
+- `pytest tests/frontend -q` → 218 passed
+- `cd web/frontend && npm.cmd run typecheck` → passed
+- `cd web/frontend && npm.cmd run lint` → 0 error（3 个既有 warning，与本改动无关）
+- `cd web/frontend && npm.cmd run build` → 13 静态页（含新 `/bindings`）
+- `python tools/sync_frontend.py -f` → synced 到 `pages/moirai/`
+- 实机待用户验证：两个平台账号各发消息 → WebUI「账号绑定」页绑定 → 图谱合并为单节点 →
+  `/mrm bind` 配对码流程 → 解绑后图谱拆回；`account_merge_synthesis_only` 开关行为。
+
+---
+
 ## v0.15.0 AstrBot config grouping hotfix (completed)
 
 ### User constraints / 约束

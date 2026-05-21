@@ -315,6 +315,55 @@ export const pluginConfig = {
   providers: () => request<{ providers: { id: string; name: string }[] }>('/api/config/providers'),
 }
 
+// ── Persona groups (cross-platform account binding) ───────────────────────
+export interface BoundIdentity { platform: string; physical_id: string }
+export interface HumanPersona {
+  uid: string
+  primary_name: string
+  group_id: string | null
+  msg_count: number
+  bound_identities: BoundIdentity[]
+}
+export interface PersonaGroupMember {
+  uid: string
+  primary_name: string
+  bound_identities: BoundIdentity[]
+}
+export interface PersonaGroupItem {
+  group_id: string
+  display_name: string
+  primary_uid: string
+  created_at: number
+  updated_at: number
+  members: PersonaGroupMember[]
+}
+export const personaGroups = {
+  listPersonas: () => request<{ items: HumanPersona[] }>('/api/personas'),
+  list: () => request<{ items: PersonaGroupItem[] }>('/api/persona-groups'),
+  create: (uids: string[], display_name?: string) =>
+    request<{ ok: boolean; group: PersonaGroupItem }>('/api/persona-groups', {
+      method: 'POST', body: JSON.stringify({ uids, display_name }),
+    }),
+  rename: (groupId: string, display_name: string) =>
+    request<{ ok: boolean }>(`/api/persona-groups/${encodeURIComponent(groupId)}`, {
+      method: 'PUT', body: JSON.stringify({ display_name }),
+    }),
+  dissolve: (groupId: string) =>
+    request<{ ok: boolean }>(`/api/persona-groups/${encodeURIComponent(groupId)}`, {
+      method: 'DELETE',
+    }),
+  addMember: (groupId: string, uid: string) =>
+    request<{ ok: boolean; group: PersonaGroupItem }>(
+      `/api/persona-groups/${encodeURIComponent(groupId)}/members`,
+      { method: 'POST', body: JSON.stringify({ uid }) },
+    ),
+  removeMember: (groupId: string, uid: string) =>
+    request<{ ok: boolean }>(
+      `/api/persona-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(uid)}`,
+      { method: 'DELETE' },
+    ),
+}
+
 export const auth = {
   status: () => request<{ authenticated: boolean; sudo: boolean; auth_enabled: boolean; version?: string }>('/api/auth/status'),
   login: (password: string) => request<{ ok: boolean }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
@@ -335,4 +384,5 @@ export const api = {
   config: pluginConfig,
   soul,
   auth,
+  personaGroups,
 }

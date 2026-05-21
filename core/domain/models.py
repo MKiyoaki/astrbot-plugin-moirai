@@ -83,6 +83,7 @@ class Persona(SerializableMixin, ValidationMixin):
     created_at: float
     last_active_at: float
     bot_persona_name: str | None = None
+    group_id: str | None = None
 
     def __post_init__(self) -> None:
         self._check_unit("confidence", self.confidence)
@@ -102,8 +103,25 @@ class Persona(SerializableMixin, ValidationMixin):
                 "created_at": datetime.fromtimestamp(self.created_at, tz=timezone.utc).isoformat(),
                 "last_active_at": datetime.fromtimestamp(self.last_active_at, tz=timezone.utc).isoformat(),
                 "is_bot": any(p == "internal" for p, _ in self.bound_identities),
+                "group_id": self.group_id,
             }
         }
+
+
+@dataclass(slots=True)
+class PersonaGroup(SerializableMixin):
+    """A named binding of multiple per-platform Personas into one logical user.
+
+    Membership is stored on ``Persona.group_id``; this record holds the group's
+    display name and its representative member (``primary_uid``), which is used
+    as the single collapsed node in the relation graph.
+    """
+
+    group_id: str
+    display_name: str
+    primary_uid: str
+    created_at: float
+    updated_at: float
 
 
 @dataclass(slots=True, kw_only=True)

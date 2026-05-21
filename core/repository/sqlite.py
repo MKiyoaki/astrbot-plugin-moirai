@@ -40,9 +40,16 @@ from ..domain.models import (
     Impression,
     MessageRef,
     Persona,
+    PersonaGroup,
     RawStoredMessage,
 )
-from .base import EventRepository, ImpressionRepository, PersonaRepository, RawMessageRepository
+from .base import (
+    EventRepository,
+    ImpressionRepository,
+    PersonaGroupRepository,
+    PersonaRepository,
+    RawMessageRepository,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -344,6 +351,7 @@ def _row_to_persona(row: aiosqlite.Row) -> Persona:
         created_at=row["created_at"],
         last_active_at=row["last_active_at"],
         bot_persona_name=_safe_get(row, "bot_persona_name"),
+        group_id=_safe_get(row, "group_id"),
     )
 
 
@@ -526,13 +534,14 @@ class SQLitePersonaRepository(PersonaRepository):
         async with _txn(self._db, self._lock):
             await self._db.execute(
                 "INSERT INTO personas(uid, primary_name, persona_attrs, confidence, "
-                "created_at, last_active_at, bot_persona_name) VALUES (?,?,?,?,?,?,?) "
+                "created_at, last_active_at, bot_persona_name, group_id) VALUES (?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(uid) DO UPDATE SET "
                 "primary_name=excluded.primary_name, "
                 "persona_attrs=excluded.persona_attrs, "
                 "confidence=excluded.confidence, "
                 "last_active_at=excluded.last_active_at, "
-                "bot_persona_name=excluded.bot_persona_name",
+                "bot_persona_name=excluded.bot_persona_name, "
+                "group_id=excluded.group_id",
                 (
                     persona.uid,
                     persona.primary_name,
@@ -541,6 +550,7 @@ class SQLitePersonaRepository(PersonaRepository):
                     persona.created_at,
                     persona.last_active_at,
                     persona.bot_persona_name,
+                    persona.group_id,
                 ),
             )
             # Replace all bindings for this uid atomically
@@ -571,6 +581,86 @@ class SQLitePersonaRepository(PersonaRepository):
                 "VALUES (?,?,?)",
                 (platform, physical_id, uid),
             )
+
+
+# ---------------------------------------------------------------------------
+# PersonaGroupRepository
+# ---------------------------------------------------------------------------
+
+def _row_to_persona_group(row: aiosqlite.Row) -> PersonaGroup:
+    return PersonaGroup(
+        group_id=row["group_id"],
+        display_name=row["display_name"],
+        primary_uid=row["primary_uid"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+class SQLitePersonaGroupRepository(PersonaGroupRepository):
+    def __init__(self, db: aiosqlite.Connection) -> None:
+        self._db = db
+        self._lock = _get_db_lock(db)
+
+    async def upsert_group(self, group: PersonaGroup) -> None:
+        async with _txn(self._db, self._lock):
+            await self._db.execute(
+                "INSERT INTO persona_groups(group_id, display_name, primary_uid, "
+                "created_at, updated_at) VALUES (?,?,?,?,?) "
+                "ON CONFLICT(group_id) DO UPDATE SET "
+                "display_name=excluded.display_name, "
+                "primary_uid=excluded.primary_uid, "
+                "updated_at=excluded.updated_at",
+                (
+                    group.group_id,
+                    group.display_name,
+                    group.primary_uid,
+                    group.created_at,
+                    group.updated_at,
+                ),
+            )
+
+    async def get_group(self, group_id: str) -> PersonaGroup | None:
+        async with self._db.execute(
+            "SELECT * FROM persona_groups WHERE group_id = ?", (group_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return _row_to_persona_group(row) if row else None
+
+    async def list_groups(self) -> list[PersonaGroup]:
+        async with self._db.execute(
+            "SELECT * FROM persona_groups ORDER BY updated_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_persona_group(r) for r in rows]
+
+    async def delete_group(self, group_id: str) -> bool:
+        async with self._db.execute(
+            "SELECT 1 FROM persona_groups WHERE group_id = ?", (group_id,)
+        ) as cur:
+            if await cur.fetchone() is None:
+                return False
+        async with _txn(self._db, self._lock):
+            await self._db.execute(
+                "UPDATE personas SET group_id = NULL WHERE group_id = ?", (group_id,)
+            )
+            await self._db.execute(
+                "DELETE FROM persona_groups WHERE group_id = ?", (group_id,)
+            )
+        return True
+
+    async def set_member_group(self, uid: str, group_id: str | None) -> None:
+        async with _txn(self._db, self._lock):
+            await self._db.execute(
+                "UPDATE personas SET group_id = ? WHERE uid = ?", (group_id, uid)
+            )
+
+    async def list_member_uids(self, group_id: str) -> list[str]:
+        async with self._db.execute(
+            "SELECT uid FROM personas WHERE group_id = ?", (group_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+        return [r["uid"] for r in rows]
 
 
 # ---------------------------------------------------------------------------

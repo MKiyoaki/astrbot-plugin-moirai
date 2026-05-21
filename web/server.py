@@ -161,10 +161,14 @@ class WebuiServer:
         context_manager: Any = None,
         summary_trigger_rounds: int = 30,
         raw_message_repo: RawMessageRepository | None = None,
+        persona_group_repo: Any = None,
+        account_link_manager: Any = None,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
         self._impression_repo = impression_repo
+        self._persona_group_repo = persona_group_repo
+        self._account_link_manager = account_link_manager
         self._recall_manager = recall_manager
         self._data_dir = data_dir
         self._port = port
@@ -270,6 +274,13 @@ class WebuiServer:
         app.router.add_post("/api/personas", self._wrap("sudo", self._handle_create_persona))
         app.router.add_put("/api/personas/{uid}", self._wrap("sudo", self._handle_update_persona))
         app.router.add_delete("/api/personas/{uid}", self._wrap("sudo", self._handle_delete_persona))
+        app.router.add_get("/api/personas", self._wrap("auth", self._handle_personas_list))
+        app.router.add_get("/api/persona-groups", self._wrap("auth", self._handle_persona_groups_list))
+        app.router.add_post("/api/persona-groups", self._wrap("sudo", self._handle_persona_group_create))
+        app.router.add_put("/api/persona-groups/{group_id}", self._wrap("sudo", self._handle_persona_group_rename))
+        app.router.add_delete("/api/persona-groups/{group_id}", self._wrap("sudo", self._handle_persona_group_dissolve))
+        app.router.add_post("/api/persona-groups/{group_id}/members", self._wrap("sudo", self._handle_persona_group_add_member))
+        app.router.add_delete("/api/persona-groups/{group_id}/members/{uid}", self._wrap("sudo", self._handle_persona_group_remove_member))
         app.router.add_put("/api/impressions/{observer}/{subject}/{scope}", self._wrap("sudo", self._handle_update_impression_guarded))
         app.router.add_delete("/api/impressions/{observer}/{subject}/{scope}", self._wrap("sudo", self._handle_delete_impression_guarded))
         app.router.add_post("/api/impressions/bulk-delete", self._wrap("sudo", self._handle_bulk_delete_impressions_guarded))
@@ -394,21 +405,72 @@ class WebuiServer:
         include_legacy = self._persona_legacy_visible
         personas = await self._persona_repo.list_all()
         uid_msg_counts = await self._event_repo.count_messages_by_uid_bulk()
-        nodes = []
+
+        # Resolve persona-group collapse: bound accounts render as one node.
+        groups = []
+        if self._persona_group_repo is not None:
+            try:
+                groups = await self._persona_group_repo.list_groups()
+            except Exception:
+                groups = []
+        persona_by_uid = {p.uid: p for p in personas}
+        group_by_gid = {g.group_id: g for g in groups}
+        uid_to_primary: dict[str, str] = {}
+        members_by_primary: dict[str, list[str]] = {}
         for p in personas:
-            node = persona_to_node(p)
-            node["data"]["msg_count"] = uid_msg_counts.get(p.uid, 0)
+            grp = group_by_gid.get(p.group_id) if p.group_id else None
+            if grp is not None:
+                primary = grp.primary_uid if grp.primary_uid in persona_by_uid else p.uid
+                uid_to_primary[p.uid] = primary
+                members_by_primary.setdefault(primary, []).append(p.uid)
+            else:
+                uid_to_primary[p.uid] = p.uid
+
+        nodes = []
+        emitted: set[str] = set()
+        for p in personas:
+            primary = uid_to_primary[p.uid]
+            if primary in emitted:
+                continue
+            emitted.add(primary)
+            rep = persona_by_uid.get(primary, p)
+            node = persona_to_node(rep)
+            members = members_by_primary.get(primary)
+            if members:
+                node["data"]["msg_count"] = sum(uid_msg_counts.get(m, 0) for m in members)
+                node["data"]["group_member_uids"] = sorted(members)
+                grp = group_by_gid.get(rep.group_id)
+                if grp is not None:
+                    node["data"]["label"] = grp.display_name
+                    node["data"]["group_id"] = grp.group_id
+            else:
+                node["data"]["msg_count"] = uid_msg_counts.get(primary, 0)
             nodes.append(node)
+
         edges = []
+        edge_index: dict[tuple[str, str, str], int] = {}
         for persona in personas:
             imps = await self._impression_repo.list_by_observer(
                 persona.uid,
                 bot_persona_name=bot_persona_name, include_legacy=include_legacy,
             )
             for imp in imps:
+                src = uid_to_primary.get(imp.observer_uid, imp.observer_uid)
+                tgt = uid_to_primary.get(imp.subject_uid, imp.subject_uid)
+                if src == tgt:
+                    continue
                 edge = impression_to_edge(imp)
+                edge["data"]["source"] = src
+                edge["data"]["target"] = tgt
+                edge["data"]["id"] = f"{src}--{tgt}--{imp.scope}"
                 edge["data"]["msg_count"] = await self._event_repo.count_edge_messages(imp.observer_uid, imp.subject_uid, imp.scope)
-                edges.append(edge)
+                key = (src, tgt, imp.scope)
+                prev = edge_index.get(key)
+                if prev is None:
+                    edge_index[key] = len(edges)
+                    edges.append(edge)
+                elif edge["data"].get("confidence", 0) > edges[prev]["data"].get("confidence", 0):
+                    edges[prev] = edge
         group_members = {}
         for gid in await self._event_repo.list_group_ids():
             events = await self._event_repo.list_by_group(
@@ -776,6 +838,77 @@ class WebuiServer:
     async def _handle_delete_persona(self, request: web.Request) -> web.Response:
         if not await self._persona_repo.delete(request.match_info["uid"]): return _json({"error": "not found"}, status=404)
         return _json({"ok": True})
+
+    # --- Persona groups (cross-platform account binding) ---
+
+    async def _run_account_link(self, coro_factory, *, ok_key: str | None = None) -> web.Response:
+        if self._account_link_manager is None:
+            return _json({"error": "account binding unavailable"}, status=501)
+        from core.managers.account_link_manager import AccountLinkError
+        try:
+            result = await coro_factory(self._account_link_manager)
+        except AccountLinkError as exc:
+            return _json({"error": str(exc)}, status=400)
+        except Exception as exc:
+            astrbot_logger.exception("Account link operation failed")
+            return _json({"error": str(exc)}, status=500)
+        payload: dict[str, Any] = {"ok": True}
+        if ok_key is not None and result is not None:
+            payload[ok_key] = result.to_dict()
+        return _json(payload)
+
+    async def _handle_personas_list(self, _: web.Request) -> web.Response:
+        if self._account_link_manager is None:
+            return _json({"items": []})
+        return _json({"items": await self._account_link_manager.list_human_personas()})
+
+    async def _handle_persona_groups_list(self, _: web.Request) -> web.Response:
+        if self._account_link_manager is None:
+            return _json({"items": []})
+        return _json({"items": await self._account_link_manager.list_groups()})
+
+    async def _handle_persona_group_create(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        uids = [str(u) for u in (body.get("uids") or []) if u]
+        name = str(body.get("display_name") or "").strip() or None
+        return await self._run_account_link(
+            lambda m: m.bind_accounts(uids, name), ok_key="group"
+        )
+
+    async def _handle_persona_group_rename(self, request: web.Request) -> web.Response:
+        group_id = request.match_info["group_id"]
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        name = str(body.get("display_name") or "")
+        return await self._run_account_link(
+            lambda m: m.rename(group_id, name), ok_key="group"
+        )
+
+    async def _handle_persona_group_dissolve(self, request: web.Request) -> web.Response:
+        group_id = request.match_info["group_id"]
+        return await self._run_account_link(lambda m: m.dissolve(group_id))
+
+    async def _handle_persona_group_add_member(self, request: web.Request) -> web.Response:
+        group_id = request.match_info["group_id"]
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        uid = str(body.get("uid") or "")
+        if not uid:
+            return _json({"error": "uid required"}, status=400)
+        return await self._run_account_link(
+            lambda m: m.add_to_group(group_id, uid), ok_key="group"
+        )
+
+    async def _handle_persona_group_remove_member(self, request: web.Request) -> web.Response:
+        uid = request.match_info["uid"]
+        return await self._run_account_link(lambda m: m.unbind(uid))
 
     async def _handle_persona_merge_preview(self, request: web.Request) -> web.Response:
         src_ok, src = _merge_persona_value(request.rel_url.query.get("src"))

@@ -285,10 +285,14 @@ class PluginRoutes:
         context_manager: Any = None,
         summary_trigger_rounds: int = 30,
         raw_message_repo: RawMessageRepository | None = None,
+        persona_group_repo: Any = None,
+        account_link_manager: Any = None,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
         self._impression_repo = impression_repo
+        self._persona_group_repo = persona_group_repo
+        self._account_link_manager = account_link_manager
         self._data_dir = data_dir
         self._task_runner = task_runner
         self._plugin_version = plugin_version
@@ -357,6 +361,17 @@ class PluginRoutes:
             (f"/api/personas/{{uid}}/update",  self._handle_update_persona,          ["POST"],        "Update persona"),
             (f"/api/personas/{{uid}}",         self._handle_delete_persona,          ["DELETE"],      "Delete persona"),
             (f"/api/personas/{{uid}}/delete",  self._handle_delete_persona,          ["POST"],        "Delete persona"),
+            # Persona groups (cross-platform account binding)
+            (f"/api/personas",                 self._handle_personas_list,           ["GET"],         "List human personas"),
+            (f"/api/persona-groups",           self._handle_persona_groups_list,     ["GET"],         "List persona groups"),
+            (f"/api/persona-groups",           self._handle_persona_group_create,    ["POST"],        "Bind accounts into a group"),
+            (f"/api/persona-groups/{{group_id}}", self._handle_persona_group_rename, ["PUT"],         "Rename persona group"),
+            (f"/api/persona-groups/{{group_id}}/rename", self._handle_persona_group_rename, ["POST"],  "Rename persona group"),
+            (f"/api/persona-groups/{{group_id}}", self._handle_persona_group_dissolve, ["DELETE"],    "Dissolve persona group"),
+            (f"/api/persona-groups/{{group_id}}/dissolve", self._handle_persona_group_dissolve, ["POST"], "Dissolve persona group"),
+            (f"/api/persona-groups/{{group_id}}/members", self._handle_persona_group_add_member, ["POST"], "Add account to group"),
+            (f"/api/persona-groups/{{group_id}}/members/{{uid}}", self._handle_persona_group_remove_member, ["DELETE"], "Remove account from group"),
+            (f"/api/persona-groups/{{group_id}}/members/{{uid}}/remove", self._handle_persona_group_remove_member, ["POST"], "Remove account from group"),
             # Impressions
             (
                 f"/api/impressions/{{observer}}/{{subject}}/{{scope}}",
@@ -467,24 +482,73 @@ class PluginRoutes:
         personas = await self._persona_repo.list_all()
         uid_msg_counts = await self._event_repo.count_messages_by_uid_bulk()
 
-        nodes = []
+        # Resolve persona-group collapse: bound accounts render as one node.
+        groups = []
+        if self._persona_group_repo is not None:
+            try:
+                groups = await self._persona_group_repo.list_groups()
+            except Exception:
+                groups = []
+        persona_by_uid = {p.uid: p for p in personas}
+        group_by_gid = {g.group_id: g for g in groups}
+        uid_to_primary: dict[str, str] = {}
+        members_by_primary: dict[str, list[str]] = {}
         for p in personas:
-            node = _persona_to_node(p)
-            node["data"]["msg_count"] = uid_msg_counts.get(p.uid, 0)
+            grp = group_by_gid.get(p.group_id) if p.group_id else None
+            if grp is not None:
+                primary = grp.primary_uid if grp.primary_uid in persona_by_uid else p.uid
+                uid_to_primary[p.uid] = primary
+                members_by_primary.setdefault(primary, []).append(p.uid)
+            else:
+                uid_to_primary[p.uid] = p.uid
+
+        nodes = []
+        emitted: set[str] = set()
+        for p in personas:
+            primary = uid_to_primary[p.uid]
+            if primary in emitted:
+                continue
+            emitted.add(primary)
+            rep = persona_by_uid.get(primary, p)
+            node = _persona_to_node(rep)
+            members = members_by_primary.get(primary)
+            if members:
+                node["data"]["msg_count"] = sum(uid_msg_counts.get(m, 0) for m in members)
+                node["data"]["group_member_uids"] = sorted(members)
+                grp = group_by_gid.get(rep.group_id)
+                if grp is not None:
+                    node["data"]["label"] = grp.display_name
+                    node["data"]["group_id"] = grp.group_id
+            else:
+                node["data"]["msg_count"] = uid_msg_counts.get(primary, 0)
             nodes.append(node)
 
         edges: list[dict[str, Any]] = []
+        edge_index: dict[tuple[str, str, str], int] = {}
         for persona in personas:
             imps = await self._impression_repo.list_by_observer(
                 persona.uid,
                 bot_persona_name=bot_persona_name, include_legacy=include_legacy,
             )
             for imp in imps:
+                src = uid_to_primary.get(imp.observer_uid, imp.observer_uid)
+                tgt = uid_to_primary.get(imp.subject_uid, imp.subject_uid)
+                if src == tgt:
+                    continue  # collapsed self-loop within a bound group
                 edge = _impression_to_edge(imp)
+                edge["data"]["source"] = src
+                edge["data"]["target"] = tgt
+                edge["data"]["id"] = f"{src}--{tgt}--{imp.scope}"
                 edge["data"]["msg_count"] = await self._event_repo.count_edge_messages(
                     imp.observer_uid, imp.subject_uid, imp.scope
                 )
-                edges.append(edge)
+                key = (src, tgt, imp.scope)
+                prev = edge_index.get(key)
+                if prev is None:
+                    edge_index[key] = len(edges)
+                    edges.append(edge)
+                elif edge["data"].get("confidence", 0) > edges[prev]["data"].get("confidence", 0):
+                    edges[prev] = edge
 
         _PRIVATE_KEY = "__private__"
         group_members: dict[str, list[str]] = {}
@@ -1102,6 +1166,70 @@ class PluginRoutes:
                 logger.warning("Failed to write persona_merge audit log: %s", exc)
 
         return _json({"ok": True, **counts})
+
+    # ------------------------------------------------------------------
+    # Handlers: persona groups (cross-platform account binding)
+    # ------------------------------------------------------------------
+
+    async def _run_account_link(self, coro_factory, *, ok_key: str | None = None) -> web.Response:
+        if self._account_link_manager is None:
+            return _json({"error": "account binding unavailable"}, status=501)
+        from core.managers.account_link_manager import AccountLinkError
+        try:
+            result = await coro_factory(self._account_link_manager)
+        except AccountLinkError as exc:
+            return _json({"error": str(exc)}, status=400)
+        except Exception as exc:
+            logger.exception("Account link operation failed")
+            return _json({"error": str(exc)}, status=500)
+        payload: dict[str, Any] = {"ok": True}
+        if ok_key is not None and result is not None:
+            payload[ok_key] = result.to_dict()
+        return _json(payload)
+
+    async def _handle_personas_list(self, request: web.Request) -> web.Response:
+        if self._account_link_manager is None:
+            return _json({"items": []})
+        return _json({"items": await self._account_link_manager.list_human_personas()})
+
+    async def _handle_persona_groups_list(self, request: web.Request) -> web.Response:
+        if self._account_link_manager is None:
+            return _json({"items": []})
+        return _json({"items": await self._account_link_manager.list_groups()})
+
+    async def _handle_persona_group_create(self, request: web.Request) -> web.Response:
+        body = await _request_json(request)
+        uids = [str(u) for u in (body.get("uids") or []) if u]
+        name = str(body.get("display_name") or "").strip() or None
+        return await self._run_account_link(
+            lambda m: m.bind_accounts(uids, name), ok_key="group"
+        )
+
+    async def _handle_persona_group_rename(self, request: web.Request) -> web.Response:
+        group_id = _match(request, "group_id")
+        body = await _request_json(request)
+        name = str(body.get("display_name") or "")
+        return await self._run_account_link(
+            lambda m: m.rename(group_id, name), ok_key="group"
+        )
+
+    async def _handle_persona_group_dissolve(self, request: web.Request) -> web.Response:
+        group_id = _match(request, "group_id")
+        return await self._run_account_link(lambda m: m.dissolve(group_id))
+
+    async def _handle_persona_group_add_member(self, request: web.Request) -> web.Response:
+        group_id = _match(request, "group_id")
+        body = await _request_json(request)
+        uid = str(body.get("uid") or "")
+        if not uid:
+            return _json({"error": "uid required"}, status=400)
+        return await self._run_account_link(
+            lambda m: m.add_to_group(group_id, uid), ok_key="group"
+        )
+
+    async def _handle_persona_group_remove_member(self, request: web.Request) -> web.Response:
+        uid = _match(request, "uid")
+        return await self._run_account_link(lambda m: m.unbind(uid))
 
     # ------------------------------------------------------------------
     # Handlers: recycle bin

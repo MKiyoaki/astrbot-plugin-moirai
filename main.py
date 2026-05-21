@@ -208,6 +208,35 @@ class MoiraiPlugin(Star):
             )
         )
 
+    @mrm.command("bind")
+    async def mrm_bind(self, event: AstrMessageEvent, code: str = ""):
+        '''将当前账号与另一账号绑定到同一用户。用法：/mrm bind（取配对码） | /mrm bind <配对码>'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        yield event.plain_result(
+            await self._initializer.command_manager.bind_account(
+                event.get_platform_name(),
+                event.get_sender_id(),
+                event.get_sender_name(),
+                code,
+            )
+        )
+
+    @mrm.command("unbind")
+    async def mrm_unbind(self, event: AstrMessageEvent):
+        '''将当前账号从其绑定分组中分离。用法：/mrm unbind'''
+        if not self._initializer:
+            yield event.plain_result("插件未初始化。")
+            return
+        yield event.plain_result(
+            await self._initializer.command_manager.unbind_account(
+                event.get_platform_name(),
+                event.get_sender_id(),
+                event.get_sender_name(),
+            )
+        )
+
     @mrm.command("soul")
     async def mrm_soul(self, event: AstrMessageEvent):
         '''查看当前会话情绪状态。用法：/mrm soul'''

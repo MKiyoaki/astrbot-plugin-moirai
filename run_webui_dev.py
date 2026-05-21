@@ -38,8 +38,11 @@ from core.domain.models import Event, Impression, Persona, MessageRef
 from core.repository.memory import (
     InMemoryEventRepository,
     InMemoryImpressionRepository,
+    InMemoryPersonaGroupRepository,
     InMemoryPersonaRepository,
 )
+from core.managers.account_link_manager import AccountLinkManager
+from core.config import SynthesisConfig
 
 _PORT = 2654
 _DATA_DIR = _ROOT / ".dev_data"
@@ -296,8 +299,17 @@ async def main() -> None:
     persona_repo    = InMemoryPersonaRepository()
     event_repo      = InMemoryEventRepository()
     impression_repo = InMemoryImpressionRepository()
+    persona_group_repo = InMemoryPersonaGroupRepository(persona_repo)
 
     await _seed(persona_repo, event_repo, impression_repo, data_dir)
+
+    account_link_manager = AccountLinkManager(
+        persona_repo=persona_repo,
+        group_repo=persona_group_repo,
+        event_repo=event_repo,
+        provider_getter=lambda: None,
+        synthesis_config=SynthesisConfig(),
+    )
 
     srv = WebuiServer(
         persona_repo=persona_repo,
@@ -307,6 +319,8 @@ async def main() -> None:
         port=port,
         auth_enabled=auth_enabled,
         plugin_version=get_plugin_version(),
+        persona_group_repo=persona_group_repo,
+        account_link_manager=account_link_manager,
     )
     await srv.start()
 

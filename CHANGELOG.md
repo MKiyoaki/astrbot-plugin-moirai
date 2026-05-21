@@ -1,5 +1,25 @@
 # 变更日志
 
+## [v0.16.0] - 2026-05-21
+
+### 多账号绑定 / 跨平台人格合并
+
+#### 新功能
+
+- 同一真人在多个平台的账号（如 QQ + Discord）或同平台多个账号，可手动绑定到同一用户名下，人格分析时合并看待；绑定可随时分离。
+- 采用**软分组覆盖层**：每个平台账号永久保留自己的 `Persona`/`uid` 与全部原始数据，绑定只是把它们关联进一个命名分组，零数据迁移、完全可逆。
+- 每次绑定 / 解绑 / 解散都会立即在后台触发一次强制人格重合成。
+- WebUI 新增「账号绑定」页面（侧边栏入口）：选择账号建组、加入 / 移出成员、重命名、解散分组。
+- 聊天指令：`/mrm bind` 取配对码、`/mrm bind <配对码>` 兑现绑定、`/mrm unbind` 分离当前账号。配对码 5 分钟有效，确保普通用户只能绑定自己实际操作过的账号。
+- 关系图谱 / Library 中同一分组的账号折叠为单一节点（标签为统一用户名），印象边自动重映射到分组代表 uid。
+
+#### 数据与机制
+
+- 新增迁移 `015_persona_groups.sql`：`persona_groups` 表 + `personas.group_id` 列。
+- 新增 `PersonaGroupRepository`（SQLite + 内存实现）与 `AccountLinkManager` 绑定服务。
+- 人格合成全面 group 感知：`run_persona_synthesis` / `run_persona_synthesis_for_uid` / `PersonaSynthesisTrigger` / `run_consolidated_maintenance` 会把分组成员折叠为一次合成，聚合全部成员事件后把统一人格镜像写回每个成员。
+- 新增配置 `relation.account_merge_synthesis_only`（默认关闭）：关闭时人格合成与记忆召回都跨账号合并；开启后仅人格合成合并，记忆召回仍按单账号独立处理。
+
 ## [v0.15.1] - 2026-05-21
 
 ### 移除 Narrative 日摘要事件 & 主题调色盘统一
