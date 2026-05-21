@@ -100,7 +100,6 @@ export default function EventsPage() {
           const ev = app.rawEvents.find(e => e.id === focusId)
           if (ev) {
             setExpandedGroupId(eventGroupId(ev))
-            setDetailEvent(ev)
           }
         }
         if (highlightRaw) {
@@ -111,7 +110,6 @@ export default function EventsPage() {
             const ev = app.rawEvents.find(e => ids.includes(e.id))
             if (ev) {
               setExpandedGroupId(eventGroupId(ev))
-              setDetailEvent(ev)
             }
           } catch {}
         }

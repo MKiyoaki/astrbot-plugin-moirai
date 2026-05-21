@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Archive, Lock, Pencil, Trash2, Users } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -106,9 +106,10 @@ function useContainerWidth() {
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
+    setWidth(el.getBoundingClientRect().width)
     const obs = new ResizeObserver(entries => setWidth(entries[0]?.contentRect.width ?? 0))
     obs.observe(el)
     return () => obs.disconnect()
