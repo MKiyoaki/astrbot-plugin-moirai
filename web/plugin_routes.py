@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from quart import Response, request as quart_request
 
 from core.domain.models import Event, Impression, Persona, MessageRef
+from core.tags import derive_tag_categories
 from .config_schema import (
     apply_config_update_to_mapping,
     flatten_conf_schema,
@@ -199,7 +200,9 @@ async def _request_json(request: Any) -> dict:
     return await request.get_json()
 
 
-def _event_to_dict(event: Event) -> dict[str, Any]:
+def _event_to_dict(event: Event, participant_names: dict[str, str] | None = None) -> dict[str, Any]:
+    participants = event.participants if event.participants is not None else []
+    names = participant_names or {}
     return {
         "id": event.event_id,
         "content": event.topic or event.event_id[:8],
@@ -213,8 +216,10 @@ def _event_to_dict(event: Event) -> dict[str, Any]:
         "salience": round(event.salience, 3) if event.salience is not None else 0.5,
         "confidence": round(event.confidence, 3) if event.confidence is not None else 0.8,
         "tags": event.chat_content_tags if event.chat_content_tags is not None else [],
+        "tag_categories": derive_tag_categories(event.chat_content_tags),
         "inherit_from": event.inherit_from if event.inherit_from is not None else [],
-        "participants": event.participants if event.participants is not None else [],
+        "participants": participants,
+        "participant_names": {uid: names.get(uid, uid) for uid in participants},
         "status": event.status or "active",
         "is_locked": bool(event.is_locked),
         "bot_persona_name": event.bot_persona_name,
@@ -448,6 +453,21 @@ class PluginRoutes:
     def _persona_legacy_visible(self) -> bool:
         return bool(self._initial_config.get("persona_isolation_legacy_visible", True))
 
+    async def _participant_name_map(self, events: list[Event]) -> dict[str, str]:
+        uids = {uid for event in events for uid in (event.participants or [])}
+        if not uids:
+            return {}
+        personas = await self._persona_repo.list_all()
+        return {
+            persona.uid: persona.primary_name
+            for persona in personas
+            if persona.uid in uids and persona.primary_name
+        }
+
+    async def _events_to_dicts(self, events: list[Event]) -> list[dict[str, Any]]:
+        names = await self._participant_name_map(events)
+        return [_event_to_dict(event, names) for event in events]
+
     async def events_data(
         self, group_id: str | None, limit: int,
         bot_persona_name: str | None = None,
@@ -473,7 +493,7 @@ class PluginRoutes:
                     bot_persona_name=bot_persona_name, include_legacy=include_legacy,
                 ))
             events = events[:limit]
-        return {"items": [_event_to_dict(e) for e in events], "total": len(events)}
+        return {"items": await self._events_to_dicts(events), "total": len(events)}
 
     async def graph_data(self, bot_persona_name: str | None = None) -> dict[str, Any]:
         if not self._persona_iso_enabled:
@@ -730,6 +750,8 @@ class PluginRoutes:
         except (ValueError, TypeError) as exc:
             return _json({"error": str(exc)}, status=400)
         await self._event_repo.upsert(updated)
+        from core.tasks.summary_links import refresh_summary_files_for_event
+        await refresh_summary_files_for_event(self._data_dir, self._event_repo, updated.event_id)
         return _json({"ok": True, "event": _event_to_dict(updated)})
 
     async def _handle_reextract_event(self, request: web.Request) -> web.Response:
@@ -753,6 +775,8 @@ class PluginRoutes:
             if exc.code == "provider_none":
                 status = 503
             return _json({"ok": False, "error": exc.code, "message": exc.message}, status=status)
+        from core.tasks.summary_links import refresh_summary_files_for_event
+        await refresh_summary_files_for_event(self._data_dir, self._event_repo, result.event.event_id)
         return _json({"ok": True, "event": _event_to_dict(result.event), "source_count": result.source_count})
 
     async def _handle_delete_event(self, request: web.Request) -> web.Response:
@@ -927,7 +951,13 @@ class PluginRoutes:
         content = self.summary_content(group_id, date)
         if content is None:
             return _json({"error": "not found"}, status=404)
-        return _json({"content": content})
+        if group_id:
+            path = self._data_dir / "groups" / group_id / "summaries" / f"{date}.md"
+        else:
+            path = self._data_dir / "global" / "summaries" / f"{date}.md"
+        from core.tasks.summary_links import refresh_summary_file_event_links
+        content, links, _ = await refresh_summary_file_event_links(path, self._event_repo)
+        return _json({"content": content, "linked_events": [link.to_dict() for link in links]})
 
     async def _handle_update_summary(self, request: web.Request) -> web.Response:
         body = await _request_json(request)
@@ -971,7 +1001,13 @@ class PluginRoutes:
             return _json({"error": str(exc)}, status=500)
         if content is None:
             return _json({"error": "no events or no provider"}, status=503)
-        return _json({"content": content})
+        if group_id:
+            path = self._data_dir / "groups" / group_id / "summaries" / f"{date}.md"
+        else:
+            path = self._data_dir / "global" / "summaries" / f"{date}.md"
+        from core.tasks.summary_links import refresh_summary_file_event_links
+        content, links, _ = await refresh_summary_file_event_links(path, self._event_repo)
+        return _json({"content": content, "linked_events": [link.to_dict() for link in links]})
 
     async def _handle_delete_summary(self, request: web.Request) -> web.Response:
         group_id = _query(request, "group_id") or None

@@ -386,50 +386,50 @@ async def run_group_summary(
         from ..config import SummaryConfig as _SC
         cfg = summary_config or _SC()
 
-    provider = provider_getter()
-    if provider is None:
-        logger.debug(f"[{_MODULE_NAME}] no provider, skipping group summary")
-        return 0
+        provider = provider_getter()
+        if provider is None:
+            logger.debug(f"[{_MODULE_NAME}] no provider, skipping group summary")
+            return 0
 
-    # Build uid→name lookup if persona_repo is available
-    uid_to_name: dict[str, str] = {}
-    if persona_repo is not None:
-        try:
-            personas = await persona_repo.list_all()
-            uid_to_name = {p.uid: p.primary_name for p in personas}
-        except Exception:
-            pass
+        # Build uid→name lookup if persona_repo is available
+        uid_to_name: dict[str, str] = {}
+        if persona_repo is not None:
+            try:
+                personas = await persona_repo.list_all()
+                uid_to_name = {p.uid: p.primary_name for p in personas}
+            except Exception:
+                pass
 
-    group_ids = await event_repo.list_group_ids()
-    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+        group_ids = await event_repo.list_group_ids()
+        today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
 
-    async def _process_one(group_id) -> bool:
-        events = await event_repo.list_by_group(group_id, limit=cfg.max_events)
-        if not events:
-            return False
+        async def _process_one(group_id) -> bool:
+            events = await event_repo.list_by_group(group_id, limit=cfg.max_events)
+            if not events:
+                return False
 
-        try:
-            content, topic_text = await _generate_summary_for_group(
-                group_id, events, today, provider, cfg, uid_to_name,
-                impression_repo, persona_repo, llm_manager
-            )
-            if group_id is None:
-                summary_dir = data_dir / "global" / "summaries"
-            else:
-                summary_dir = data_dir / "groups" / group_id / "summaries"
-            summary_dir.mkdir(parents=True, exist_ok=True)
-            (summary_dir / f"{today}.md").write_text(content, encoding="utf-8")
-            logger.debug(f"[{_MODULE_NAME}] wrote summary for group %r", group_id or "私聊")
-            return True
-        except Exception as exc:
-            logger.warning(f"[{_MODULE_NAME}] failed for group %r: %s", group_id, exc)
-            return False
+            try:
+                content, topic_text = await _generate_summary_for_group(
+                    group_id, events, today, provider, cfg, uid_to_name,
+                    impression_repo, persona_repo, llm_manager
+                )
+                if group_id is None:
+                    summary_dir = data_dir / "global" / "summaries"
+                else:
+                    summary_dir = data_dir / "groups" / group_id / "summaries"
+                summary_dir.mkdir(parents=True, exist_ok=True)
+                (summary_dir / f"{today}.md").write_text(content, encoding="utf-8")
+                logger.debug(f"[{_MODULE_NAME}] wrote summary for group %r", group_id or "私聊")
+                return True
+            except Exception as exc:
+                logger.warning(f"[{_MODULE_NAME}] failed for group %r: %s", group_id, exc)
+                return False
 
-    results = await asyncio.gather(*[_process_one(gid) for gid in group_ids])
-    written = sum(1 for r in results if r)
+        results = await asyncio.gather(*[_process_one(gid) for gid in group_ids])
+        written = sum(1 for r in results if r)
 
-    logger.info(f"[{_MODULE_NAME}] group summaries written: %d/%d", written, len(group_ids))
-    return written
+        logger.info(f"[{_MODULE_NAME}] group summaries written: %d/%d", written, len(group_ids))
+        return written
 
 
 async def regenerate_single_summary(

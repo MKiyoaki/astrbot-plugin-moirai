@@ -193,7 +193,7 @@ async def reextract_event(
     except Exception as exc:
         raise ReextractError("exception", f"重新提取失败：{exc}") from exc
 
-    parsed = parse_llm_output(_response_text(resp), window.message_count - 1)
+    parsed = parse_llm_output(_response_text(resp), window.message_count - 1, merge_to_single=True)
     if not parsed:
         raise ReextractError("parse_error", "重新提取失败：LLM 输出无法解析。")
 

@@ -1,10 +1,19 @@
 # Copy this file to run_config.py and fill in your local values.
 # run_config.py is gitignored and will never be committed.
 
-EVENT_MODE = "encoder"       # "encoder" | "llm"
+EVENT_MODE = "llm"           # "encoder" | "llm"; controls extraction strategy only
 MOOD_SOURCE = "llm"          # "impression_db" | "llm"
 TIMEOUT = 330.0              # httpx timeout in seconds
 MODEL_TYPE = "lmstudio"      # "lmstudio" | "deepseek"
+LLM_CONCURRENCY = 2          # shared background LLM concurrency for extraction/tasks
+RECALL_BENCHMARK_ENABLED = True  # run retrieval-only benchmark queries after the RAG smoke test
+
+# Keep this enabled when testing LLM extraction, otherwise vector recall cannot
+# be validated in run_realtime_dev.py.
+RETRIEVAL_ENCODER_ENABLED = True
+RETRIEVAL_ENCODER_MODEL = "BAAI/bge-small-zh-v1.5"
+RETRIEVAL_ENCODER_BATCH_INTERVAL_MS = 50
+RETRIEVAL_ENCODER_REQUEST_INTERVAL_MS = 0
 
 # LMStudio model ID — run `curl http://localhost:1234/v1/models` to list loaded models
 LMSTUDIO_MODEL = "gemma-4-26b-a4b-it-ultra-uncensored-heretic"

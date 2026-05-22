@@ -1,4 +1,4 @@
-"""Realtime dev runner — parses Mock_Data.md through the full memory pipeline
+"""Realtime dev runner — parses mock_realtime.json through the full memory pipeline
 and serves results via WebUI at port 2656.
 
 Usage:
@@ -10,6 +10,7 @@ Controls:
     Ctrl+C        — emergency stop (also triggers cleanup)
 
 Configurations:
+    Default:   EVENT_MODE="llm" to validate the LLM extractor path first.
     1. LMStudio: API_URL="http://localhost:1234/v1", API_KEY="lm-studio", MODEL="any"
     2. DeepSeek:  API_URL="https://api.deepseek.com", API_KEY="your_key", MODEL="deepseek-chat"
 """
@@ -77,16 +78,28 @@ try:
     _LMSTUDIO_MODEL  = _rc.LMSTUDIO_MODEL
     _DEEPSEEK_MODEL  = _rc.DEEPSEEK_MODEL
     _DEEPSEEK_KEY    = _rc.DEEPSEEK_API_KEY
+    _RETRIEVAL_ENCODER_ENABLED = getattr(_rc, "RETRIEVAL_ENCODER_ENABLED", True)
+    _RETRIEVAL_ENCODER_MODEL = getattr(_rc, "RETRIEVAL_ENCODER_MODEL", "BAAI/bge-small-zh-v1.5")
+    _RETRIEVAL_ENCODER_BATCH_INTERVAL_MS = getattr(_rc, "RETRIEVAL_ENCODER_BATCH_INTERVAL_MS", 50)
+    _RETRIEVAL_ENCODER_REQUEST_INTERVAL_MS = getattr(_rc, "RETRIEVAL_ENCODER_REQUEST_INTERVAL_MS", 0)
+    _LLM_CONCURRENCY = getattr(_rc, "LLM_CONCURRENCY", 2)
+    _RECALL_BENCHMARK_ENABLED = getattr(_rc, "RECALL_BENCHMARK_ENABLED", True)
     print(f"[Config] Loaded run_config.py  (model_type={_MODEL_TYPE})")
 except Exception as _cfg_err:
     print(f"[Config] WARNING: run_config.py not loaded ({_cfg_err!r}), using built-in defaults.")
-    _EVENT_MODE      = "encoder"
+    _EVENT_MODE      = "llm"
     _MOOD_SOURCE     = "llm"
     _TIMEOUT         = 330.0
     _MODEL_TYPE      = "lmstudio"
     _LMSTUDIO_MODEL  = "gemma-4-26b-a4b-it-ultra-uncensored-heretic"
     _DEEPSEEK_MODEL  = "deepseek-v4-flash"
     _DEEPSEEK_KEY    = "your_deepseek_api_key_here"
+    _RETRIEVAL_ENCODER_ENABLED = True
+    _RETRIEVAL_ENCODER_MODEL = "BAAI/bge-small-zh-v1.5"
+    _RETRIEVAL_ENCODER_BATCH_INTERVAL_MS = 50
+    _RETRIEVAL_ENCODER_REQUEST_INTERVAL_MS = 0
+    _LLM_CONCURRENCY = 2
+    _RECALL_BENCHMARK_ENABLED = True
 
 
 def _get_model_info(model_type: str):
@@ -254,12 +267,21 @@ async def main() -> None:
     from core.utils.llm import SimpleLLMClient, MockProviderBridge  # noqa: F401 (SimpleLLMClient kept for reference)
     from core.repository.sqlite import (
         SQLiteEventRepository, SQLitePersonaRepository,
-        SQLiteImpressionRepository, db_open,
+        SQLiteImpressionRepository, SQLitePersonaGroupRepository,
+        SQLiteRawMessageRepository, db_open,
     )
     from core.managers.recall_manager import RecallManager
     from core.managers.context_manager import ContextManager
+    from core.managers.account_link_manager import AccountLinkManager
+    from core.managers.raw_message_writer import RawMessageWriter
     from core.utils.context_state_utils import VCMState
-    from core.config import PluginConfig, ContextConfig
+    from core.config import (
+        MEMORY_INJECTION_FOOTER,
+        MEMORY_INJECTION_HEADER,
+        PluginConfig,
+        ContextConfig,
+        SynthesisConfig,
+    )
     from core.adapters.astrbot import MessageRouter
     from core.adapters.identity import IdentityResolver
     from core.boundary.detector import EventBoundaryDetector
@@ -267,7 +289,6 @@ async def main() -> None:
     from core.social.big_five_scorer import BigFiveBuffer
     from core.social.orientation_analyzer import SocialOrientationAnalyzer
     from core.embedding.encoder import NullEncoder
-    from core.config import PluginConfig
     from core.utils.version import get_plugin_version
     from core.utils.perf import tracker
     from web.server import WebuiServer
@@ -278,6 +299,158 @@ async def main() -> None:
             self.prompt = prompt
             self.system_prompt = system_prompt
             self.contexts: list = []
+
+    def _clip(text: object, limit: int = 180) -> str:
+        value = " ".join(str(text or "").split())
+        return value if len(value) <= limit else value[: max(0, limit - 1)] + "…"
+
+    def _extract_memory_block(req: ProviderRequest) -> str:
+        text = "\n\n".join(
+            part for part in [
+                getattr(req, "system_prompt", ""),
+                getattr(req, "prompt", ""),
+            ] if part
+        )
+        start = text.find(MEMORY_INJECTION_HEADER)
+        end = text.find(MEMORY_INJECTION_FOOTER)
+        if start < 0 or end < 0 or end <= start:
+            return ""
+        end += len(MEMORY_INJECTION_FOOTER)
+        return text[start:end]
+
+    async def _print_event_quality_report(events, db) -> None:
+        from collections import Counter
+
+        if not events:
+            print("\n[Quality] No events extracted.")
+            return
+
+        by_group = Counter(e.group_id or "__private__" for e in events)
+        tag_counts = [len(e.chat_content_tags or []) for e in events]
+        msg_counts = [len(e.interaction_flow or []) for e in events]
+        avg_tags = sum(tag_counts) / len(tag_counts)
+        avg_msgs = sum(msg_counts) / len(msg_counts)
+        multi_topic = sum(1 for e in events if " | " in (e.summary or ""))
+        low_conf = [e for e in events if float(e.confidence or 0.0) < 0.45]
+
+        async with db.execute("SELECT COUNT(*) FROM raw_messages") as cur:
+            raw_count = (await cur.fetchone())[0]
+        async with db.execute("SELECT COUNT(*) FROM event_messages") as cur:
+            linked_count = (await cur.fetchone())[0]
+        async with db.execute(
+            "SELECT rm.message_id, rm.display_name, rm.text "
+            "FROM raw_messages rm "
+            "LEFT JOIN event_messages em ON em.message_id = rm.message_id "
+            "WHERE em.message_id IS NULL "
+            "ORDER BY rm.created_at LIMIT 5"
+        ) as cur:
+            unlinked_samples = await cur.fetchall()
+        unlinked_count = max(0, raw_count - linked_count)
+
+        print("\n" + "=" * 20 + " EVENT QUALITY " + "=" * 20)
+        print(f"  Events by group       : {dict(by_group)}")
+        print(f"  Avg source msgs/event : {avg_msgs:.2f}")
+        print(f"  Avg tags/event        : {avg_tags:.2f}")
+        print(f"  Multi-triple summaries: {multi_topic}/{len(events)}")
+        print(f"  Low confidence events : {len(low_conf)}")
+        print(f"  Raw messages persisted: {raw_count}")
+        print(f"  Event-message links   : {linked_count}")
+        print(f"  Unlinked raw messages : {unlinked_count}")
+        if unlinked_samples:
+            print("  Unlinked samples:")
+            for row in unlinked_samples:
+                print(f"    - {row[0]} {row[1]}: {_clip(row[2], 72)}")
+        print("  Top events:")
+        for ev in sorted(events, key=lambda e: float(e.salience or 0.0), reverse=True)[:5]:
+            print(
+                f"    - {ev.event_id[:8]} group={ev.group_id} "
+                f"sal={float(ev.salience or 0.0):.2f} conf={float(ev.confidence or 0.0):.2f} "
+                f"msgs={len(ev.interaction_flow or [])} tags={list(ev.chat_content_tags or [])[:4]} "
+                f"topic={_clip(ev.topic, 48)}"
+            )
+        if low_conf:
+            print("  Low confidence samples:")
+            for ev in low_conf[:3]:
+                print(f"    - {ev.event_id[:8]} conf={ev.confidence:.2f} topic={_clip(ev.topic, 64)}")
+        print("=" * 55)
+
+    async def _print_recall_diagnostics(query: str, group_id: str | None, retriever, recall, req: ProviderRequest) -> None:
+        bm25, vec = await retriever.search_raw(query, group_id=group_id)
+        recall_debug = recall.pop_recall_debug("test:114514") or {}
+        injection_debug = recall.pop_injection_debug("test:114514") or {}
+        injected_ids = recall.get_last_injected_ids("test:114514")
+        memory_block = _extract_memory_block(req)
+
+        print("\n" + "=" * 20 + " RECALL DIAGNOSTICS " + "=" * 20)
+        print(f"  Query              : {query}")
+        print(f"  Group              : {group_id}")
+        print(f"  BM25 candidates    : {len(bm25)}")
+        for ev in bm25[:5]:
+            print(f"    [BM25] {ev.event_id[:8]} sal={ev.salience:.2f} topic={_clip(ev.topic, 58)}")
+        print(f"  Vector candidates  : {len(vec)}")
+        for ev in vec[:5]:
+            print(f"    [VEC ] {ev.event_id[:8]} sal={ev.salience:.2f} topic={_clip(ev.topic, 58)}")
+        print(f"  Injected event IDs : {[eid[:8] for eid in injected_ids]}")
+        print(f"  Recall debug total : {recall_debug.get('total', 0)}")
+        if injection_debug:
+            memory = injection_debug.get("memory", {})
+            print(
+                f"  Injection position : {injection_debug.get('position')} "
+                f"memory_count={memory.get('count', 0)} injected={injection_debug.get('injected')}"
+            )
+            for item in memory.get("events", [])[:5]:
+                print(f"    [INJ ] {item.get('topic')} :: {_clip(item.get('summary'), 88)}")
+        if memory_block:
+            print("  Injected memory preview:")
+            print("    " + _clip(memory_block, 1000))
+        else:
+            print("  Injected memory preview: <empty>")
+        print("=" * 60)
+
+    async def _print_perf_report() -> None:
+        metrics = await tracker.get_metrics()
+        print("\n" + "=" * 20 + " PERFORMANCE METRICS " + "=" * 20)
+        for phase in sorted(metrics):
+            data = metrics[phase]
+            avg = data.get("avg", 0.0)
+            last = data.get("last", 0.0)
+            hits = ""
+            if "avg_hits" in data or "last_hits" in data:
+                hits = f" avg_hits={data.get('avg_hits', 0.0):.2f} last_hits={data.get('last_hits', 0)}"
+            print(f"  {phase:<18} avg={avg:7.3f}s last={last:7.3f}s{hits}")
+        print("=" * 58)
+
+    async def _run_recall_benchmark() -> None:
+        if not _RECALL_BENCHMARK_ENABLED:
+            return
+        queries = [
+            ("no-evidence", "卿泽对原神的看法是什么？大家都说了些什么？", "114514"),
+            ("gariton", "卿泽和Gariton发生了什么互动？", "114514"),
+            ("arknights", "大家讨论明日方舟十四章和卫戍协议了吗？", "114514"),
+            ("big-five", "谁请求了大五人格分析？", "114514"),
+            ("fee", "导师和稿费的问题是什么？", "114514"),
+            ("academic", "学术圈靠关系的吐槽是谁说的？", "1919810"),
+        ]
+        print("\n" + "=" * 20 + " RECALL BENCHMARK " + "=" * 20)
+        for label, q, group in queries:
+            t0 = time.perf_counter()
+            hits = await recall.recall(q, group_id=group, limit=3)
+            elapsed = time.perf_counter() - t0
+            print(
+                f"  [{label:<11}] group={group} hits={len(hits)} "
+                f"time={elapsed:.3f}s query={q}"
+            )
+            for ev in hits[:3]:
+                categories = getattr(ev, "chat_content_tags", []) or []
+                from core.tags import derive_tag_categories
+                tag_categories = derive_tag_categories(categories)
+                print(
+                    f"    - {ev.event_id[:8]} sal={float(ev.salience or 0.0):.2f} "
+                    f"tags={list(ev.chat_content_tags or [])[:4]} "
+                    f"cats={list(dict.fromkeys(tag_categories.values()))[:4]} "
+                    f"topic={_clip(ev.topic, 56)}"
+                )
+        print("=" * 58)
 
     # Step 3: Parse Mock_Data.md
     print(f"\n[Parser] Reading {MOCK_DATA_PATH.name} ...")
@@ -301,13 +474,17 @@ async def main() -> None:
             # Gemma 26B on LMStudio needs ~60-90 s per thinking call;
             # set asyncio timeout to 150 s so wait_for never fires first.
             "extractor_llm_timeout_seconds": _TIMEOUT,
+            "llm_concurrency": _LLM_CONCURRENCY,
+            "embedding_enabled": bool(_RETRIEVAL_ENCODER_ENABLED),
+            "embedding_provider": "local",
+            "embedding_model": _RETRIEVAL_ENCODER_MODEL,
+            "embedding_batch_interval_ms": _RETRIEVAL_ENCODER_BATCH_INTERVAL_MS,
+            "embedding_request_interval_ms": _RETRIEVAL_ENCODER_REQUEST_INTERVAL_MS,
         }
         if mode == "encoder":
             raw.update({
                 "extraction_strategy": "semantic",
                 "semantic_clustering_eps": 0.45,
-                "embedding_provider": "local",
-                "embedding_model": "BAAI/bge-small-zh-v1.5",
             })
         else:
             raw["extraction_strategy"] = "llm"
@@ -326,18 +503,31 @@ async def main() -> None:
         event_repo = SQLiteEventRepository(db)
         persona_repo = SQLitePersonaRepository(db)
         impression_repo = SQLiteImpressionRepository(db)
+        persona_group_repo = SQLitePersonaGroupRepository(db)
+        raw_message_repo = SQLiteRawMessageRepository(db)
+        raw_message_writer = RawMessageWriter(raw_message_repo)
+        account_link_manager = AccountLinkManager(
+            persona_repo=persona_repo,
+            group_repo=persona_group_repo,
+            event_repo=event_repo,
+            provider_getter=lambda: mock_provider,
+            synthesis_config=SynthesisConfig(llm_timeout=_TIMEOUT),
+        )
 
-        # Encoder
-        if _EVENT_MODE == "encoder":
+        # Encoder. EVENT_MODE controls extraction strategy only; retrieval/indexing can
+        # still use embeddings in LLM mode so Phase 5 validates semantic recall.
+        if cfg.embedding_enabled:
             from core.embedding.encoder import SentenceTransformerEncoder
             from core.managers.embedding_manager import EmbeddingManager
             print(
-                f"[Encoder] Loading {cfg.embedding_model} (first run may download ~100 MB) ...")
+                f"[Encoder] Loading {cfg.embedding_model} for retrieval/indexing "
+                "(first run may download ~100 MB) ...")
             base_encoder = SentenceTransformerEncoder(
                 model_name=cfg.embedding_model)
             encoder = EmbeddingManager(base_encoder, cfg.get_embedding_config())
             await encoder.start()
         else:
+            print("[Encoder] Retrieval/indexing encoder disabled; vector recall will be unavailable.")
             encoder = NullEncoder()
 
         from core.retrieval.hybrid import HybridRetriever
@@ -347,6 +537,8 @@ async def main() -> None:
         context_manager = ContextManager(cfg.get_context_config())
         resolver = IdentityResolver(persona_repo)
         detector = EventBoundaryDetector(cfg.get_boundary_config())
+        from core.managers.llm_manager import LLMTaskManager
+        llm_manager = LLMTaskManager(concurrency=cfg.llm_concurrency)
 
         # ── 模拟 Persona 选项 ──────────────────────────────────────────
         use_mock_persona = input(
@@ -392,6 +584,9 @@ async def main() -> None:
             ),
             ipc_enabled=True,
             persona_repo=persona_repo,
+            llm_manager=llm_manager,
+            raw_message_repo=raw_message_repo,
+            raw_message_writer=raw_message_writer,
         )
 
         extraction_futures: list[asyncio.Task] = []
@@ -407,6 +602,7 @@ async def main() -> None:
             context_manager=context_manager,
             encoder=encoder,
             on_event_close=on_event_close,
+            raw_message_writer=raw_message_writer,
         )
 
         # ── Phase 1: Message ingestion ──────────────────────────────────────
@@ -425,6 +621,7 @@ async def main() -> None:
 
         print("[Phase 1] Flushing router windows ...")
         await router.flush_all()
+        await raw_message_writer.flush_once()
         print(
             f"[Phase 1] Done. {len(extraction_futures)} extraction task(s) queued.")
 
@@ -452,6 +649,7 @@ async def main() -> None:
             event_repo=event_repo,
             provider_getter=lambda: mock_provider,
             synthesis_config=synthesis_cfg,
+            llm_manager=llm_manager,
         )
         print(f"[Phase 3] Persona synthesis: {n_synth} persona(s) updated.")
 
@@ -469,6 +667,7 @@ async def main() -> None:
             summary_config=summary_cfg,
             persona_repo=persona_repo,
             impression_repo=impression_repo,
+            llm_manager=llm_manager,
         )
         print(f"[Phase 4] {n_written} summary file(s) written.")
 
@@ -485,6 +684,7 @@ async def main() -> None:
         print(f"  Personas    : {len(personas)}")
         print(f"  Impressions : {imp_count}")
         print("=" * 70)
+        await _print_event_quality_report(events, db)
 
         # ── Phase 5: RAG Validation & Prompt Injection ──────────────────────
         print("\n[Phase 5] Testing RAG Retrieval and Prompt Injection ...")
@@ -495,7 +695,12 @@ async def main() -> None:
 
         req = ProviderRequest(
             prompt="You are now in a chatroom. The user asks: " + query,
-            system_prompt="You are a helpful assistant.",
+            system_prompt=(
+                "You are a helpful assistant. For this dev validation, answer only from "
+                "explicitly provided memory evidence. If the memory block does not contain "
+                "the requested fact, say there is no evidence. Cite the recalled event topic "
+                "or say which evidence is missing."
+            ),
         )
 
         print(f"  [LLM] Generating response WITHOUT memory for query: '{query}'")
@@ -509,12 +714,16 @@ async def main() -> None:
         # Force RECALL state for testing
         context_manager._states[sid_rag] = VCMState.RECALL
         
-        await recall.recall_and_inject(
+        injected_count = await recall.recall_and_inject(
             query=query,
             req=req,
             session_id=sid_rag,
-            group_id=test_group_id
+            group_id=test_group_id,
+            store_debug=True,
+            store_injection_debug=True,
         )
+        print(f"  [Recall] Injected {injected_count} event(s).")
+        await _print_recall_diagnostics(query, test_group_id, retriever, recall, req)
 
         print(f"  [LLM] Generating response WITH memory ...")
         try:
@@ -531,6 +740,7 @@ async def main() -> None:
         print("  " + "-" * 40)
         print(f"  AFTER MEMORY (RAG):\n  {with_mem_text[:200]}...")
         print("  " + "=" * 52)
+        await _run_recall_benchmark()
 
         # ── Phase 6: VCM State Stress Test ──────────────────────────────────
         print("\n[Phase 6] VCM State Stress Test (Focused -> Eviction -> Drift) ...")
@@ -550,12 +760,7 @@ async def main() -> None:
         print(f"  Topic Drift Detected: State -> {state.value}")
 
         # ── Phase 7: Performance Metrics ────────────────────────────────────
-        perf = await tracker.get_averages()
-        print("\n" + "=" * 20 + " PERFORMANCE METRICS " + "=" * 20)
-        print(f"  Avg Extraction Time: {perf.get('extraction', 0.0):.3f}s")
-        print(f"  Avg Retrieval Time:  {perf.get('retrieval', 0.0):.3f}s")
-        print(f"  Avg Recall Time:     {perf.get('recall', 0.0):.3f}s")
-        print("=" * 52)
+        await _print_perf_report()
 
         # ── Phase 8: Start WebUI ────────────────────────────────────────────
         from core.tasks.synthesis import run_persona_synthesis as _run_persona_synthesis, run_impression_recalculation
@@ -566,6 +771,7 @@ async def main() -> None:
                 n = await _run_persona_synthesis(
                     persona_repo, event_repo,
                     provider_getter=lambda: mock_provider,
+                    llm_manager=llm_manager,
                 )
                 print(f"[Task] persona_synthesis: {n} updated")
                 return True
@@ -582,6 +788,7 @@ async def main() -> None:
                     provider_getter=lambda: mock_provider,
                     persona_repo=persona_repo,
                     impression_repo=impression_repo,
+                    llm_manager=llm_manager,
                 )
                 print(f"[Task] group_summary: {n} written")
                 return True
@@ -597,9 +804,19 @@ async def main() -> None:
             auth_enabled=False,
             plugin_version=get_plugin_version(),
             provider_getter=lambda: mock_provider,
+            all_providers_getter=lambda: [type(
+                "DevProviderInfo",
+                (),
+                {"id": _MODEL_TYPE, "name": f"{_MODEL_TYPE}:{LLM_MODEL}"},
+            )()],
 
             recall_manager=recall,
             task_runner=_dev_task_runner,
+            encoder=encoder,
+            context_manager=context_manager,
+            raw_message_repo=raw_message_repo,
+            persona_group_repo=persona_group_repo,
+            account_link_manager=account_link_manager,
         )
         await srv.start()
         print(f"\n  WebUI ready  →  http://localhost:{PORT}")
@@ -648,6 +865,7 @@ async def main() -> None:
         finally:
             print("\n[Shutdown] Stopping WebUI server ...")
             await srv.stop()
+            await raw_message_writer.stop()
             if _EVENT_MODE == "encoder":
                 await encoder.stop()
             _cleanup()

@@ -156,15 +156,15 @@
             "embedding_batch_interval_ms": {
                 "description": "读取批次间隔 (ms)",
                 "type": "int",
-                "hint": "处理完一个批次后等待多久读取下一个批次。默认 5000 (5s)。",
-                "default": 5000,
+                "hint": "处理完一个批次后等待多久读取下一个批次。默认 50ms；如使用远端 API 且遇到限流，可调大。",
+                "default": 50,
                 "level": "expert"
             },
             "embedding_request_interval_ms": {
                 "description": "Embedding 请求间隔 (ms)",
                 "type": "int",
-                "hint": "每个 Embedding API 子请求之间的等待时间。默认 5000 (5s)。",
-                "default": 5000,
+                "hint": "每个 Embedding API 子请求之间的等待时间。默认 0ms；如使用远端 API 且遇到限流，可调大。",
+                "default": 0,
                 "level": "expert"
             },
             "embedding_failure_tolerance_ratio": {

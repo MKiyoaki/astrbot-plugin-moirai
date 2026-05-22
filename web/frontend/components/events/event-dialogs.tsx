@@ -818,7 +818,7 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
       onClick={() => !isFocused && onSelect?.()}
       className={cn(
         "relative flex flex-col gap-3 rounded-xl border bg-card p-5 transition-all duration-300 min-w-0 max-w-full overflow-hidden",
-        isFocused ? "ring-2 ring-primary shadow-lg scale-[1.01] z-10" : "opacity-70 hover:opacity-100 cursor-pointer hover:border-primary/30",
+        isFocused ? "ring-2 ring-primary shadow-lg z-10" : "opacity-70 hover:opacity-100 cursor-pointer hover:border-primary/30",
         isArchived && "opacity-60 grayscale-[0.5]"
       )}
     >
@@ -830,7 +830,7 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
         )} 
       />
 
-      <div className="flex items-start justify-between gap-2 pl-2 min-w-0">
+      <div className="flex items-start justify-between gap-2 pl-2 min-w-0 max-w-full overflow-hidden">
         <div className="flex-1 min-w-0">
           <h4 className="font-bold text-base truncate flex items-center gap-2">
             {event.content || event.topic || event.id}
@@ -841,13 +841,13 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
           </p>
         </div>
         {isFocused && (
-          <Badge variant={event.salience > 0.7 ? "default" : "secondary"} className="shrink-0">
+          <Badge variant={event.salience > 0.7 ? "default" : "secondary"} className="shrink-0 max-w-[112px] truncate text-[11px] px-2">
             Salience: {(event.salience * 100).toFixed(0)}%
           </Badge>
         )}
       </div>
 
-      <div className="grid grid-cols-3 gap-3 text-xs pl-2 bg-muted/30 p-3 rounded-lg">
+      <div className="grid grid-cols-3 gap-3 text-xs pl-2 bg-muted/30 p-3 rounded-lg min-w-0 max-w-full overflow-hidden">
         {[
           [i18n.events.id,         event.id.slice(0, 8) + '…'],
           [i18n.events.end,        new Date(event.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })],
@@ -855,7 +855,7 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
           [i18n.events.participants, (event.participants || []).length > 0 ? (event.participants || []).length : '—'],
           [i18n.events.personaLabel, event.bot_persona_name ?? i18n.events.personaDefault],
         ].map(([k, v]) => (
-          <div key={k} className="flex flex-col gap-0.5">
+          <div key={k} className="flex flex-col gap-0.5 min-w-0">
             <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-tight">{k}</span>
             <span className="truncate font-medium">{v}</span>
           </div>
@@ -865,7 +865,7 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
       {event.summary && (() => {
         const topics = parseSummaryTopics(event.summary)
         return (
-          <div className="relative overflow-hidden rounded-lg border-l-4 border-primary/40 bg-primary/5 p-4 ml-2">
+          <div className="relative overflow-hidden rounded-lg border-l-4 border-primary/40 bg-primary/5 p-4 ml-2 min-w-0 max-w-full">
             <div className="absolute top-0 right-0 p-2 opacity-10">
               <Check className="size-12" />
             </div>
@@ -873,7 +873,7 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
             {topics ? (
               <div className="flex flex-col gap-2">
                 {topics.map((tp, i) => (
-                  <div key={i} className="flex flex-col gap-0.5">
+                  <div key={i} className="flex flex-col gap-0.5 min-w-0">
                     {i > 0 && <div className="border-t border-primary/10 mb-1" />}
                     {([
                       [i18n.events.summaryWhat, tp.what],
@@ -881,16 +881,16 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
                       [i18n.events.summaryHow,  tp.how],
                       [i18n.events.summaryEval, tp.eval ?? i18n.events.summaryEvalNone],
                     ] as [string, string][]).map(([label, val]) => (
-                      <div key={label} className="flex gap-2 text-sm leading-snug">
+                      <div key={label} className="flex gap-2 text-sm leading-snug min-w-0">
                         <span className="text-[10px] uppercase font-bold text-primary/60 tracking-tight w-14 shrink-0 pt-0.5">{label}</span>
-                        <span className="text-foreground/90 font-medium">{val}</span>
+                        <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-foreground/90 font-medium">{val}</span>
                       </div>
                     ))}
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-sm text-foreground/90 leading-relaxed font-medium">
+              <div className="text-sm text-foreground/90 leading-relaxed font-medium whitespace-pre-wrap break-words">
                 {event.summary}
               </div>
             )}

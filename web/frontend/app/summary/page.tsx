@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { Pencil, Save, X, Search, RotateCcw, ScrollText, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,6 +22,7 @@ import { PageHeader } from '@/components/layout/page-header'
 import { RefreshButton } from '@/components/shared/refresh-button'
 import { PageEmptyOverlay } from '@/components/shared/page-empty-overlay'
 import { useApp } from '@/lib/store'
+import { setStored } from '@/lib/safe-storage'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -66,10 +68,12 @@ function assembleSections(sections: Sections): string {
 
 export default function SummaryPage() {
   const app = useApp()
+  const router = useRouter()
   const { i18n } = app
   const [summaries, setSummaries] = useState<api.SummaryMeta[]>([])
   const [current, setCurrent] = useState<SummaryState>({ groupId: null, date: '', content: '' })
   const [sections, setSections] = useState<Sections>({ topic: '', events: '', mood: '' })
+  const [linkedEvents, setLinkedEvents] = useState<api.SummaryLinkedEvent[]>([])
   const [editing, setEditing] = useState(false)
   const [editTopic, setEditTopic] = useState('')
   const [search, setSearch] = useState('')
@@ -98,9 +102,10 @@ export default function SummaryPage() {
   const loadSummary = async (groupId: string | null, date: string) => {
     setLoading(true)
     try {
-      const { content } = await api.summaries.get(groupId, date)
+      const { content, linked_events } = await api.summaries.get(groupId, date)
       setCurrent({ groupId, date, content })
       setSections(parseSections(content))
+      setLinkedEvents(linked_events ?? [])
     } catch {
       app.toast(i18n.summary.loadError, 'destructive')
     } finally {
@@ -126,12 +131,13 @@ export default function SummaryPage() {
     setConfirmOpen(false)
     setRegenerating(true)
     try {
-      const { content } = await app.runTask(
+      const { content, linked_events } = await app.runTask(
         i18n.tasks.regenerateSummary,
         () => api.summaries.regenerate(current.groupId, current.date),
       )
       setCurrent(prev => ({ ...prev, content }))
       setSections(parseSections(content))
+      setLinkedEvents(linked_events ?? [])
       setEditing(false)
     } catch {
       /* running / failure state surfaced by the TaskDock */
@@ -152,6 +158,7 @@ export default function SummaryPage() {
       } else {
         setCurrent({ groupId: null, date: '', content: '' })
         setSections({ topic: '', events: '', mood: '' })
+        setLinkedEvents([])
       }
       setEditing(false)
     } catch (e: unknown) {
@@ -164,6 +171,12 @@ export default function SummaryPage() {
     (s.label || '').toLowerCase().includes(search.toLowerCase()) ||
     s.date.includes(search),
   )
+
+  const focusEvent = (eventId: string | null) => {
+    if (!eventId) return
+    setStored('em_focus_event', eventId, 'session')
+    router.push('/events')
+  }
 
   const actions = (
     <div className="flex items-center gap-2">
@@ -353,9 +366,41 @@ export default function SummaryPage() {
                     <Badge variant="secondary" className="text-xs px-1.5 py-0">{i18n.summary.readOnly}</Badge>
                   </div>
                   <div className="rounded-md border bg-muted/30 px-3 py-2">
-                    <p className="text-sm font-mono leading-relaxed break-all whitespace-pre-wrap">
-                      {sections.events || <span className="text-muted-foreground italic">{i18n.summary.noEvents}</span>}
-                    </p>
+                    {linkedEvents.length > 0 ? (
+                      <div className="flex flex-col gap-1.5">
+                        {linkedEvents.map((item, index) => (
+                          <button
+                            key={`${item.ref}-${index}`}
+                            type="button"
+                            disabled={!item.event_id}
+                            onClick={() => focusEvent(item.event_id)}
+                            className={cn(
+                              'group flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+                              item.event_id
+                                ? 'hover:bg-background hover:text-foreground'
+                                : 'cursor-default opacity-60',
+                            )}
+                            title={item.event_id ? item.event_id : undefined}
+                          >
+                            <Badge variant={item.resolved ? 'secondary' : 'outline'} className="shrink-0 font-mono text-[10px]">
+                              {item.ref}
+                            </Badge>
+                            <span className="min-w-0 flex-1 truncate font-medium">
+                              {item.topic || item.title || i18n.summary.noEvents}
+                            </span>
+                            {item.event_id && (
+                              <span className="text-muted-foreground shrink-0 text-[10px] opacity-0 transition-opacity group-hover:opacity-100">
+                                Event
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm font-mono leading-relaxed break-all whitespace-pre-wrap">
+                        {sections.events || <span className="text-muted-foreground italic">{i18n.summary.noEvents}</span>}
+                      </p>
+                    )}
                   </div>
                 </div>
 

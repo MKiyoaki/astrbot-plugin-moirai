@@ -85,6 +85,12 @@ class TestNewConfigs(unittest.IsolatedAsyncioTestCase):
         boundary = self.cfg.get_boundary_config()
         self.assertEqual(boundary.summary_trigger_rounds, 30)
 
+        # Test Embedding defaults: local encoder should not add a fixed 5s
+        # delay to every recall query unless the user configures throttling.
+        embedding = self.cfg.get_embedding_config()
+        self.assertEqual(embedding.batch_interval_ms, 50)
+        self.assertEqual(embedding.request_interval_ms, 0)
+
         # Test persona synthesis trigger defaults
         self.assertEqual(self.cfg.persona_synthesis_trigger_messages, 30)
         self.assertEqual(self.cfg.persona_synthesis_min_events, 3)

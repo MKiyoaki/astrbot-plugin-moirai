@@ -77,6 +77,23 @@ def test_parse_multi_event_array() -> None:
     assert result[1]["summary"] == "s2"
 
 
+def test_parse_multi_event_array_can_merge_to_session_event() -> None:
+    raw = ('['
+           '{"start_idx": 0, "end_idx": 1, "topic": "规则吐槽", "summary": "s1", "chat_content_tags": ["游戏", "规则"], "salience": 0.4, "confidence": 0.6},'
+           '{"start_idx": 2, "end_idx": 3, "topic": "物理解法", "summary": "s2", "chat_content_tags": ["物理", "吐槽"], "salience": 0.7, "confidence": 0.8}'
+           ']')
+    result = parse_llm_output(raw, max_idx=3, merge_to_single=True)
+    assert result is not None
+    assert len(result) == 1
+    assert result[0]["start_idx"] == 0
+    assert result[0]["end_idx"] == 3
+    assert result[0]["topic"] == "规则吐槽 / 物理解法"
+    assert result[0]["summary"] == "s1 | s2"
+    assert result[0]["chat_content_tags"] == ["游戏", "规则", "物理", "吐槽"]
+    assert result[0]["salience"] == pytest.approx(0.7)
+    assert result[0]["confidence"] == pytest.approx(0.8)
+
+
 def test_parse_strips_markdown_fence() -> None:
     raw = '```json\n[{"start_idx": 0, "end_idx": 0, "topic": "test", "summary": "summ", "chat_content_tags": ["a"], "salience": 0.5, "confidence": 0.8}]\n```'
     result = parse_llm_output(raw, max_idx=0)
@@ -226,6 +243,14 @@ def test_build_user_prompt_disambiguates_homonyms() -> None:
     assert "卢比鹏: 继续说" in prompt  # same uid keeps original label
 
 
+def test_build_user_prompt_asks_for_specific_tags_when_existing_tags_are_broad() -> None:
+    w = make_window([("u1", "Alice", "我们聊明日方舟十四章和卫戍协议")])
+    prompt = build_user_prompt(w, existing_tags=["社交", "情感", "娱乐", "知识", "技术"])
+
+    assert "不要为了复用而牺牲具体性" in prompt
+    assert "不要只输出“社交、情感、娱乐、知识、技术”这类大类" in prompt
+
+
 # ---------------------------------------------------------------------------
 # EventExtractor integration tests (mock provider)
 # ---------------------------------------------------------------------------
@@ -251,6 +276,23 @@ class _MockProvider:
 class _FailingProvider:
     async def text_chat(self, prompt=None, system_prompt=None, **_kwargs):
         raise RuntimeError("provider failed")
+
+
+class _SequenceProvider:
+    def __init__(self, responses: list[str]) -> None:
+        self._responses = list(responses)
+        self.calls: list[dict] = []
+
+    async def text_chat(self, prompt=None, system_prompt=None, **_kwargs):
+        self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
+        text = self._responses.pop(0)
+
+        class _Resp:
+            completion_text: str
+
+        r = _Resp()
+        r.completion_text = text
+        return r
 
 
 # ---------------------------------------------------------------------------
@@ -504,6 +546,117 @@ async def test_extractor_creates_events_from_llm(tmp_path) -> None:
     assert events[0].topic == "话题1"
     assert events[0].summary == "摘要1"
     assert events[0].salience == pytest.approx(0.8)
+
+
+async def test_extractor_merges_related_llm_segments_into_one_session_event() -> None:
+    event_repo = InMemoryEventRepository()
+    json_resp = (
+        '[{"start_idx": 0, "end_idx": 1, "topic": "游戏机制吐槽", '
+        '"summary": "[What] 用户吐槽游戏机制收益不合理 [Who] Alice [How] 情绪表达集中在规则不公平", '
+        '"chat_content_tags": ["游戏", "规则"], "salience": 0.4, "confidence": 0.7},'
+        '{"start_idx": 2, "end_idx": 3, "topic": "物理解法抱怨", '
+        '"summary": "[What] 讨论转向物理解法反直觉 [Who] Alice [How] 继续补充对玩法设计的不满", '
+        '"chat_content_tags": ["物理", "吐槽"], "salience": 0.7, "confidence": 0.8}]'
+    )
+    provider = _MockProvider(json_resp)
+
+    extractor = EventExtractor(event_repo=event_repo, provider_getter=lambda: provider)
+    w = make_window([
+        ("u1", "Alice", "这个游戏机制太离谱了"),
+        ("u2", "Bot", "你是说收益和风险不匹配？"),
+        ("u1", "Alice", "对，而且物理解法也很反直觉"),
+        ("u2", "Bot", "听起来还是同一段玩法设计吐槽"),
+    ])
+    await extractor(w)
+
+    events = await event_repo.list_by_group("g1")
+    assert len(events) == 1
+    assert events[0].topic == "游戏机制吐槽 / 物理解法抱怨"
+    assert "游戏机制收益不合理" in events[0].summary
+    assert "物理解法反直觉" in events[0].summary
+    assert events[0].chat_content_tags == ["游戏", "规则", "物理", "吐槽"]
+    assert len(events[0].interaction_flow) == 4
+
+
+async def test_llm_single_event_links_full_window_even_with_partial_indices() -> None:
+    event_repo = InMemoryEventRepository()
+    provider = _MockProvider(
+        '[{"start_idx": 1, "end_idx": 1, "topic": "局部索引事件", '
+        '"summary": "LLM 只返回了局部索引", "chat_content_tags": ["游戏讨论"], '
+        '"salience": 0.6, "confidence": 0.8}]'
+    )
+
+    extractor = EventExtractor(event_repo=event_repo, provider_getter=lambda: provider)
+    w = make_window([
+        ("u1", "Alice", "第一条也属于同一窗口"),
+        ("u2", "Bob", "第二条"),
+        ("u1", "Alice", "第三条仍是连续补充"),
+    ])
+    await extractor(w)
+
+    events = await event_repo.list_by_group("g1")
+    assert len(events) == 1
+    assert len(events[0].interaction_flow) == 3
+    assert [ref.content_preview for ref in events[0].interaction_flow] == [
+        "第一条也属于同一窗口",
+        "第二条",
+        "第三条仍是连续补充",
+    ]
+
+
+async def test_extractor_repairs_parse_error_before_fallback() -> None:
+    event_repo = InMemoryEventRepository()
+    provider = _SequenceProvider([
+        "not valid json",
+        '[{"start_idx": 0, "end_idx": 1, "topic": "修复后的事件", '
+        '"summary": "修复后的摘要", "chat_content_tags": ["技术"], '
+        '"salience": 0.6, "confidence": 0.8}]',
+    ])
+
+    extractor = EventExtractor(event_repo=event_repo, provider_getter=lambda: provider)
+    await extractor(make_window([("u1", "Alice", "消息1"), ("u2", "Bob", "消息2")]))
+
+    events = await event_repo.list_by_group("g1")
+    assert len(events) == 1
+    assert events[0].topic == "修复后的事件"
+    assert events[0].confidence == pytest.approx(0.8)
+    assert len(provider.calls) == 2
+    assert "修复" in provider.calls[1]["prompt"]
+
+
+async def test_extractor_sanitizes_topic_and_tags() -> None:
+    event_repo = InMemoryEventRepository()
+    provider = _MockProvider(
+        '[{"start_idx": 0, "end_idx": 1, '
+        '"topic": "你看看这个视频的评论区 https://example.com/abc 能不能理解这首诗", '
+        '"summary": "摘要", '
+        '"chat_content_tags": ["Alice", "https://example.com", "晚安", "完整句子真的太长了不能当标签", "游戏讨论"], '
+        '"salience": 0.6, "confidence": 0.8}]'
+    )
+
+    extractor = EventExtractor(event_repo=event_repo, provider_getter=lambda: provider)
+    await extractor(make_window([("u1", "Alice", "消息1"), ("u2", "Bob", "消息2")]))
+
+    events = await event_repo.list_by_group("g1")
+    assert len(events) == 1
+    assert "http" not in events[0].topic
+    assert events[0].chat_content_tags == ["游戏讨论"]
+
+
+async def test_extractor_keeps_specific_medium_length_topic_tags() -> None:
+    event_repo = InMemoryEventRepository()
+    provider = _MockProvider(
+        '[{"start_idx": 0, "end_idx": 1, "topic": "具体主题标签", '
+        '"summary": "摘要", '
+        '"chat_content_tags": ["明日方舟十四章", "大五人格分析请求", "凸优化"], '
+        '"salience": 0.6, "confidence": 0.8}]'
+    )
+
+    extractor = EventExtractor(event_repo=event_repo, provider_getter=lambda: provider)
+    await extractor(make_window([("u1", "Alice", "聊明日方舟十四章"), ("u2", "Bob", "还聊大五人格分析")]))
+
+    events = await event_repo.list_by_group("g1")
+    assert events[0].chat_content_tags == ["明日方舟十四章", "大五人格分析请求", "凸优化"]
 
 
 async def test_extractor_links_persisted_raw_messages() -> None:

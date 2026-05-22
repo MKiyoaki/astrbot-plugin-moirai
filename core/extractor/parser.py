@@ -236,6 +236,12 @@ def _merge_into(target: dict, source: dict) -> dict:
     """Merge source event-dict into target (in-place on target, returns target)."""
     target["start_idx"] = min(int(target["start_idx"]), int(source["start_idx"]))
     target["end_idx"] = max(int(target["end_idx"]), int(source["end_idx"]))
+    t_topic = str(target.get("topic", "")).strip()
+    s_topic = str(source.get("topic", "")).strip()
+    if s_topic and s_topic not in t_topic.split(" / "):
+        topics = [topic for topic in t_topic.split(" / ") if topic]
+        topics.append(s_topic)
+        target["topic"] = " / ".join(topics[:3])[:60]
     t_sum = str(target.get("summary", "")).strip()
     s_sum = str(source.get("summary", "")).strip()
     if t_sum and s_sum and t_sum != s_sum:
@@ -316,7 +322,22 @@ def _merge_short_spans(results: list[dict]) -> list[dict]:
     return merged
 
 
-def parse_llm_output(text: str, max_idx: int, has_bot_persona: bool = False) -> list[dict] | None:
+def _merge_to_session_event(results: list[dict]) -> list[dict]:
+    """Collapse parsed fragments back into one session-window event."""
+    if len(results) <= 1:
+        return results
+    merged = dict(results[0])
+    for item in results[1:]:
+        _merge_into(merged, item)
+    return [merged]
+
+
+def parse_llm_output(
+    text: str,
+    max_idx: int,
+    has_bot_persona: bool = False,
+    merge_to_single: bool = False,
+) -> list[dict] | None:
     """Parse and validate JSON Array from LLM completion text."""
     text = text.strip()
     fence_match = _FENCE_RE.search(text)
@@ -378,6 +399,8 @@ def parse_llm_output(text: str, max_idx: int, has_bot_persona: bool = False) -> 
     # Sort by start_idx so neighbor lookups in merge are correct, then merge short spans.
     results.sort(key=lambda r: int(r["start_idx"]))
     results = _merge_short_spans(results)
+    if merge_to_single:
+        results = _merge_to_session_event(results)
     return results if results else None
 
 

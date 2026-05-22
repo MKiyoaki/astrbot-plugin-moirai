@@ -10,6 +10,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _has_embedding(vec: object) -> bool:
+    try:
+        return len(vec) > 0  # type: ignore[arg-type]
+    except Exception:
+        return False
+
+
+def _to_embedding_list(vec: object) -> list[float]:
+    if hasattr(vec, "tolist"):
+        vec = vec.tolist()
+    return [float(v) for v in vec]  # type: ignore[union-attr]
+
 class Partition:
     """A logical cluster of messages identified as a potential event."""
     def __init__(self, indices: List[int], metadata: Dict[str, Any] = None):
@@ -68,11 +81,34 @@ class SemanticPartitioner(BasePartitioner):
         if self._encoder.dim == 0:
             return [Partition(indices=list(range(len(window.messages))))]
 
-        # 1. Extract embeddings
-        embeddings = await self._encoder.encode_batch([m.text for m in window.messages])
+        from ..utils.perf import performance_timer
+
+        # 1. Extract embeddings. Prefer vectors already attached by MessageRouter's
+        # background brain task; only encode missing messages.
+        embeddings: list[list[float] | None] = [
+            getattr(m, "embedding", None) for m in window.messages
+        ]
+        missing = [idx for idx, vec in enumerate(embeddings) if not _has_embedding(vec)]
+        if missing:
+            async with performance_timer("partition_encode"):
+                encoded = await self._encoder.encode_batch(
+                    [window.messages[idx].text for idx in missing]
+                )
+            for idx, vec in zip(missing, encoded):
+                if _has_embedding(vec):
+                    embedding = _to_embedding_list(vec)
+                    window.attach_embedding(idx, embedding)
+                    embeddings[idx] = embedding
+
+        if any(not _has_embedding(vec) for vec in embeddings):
+            logger.warning(
+                "[SemanticPartitioner] missing embeddings after encode; falling back to single partition"
+            )
+            return [Partition(indices=list(range(len(window.messages))))]
 
         # 2. Compute semantic distances
-        dists = cosine_distances(embeddings)
+        async with performance_timer("partition_distance"):
+            dists = cosine_distances(embeddings)
         
         # 3. Apply time penalty
         times = np.array([m.timestamp for m in window.messages])
@@ -85,8 +121,9 @@ class SemanticPartitioner(BasePartitioner):
                         dists[i, j] += gap_ratio * self._time_penalty
 
         # 4. Perform clustering
-        clustering = DBSCAN(eps=self._eps, min_samples=self._min_samples, metric="precomputed").fit(dists)
-        labels = clustering.labels_
+        async with performance_timer("partition_cluster"):
+            clustering = DBSCAN(eps=self._eps, min_samples=self._min_samples, metric="precomputed").fit(dists)
+            labels = clustering.labels_
         
         clusters: Dict[int, List[int]] = {}
         noise_indices: List[int] = []

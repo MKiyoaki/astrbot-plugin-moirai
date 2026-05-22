@@ -105,6 +105,45 @@ async def test_update_summary(routes, tmp_path):
     assert path.read_text(encoding="utf-8") == "new summary content"
 
 @pytest.mark.asyncio
+async def test_get_summary_returns_linked_events_and_refreshes_titles(routes, tmp_path):
+    await routes._event_repo.upsert(Event(
+        event_id="abcdef123456",
+        group_id="g1",
+        topic="new title",
+        status=EventStatus.ACTIVE,
+    ))
+    path = tmp_path / "groups" / "g1" / "summaries" / "2026-05-22.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("[事件列表]\n[old title] - [abcdef12]\n", encoding="utf-8")
+
+    req = mock_request(query={"group_id": "g1", "date": "2026-05-22"})
+    resp = await routes._handle_summary(req)
+    data = await get_json(resp)
+
+    assert data["linked_events"][0]["event_id"] == "abcdef123456"
+    assert data["linked_events"][0]["topic"] == "new title"
+    assert "[new title] - [abcdef12]" in data["content"]
+    assert "[new title] - [abcdef12]" in path.read_text(encoding="utf-8")
+
+@pytest.mark.asyncio
+async def test_update_event_refreshes_summary_event_list(routes, tmp_path):
+    await routes._event_repo.upsert(Event(
+        event_id="abcdef123456",
+        group_id="g1",
+        topic="old title",
+        status=EventStatus.ACTIVE,
+    ))
+    path = tmp_path / "groups" / "g1" / "summaries" / "2026-05-22.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("[事件列表]\n[old title] - [abcdef12]\n", encoding="utf-8")
+
+    req = mock_request(json_data={"topic": "new title"}, match_info={"event_id": "abcdef123456"})
+    resp = await routes._handle_update_event(req)
+
+    assert resp.status_code == 200
+    assert "[new title] - [abcdef12]" in path.read_text(encoding="utf-8")
+
+@pytest.mark.asyncio
 async def test_handle_tags_aggregation(routes):
     await routes._event_repo.upsert(Event(event_id="e1", group_id="g1", chat_content_tags=["tag1", "tag2"]))
     await routes._event_repo.upsert(Event(event_id="e2", group_id="g1", chat_content_tags=["tag1"]))

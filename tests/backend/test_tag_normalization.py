@@ -93,6 +93,26 @@ async def test_tag_alignment_logic():
     assert "购物" in aligned
     assert "技术架构" in aligned
 
+
+@pytest.mark.asyncio
+async def test_tag_alignment_does_not_collapse_specific_tag_to_seed_category():
+    repo = EnhancedInMemoryRepo()
+    encoder = MockEncoder()
+    await repo.upsert_canonical_tag("技术", [0.0] * 511 + [1.0])
+
+    extractor = EventExtractor(
+        event_repo=repo,
+        provider_getter=lambda: None,
+        encoder=encoder,
+    )
+
+    extractor._tag_seeds = ["技术", "知识", "娱乐"]
+
+    aligned = await extractor._align_tags(["技术架构"])
+
+    assert aligned == ["技术架构"]
+    assert "技术架构" in repo.canonical_tags
+
 # ---------------------------------------------------------------------------
 # P2-1: _align_tags should call encode_batch once for all tags,
 #        not encode() separately for each tag.

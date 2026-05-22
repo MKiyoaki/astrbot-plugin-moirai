@@ -16,6 +16,8 @@ import { cn } from '@/lib/utils'
 import { getTagColor } from '@/lib/colors'
 import { eventGroupId, groupAccent } from '@/lib/events-aggregator'
 
+const DETAIL_PANEL_WIDTH_CLASS = 'w-[360px] lg:w-[400px] xl:w-[440px] max-w-[36vw]'
+
 interface DetailPanelProps {
   focusedEvent: ApiEvent | null
   axisEvents: ApiEvent[]
@@ -74,7 +76,8 @@ function MiniStats({ events }: { events: ApiEvent[] }) {
   const participantCounts: Record<string, number> = {}
   for (const ev of events) {
     for (const p of ev.participants ?? []) {
-      participantCounts[p] = (participantCounts[p] ?? 0) + 1
+      const label = ev.participant_names?.[p] ?? p
+      participantCounts[label] = (participantCounts[label] ?? 0) + 1
     }
   }
   const topParticipants = Object.entries(participantCounts)
@@ -299,7 +302,8 @@ export function DetailPanel(props: DetailPanelProps) {
     <aside
       data-testid="detail-panel"
       className={cn(
-        'w-[360px] lg:w-[400px] xl:w-[440px] max-w-[36vw] flex flex-col border-l bg-background/95 backdrop-blur shrink-0 overflow-hidden transition-all duration-300',
+        DETAIL_PANEL_WIDTH_CLASS,
+        'flex flex-col border-l bg-background/95 backdrop-blur shrink-0 overflow-hidden transition-all duration-300',
         className
       )}
     >

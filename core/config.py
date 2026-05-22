@@ -50,11 +50,14 @@ DEFAULT_DISTILLATION_SYSTEM_PROMPT = (
 )
 
 DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
-    "你是一个聊天记录分析助手。你的任务是将一段连续的对话记录划分为一个或多个逻辑事件，并提取结构化信息。\n\n"
+    "你是一个聊天记录分析助手。你的任务是将一段连续的对话记录提炼为会话事件，并提取结构化信息。\n\n"
+    "这段对话已经由系统按时间、消息数量和语义漂移边界截取。默认请将它提炼为一个会话事件。\n\n"
     "划分逻辑：\n"
-    "1. 话题转换：当对话主题发生明显变化时，划分为新事件。\n"
-    "2. 时间大跨度：当两条消息之间的时间间隔非常大（如超过数小时或数天）时，通常应划分为新事件。\n"
-    "3. 连续性：如果对话虽然中断但随后继续讨论同一话题，可以视为同一事件的延续（设置 inherit 为 true）。\n\n"
+    "1. 默认输出一个覆盖 start_idx=0 到 end_idx=最后一条消息的 JSON 对象。\n"
+    "2. 不要因为自然推进、追问、补充说明、评价、情绪表达、解决方案、相邻子话题切换而拆成多个数据库事件。\n"
+    "   这些内容应作为同一事件 summary 内的多个小话题三元组，用 \" | \" 分隔，并通过 chat_content_tags 覆盖关键主题。\n"
+    "3. 只有当片段之间存在明显跨时间、完全无关、无法作为同一语境理解的独立对话时，才输出多个事件。\n"
+    "4. 连续性：如果对话虽然中断但随后继续讨论同一话题，可以视为同一事件的延续（设置 inherit 为 true）。\n\n"
     "输出格式（仅输出一个 JSON Array，包含一个或多个对象，不输出任何其他文字或 markdown 代码块）：\n"
     '[\n'
     '  {"start_idx": 0, "end_idx": 10, "topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false, "participants_personality": {"Alice": {"scores": {"O": 0.6, "E": 0.7}, "evidence": "Alice 主动发起多个话题、情绪积极"}}},\n'
@@ -67,7 +70,7 @@ DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
     "- summary: 该段对话的摘要，提炼关键结论和信息，过滤掉口水话。"
     "按以下格式，每个小话题用 [What]/[Who]/[How] 三元组描述，多个小话题之间用 \" | \" 分隔。"
     "建议每个 event 产出 2–5 个小话题三元组（与 chat_content_tags 对应）；"
-    "只要话题、对象或叙事重心发生切换，就应单独成一个三元组，宁多勿少；"
+    "自然推进、追问、补充、评价、情绪表达、解决方案、相邻子话题切换应作为同一 event 内的多个三元组表达；"
     "单一三元组仅在整段 event 确实只讨论同一件事时使用。"
     "但极短的承接、附和、单条 emoji/表情/复读 不要单独成三元组，应并入语义最接近的相邻三元组。"
     "[What] 和 [How] 各写1-2句，说清楚具体发生了什么或得出了什么结论、以何种方式推进或结束（可包含情绪/态度/结果）；[Who] 保持简短只列人名。"
@@ -328,8 +331,8 @@ class EmbeddingConfig:
     batch_size: int = 50
     request_batch_size: int = 16
     concurrency: int = 1
-    batch_interval_ms: int = 5000
-    request_interval_ms: int = 5000
+    batch_interval_ms: int = 50
+    request_interval_ms: int = 0
     failure_tolerance_ratio: float = 0.02
     retry_max: int = 3
     retry_delay_ms: int = 30000
@@ -619,8 +622,8 @@ class PluginConfig:
             batch_size=self._int("embedding_batch_size", 50),
             request_batch_size=self._int("embedding_request_batch_size", 16),
             concurrency=self._int("embedding_concurrency", 1),
-            batch_interval_ms=self._int("embedding_batch_interval_ms", 5000),
-            request_interval_ms=self._int("embedding_request_interval_ms", 5000),
+            batch_interval_ms=self._int("embedding_batch_interval_ms", 50),
+            request_interval_ms=self._int("embedding_request_interval_ms", 0),
             failure_tolerance_ratio=self._float(
                 "embedding_failure_tolerance_ratio", 0.02),
             retry_max=self._int("embedding_retry_max", 3),

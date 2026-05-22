@@ -103,6 +103,184 @@
 
 ---
 
+## v0.16.3 全程序事件提取效率与召回质量修复 (in progress)
+
+### User constraints / 约束
+- 当前同时对比 `EVENT_MODE = "encoder"` 与 `EVENT_MODE = "llm"` 的 realtime dev 表现。
+- 这次目标是优化实际插件运行链路；`run_realtime_dev.py` 只是复现、压测和验收入口，不能只修 dev runner。
+- 所有改动内容必须通过验证；未验证项只能保持 `[ ]` 并写清剩余风险。
+- 先根据 realtime dev 日志登记可疑问题；执行前再确认优先级与实现方案。
+- 保持 `run_realtime_dev.py` 的诊断输出，后续每次优化都用同一组 mock 数据对比。
+
+### Release goal / 本次版本目标和预期
+- 目标 1：修复核心事件提取、事件索引、记忆召回链路中的质量问题，实际插件环境和 dev runner 使用同一套核心逻辑。
+- 目标 2：让 `run_realtime_dev.py` 能同时验证“事件提取质量”和“语义召回质量”，不再出现 LLM 模式只能测提取、不能测 vector recall 的盲区。
+- 目标 3：确定后续默认推荐路径。当前观测显示 LLM 模式事件粒度更符合预期；encoder 模式保留为性能/无 batch LLM 切分的对照路径，但需要优化重复编码与过度碎片化。
+- 目标 4：降低实际运行和 realtime dev 的不可解释耗时。需要能看到每个窗口的 message_count、partition_count、LLM duration、fallback/parse 状态，并能定位长尾窗口。
+- 目标 5：降低无证据召回污染。查询包含明确实体/作品名但候选没有词面证据时，应返回 0 条或注入明确 no-evidence，而不是注入语义相近但无关的事件。
+- 预期验收：
+  - LLM 模式支持 `LLM extraction + encoder retrieval/indexing` 后，`Vector candidates` 不再固定为 0。
+  - encoder 模式 partition 阶段复用已有 embedding 后，`partition avg` 明显低于当前 27s 基线。
+  - `parse_error` fallback 至少可解释；优先通过 retry/repair 避免低质量 fallback event。
+  - tag 不再出现人名、完整原文片段、纯问候语、URL 截断文本。
+  - `task_summary` / `task_synthesis` 不再显示误导性的 0.000s。
+
+### Observed baseline / 观测基线
+- 数据集：`mock_realtime.json`，225 messages，2 groups。
+- encoder 模式：12 extraction tasks → 26 events；事件平均 8.50 source messages；多三元组 summary 8/26；低置信事件 4/26；raw messages persisted=225，event-message links=221。
+- encoder 性能：Phase 1 ingestion 约 2.7s；Phase 2 extraction 约 90s；`partition avg=27.194s`、`distill avg=7.865s`、`recall_search=5.016s`。
+- encoder 召回：查询“卿泽对原神的看法”时 BM25=0、Vector=20，最终注入 3 条无原神证据的事件；严格 prompt 能正确回答“没有相关证据”。
+- LLM 模式：19 extraction tasks → 19 events；事件平均 11.84 source messages；多三元组 summary 15/19；低置信事件 1/19；raw messages persisted=225，event-message links=225。事件粒度明显优于 encoder 模式。
+- LLM 性能：Phase 1 ingestion 约 2.9s；Phase 2 extraction 约 45s；`extraction avg=12.859s`、`last=46.132s`。总体比 encoder 模式快，但存在单个长尾窗口。
+- LLM 召回：BM25=0、Vector=0、Injected=0。原因是 realtime runner 在 LLM 模式下使用 `NullEncoder`，没有向量索引；因此 LLM 模式当前只能测试提取质量，不能测试语义召回质量。
+- LLM 稳定性：出现一次 `parse_error` fallback（message_count=2），生成 confidence=0.20 的低质量 fallback event，topic 包含 URL 截断文本。
+- 2026-05-22 LLM 回归：12 extraction tasks → 12 events；平均 18.75 source messages；multi-triple 8/12；低置信 0；raw/event links 225/225，说明“LLM 单事件完整窗口覆盖”生效。
+- 2026-05-22 tag 回归：tag 已更具体（如 `大五人格`、`性格分析`、`学术化要求`、`调戏对话`、`游戏攻略`、`记忆系统`），但平均 3.42 tags/event 偏多，且缺少上层类别聚合，适合引入“预设类别 tag + 具体 tag”的层级模型。
+- 2026-05-22 recall benchmark：无证据查询正确 hits=0；但 `gariton`、`big-five`、`fee`、`academic` 等有证据查询 hits=0，`arknights` 命中也不精确，说明 no-evidence guard 与 query term 抽取/层级 tag/FTS tokenization 需要继续调。
+- 2026-05-22 00:30 LLM 回归：12 extraction tasks → 12 events；平均 18.75 source messages；links 225/225，事件覆盖稳定；`gariton`/`arknights`/`big-five` 已可召回，`fee` 仍命中宽泛事件，`academic` 跨 group 仍漏召回。
+- 2026-05-22 00:30 LLM 效率：Phase 2 wall time 约 60s；单任务 `extraction avg=36.815s last=50.787s`，说明并发隐藏了部分长尾；`recall_search≈5.02s` 主要来自 embedding 默认 5s 节流，不是回答 LLM 慢。
+- 2026-05-22 00:39 LLM 回归：12 extraction tasks → 12 events；links 225/225；avg tags/event=3.58；multi-triple 6/12；低置信 1（`简短呼唤`），说明整体覆盖稳定但小窗口/低信息窗口仍会产生低置信事件。
+- 2026-05-22 00:39 recall 效率验证：`recall_search` 从约 5.02s 降至约 0.074s，确认 embedding 默认节流修复有效；这项改动在实际 AstrBot 路径中也生效，因为默认值来自 `core.config.EmbeddingConfig` 和 `_conf_schema.json`，不是 dev runner 私有逻辑。
+- 2026-05-22 00:39 recall 质量：无证据原神查询 hits=0；`gariton` hits=3、`arknights` hits=1、`big-five` hits=1；`fee` 仍命中宽泛事件；`academic` 在 group=1919810 仍 hits=0。下一轮重点是 narrow evidence scoring 和跨 group/topic term 覆盖。
+
+### Priority / 优化优先级
+
+#### 重要
+- [x] **解耦提取策略与召回 encoder**：实际插件已由 `embedding_enabled` 独立控制召回/indexing encoder；dev runner 已同步为 `EVENT_MODE = "llm"` 时默认加载 retrieval/indexing encoder（可由 `RETRIEVAL_ENCODER_ENABLED` 关闭），避免 LLM 模式 `Vector candidates = 0`。
+- [x] **复用窗口内已计算 embedding**：`SemanticPartitioner` 已优先复用 `MessageWindow.messages[*].embedding`，仅对缺失向量调用 `encoder.encode_batch`，并兼容 numpy/list 向量。
+- [x] **补充每窗口性能与质量诊断**：`EventExtractor.__call__` 已记录 session、strategy、message_count、partition_count、event_count、low_conf、duration、event_ids；runner 已输出 event quality、recall diagnostics、完整 perf metrics。
+- [x] **LLM parse_error 处理**：`_extract_batch` 已在 parse 失败时记录 response snippet 并追加一次严格 JSON repair LLM 调用；repair 仍失败才 fallback。
+- [x] **召回 no-evidence guard**：`RecallManager.recall()` 已对 vector-only 候选做显式实体词覆盖检查；当没有任一候选同时包含查询实体词时返回 0，避免“原神无证据”污染注入。
+- [x] **tag/topic 清洗**：`EventExtractor` 已过滤人名/UID、URL、纯问候、过长或句子化 tag；topic 已移除 URL 并限制长度。
+- [x] **性能指标修正**：`run_group_summary()` / `run_persona_synthesis()` 的 `task_summary` / `task_synthesis` 计时已覆盖完整任务体，不再只计 config 初始化。
+- [x] **tag normalisation 具体性回归测试**：当前 tag 已变干净，但有过度归并到 `社交/情感/娱乐/知识/技术` 等大类的风险；本轮已禁止种子大类有损吸附具体 tag，并补充 `明日方舟十四章`、`大五人格分析请求`、`凸优化` 等保留测试。
+- [x] **LLM 单事件完整窗口覆盖**：LLM 模式 12 events / 201 links 暴露出单事件 `start_idx/end_idx` 未覆盖完整窗口，导致 24 条非噪声消息未链接；本轮已在 LLM 单 DB Event 时强制覆盖完整窗口消息。
+- [x] **预设 tag 层级分类**：当前 tag 具体性变好但偏多，且召回缺少类别桥接。本轮已实现派生式一对一映射：`chat_content_tags` 保留具体主题词，`tag_categories` 以 `{具体tag: 预设category}` 形式由规则派生并通过 API 输出；暂不做数据库迁移。
+- [x] **有证据召回漏召回修复（第一轮）**：benchmark 显示 `Gariton`、`大五人格`、`导师/稿费`、`学术圈靠关系` 有证据查询未命中。本轮已过滤“谁/请求/发生/互动/问题”等问题词，并让 evidence filter 使用真正主题词和 tag category；仍需下一轮 realtime 实测确认命中率。
+- [x] **Event Detail 文本溢出修复**：截图显示聚焦事件详情中显著度徽标和摘要长文本可能超出卡片；已去掉聚焦卡片 scale，给摘要值、统计格、显著度徽标加 `min-w-0`、宽度约束和断行。
+- [x] **召回固定 5s 延迟修复**：`recall_search≈5s` 来自 embedding 默认 `batch_interval_ms/request_interval_ms=5000`。当前默认 provider 是 local，因此已把默认节流改为 `50ms/0ms`，dev runner 同步暴露 `RETRIEVAL_ENCODER_BATCH_INTERVAL_MS` / `RETRIEVAL_ENCODER_REQUEST_INTERVAL_MS`；远端 API 用户仍可手动调大以避免限流。
+- [ ] **用户自定义母类后的 tag category 重链**：当前 `tag_categories` 是派生字段，不落库；若用户只是改预设母类配置，下一次 API/召回读取会按新规则即时派生，无需迁移。若后续允许人工保存“具体 tag → 母类”或把 category 写入索引，则必须增加 taxonomy version、dirty 标记和重链/重建索引任务。
+- [x] **摘要 [事件列表] 与 Event Stream 绑定**：把摘要中的事件列表从“纯文本标题快照”升级为“event_id 驱动的派生区块”。读取摘要时解析 `[event_id8]`，用事件库最新 `topic` 重建 `[事件列表]` 并写回 Markdown；事件 update/reextract 后主动同步引用该事件的 summary 文件，保证 LLM 重跑标题后摘要事件列表能实时反映并固化。
+- [x] **实际 AstrBot 路径鲁棒性复核**：本轮新增逻辑已同时接到 `web/plugin_routes.py` 与 `web/server.py`，共享 `core.tasks.summary_links`，避免 dev server 可用但 AstrBot 插件面板不可用。事件更新、reextract、summary get/regenerate 四个入口均覆盖。
+
+#### 次要
+- [ ] **encoder 模式 distill 调用数优化**：评估“每窗口一次 batch distill”或“相邻 partition 批量蒸馏”，降低当前约 26 次 LLM distill 调用。
+- [x] **LLM 并发控制基线**：实际插件已有 `LLMTaskManager`；dev runner 已接入 `LLM_CONCURRENCY` 并传入 extraction、persona synthesis、group summary，使测试更接近实际环境。
+- [ ] **encoder 模式后处理合并**：对同一窗口内相邻、时间连续、tag 重叠或 summary 互补的 partition 合并，减少 semantic clustering 过度碎片化。
+- [x] **raw link 差异解释**：runner 的 Event Quality 已输出 `Unlinked raw messages` 和最多 5 条未链接样本；下一轮实测用它判断是 noise filter 预期丢弃还是链接遗漏。
+- [ ] **低置信事件诊断**：输出低置信来源是 LLM parse、fallback_single_extraction、noise partition、tag alignment 失败，还是小窗口信息不足。
+- [x] **Recall benchmark query 集**：runner 已增加多条检索/召回诊断查询，覆盖无证据、有证据、跨 group、具体 tag 命中、纯语义命中；默认不额外调用回答 LLM，避免测试成本过高。
+- [x] **摘要 [事件列表] 与 Event Stream 绑定**：当前 `[事件列表]` 已确定性写入 `[topic] - [event_id8]`。本轮执行方案已落地：后端输出 `linked_events` 结构化 metadata；Summary UI 渲染为可点击事件链，点击后写入 `sessionStorage em_focus_event` 并跳转 `/events`；后端同步最新 topic 并持久化 Markdown。
+- [ ] **摘要 callback / 记忆逻辑效率评估**：若 summary 绑定 event ids，可让摘要成为 narrative index，回调/召回时先用日摘要定位候选 event ids，再展开事件详情；需要评估 token 成本、过期一致性、事件删除/归档后的引用修复。
+
+#### 可选
+- [ ] **小窗口轻量路径**：对 message_count 很小的窗口设计轻量 prompt 或规则路径，避免 2 条消息也发完整 batch prompt 后 parse 失败。
+- [ ] **固定查询集评测**：在 realtime runner 中加入多条 recall benchmark query，覆盖有证据、无证据、跨 group、tag 命中、纯语义命中。
+- [ ] **事件质量评分**：输出 summary 三元组数量、tag 名词性、topic 长度、fallback 占比等评分，用于多次测试横向对比。
+- [ ] **WebUI perf 对齐**：后续把 runner 中有价值的细分性能指标同步到 WebUI stats 页面。
+
+### Future validation / 需要验证和确认的技术点
+- [ ] LLM 模式加载 encoder 后，额外 encoder 成本是否可接受；本轮已新增 dev 配置 `RETRIEVAL_ENCODER_ENABLED` / `RETRIEVAL_ENCODER_MODEL`，仍需用实测确认默认开启是否合适。
+- [ ] LLM 模式是否应成为默认推荐 extraction path；encoder 模式是否仅作为低 LLM 成本/可解释语义聚类路径保留。
+- [ ] `SemanticPartitioner` 复用消息 embedding 后，DBSCAN 距离矩阵和 time penalty 是否仍是主要瓶颈；是否需要改为相邻距离切分而不是全矩阵聚类。
+- [ ] vector no-evidence 阈值如何选：过严会漏召回同义内容，过松会注入无关事件。需要用“原神无证据”和“有证据样本”双向验证。
+- [ ] tag sanitizer 的规则边界：中文短语、人名、作品名、游戏名、群内昵称之间如何区分，避免误杀有效标签。
+- [ ] raw message link 差异是否属于 noise filter 的合理结果；如果合理，指标应明确显示“有意不链接”的数量。
+- [ ] LLM repair/retry 是否显著增加延迟；DeepSeek、LMStudio 本地模型是否需要不同 retry 策略。
+- [ ] 新 no-evidence guard 是否过严：需要用“同义词/别名能召回”的正样本验证，避免只支持词面完全覆盖。
+- [ ] tag sanitizer 是否误杀群内常用作品名/角色名；如果误杀，需要改为“人名/UID 黑名单 + 白名单词库/NER”组合。
+- [ ] `task_summary` / `task_synthesis` 新计时是否与 WebUI stats 页面展示一致；需要实际跑一次 summary/synthesis 后确认非 0 且数量合理。
+- [x] 层级 tag 第一版决策：暂不持久化新字段，由 `chat_content_tags` 动态派生 `tag_categories`；API/WebUI 可读，后续如需人工编辑 category 再做迁移。
+- [x] Summary `[事件列表]` 绑定 event_id 前缀第一版已验证；本轮采用后端解析 event_id 前缀并返回 `linked_events`。如果出现前缀碰撞，先保留原文本项并标记 unresolved；后续可改为隐藏 JSON sidecar metadata。
+- [ ] 用户修改母类集合后的行为验证：修改 category 词表后，已有事件的 `chat_content_tags` 不应改变；`tag_categories` 应按新词表/override 即时变化；如 category 被写入向量索引或 FTS，需要确认重建后召回结果一致。
+- [ ] 默认 embedding 节流下调后的限流风险：本地 encoder 应显著降低 recall benchmark 时间；远端 embedding API 需要用户实测是否需把 `embedding_request_interval_ms` 调回较高值。
+
+### Possible implementation / 当前可能的技术实现办法
+- [x] `run_realtime_dev.py`：把 extraction strategy 与 retrieval encoder 拆开。`EVENT_MODE="llm"` 控制提取，`RETRIEVAL_ENCODER_ENABLED` 控制是否加载 `SentenceTransformerEncoder` 给 indexing/recall 使用。
+- [x] `SemanticPartitioner.partition()`：优先读取 `window.messages[i]` 上已附着的 embedding；只有缺失时调用 `encoder.encode_batch`。同时增加 `partition_encode`、`partition_distance`、`partition_cluster` 计时。
+- [x] `EventExtractor.__call__`：围绕每个窗口记录 extraction diagnostic，包括 session_id、message_count、strategy、partition_count、persisted_count、low_conf_count、duration、event_ids。
+- [x] `parse_llm_output` / `_extract_batch`：parse 失败时保留短 response snippet；实现一次“严格 JSON 修复 prompt retry”，失败后再 fallback。
+- [x] `fallback_single_extraction` / tag alignment 后处理：增加 topic/tag sanitizer，拒绝 URL、过长文本、纯问候、人名/UID 和句子片段；topic 空值回退到“未命名事件”。
+- [x] `RecallManager.recall()`：加入实体词覆盖检查，BM25=0 且 vector-only 候选没有同一事件覆盖查询实体词时返回 0。
+- [x] `PerfTracker` 与 task 包装：`task_summary`、`task_synthesis` 计时覆盖真实 LLM 调用；runner 继续展示同一 phase 命名。
+- [ ] `RecallManager.recall()` debug 增强：后续返回 BM25/vector/RRF/final score 分量，帮助解释为什么某条事件最终被注入。
+- [x] tag hierarchy 方案 A：保留 `chat_content_tags` 为具体 tag，新增派生 `tag_categories`，不让 LLM 自由生成；当前通过规则映射到预设类别，后续可替换为 embedding/配置映射。
+- [ ] tag hierarchy 方案 B：不改数据模型，维护内存/配置级 `tag_taxonomy`，检索时把 query 和 event tags 动态扩展到类别词；实现成本低但 WebUI 难展示层级。
+- [ ] tag relink 方案：新增 `tag_taxonomy_version = hash(categories + rules + manual_overrides)`；每次保存 taxonomy 时比较 version。派生模式只清缓存；持久化模式扫描 distinct tags 重算 `tag_category_links`；如果 category 参与 embedding/FTS，则将受影响 events 加入 reindex 队列。
+- [ ] tag manual override 方案：提供 `tag_category_overrides: {具体tag: 母类}`，优先级高于规则/embedding 推断；删除或重命名母类时，把相关 override 标记为 orphan，让 WebUI 提示用户重新选择。
+- [ ] summary binding 方案 A：Summary UI 解析 `[事件列表]` 中的 `[event_id8]`，调用现有 `/api/events` 后按前缀匹配并跳转到 `/events?event_id=...`。
+- [ ] summary binding 方案 B：后端 `/api/summary` 返回 `{ content, linked_events }`，由 summary task 同步写 sidecar JSON，保证绑定稳定并减少前端解析 markdown。
+- [x] summary binding 本轮方案 C：不新增 sidecar 文件，新增共享 helper `core.tasks.summary_links`。`/api/summary` 返回 `{content, linked_events}`，同时把 Markdown 中的 `[事件列表]` 重写为当前 event topic；事件 update/reextract 后调用 helper 扫描并同步引用该 event 的 summary 文件。这样对旧摘要兼容、无迁移、可立即固化标题变化。
+
+### v0.16.3 Handoff notes / 交接说明（给下一个 agent）
+- TODO 阅读顺序：先读文件顶部的“TODO 规范”，再读当前最新未完成 section（现在是 `v0.16.3 全程序事件提取效率与召回质量修复`），最后只把 Backlog 当作待讨论池。下方所有 `(completed)` 版本 section 只用于追溯历史，不应重新执行其中的 Phase。
+- 状态解释：`🚧` 是当前 session 正在执行或刚落地但仍需最终验证的项目；`[x]` 必须表示代码已改且对应测试已通过；`[ ]` 是未完成/待验证项，不代表已经失败。接手时优先处理当前 section 里的 `🚧` 和“重要”下的 `[ ]`，不要从旧版本 completed 章节开始。
+- 验证阅读逻辑：`Verification` 里已打勾的命令是本轮已经跑过的基线；新增代码后需要追加新的验证行，不要覆盖旧结果。若只修改文档可说明无需 build；若修改 `web/frontend`，必须 typecheck，并按 AGENTS 规则执行 `npm run build` 与 `tools/sync_frontend.py -f`。
+- 运行环境逻辑：`run_config.py` 是本地私有配置且已 gitignore；不要为了提交改它。需要新增测试参数时改 `run_config.py.example`，实际用户会在本地 `run_config.py` 手动同步。
+- 实际环境逻辑：`run_realtime_dev.py` 只是复现工具；任何核心行为必须确认实际 AstrBot 路径也接入，通常需要同时检查 `core/plugin_initializer.py`、`web/plugin_routes.py`、`web/server.py`、共享 `core/` helper。
+- 当前版本正在做的是“全程序事件提取效率与召回质量修复”，不是单独修 `run_realtime_dev.py`。dev runner 是验收工具，核心改动必须落在 `core/`、`web/plugin_routes.py`、`web/server.py` 等实际插件路径。
+- 已确认 LLM 模式事件粒度更接近期望，当前默认推荐路径倾向 `EVENT_MODE="llm"` + retrieval encoder enabled。encoder 模式保留，但仍有过度碎片化和 distill 调用数过多问题。
+- 已确认 recall 固定 5s 延迟来自 embedding 默认节流，已改成 local 默认 `50ms/0ms`。用户 00:39 实测 `recall_search≈0.074s`，说明修复有效。
+- tag hierarchy 当前是派生字段：`chat_content_tags` 是具体 tag，`tag_categories` 是 `{具体tag: 母类}`，不落库。用户未来可能需要手动编辑母类，届时要做 taxonomy version + relink/reindex。
+- 本轮正在执行 summary-event binding：旧摘要 Markdown 里只有 `[topic] - [event_id8]`。要求是事件标题被编辑或 reextract 后，摘要 `[事件列表]` 能自动用最新 topic 反映并写回文件，同时 Summary UI 可跳转到 Event Stream 对应事件。
+- 实现约束：必须同时改 standalone WebUI 和 AstrBot plugin routes；不要只改前端或只改 dev server。后端 helper 应在 `core/tasks/summary_links.py` 之类共享位置，避免两套路由逻辑漂移。
+- 预计验证重点：summary helper 单测、plugin routes summary API 测试、standalone WebUI summary API 测试、frontend typecheck、frontend layout test、backend full tests、build + sync static assets。
+
+### Implemented in this session / 本轮已落地目标
+- [x] 核心 `SemanticPartitioner` 复用已附着 embedding，降低 encoder 模式重复编码开销。
+- [x] 核心 `EventExtractor` 增加窗口级日志、JSON repair retry、topic/tag sanitizer。
+- [x] 核心 `RecallManager` 增加 vector-only no-evidence guard，减少无证据相似事件注入。
+- [x] 核心 `run_group_summary` / `run_persona_synthesis` 修正性能计时覆盖范围。
+- [x] 核心 tag normalisation 放宽并保留具体主题词：tag 长度上限放宽到 12，种子大类不再覆盖更具体 tag，prompt 明确要求保留作品名/技术名词/机制名。
+- [x] 核心 LLM 单事件完整窗口覆盖：当 LLM 只返回一个 DB Event 时强制链接完整连续窗口，避免有意义原文未进入 event-message links。
+- [x] WebUI Event Detail Card 修复聚焦状态文本/徽标溢出：移除 scale，补充内部文本断行和宽度约束。
+- [x] tag hierarchy 第一版：新增 `core.tags.taxonomy`，为每个具体 `chat_content_tags` 派生一个预设 category，并在 core/web API 输出 `tag_categories`。
+- [x] recall evidence filter 第一轮：问题词过滤和 required evidence term 抽取已调整，避免 `谁请求了大五人格分析`、`卿泽和Gariton发生了什么互动` 这类查询被问题词误杀。
+- [x] embedding 默认节流调整：本地召回/indexing 默认不再等待 5s；`_conf_schema.json`、`core.config.EmbeddingConfig`、`run_realtime_dev.py` 与 `run_config.py.example` 已同步。
+- [x] 实际插件路径确认：`core/plugin_initializer.py` 中 embedding/indexing 已由 `embedding_enabled` 独立于 extraction strategy 控制，且使用 `LLMTaskManager`；本轮无需改核心初始化。
+- [x] dev runner 同步实际路径：LLM 模式默认也可加载 retrieval encoder，并接入 `LLMTaskManager`、质量诊断、未链接 raw message 样本、recall benchmark query 集。
+- [x] Summary/Event 互绑定：新增 `core.tasks.summary_links`，让 summary 读取、事件编辑、事件 reextract 都能刷新 `[事件列表]` 中 stale title；Summary UI 可点击跳转 Event Stream。
+- [x] 版本发布记录：`metadata.yaml`、README 徽章、根目录 `CHANGELOG.md` 与 `docs/CHANGELOG.md` 已升至 v0.16.3。
+- [x] 新增/更新单测覆盖 partition 复用、parse repair、tag/topic sanitizer、vector no-evidence guard、summary/synthesis timer 回归。
+
+### Verification
+- [x] `python -m py_compile core\extractor\extractor.py core\extractor\partitioner.py core\managers\recall_manager.py core\tasks\summary.py core\tasks\synthesis.py run_realtime_dev.py` → passed。
+- [x] `pytest tests\backend\test_partitioner.py -q` → 3 passed。
+- [x] `pytest tests\backend\test_extractor.py -q` → 35 passed。
+- [x] `pytest tests\backend\test_recall_manager_extra.py -q` → 8 passed。
+- [x] `pytest tests\backend\test_tasks.py tests\backend\test_summary_mood.py -q` → 36 passed。
+- [x] `pytest tests\backend\test_recall_manager_extra.py tests\backend\test_recall_pipeline_opts.py -q` → 18 passed，2 个既有 `AsyncMock` warning，待后续单独清理。
+- [x] `pytest tests\backend -q` → 644 passed，3 warnings（1 个 faiss/numpy deprecation；2 个既有 `AsyncMock` warning）。
+- [x] `python -m py_compile core\extractor\extractor.py core\extractor\prompts.py run_realtime_dev.py` → passed。
+- [x] `pytest tests\backend\test_extractor.py tests\backend\test_tag_normalization.py -q` → 45 passed。
+- [x] `pytest tests\backend -q` → 648 passed，3 warnings（1 个 faiss/numpy deprecation；2 个既有 `AsyncMock` warning）。
+- [x] `pytest tests\frontend\test_loom_layout.py -q` → 51 passed。
+- [x] `cd web\frontend && npm.cmd run typecheck` → passed。
+- [x] `cd web\frontend && npm.cmd run build` → passed（sandbox 下因 Google Fonts 网络失败一次；授权网络后通过）。
+- [x] `python tools\sync_frontend.py -f` → synced（sandbox 下因内部 build 取 Google Fonts 失败一次；授权网络后通过）。
+- [x] `python -m py_compile core\tags\taxonomy.py core\domain\models.py core\managers\recall_manager.py web\server.py web\plugin_routes.py core\api.py run_realtime_dev.py` → passed。
+- [x] `pytest tests\backend\test_tag_taxonomy.py tests\backend\test_recall_manager_extra.py tests\frontend\test_webui.py -q` → 66 passed，1 warning（faiss/numpy deprecation）。
+- [x] `cd web\frontend && npm.cmd run typecheck` → passed。
+- [x] `pytest tests\backend -q` → 653 passed，3 warnings（1 个 faiss/numpy deprecation；2 个既有 `AsyncMock` warning）。
+- [x] `python -m py_compile core\config.py run_realtime_dev.py` → passed。
+- [x] `pytest tests\backend\test_new_configs.py tests\backend\test_embedding_manager.py -q` → passed。
+- [x] `python -m json.tool _conf_schema.json` → passed。
+- [x] `pytest tests\backend -q` → 653 passed，3 warnings（1 个 faiss/numpy deprecation；2 个既有 `AsyncMock` warning）。
+- [x] `python -m py_compile core\tasks\summary_links.py web\plugin_routes.py web\server.py` → passed。
+- [x] `pytest tests\backend\test_summary_links.py tests\frontend\test_api_v4.py tests\frontend\test_webui.py -q` → 63 passed，1 warning（faiss/numpy deprecation）。
+- [x] `pytest tests\frontend\test_loom_layout.py -q` → 51 passed。
+- [x] `pytest tests\backend -q` → 655 passed，3 warnings（1 个 faiss/numpy deprecation；2 个既有 `AsyncMock` warning）。
+- [x] `pytest tests\frontend -q` → 229 passed，1 warning（faiss/numpy deprecation）。
+- [x] `cd web\frontend && npm.cmd run typecheck` → passed。
+- [x] `cd web\frontend && npm.cmd run build` → passed（首次 sandbox 失败：当前 shell 找不到 `conda`，且 Google Fonts 网络被拦；授权网络后 `npm.cmd run build` 通过）。
+- [x] `python tools\sync_frontend.py -f` → synced 到 `pages/moirai/`（授权网络后通过）。
+- [x] 新增/更新 encoder partition 复用、tag sanitizer、vector no-evidence guard 相关测试。
+- [ ] `python run_realtime_dev.py` with `EVENT_MODE = "encoder"` → 用户实测记录优化后 Phase 1/2/5/7 全量输出；重点看 `partition avg`、`partition_encode`、未链接 raw 样本、注入事件。
+- [ ] `python run_realtime_dev.py` with `EVENT_MODE = "llm"` + `RETRIEVAL_ENCODER_ENABLED = True` → 用户实测确认 `Vector candidates` 不再固定为 0、无原神证据查询注入 0、`task_summary/task_synthesis` 非 0。
+- [ ] 如涉及 WebUI 静态资源，本轮未修改前端，不需要 `npm run build` / `sync_frontend.py -f`；若后续改 WebUI stats 展示再执行。
+
+---
+
 ## v0.16.0 多账号绑定 / 跨平台人格合并 (completed)
 
 ### User constraints / 约束

@@ -54,7 +54,9 @@ def build_user_prompt(
         tags_str = ", ".join(existing_tags)
         header_parts.append(
             f"[现有标签体系] {tags_str}\n"
-            f"注意：chat_content_tags 请优先从上述现有标签中选择。只有在现有标签均不适用时，才创建更宏观、抽象的新标签。"
+            f"注意：chat_content_tags 可以复用上述标签，但不要为了复用而牺牲具体性。"
+            f"若对话出现明确作品名、游戏名、技术名词、机制名或任务名，请创建具体名词短语标签；"
+            f"不要只输出“社交、情感、娱乐、知识、技术”这类大类。"
         )
 
     persona_line = "\n\n".join(header_parts) + ("\n\n" if header_parts else "")
@@ -88,7 +90,9 @@ def build_distillation_prompt(
         tags_str = ", ".join(existing_tags)
         header_parts.append(
             f"[现有标签体系] {tags_str}\n"
-            f"注意：chat_content_tags 请优先从上述现有标签中选择。只有在现有标签均不适用时，才创建更宏观、抽象的新标签。"
+            f"注意：chat_content_tags 可以复用上述标签，但不要为了复用而牺牲具体性。"
+            f"若对话出现明确作品名、游戏名、技术名词、机制名或任务名，请创建具体名词短语标签；"
+            f"不要只输出“社交、情感、娱乐、知识、技术”这类大类。"
         )
 
     persona_line = "\n\n".join(header_parts) + ("\n\n" if header_parts else "")

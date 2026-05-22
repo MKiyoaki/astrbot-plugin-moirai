@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..mixins.base import SerializableMixin, ValidationMixin
+from ..tags import derive_tag_categories
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +174,7 @@ class Event(SerializableMixin, ValidationMixin):
             "salience": round(self.salience, 3),
             "confidence": round(self.confidence, 3),
             "tags": self.chat_content_tags or [],
+            "tag_categories": derive_tag_categories(self.chat_content_tags),
             "inherit_from": self.inherit_from or [],
             "participants": self.participants or [],
             "status": self.status or "active",

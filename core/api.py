@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 logger = logging.getLogger(__name__)
 
 from .domain.models import Event, EventStatus, Impression, Persona
+from .tags import derive_tag_categories
 from .utils.version import get_plugin_version
 
 if TYPE_CHECKING:
@@ -32,6 +33,7 @@ def _ts(ts: float) -> str:
 
 
 def event_to_dict(event: Event) -> dict[str, Any]:
+    participants = event.participants or []
     return {
         "id": event.event_id,
         "content": event.topic or event.event_id[:8],
@@ -45,8 +47,10 @@ def event_to_dict(event: Event) -> dict[str, Any]:
         "salience": round(event.salience, 3),
         "confidence": round(event.confidence, 3),
         "tags": event.chat_content_tags,
+        "tag_categories": derive_tag_categories(event.chat_content_tags),
         "inherit_from": event.inherit_from,
-        "participants": event.participants,
+        "participants": participants,
+        "participant_names": {uid: uid for uid in participants},
         "status": event.status,
         "is_locked": event.is_locked,
     }

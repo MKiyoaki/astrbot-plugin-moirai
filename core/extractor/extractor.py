@@ -34,13 +34,29 @@ _NUMERIC_ID_RE = re.compile(r'^\d{5,}$')
 _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
 # Sentence-like tags: contain sentence-ending punctuation or are overly long
 _SENTENCE_RE = re.compile(r'[，。！？,!?]|[，。！？,!?]')
-_TAG_MAX_LEN = 10
+_URL_RE = re.compile(r'https?://\S+|www\.\S+', re.IGNORECASE)
+_SPACE_RE = re.compile(r'\s+')
+_TAG_MAX_LEN = 12
+_TOPIC_MAX_LEN = 40
+_BAD_TAGS = {
+    "早", "早安", "晚安", "你好", "您好", "嗨", "hi", "hello", "hey",
+    "ok", "okay", "嗯", "啊", "哦", "哈", "哈哈", "草", "笑",
+}
 
 
-def _is_valid_tag(tag: str) -> bool:
+def _is_valid_tag(tag: str, blocked_terms: set[str] | None = None) -> bool:
     """Return False for strings that look like IDs or sentence fragments rather than topic labels."""
     t = tag.strip()
     if not t or len(t) > _TAG_MAX_LEN:
+        return False
+    lower = t.lower()
+    if lower in _BAD_TAGS:
+        return False
+    if blocked_terms and lower in blocked_terms:
+        return False
+    if _URL_RE.search(t):
+        return False
+    if _SPACE_RE.search(t):
         return False
     if _NUMERIC_ID_RE.match(t):
         return False
@@ -49,6 +65,16 @@ def _is_valid_tag(tag: str) -> bool:
     if _SENTENCE_RE.search(t):
         return False
     return True
+
+
+def _sanitize_topic(topic: object) -> str:
+    value = str(topic or "").strip()
+    value = _URL_RE.sub("", value)
+    value = " ".join(value.split())
+    value = value.strip(" -_，。！？、,!?：:；;（）()[]【】<>《》")
+    if not value:
+        return "未命名事件"
+    return value[:_TOPIC_MAX_LEN]
 
 
 def _latest_persona_name(messages: list) -> str | None:
@@ -216,6 +242,9 @@ class EventExtractor:
         """
         from ..utils.perf import performance_timer
 
+        _diag_t0 = _time.perf_counter()
+        partitions: list[Partition] = []
+        persisted_events: list[Event] = []
         # 0. Lazy-initialize tag seeds (safe: we are inside an async context here)
         if not self._seeds_initialized:
             self._seeds_initialized = True
@@ -247,6 +276,9 @@ class EventExtractor:
             # One batch call: LLM handles both splitting and field extraction.
             async with performance_timer("extraction"):
                 batch_results = await self._extract_batch(window, existing_tags=steering_tags, bot_persona_desc=bot_desc)
+                if len(batch_results) == 1 and window.messages:
+                    batch_results[0]["start_idx"] = 0
+                    batch_results[0]["end_idx"] = len(window.messages) - 1
                 for res in batch_results:
                     start, end = res.get("start_idx", 0), res.get("end_idx", len(window.messages)-1)
                     extracted_results.append((list(range(start, end + 1)), res))
@@ -272,8 +304,6 @@ class EventExtractor:
         import uuid
 
         ipc_tasks = []
-        persisted_events: list[Event] = []
-
         for indices, res in extracted_results:
             sub_messages = [window.messages[i] for i in indices]
             if not sub_messages:
@@ -298,9 +328,23 @@ class EventExtractor:
 
             # Map raw tags to normalized tags (invalid tags are excluded here and in _batch_align_tags)
             raw_tags = res.get("chat_content_tags", [])
+            blocked_terms = {
+                str(part).strip().lower()
+                for m in sub_messages
+                for part in (
+                    getattr(m, "display_name", ""),
+                    getattr(m, "uid", ""),
+                    getattr(m, "bot_persona_name", ""),
+                )
+                if str(part).strip()
+            }
             aligned_tags = list(dict.fromkeys(
-                normalized_map.get(tag, tag) for tag in raw_tags if _is_valid_tag(tag)
+                normalized_map.get(tag, tag) for tag in raw_tags if _is_valid_tag(tag, blocked_terms)
             ))
+            aligned_tags = [
+                tag for tag in aligned_tags if _is_valid_tag(tag, blocked_terms)
+            ]
+            topic = _sanitize_topic(res.get("topic", ""))
 
             event = Event(
                 event_id=str(uuid.uuid4()),
@@ -318,7 +362,7 @@ class EventExtractor:
                     )
                     for m in sub_messages
                 ],
-                topic=res["topic"],
+                topic=topic,
                 summary=res.get("summary", ""),
                 chat_content_tags=aligned_tags,
                 salience=res["salience"],
@@ -365,6 +409,19 @@ class EventExtractor:
             except Exception as exc:
                 logger.warning("[EventExtractor] events_persisted_callback failed: %s", exc)
 
+        logger.info(
+            "[EventExtractor] window extracted: session=%s strategy=%s messages=%d "
+            "partitions=%d events=%d low_conf=%d duration=%.3fs ids=%s",
+            window.session_id,
+            self._strategy,
+            window.message_count,
+            len(partitions),
+            len(persisted_events),
+            sum(1 for event in persisted_events if float(event.confidence or 0.0) <= 0.3),
+            _time.perf_counter() - _diag_t0,
+            [event.event_id[:8] for event in persisted_events],
+        )
+
     async def _batch_align_tags(self, raw_tags: list[str]) -> dict[str, str]:
         """Normalize a large list of tags in a single batch operation.
         
@@ -390,8 +447,12 @@ class EventExtractor:
             except Exception as exc:
                 logger.debug("[EventExtractor] canonical tag search failed: %s", exc)
                 return tag, tag
-            if matches:
-                return tag, matches[0][0]
+            for canonical, _score in matches:
+                # Broad seed labels are steering categories, not lossy canonical
+                # replacements for more specific topic labels.
+                if canonical in self._tag_seeds and canonical != tag:
+                    continue
+                return tag, canonical
             # No match found, upsert as a new canonical tag
             await self._event_repo.upsert_canonical_tag(tag, embedding)
             return tag, tag
@@ -545,9 +606,42 @@ class EventExtractor:
                 _response_text(resp),
                 len(window.messages) - 1,
                 has_bot_persona=bool(bot_persona_desc),
+                merge_to_single=True,
             )
             if result is not None:
                 return result
+            raw_text = _response_text(resp)
+            logger.warning(
+                "[EventExtractor] LLM extraction parse_error; attempting JSON repair "
+                "(session=%s, message_count=%d, snippet=%r)",
+                window.session_id,
+                window.message_count,
+                raw_text[:240],
+            )
+            repair_prompt = (
+                "请把下面内容修复为严格 JSON Array。只输出 JSON Array，不要解释，不要 markdown。"
+                "每个对象必须包含 start_idx、end_idx、topic、summary、chat_content_tags、salience、confidence。\n\n"
+                f"{raw_text[:6000]}"
+            )
+            repair_resp, _ = await self._call_llm_with_retry(
+                lambda: provider.text_chat(prompt=repair_prompt, system_prompt="你只负责修复 JSON。"),
+                task_name="extraction_repair",
+            )
+            result = parse_llm_output(
+                _response_text(repair_resp),
+                len(window.messages) - 1,
+                has_bot_persona=bool(bot_persona_desc),
+                merge_to_single=True,
+            )
+            if result is not None:
+                return result
+            logger.warning(
+                "[EventExtractor] JSON repair parse_error; falling back "
+                "(session=%s, message_count=%d, repair_snippet=%r)",
+                window.session_id,
+                window.message_count,
+                _response_text(repair_resp)[:240],
+            )
         except asyncio.TimeoutError:
             fallback_reason = "timeout"
             logger.warning(

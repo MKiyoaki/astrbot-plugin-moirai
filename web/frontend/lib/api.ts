@@ -130,8 +130,10 @@ export interface ApiEvent {
   salience: number
   confidence: number
   tags: string[]
+  tag_categories?: Record<string, string>
   inherit_from: string[]
   participants: string[]
+  participant_names?: Record<string, string>
   is_locked: boolean
   status: 'active' | 'archived'
   bot_persona_name?: string | null
@@ -247,16 +249,27 @@ export const graph = {
 
 // ── Summaries ─────────────────────────────────────────────────────────────
 export interface SummaryMeta { group_id: string | null; date: string; label: string }
+export interface SummaryLinkedEvent {
+  ref: string
+  title: string
+  event_id: string | null
+  topic: string | null
+  resolved: boolean
+}
+export interface SummaryContentResponse {
+  content: string
+  linked_events?: SummaryLinkedEvent[]
+}
 export const summaries = {
   list: () => request<SummaryMeta[]>('/api/summaries'),
   get: (groupId: string | null, date: string) => {
     const qs = groupId ? `group_id=${encodeURIComponent(groupId)}&date=${encodeURIComponent(date)}` : `date=${encodeURIComponent(date)}`
-    return request<{ content: string }>(`/api/summary?${qs}`)
+    return request<SummaryContentResponse>(`/api/summary?${qs}`)
   },
   save: (groupId: string | null, date: string, content: string) =>
     request('/api/summary', { method: 'PUT', body: JSON.stringify({ group_id: groupId, date, content }) }),
   regenerate: (groupId: string | null, date: string) =>
-    request<{ content: string }>('/api/summary/regenerate', {
+    request<SummaryContentResponse>('/api/summary/regenerate', {
       method: 'POST', body: JSON.stringify({ group_id: groupId, date }),
     }),
   delete: (groupId: string | null, date: string) => {

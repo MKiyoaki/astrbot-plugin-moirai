@@ -103,6 +103,11 @@ class TestAppShellMobileTabBar:
             "AppSidebar must be hidden on mobile (hidden md:contents)"
         )
 
+    def test_sidebar_inset_does_not_compress_main_content(self):
+        src = _read("components/ui/sidebar.tsx")
+        assert "hidden shrink-0" in src, "Desktop sidebar must keep fixed layout width"
+        assert "min-w-0 flex-1" in src, "SidebarInset must allow main content to size cleanly"
+
 
 # ── source-panel.tsx ──────────────────────────────────────────────────────────
 
@@ -169,9 +174,39 @@ class TestDetailPanel:
             "DetailPanel desktop aside must define responsive width classes with a transition"
         )
 
+    def test_summary_and_detail_share_panel_width(self):
+        src = _read("components/events/detail-panel.tsx")
+        assert "DETAIL_PANEL_WIDTH_CLASS" in src
+        assert src.count("DETAIL_PANEL_WIDTH_CLASS") >= 2
+
+    def test_summary_uses_participant_names(self):
+        src = _read("components/events/detail-panel.tsx")
+        assert "participant_names" in src
+        assert "ev.participant_names?.[p] ?? p" in src
+
     def test_close_button(self):
         src = _read("components/events/detail-panel.tsx")
         assert "onClose" in src, "DetailPanel must expose onClose handler"
+
+
+class TestEventDetailCardWrapping:
+    def test_focused_card_does_not_scale_outside_panel(self):
+        src = _read("components/events/event-dialogs.tsx")
+        focused_branch = src[src.find('isFocused ? "ring-2'):src.find('isFocused ? "ring-2') + 180]
+        assert "scale-[1.01]" not in focused_branch, (
+            "Focused EventDetailCard must not scale beyond the constrained detail panel"
+        )
+
+    def test_summary_value_text_wraps_inside_card(self):
+        src = _read("components/events/event-dialogs.tsx")
+        assert "whitespace-pre-wrap break-words" in src
+        assert "min-w-0 flex-1" in src
+
+    def test_salience_badge_is_width_constrained(self):
+        src = _read("components/events/event-dialogs.tsx")
+        assert "max-w-[112px] truncate" in src, (
+            "Focused salience badge must be constrained so it cannot overflow the card"
+        )
 
 
 # ── events/page.tsx ───────────────────────────────────────────────────────────

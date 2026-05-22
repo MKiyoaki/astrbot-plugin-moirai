@@ -32,6 +32,7 @@ from ..utils.formatter import (
     format_persona_for_prompt,
 )
 from ..retrieval.rrf import rrf_scores
+from ..tags import derive_tag_categories
 from .base import BaseRecallManager
 from ..utils.injection_compat import resolve_injection_position
 from ..social.soul_state import SoulState, format_soul_for_prompt, from_config, update_from_signals
@@ -54,6 +55,15 @@ _SOUL_INJECTION_RE = re.compile(
 )
 
 _DIM_NAMES = {"O": "开放性", "C": "尽责性", "E": "外向性", "A": "宜人性", "N": "神经质"}
+_QUERY_STOP_TERMS = {
+    "什么", "怎么", "如何", "为啥", "为什么", "大家", "有人", "没有", "相关",
+    "看法", "评价", "观点", "说了", "说了些", "说了些什么", "什么事", "怎么样", "的是",
+    "喜欢", "讨论", "觉得", "表示", "提到", "聊到", "发生", "互动", "谁", "谁说",
+    "请求", "问题", "是否", "了吗",
+}
+_QUERY_SPLIT_RE = re.compile(
+    r"的|对|和|与|及|以及|关于|是什么|什么|怎么|如何|为啥|为什么|发生|互动|请求|问题|谁说|谁|都|了|吗|呢|吧|，|。|？|！|、|,|\?|!"
+)
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -61,6 +71,55 @@ def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 1)] + "…"
+
+
+def _explicit_query_terms(query: str) -> list[str]:
+    """Extract explicit entity-like terms for no-evidence recall guards."""
+    terms: list[str] = []
+    for chunk in _QUERY_SPLIT_RE.split(query):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        for token in re.findall(r"[\u4e00-\u9fffA-Za-z0-9_\-]{2,24}", chunk):
+            token = token.strip()
+            if (
+                token
+                and token not in _QUERY_STOP_TERMS
+                and "说了" not in token
+                and "大家" not in token
+                and token not in terms
+            ):
+                terms.append(token)
+    return terms[:5]
+
+
+def _required_query_terms(query: str, terms: list[str]) -> list[str]:
+    required: list[str] = []
+
+    def _add(raw: str) -> None:
+        for token in _explicit_query_terms(raw):
+            if token in terms and token not in required:
+                required.append(token)
+
+    for match in re.finditer(r"对([^的？?]{2,24})的", query):
+        _add(match.group(1))
+    for match in re.finditer(r"(?:讨论|请求了?|询问|问)([^？?。!！]{2,40})", query):
+        _add(match.group(1))
+    return required[:5]
+
+
+def _event_contains_term(ev: Event, term: str) -> bool:
+    tag_categories = derive_tag_categories(getattr(ev, "chat_content_tags", []) or [])
+    haystack = " ".join(
+        str(part or "")
+        for part in [
+            getattr(ev, "topic", ""),
+            getattr(ev, "summary", ""),
+            " ".join(getattr(ev, "chat_content_tags", []) or []),
+            " ".join(tag_categories.values()),
+        ]
+    )
+    return term.lower() in haystack.lower()
 
 
 def _event_debug_summary(ev: Event) -> dict[str, str]:
@@ -512,6 +571,27 @@ class RecallManager(BaseRecallManager):
 
             if not candidates:
                 return []
+
+            terms = _explicit_query_terms(query)
+            required_terms = _required_query_terms(query, terms)
+            evidence_terms = required_terms or terms
+            if evidence_terms:
+                evidence_candidates = [
+                    ev for ev in candidates
+                    if any(_event_contains_term(ev, term) for term in evidence_terms)
+                ]
+                if evidence_candidates:
+                    candidates = evidence_candidates
+                elif not bm25 and vec:
+                    _log.info(
+                        "[RecallManager] no-evidence guard skipped vector-only recall: "
+                        "query=%r terms=%s required=%s candidates=%d",
+                        query,
+                        terms,
+                        required_terms,
+                        len(candidates),
+                    )
+                    return []
 
             max_rrf = max(scores.values()) if scores else 1.0
 

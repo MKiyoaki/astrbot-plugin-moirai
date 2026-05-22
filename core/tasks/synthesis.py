@@ -310,41 +310,41 @@ async def run_persona_synthesis(
 
         cfg = synthesis_config or _SC()
 
-    provider = provider_getter()
-    if provider is None:
-        logger.debug("[Synthesis] no provider, skipping persona synthesis")
-        return 0
+        provider = provider_getter()
+        if provider is None:
+            logger.debug("[Synthesis] no provider, skipping persona synthesis")
+            return 0
 
-    personas = await persona_repo.list_all()
-    message_counts = await event_repo.count_messages_by_uid_bulk()
+        personas = await persona_repo.list_all()
+        message_counts = await event_repo.count_messages_by_uid_bulk()
 
-    seen_groups: set[str] = set()
-    targets = []
-    for persona in personas:
-        if group_repo is not None and persona.group_id:
-            if persona.group_id in seen_groups:
-                continue
-            seen_groups.add(persona.group_id)
-        targets.append(persona)
+        seen_groups: set[str] = set()
+        targets = []
+        for persona in personas:
+            if group_repo is not None and persona.group_id:
+                if persona.group_id in seen_groups:
+                    continue
+                seen_groups.add(persona.group_id)
+            targets.append(persona)
 
-    async def _process_one(persona) -> bool:
-        return await _synthesize_persona_or_group(
-            persona=persona,
-            persona_repo=persona_repo,
-            event_repo=event_repo,
-            group_repo=group_repo,
-            provider=provider,
-            cfg=cfg,
-            llm_manager=llm_manager,
-            log_prefix="Synthesis",
-            message_counts=message_counts,
-        )
+        async def _process_one(persona) -> bool:
+            return await _synthesize_persona_or_group(
+                persona=persona,
+                persona_repo=persona_repo,
+                event_repo=event_repo,
+                group_repo=group_repo,
+                provider=provider,
+                cfg=cfg,
+                llm_manager=llm_manager,
+                log_prefix="Synthesis",
+                message_counts=message_counts,
+            )
 
-    results = await asyncio.gather(*[_process_one(persona) for persona in targets])
-    updated_count = sum(1 for result in results if result)
+        results = await asyncio.gather(*[_process_one(persona) for persona in targets])
+        updated_count = sum(1 for result in results if result)
 
-    logger.info("[Synthesis] persona synthesis: %d/%d updated", updated_count, len(targets))
-    return updated_count
+        logger.info("[Synthesis] persona synthesis: %d/%d updated", updated_count, len(targets))
+        return updated_count
 
 
 async def run_persona_synthesis_for_uid(

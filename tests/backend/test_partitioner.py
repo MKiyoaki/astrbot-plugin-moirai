@@ -52,3 +52,26 @@ async def test_semantic_partitioner_clustering():
     parts.sort(key=lambda x: x.indices[0])
     assert parts[0].indices == [0, 1]
     assert parts[1].indices == [2]
+
+
+@pytest.mark.asyncio
+async def test_semantic_partitioner_reuses_window_embeddings():
+    class CountingEncoder:
+        def __init__(self):
+            self.dim = 2
+            self.calls = 0
+
+        async def encode_batch(self, texts):
+            self.calls += 1
+            raise AssertionError("partitioner should reuse attached embeddings")
+
+    p = SemanticPartitioner(CountingEncoder(), eps=0.1)
+    w = MessageWindow("s", "g")
+    w.add_message("u1", "TopicA msg 1", 100.0, embedding=[1.0, 0.0])
+    w.add_message("u1", "TopicA msg 2", 101.0, embedding=[1.0, 0.0])
+    w.add_message("u2", "TopicB msg 1", 102.0, embedding=[0.0, 1.0])
+
+    parts = await p.partition(w)
+
+    assert len(parts) == 2
+    assert p._encoder.calls == 0

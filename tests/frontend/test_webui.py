@@ -186,6 +186,19 @@ async def test_events_data_filtered_by_group(tmp_path: Path) -> None:
     assert len(data["items"]) == 1
 
 
+async def test_events_data_includes_participant_names(tmp_path: Path) -> None:
+    er = InMemoryEventRepository()
+    pr = InMemoryPersonaRepository()
+    await er.upsert(make_event("e1", uid="uid1", group_id="g1"))
+    await pr.upsert(make_persona("uid1", "Alice"))
+    srv = _server(tmp_path, er=er, pr=pr)
+
+    data = await srv.events_data(group_id="g1", limit=100)
+
+    assert data["items"][0]["participants"] == ["uid1"]
+    assert data["items"][0]["participant_names"] == {"uid1": "Alice"}
+
+
 async def test_events_data_empty_repo(tmp_path: Path) -> None:
     srv = _server(tmp_path)
     data = await srv.events_data(group_id=None, limit=10)
@@ -291,6 +304,40 @@ def test_summary_content_global(tmp_path: Path) -> None:
     (gdir / "2024-03-01.md").write_text("私聊摘要", encoding="utf-8")
     srv = _server(tmp_path)
     assert srv.summary_content(None, "2024-03-01") == "私聊摘要"
+
+
+async def test_api_summary_returns_linked_events_and_refreshes_titles(tmp_path: Path) -> None:
+    er = InMemoryEventRepository()
+    await er.upsert(make_event("abcdef123456", topic="new title", group_id="g1"))
+    path = tmp_path / "groups" / "g1" / "summaries" / "2026-05-22.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("[事件列表]\n[old title] - [abcdef12]\n", encoding="utf-8")
+    srv = _server(tmp_path, er=er)
+
+    async with TestClient(TestServer(srv.app)) as client:
+        resp = await client.get("/api/summary?group_id=g1&date=2026-05-22")
+        assert resp.status == 200
+        data = await resp.json()
+
+    assert data["linked_events"][0]["event_id"] == "abcdef123456"
+    assert data["linked_events"][0]["topic"] == "new title"
+    assert "[new title] - [abcdef12]" in data["content"]
+    assert "[new title] - [abcdef12]" in path.read_text(encoding="utf-8")
+
+
+async def test_api_update_event_refreshes_summary_event_list(tmp_path: Path) -> None:
+    er = InMemoryEventRepository()
+    await er.upsert(make_event("abcdef123456", topic="old title", group_id="g1"))
+    path = tmp_path / "groups" / "g1" / "summaries" / "2026-05-22.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("[事件列表]\n[old title] - [abcdef12]\n", encoding="utf-8")
+    srv = _server(tmp_path, er=er)
+
+    async with TestClient(TestServer(srv.app)) as client:
+        resp = await client.put("/api/events/abcdef123456", json={"topic": "new title"})
+        assert resp.status == 200
+
+    assert "[new title] - [abcdef12]" in path.read_text(encoding="utf-8")
 
 
 async def test_stats_data(tmp_path: Path) -> None:

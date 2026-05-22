@@ -1,5 +1,67 @@
 ﻿# CHANGELOG
 
+## [v0.16.3] — 2026-05-22
+
+### 事件提取效率、召回质量与摘要事件绑定
+
+**Realtime dev 与实际路径对齐**
+
+- `run_realtime_dev.py` 保持 LLM extractor 优先验证，同时在 LLM 模式下默认加载 retrieval/indexing encoder，使测试能覆盖向量召回而不只覆盖事件提取。
+- 本地 embedding 默认节流由 `5000ms / 5000ms` 改为 `50ms / 0ms`。用户实测 recall benchmark 从约 5.02s 降到约 0.074s，说明此前固定延迟来自 embedding queue，而不是 LLM 回答。
+- dev runner 输出事件质量、未链接 raw message 样本、recall diagnostics、recall benchmark 与细分性能阶段，便于下一轮比较 LLM / encoder 模式。
+
+**召回质量与 tag 层级**
+
+- 召回 no-evidence guard、query term 抽取、问题词过滤和 tag category bridge 继续收敛，避免无证据相似事件进入 prompt。
+- 保留具体 `chat_content_tags`，新增派生式 `tag_categories`，结构为 `{具体tag: 母类category}`；当前不做数据库迁移。
+- TODO 已补充用户自定义母类后的重链设计：派生模式无需迁移；若未来持久化人工映射或让 category 进入索引，则需要 taxonomy version、dirty 标记、relink 与 reindex。
+
+**摘要 [事件列表] 与 Event Stream 绑定**
+
+- 新增共享 helper `core.tasks.summary_links`，把摘要 `[事件列表]` 中的 `[topic] - [event_id8]` 视为 event_id 驱动的派生区块。
+- 读取摘要时，后端会解析 event_id 前缀，用事件库中的最新 `topic` 刷新该区块，并把 Markdown 文件写回磁盘，保证旧摘要标题不会长期停留在 stale 状态。
+- 事件 title 被手动编辑或通过 LLM reextract 更新后，standalone WebUI 和 AstrBot plugin routes 都会扫描并刷新引用该事件的摘要文件。
+- `/api/summary` 与 `/api/summary/regenerate` 返回 `linked_events`，Summary UI 渲染为可点击事件链；点击后跳转到 Event Stream 并聚焦对应事件。
+
+**交接说明**
+
+- `docs/TODO.md` 新增 v0.16.3 handoff notes，说明未来 agent 应先读当前 in-progress section，再看 Backlog；completed 章节只作历史，不应重复执行。
+- 交接规则明确：`run_realtime_dev.py` 只是验收入口，实际核心行为必须确认 `core/`、`web/plugin_routes.py` 与 `web/server.py` 都接入。
+
+**验证**
+
+- `python -m py_compile core\tasks\summary_links.py web\plugin_routes.py web\server.py`
+- `pytest tests\backend\test_summary_links.py tests\frontend\test_api_v4.py tests\frontend\test_webui.py -q`
+- `pytest tests\frontend\test_loom_layout.py -q`
+- `cd web\frontend && npm.cmd run typecheck`
+
+## [v0.16.2] — 2026-05-21
+
+### 事件粒度与 Event 页面修复
+
+**连续窗口事件粒度**
+
+本次将事件抽取语义收敛为“系统截取的连续消息窗口优先生成一个会话事件”，减少实际对话中被切得过碎的事件。
+
+- 默认 extractor prompt 明确：不要因为自然推进、追问、补充说明、评价、情绪表达、解决方案、相邻子话题切换而拆成多个数据库事件。
+- 相关小话题改由同一事件 `summary` 中的 2–5 个 `[What]/[Who]/[How]` 三元组承载，并通过 `chat_content_tags` 覆盖关键主题。
+- 只有明显跨时间、完全无关、无法作为同一语境理解的独立对话，才允许输出多个事件。
+- extractor 与手动 reextract 路径增加解析兜底：当 LLM 仍输出多个相邻片段时，合并回一个覆盖完整窗口的 Event，并合并 topic、summary、tags、salience 与 confidence。
+
+**Event WebUI 展示**
+
+- 事件序列化新增 `participant_names`，standalone WebUI、AstrBot plugin routes 和通用 API 均支持；保留原 `participants` UID 列表，缺失 persona 名称时回退 UID。
+- Event 右侧 `DetailPanel` 摘要态与详情态共享同一桌面宽度，保留默认摘要面板，不再在初始打开事件页时出现异常缩进或角落压缩。
+- sidebar / main inset 布局补齐 `shrink-0` 与 `min-w-0` 约束，避免侧栏与主内容互相挤压。
+- 摘要统计中的参与者列表优先显示 persona 名称，减少 UUID 对用户界面的干扰。
+
+**验证**
+
+- 新增 extractor 合并、WebUI `participant_names`、DetailPanel 宽度和 sidebar inset 结构测试。
+- 已通过 `test_boundary.py`、`test_extractor.py`、API/WebUI 相关测试和 `test_loom_layout.py`。
+- 前端构建完成，静态资源已同步到 `pages/moirai/`。
+- `run_realtime_dev.py` 默认改为优先验证 LLM extractor 路径，并接入 raw message、账号绑定与 provider 列表 wiring，作为更完整的实时管线 smoke test。
+
 ## [v0.16.1] — 2026-05-21
 
 ### 人格归属修复 & 手动操作进度弹窗

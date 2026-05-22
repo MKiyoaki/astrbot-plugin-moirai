@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
-from core.managers.recall_manager import RecallManager
+from core.managers.recall_manager import RecallManager, _event_contains_term, _explicit_query_terms
 from core.domain.models import Event, EventType, Persona, Impression, RawStoredMessage
 from core.config import RetrievalConfig, InjectionConfig, SoulConfig
 from core.repository.memory import InMemoryRawMessageRepository
@@ -17,6 +17,26 @@ def _make_retriever(events=None):
 
     encoder = MagicMock()
     encoder.dim = 0  # NullEncoder: skip vector search
+
+    retriever = MagicMock()
+    retriever._event_repo = event_repo
+    retriever._encoder = encoder
+    retriever._bm25_limit = 20
+    retriever._vec_limit = 20
+    return retriever, event_repo
+
+
+def _make_vector_retriever(vector_events=None, bm25_events=None):
+    event_repo = AsyncMock()
+    event_repo.count_by_status = AsyncMock(return_value=1)
+    event_repo.get_children = AsyncMock(return_value=[])
+    event_repo.get = AsyncMock(return_value=None)
+    event_repo.search_fts = AsyncMock(return_value=bm25_events or [])
+    event_repo.search_vector = AsyncMock(return_value=vector_events or [])
+
+    encoder = MagicMock()
+    encoder.dim = 2
+    encoder.encode = AsyncMock(return_value=[1.0, 0.0])
 
     retriever = MagicMock()
     retriever._event_repo = event_repo
@@ -45,6 +65,92 @@ async def test_recall_returns_episodes(recall_manager):
 
     events = await rm.recall("some query")
     assert any(e.event_id == "e1" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_recall_blocks_vector_only_without_explicit_evidence() -> None:
+    unrelated = Event(
+        event_id="e1",
+        topic="卿泽对gariton的撒娇与学术互动",
+        summary="卿泽与gariton讨论互动",
+        chat_content_tags=["情感", "技术"],
+        end_time=1000.0,
+    )
+    retriever, _ = _make_vector_retriever(vector_events=[unrelated])
+    rm = RecallManager(
+        retriever,
+        RetrievalConfig(final_limit=5, vector_fallback_enabled=True),
+        InjectionConfig(),
+    )
+
+    events = await rm.recall("卿泽对原神的看法是什么？大家都说了些什么？")
+
+    assert events == []
+
+
+@pytest.mark.asyncio
+async def test_recall_allows_vector_only_with_explicit_evidence() -> None:
+    related = Event(
+        event_id="e1",
+        topic="卿泽对原神剧情的评价",
+        summary="卿泽评价原神剧情和玩法",
+        chat_content_tags=["游戏讨论", "原神"],
+        end_time=1000.0,
+    )
+    retriever, _ = _make_vector_retriever(vector_events=[related])
+    rm = RecallManager(
+        retriever,
+        RetrievalConfig(final_limit=5, vector_fallback_enabled=True),
+        InjectionConfig(),
+    )
+
+    events = await rm.recall("卿泽对原神的看法是什么？大家都说了些什么？")
+
+    assert [event.event_id for event in events] == ["e1"]
+
+
+@pytest.mark.asyncio
+async def test_recall_ignores_question_words_for_evidence_filter() -> None:
+    related = Event(
+        event_id="e1",
+        topic="请求大五人格分析并扩展范围",
+        summary="用户请求大五人格分析，并要求学术化说明",
+        chat_content_tags=["大五人格", "性格分析", "学术化要求"],
+        end_time=1000.0,
+    )
+    retriever, _ = _make_vector_retriever(vector_events=[related])
+    rm = RecallManager(
+        retriever,
+        RetrievalConfig(final_limit=5, vector_fallback_enabled=True),
+        InjectionConfig(),
+    )
+
+    events = await rm.recall("谁请求了大五人格分析？")
+
+    assert [event.event_id for event in events] == ["e1"]
+
+
+@pytest.mark.asyncio
+async def test_recall_allows_named_entity_when_person_name_is_absent_from_event_text() -> None:
+    related = Event(
+        event_id="e1",
+        topic="用户向Gariton示好与游戏话题互动",
+        summary="用户向Gariton示好，并夹杂游戏话题",
+        chat_content_tags=["示好告白", "游戏话题"],
+        end_time=1000.0,
+    )
+    retriever, _ = _make_vector_retriever(vector_events=[related])
+    rm = RecallManager(
+        retriever,
+        RetrievalConfig(final_limit=5, vector_fallback_enabled=True),
+        InjectionConfig(),
+    )
+    assert "Gariton" in _explicit_query_terms("卿泽和Gariton发生了什么互动？")
+    assert _event_contains_term(related, "Gariton")
+
+    events = await rm.recall("卿泽和Gariton发生了什么互动？")
+
+    assert [event.event_id for event in events] == ["e1"]
 
 
 @pytest.mark.asyncio
