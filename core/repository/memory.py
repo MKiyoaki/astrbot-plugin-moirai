@@ -218,6 +218,16 @@ class InMemoryEventRepository(EventRepository):
         self._store[event_id].access_count += 1
         return True
 
+    async def bump_event_usage(self, event_id: str, new_salience: float, timestamp: float) -> bool:
+        if event_id not in self._store:
+            return False
+        ev = self._store[event_id]
+        ev.salience = new_salience
+        ev.last_accessed_at = timestamp
+        ev.access_count += 1
+        return True
+
+
     async def decay_all_salience(self, lambda_: float) -> int:
         """Multiply every event's salience by exp(-lambda_).
         Intended to be called once per day; lambda_=0.01 ≈ half-life 69 days.

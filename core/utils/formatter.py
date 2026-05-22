@@ -11,6 +11,8 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
+import re
+
 from ..config import FAKE_TOOL_CALL_ID_PREFIX
 from ..domain.models import Event
 
@@ -18,11 +20,24 @@ if TYPE_CHECKING:
     from ..domain.models import Persona
 
 _TOKEN_BUDGET = 800
-_CHARS_PER_TOKEN = 2
 
 
 def _estimate_tokens(text: str) -> int:
-    return max(1, len(text) // _CHARS_PER_TOKEN)
+    if not text:
+        return 0
+    # Match CJK unified ideographs (Chinese characters)
+    cjk_chars = re.findall(r"[\u4e00-\u9fff]", text)
+    cjk_count = len(cjk_chars)
+    
+    # Remove CJK characters to isolate non-CJK text (Latin/numerical/punctuation)
+    non_cjk_text = re.sub(r"[\u4e00-\u9fff]", "", text)
+    non_cjk_tokens = max(0, len(non_cjk_text) // 3)
+    
+    # Estimate 1.3 tokens per Chinese character
+    cjk_tokens = int(cjk_count * 1.3)
+    
+    return max(1, cjk_tokens + non_cjk_tokens)
+
 
 
 def _time_label(end_time: float, now: float) -> str:

@@ -1166,6 +1166,16 @@ class SQLiteEventRepository(EventRepository):
             rowcount = cursor.rowcount
         return rowcount > 0
 
+    async def bump_event_usage(self, event_id: str, new_salience: float, timestamp: float) -> bool:
+        async with _txn(self._db, self._lock):
+            cursor = await self._db.execute(
+                "UPDATE events SET salience = ?, last_accessed_at = ?, access_count = access_count + 1 WHERE event_id = ?",
+                (new_salience, timestamp, event_id),
+            )
+            rowcount = cursor.rowcount
+        return rowcount > 0
+
+
     async def decay_all_salience(self, lambda_: float) -> int:
         """Multiply every event's salience by exp(-lambda_) in a single UPDATE."""
         factor = math.exp(-lambda_)

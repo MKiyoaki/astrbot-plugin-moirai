@@ -219,3 +219,24 @@ async def test_hook_swallows_retriever_exception() -> None:
     req = _MockRequest(prompt="hello", system_prompt="original")
     await _run_hook(_BrokenRetriever(), req)
     assert req.system_prompt == "original"
+
+
+def test_estimate_tokens_mixed_language() -> None:
+    from core.utils.formatter import _estimate_tokens
+    
+    # 1. Empty string should return 0
+    assert _estimate_tokens("") == 0
+    
+    # 2. English text: "hello world" (11 chars) -> len // 3 = 3 tokens
+    assert _estimate_tokens("hello world") == 3
+    
+    # 3. Chinese text: "我们今天吃火锅" (7 Chinese characters)
+    # 7 * 1.3 = 9.1 -> 9 tokens
+    assert _estimate_tokens("我们今天吃火锅") == 9
+    
+    # 4. Mixed text: "我们今天吃 hotpot!" (7 Chinese characters, 8 non-CJK characters)
+    # CJK: 7 * 1.3 = 9 tokens
+    # Non-CJK: 8 // 3 = 2 tokens
+    # Total = 11 tokens
+    assert _estimate_tokens("我们今天吃 hotpot!") == 11
+

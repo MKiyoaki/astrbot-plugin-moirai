@@ -341,9 +341,7 @@ class RecallManager(BaseRecallManager):
             if tags and not any(tag.lower() in response_lower for tag in tags):
                 continue
             new_salience = min(1.0, event.salience + boost)
-            await event_repo.update_salience(eid, new_salience)
-            await event_repo.update_last_accessed(eid, now)
-            await event_repo.increment_access_count(eid)
+            await event_repo.bump_event_usage(eid, new_salience, now)
 
     def get_soul_states(self) -> dict[str, Any]:
         """Return all active soul states as a dict of dicts."""

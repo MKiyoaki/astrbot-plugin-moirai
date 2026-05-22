@@ -166,6 +166,15 @@ class EventRepository(ABC):
         ...
 
     @abstractmethod
+    async def bump_event_usage(self, event_id: str, new_salience: float, timestamp: float) -> bool:
+        """Atomically update salience, last_accessed_at, and increment access_count for an event.
+        
+        Return False if event_id not found.
+        """
+        ...
+
+
+    @abstractmethod
     async def decay_all_salience(self, lambda_: float) -> int:
         """Multiply every event's salience by exp(-lambda_). Return count updated.
         Intended to be called once per day by the periodic task scheduler.

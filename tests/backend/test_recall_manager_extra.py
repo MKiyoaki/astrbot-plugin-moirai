@@ -404,3 +404,45 @@ async def test_recall_focused_ranks_above_broad_in_mixed_candidates() -> None:
     )
     events = await rm.recall("导师和稿费的问题是什么？")
     assert events[0].event_id == "e_focused"
+
+
+@pytest.mark.asyncio
+async def test_bump_salience_on_use_calls_bump_event_usage():
+    # Setup mock event repo and recall manager
+    retriever, event_repo = _make_retriever()
+    rm = RecallManager(
+        retriever,
+        RetrievalConfig(),
+        InjectionConfig(),
+    )
+    
+    # Mock event object
+    mock_event = Event(
+        event_id="e1",
+        salience=0.5,
+        chat_content_tags=["python", "coding"],
+        end_time=1000.0,
+    )
+    
+    # Wire the event repo mock
+    event_repo.get = AsyncMock(return_value=mock_event)
+    event_repo.bump_event_usage = AsyncMock(return_value=True)
+    
+    # Run bump_salience_on_use
+    await rm.bump_salience_on_use(
+        event_ids=["e1"],
+        response_text="Let's write some python code",
+        boost=0.1
+    )
+    
+    # Assert get was called
+    event_repo.get.assert_called_once_with("e1")
+    
+    # Assert bump_event_usage was called with expected arguments
+    event_repo.bump_event_usage.assert_called_once()
+    args, kwargs = event_repo.bump_event_usage.call_args
+    # args: (event_id, new_salience, timestamp)
+    assert args[0] == "e1"
+    assert abs(args[1] - 0.6) < 1e-5  # 0.5 + 0.1 = 0.6
+    assert isinstance(args[2], float)
+

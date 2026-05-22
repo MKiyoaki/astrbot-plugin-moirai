@@ -191,3 +191,30 @@ async def test_impression_bot_persona_filtering(impression_repo):
     # bot_persona_name=None -> no filter by bot_persona_name, returns all
     all_imps = await impression_repo.list_by_observer("u1", bot_persona_name=None)
     assert len(all_imps) == 3
+
+
+@pytest.mark.asyncio
+async def test_bump_event_usage(event_repo):
+    event = make_event("e_bump", salience=0.4)
+    await event_repo.upsert(event)
+    
+    # Assert initial state
+    db_ev = await event_repo.get("e_bump")
+    assert db_ev.salience == 0.4
+    assert db_ev.access_count == 0
+    
+    # Bump usage
+    now = time.time()
+    success = await event_repo.bump_event_usage("e_bump", 0.8, now)
+    assert success is True
+    
+    # Verify updated values
+    db_ev_updated = await event_repo.get("e_bump")
+    assert db_ev_updated.salience == 0.8
+    assert db_ev_updated.access_count == 1
+    assert abs(db_ev_updated.last_accessed_at - now) < 1e-3
+    
+    # Non-existent event
+    success_none = await event_repo.bump_event_usage("nonexistent", 0.9, now)
+    assert success_none is False
+
