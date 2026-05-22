@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, us
 import * as api from './api'
 import * as i18n_lib from './i18n'
 import { getStored, setStored } from './safe-storage'
+import { computeLlmBudget, type LlmBudget } from './llm-budget'
 
 // ── Types ─────────────────────────────────────────────────────────────────
 export interface ToastMessage { id: string; message: string; variant?: 'default' | 'destructive' }
@@ -45,6 +46,8 @@ interface AppState {
   quickSetupDone: boolean
   // Persona-related plugin config values (fetched from /api/config)
   personaConfig: PersonaConfig
+  // LLM 用量估算 — 按功能权重粗估当前配置的 LLM 负载（来自 /api/config）
+  llmBudget: LlmBudget & { loaded: boolean }
   // i18n
   lang: 'zh' | 'en' | 'ja'
   i18n: i18n_lib.I18n
@@ -71,6 +74,8 @@ interface AppActions {
   setQuickSetupDone: (done: boolean) => void
   setLang: (l: 'zh' | 'en' | 'ja') => void
   refreshStats: () => Promise<void>
+  /** 重新拉取 /api/config 并刷新 personaConfig / llmBudget（保存配置后调用）。 */
+  refreshPluginConfig: () => Promise<void>
   setRawGraph: (g: api.GraphData) => void
   setRawEvents: (e: api.ApiEvent[]) => void
   setIsDirty: (v: boolean) => void
@@ -177,11 +182,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loaded: false,
   })
 
-  useEffect(() => {
-    if (!authenticated || authLoading) return
-    let cancelled = false
-    api.pluginConfig.get().then(r => {
-      if (cancelled) return
+  // LLM 用量估算 — 与 personaConfig 共用同一次 /api/config 请求
+  const [llmBudget, setLlmBudget] = useState<LlmBudget & { loaded: boolean }>({
+    percent: 0,
+    features: [],
+    loaded: false,
+  })
+
+  // 拉 /api/config 并刷新 personaConfig / llmBudget — 初次加载与配置保存后复用
+  const refreshPluginConfig = useCallback(async () => {
+    try {
+      const r = await api.pluginConfig.get()
       const v = r.values || {}
       const mode = v.persona_default_view_mode
       const validMode: PersonaViewMode =
@@ -192,12 +203,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         defaultViewMode: validMode,
         loaded: true,
       })
-    }).catch(() => {
+      setLlmBudget({ ...computeLlmBudget(v), loaded: true })
+    } catch {
       // Fall back to defaults on error — still mark loaded so picker can fire
-      if (!cancelled) setPersonaConfig(s => ({ ...s, loaded: true }))
-    })
-    return () => { cancelled = true }
-  }, [authenticated, authLoading])
+      setPersonaConfig(s => ({ ...s, loaded: true }))
+      setLlmBudget(s => (s.loaded ? s : { ...computeLlmBudget({}), loaded: true }))
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!authenticated || authLoading) return
+    refreshPluginConfig()
+  }, [authenticated, authLoading, refreshPluginConfig])
 
   const setCurrentPersona = useCallback((name: string | null, mode: 'single' | 'all') => {
     _setCurrentPersonaName(name)
@@ -306,6 +323,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     firstLaunchDone,
     quickSetupDone,
     personaConfig,
+    llmBudget,
     lang, i18n,
     stats, rawGraph, rawEvents, isDirty, toasts, tasks,
     setDefaultPersonaConfidence,
@@ -314,6 +332,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setQuickSetupDone,
     setLang,
     refreshStats,
+    refreshPluginConfig,
     setRawGraph,
     setRawEvents,
     setIsDirty,
@@ -328,9 +347,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     defaultPersonaConfidence,
     currentPersonaName, scopeMode, firstLaunchDone, quickSetupDone,
     personaConfig,
+    llmBudget,
     lang, i18n,
     stats, rawGraph, rawEvents, isDirty, toasts, tasks,
-    refreshStats, setDefaultPersonaConfidence, setCurrentPersona, setFirstLaunchDone,
+    refreshStats, refreshPluginConfig, setDefaultPersonaConfidence, setCurrentPersona, setFirstLaunchDone,
     setQuickSetupDone, setLang, setIsDirty, toast, dismissToast,
     startTask, finishTask, dismissTask, runTask,
   ])

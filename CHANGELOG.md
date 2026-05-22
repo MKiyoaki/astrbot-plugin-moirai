@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## [v0.16.5] — 2026-05-22
+
+### WebUI LLM 用量估算徽标
+
+**新增功能**
+
+- WebUI 侧栏左下角（`进入/退出 Sudo` 按钮上方）新增「LLM 用量」徽标：按功能权重粗略估算当前配置下的 LLM 负载，所有 LLM 消耗型功能全开为 100%。这是配置层面的指标，区别于 `/stats` 页 TokenStats 的真实 token 用量。
+- 估算模型按调用频率加权（合计 100）：事件抽取 40（核心功能常驻，含 JSON 修复重试）、每日总结 20、人设合成 15、社交关系 15、语义蒸馏抽取 10。新增纯函数 `web/frontend/lib/llm-budget.ts`（`computeLlmBudget`）。
+- 徽标显示为细进度条，颜色随档位变化（<60% 绿 / 60–85% 主题色 / >85% 琥珀）；点击弹出功能清单，列出各功能的启用状态。
+- 功能清单项可点击跳转至插件配置页对应开关并居中定位（复用 `em_config_scroll_target` 机制）；对被层级过滤隐藏的字段会临时提升显示层级。
+- 保存插件配置后徽标实时联动：store 新增 `refreshPluginConfig`，配置页保存成功后调用，无需刷新页面。
+
+**估算模型校准**
+
+- 全量核对 `core/` 下 6 个非手动 LLM 调用点（extraction / extraction_repair / distillation / big_five_score / summary / synthesis），确认权重表完整覆盖；手动调用（reanalyze / reextract）按预期排除。
+- 修正人设合成门控：实际调度需 `persona_synthesis_enabled` 与 `relation_enabled` 同时开启（`plugin_initializer.py`），原估算仅判断前者，关闭社交关系时会多算 15%。
+- 确认 `extraction_strategy = "semantic"` 时一个窗口产生 N 次 `_distill` 调用、重于 `"llm"` 模式的单次批量调用，语义蒸馏作为独立权重项计入。
+
+**关系图**
+
+- 关系图「布局模式 · 力导向」标记为实验性功能（FlaskConical 图标 + 悬浮提示），与 Soul Layer 的实验性标记保持一致。
+
+**修复**
+
+- 修复在插件配置页内点击徽标功能项不居中跳转：`next.config` 启用 `trailingSlash` 致 `pathname` 形如 `/config/`，原 `=== '/config'` 判断恒为假；改为去尾斜杠比较，并始终写 `sessionStorage` 兜底。
+
 ## [v0.16.4] — 2026-05-22
 
 ### Pipeline 性能优化与代码健康

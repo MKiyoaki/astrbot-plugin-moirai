@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { RotateCcw, Download, Maximize2, Trash2 } from 'lucide-react'
+import { RotateCcw, Download, Maximize2, Trash2, FlaskConical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
@@ -136,18 +136,37 @@ export function ParamsPanel({
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">{t.layoutMode}</Label>
           <div className="flex gap-1">
-            {(['circular', 'force'] as const).map(mode => (
-              <Button
-                key={mode}
-                size="sm"
-                variant={physics.layoutMode === mode ? 'default' : 'outline'}
-                className="flex-1 text-xs h-7"
-                onClick={() => onPhysics('layoutMode', mode)}
-                disabled={isLocked}
-              >
-                {mode === 'circular' ? t.circular : t.force}
-              </Button>
-            ))}
+            {(['circular', 'force'] as const).map(mode => {
+              const btn = (
+                <Button
+                  key={mode}
+                  size="sm"
+                  variant={physics.layoutMode === mode ? 'default' : 'outline'}
+                  className="flex-1 text-xs h-7"
+                  onClick={() => onPhysics('layoutMode', mode)}
+                  disabled={isLocked}
+                >
+                  {mode === 'circular' ? (
+                    t.circular
+                  ) : (
+                    <span className="flex items-center justify-center gap-1">
+                      {t.force}
+                      <FlaskConical className="size-3 text-amber-500" />
+                    </span>
+                  )}
+                </Button>
+              )
+              if (mode !== 'force') return btn
+              // 力导向为实验性布局 — 与 Soul Layer 一致打实验标记
+              return (
+                <Tooltip key={mode}>
+                  <TooltipTrigger asChild>{btn}</TooltipTrigger>
+                  <TooltipContent className="max-w-[220px] text-xs leading-relaxed">
+                    {(t as Record<string, string>).forceExperimental}
+                  </TooltipContent>
+                </Tooltip>
+              )
+            })}
           </div>
         </div>
         <Separator />

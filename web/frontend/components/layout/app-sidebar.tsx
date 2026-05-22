@@ -30,6 +30,7 @@ import { useApp } from '@/lib/store'
 import * as api from '@/lib/api'
 import { routeIsActive } from '@/lib/navigation'
 import { SidebarUserMenu } from '@/components/layout/sidebar-user-menu'
+import { LlmBudgetBadge } from '@/components/layout/llm-budget-badge'
 
 const NAV_VISUALIZATION = [
   { href: '/events',  icon: Activity,          labelKey: 'events' as const },
@@ -250,6 +251,8 @@ export function AppSidebar() {
 
       <SidebarFooter className="mt-auto shrink-0 border-t border-border p-2">
         <EngineStatusBadge />
+
+        <LlmBudgetBadge />
 
         <SidebarMenu>
           <SidebarMenuItem>

@@ -111,6 +111,46 @@
 
 ---
 
+## v0.16.5 WebUI LLM 用量估算徽标 (completed)
+
+### User constraints / 约束
+
+- 显示位置：侧栏左下角，`进入/退出 sudo` 按钮**上方**
+- 按**功能权重**估算，非真实 token 用量（真实用量已在 `/stats` TokenStats）
+- 全部 LLM 功能开 = 100%；优先复用现成机制（store 已拉 `/api/config`），不动 core
+- 样式：百分比 + 细进度条 + 点击弹出功能清单；清单**不显示细分百分比**
+
+### Technical implementation path
+
+- Phase 1 — 估算逻辑
+  - [x] 新建 `web/frontend/lib/llm-budget.ts`：权重表（抽取40/总结20/合成15/关系15/蒸馏10）+ `computeLlmBudget(values)` 纯函数
+- Phase 2 — store 接入
+  - [x] `web/frontend/lib/store.tsx`：复用既有 `/api/config` 请求，新增 `llmBudget` state，接口与 ctx memo 同步
+- Phase 3 — UI 组件
+  - [x] 新建 `web/frontend/components/layout/llm-budget-badge.tsx`：标签行 + 百分比 + 档位变色进度条 + Popover 功能清单
+  - [x] `app-sidebar.tsx`：`SidebarFooter` 内 `EngineStatusBadge` 与 sudo `SidebarMenu` 之间挂载
+- Phase 4 — i18n
+  - [x] `web/frontend/lib/i18n.ts`：新增 `llmBudget` 命名空间（zh/en/ja）
+- Phase 5 — 反馈迭代（用户验收后）
+  - [x] 保存配置后实时联动：store 新增 `refreshPluginConfig`，config 页 `handleSave` 成功后调用
+  - [x] 弹窗功能项可点击跳转至配置页对应开关（居中）：`LLM_FEATURE_CONFIG_KEY` 映射 + `em_config_scroll_target` 机制；config 页 `scrollToTarget` 对被层级隐藏的字段临时提升显示层级
+  - [x] 移除「LLM 用量」右侧具体百分比数字，仅保留细进度条
+- Phase 6 — 权重模型修正
+  - [x] LLM 调用点全量核对：6 个非手动调用（extraction / extraction_repair / distillation / big_five_score / summary / synthesis）；reanalyze、reextract 为手动，已排除
+  - [x] 修正 synthesis 门控：实际需 `persona_synthesis_enabled && relation_enabled`（原仅判前者，会多算 15%）
+  - [x] 关系图「布局模式·力导向」加实验性标记（FlaskConical 图标 + Tooltip），与 Soul Layer 一致
+- Phase 7 — 蒸馏建模与跳转修正
+  - [x] 复核确认：`extraction_strategy="semantic"` 时一个窗口产生 N 次 `_distill` 调用，重于 `"llm"` 模式单次批量调用 → 语义模式确实增加 LLM 用量。恢复「语义蒸馏」为独立权重项（抽取40/总结20/合成15/关系15/蒸馏10=100），切到 semantic 时 +10%
+  - [x] 修正配置页内跳转失效：next.config `trailingSlash:true` 致 `pathname` 形如 `/config/`，原 `=== '/config'` 判断失败。改为去尾斜杠比较；并始终写 sessionStorage 兜底
+
+### Verification
+
+- [x] `npm run build`（web/frontend）→ 构建通过（Compiled successfully, TypeScript 通过）
+- [x] `python tools/sync_frontend.py -f` → 静态资源已同步至 `pages/moirai/`
+- [x] WebUI 侧栏左下角 sudo 上方出现徽标；保存配置后进度条联动；点击弹窗功能项跳转配置；侧栏收起时整块隐藏（用户已确认）
+
+---
+
 ## v0.16.4 Pipeline 性能优化与代码健康 (completed)
 
 ### 性能优化

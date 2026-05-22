@@ -284,7 +284,7 @@ function ConfigField({
 }
 
 export default function ConfigPage() {
-  const { i18n, sudo, toast, setIsDirty } = useApp()
+  const { i18n, sudo, toast, setIsDirty, refreshPluginConfig } = useApp()
   const [schema, setSchema] = useState<Record<string, api.ConfSchemaField>>({})
   const [values, setValues] = useState<Record<string, unknown>>({})
   const [dirty, setDirty] = useState<Record<string, unknown>>({})
@@ -655,9 +655,16 @@ export default function ConfigPage() {
     let timer: number | null = null
     const scrollToTarget = (target: string) => {
       sessionStorage.removeItem('em_config_scroll_target')
+      // 若目标是被层级过滤隐藏的字段（如 advanced 的 extraction_strategy），
+      // 临时提升显示层级使其渲染后再滚动定位。
+      if (target.startsWith('cfg-')) {
+        const key = target.slice(4)
+        const lvl = fieldLevel(schema[key])
+        if (LEVEL_RANK[lvl] > LEVEL_RANK[configLevel]) setConfigLevel(lvl)
+      }
       timer = window.setTimeout(() => {
         document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }, 120)
+      }, 160)
     }
     const handleScrollTarget = (event: Event) => {
       const target = (event as CustomEvent<string>).detail || 'persona-ownership'
@@ -712,6 +719,8 @@ export default function ConfigPage() {
       toast(i18n.config.saved)
       setDirty({})
       setIsDirty(false)
+      // 刷新侧栏 LLM 用量徽标 — 非重启保存路径下需实时更新
+      refreshPluginConfig()
       if (res.restarting) {
         setRestarting(true)
         waitForRestart()
