@@ -47,10 +47,10 @@
 
 ### Bug / 补丁
 
-- [ ] **`reanalyze_impressions_llm` i18n prompt fix**（延迟自 v0.13.1）
-  - 当前提示词为硬编码英文，未走插件 `cfg.language` 国际化，且缺少 `system_prompt`，鲁棒性低于其他 LLM 调用点
-  - 修复方向：参照 synthesis / summary prompt 结构，用 `cfg.language` 选语言，加 `system_prompt` 常量
-  - 需要新增专用 prompt 常量或 config 字段
+- [x] **`reanalyze_impressions_llm` i18n prompt fix**（延迟自 v0.13.1，已在 v0.16.3 修复）
+  - 提示词已改为三语 i18n（`reanalyze.pair_prompt`，ZH/EN/JA），由 `language` 参数控制
+  - 新增 `_DEFAULT_REANALYZE_IMPRESSION_SYSTEM_PROMPT` 常量；`SynthesisConfig.reanalyze_system_prompt` 字段可配置覆盖（`synthesis_reanalyze_system_prompt`）
+  - 两处调用方（`plugin_routes.py`、`server.py`）已接入 `PluginConfig.get_synthesis_config()` 传入 language 与 system_prompt
 
 ### 架构 / 清理
 
@@ -74,7 +74,7 @@
   - `core/utils/injection_compat.py`：`resolve_injection_position(model, configured)` 适配器，已知不兼容 pattern：o-series（o1/o3…）、Gemini
   - `core/managers/recall_manager.py`：在 `recall_and_inject` 中提取 `req.model` 并调用适配器，降级时记录 debug 日志
   - `tests/backend/test_injection_compat.py`：20 个单元测试，覆盖兼容 / 不兼容 / 无 metadata 三种分支
-- [ ] **Phase 7**：在 `CHANGELOG.md` / `docs/CHANGELOG.md` 补充 injection compat 的发布说明（功能描述、已知兼容 provider 列表、token impact 声明）
+- [x] **Phase 7**：在 `CHANGELOG.md` / `docs/CHANGELOG.md` 补充 injection compat 的发布说明（功能描述、已知兼容 provider 列表、token impact 声明）
 
 ### 待讨论 Feature
 
@@ -100,6 +100,25 @@
 - [ ] **Narrative Event `inherit_from` 下钻**：向 `inherit_from` 写入当天所有 episode event_id 的 payload 开销评估（每天数十个 ID），以及对"宏观→微观"上下文展开的实际价值
 - [ ] **`IMPRESSIONS.md` 反向同步长期去向**：当前 FileWatcher（30s 轮询）+ 正则解析维护成本高；评估是否新增 WebUI 直接 impression 表单提交 API，将 FileWatcher 降级为"离线备份"入口
 - [ ] **分层 RAG 查询分类器精度提升**：当前关键词计数投票；评估接入轻量 embedding 相似度或 LLM 分类，但需权衡延迟开销
+
+---
+
+## v0.16.4 Pipeline 性能优化与代码健康 (completed)
+
+### 性能优化
+
+- [x] **DBSCAN 时间惩罚向量化**：`SemanticPartitioner` O(n²) Python 嵌套循环改为 NumPy 广播（`np.abs(times[:, None] - times[None, :]) / time_range * time_penalty`），直接降低 partition 阶段 CPU 耗时。
+- [x] **事件向量批量索引**：持久化循环内的逐事件 `_index_vector(encode → upsert)` 改为循环后统一调用 `_batch_index_vectors`，以 `encode_batch` 单批编码 + `asyncio.gather` 并发 upsert，消除 N 次串行 encode 的累积延迟。
+- [x] **短 TTL DB 查询缓存**：新增 `TTLCache` 至 `core/utils/cache.py`；`list_frequent_tags`（TTL=60s）与 `persona_repo.list_all`（TTL=300s）接入缓存，同一 extractor 实例在 TTL 内复用缓存值，降低每窗口 DB 压力。
+
+### 死代码清理
+
+- [x] 移除 `_distill` 中冗余 `if provider is None` 块（重复检查，含不可达 fallback dict）及 `return fallback_single_extraction` 后的不可达 dict literal。
+- [x] 移除 `_extract` legacy wrapper（调用方已全部使用 `_extract_batch`）。
+
+### Verification
+
+- [x] `python -m pytest tests/backend/ -q --ignore=tests/backend/test_debug_visibility.py --ignore=tests/backend/test_event_handler_extra.py` → 650 passed, 2 warnings（pre-existing）
 
 ---
 
@@ -159,12 +178,13 @@
 - [x] **有证据召回漏召回修复（第一轮）**：benchmark 显示 `Gariton`、`大五人格`、`导师/稿费`、`学术圈靠关系` 有证据查询未命中。本轮已过滤“谁/请求/发生/互动/问题”等问题词，并让 evidence filter 使用真正主题词和 tag category；仍需下一轮 realtime 实测确认命中率。
 - [x] **Event Detail 文本溢出修复**：截图显示聚焦事件详情中显著度徽标和摘要长文本可能超出卡片；已去掉聚焦卡片 scale，给摘要值、统计格、显著度徽标加 `min-w-0`、宽度约束和断行。
 - [x] **召回固定 5s 延迟修复**：`recall_search≈5s` 来自 embedding 默认 `batch_interval_ms/request_interval_ms=5000`。当前默认 provider 是 local，因此已把默认节流改为 `50ms/0ms`，dev runner 同步暴露 `RETRIEVAL_ENCODER_BATCH_INTERVAL_MS` / `RETRIEVAL_ENCODER_REQUEST_INTERVAL_MS`；远端 API 用户仍可手动调大以避免限流。
-- [ ] **用户自定义母类后的 tag category 重链**：当前 `tag_categories` 是派生字段，不落库；若用户只是改预设母类配置，下一次 API/召回读取会按新规则即时派生，无需迁移。若后续允许人工保存“具体 tag → 母类”或把 category 写入索引，则必须增加 taxonomy version、dirty 标记和重链/重建索引任务。
 - [x] **摘要 [事件列表] 与 Event Stream 绑定**：把摘要中的事件列表从“纯文本标题快照”升级为“event_id 驱动的派生区块”。读取摘要时解析 `[event_id8]`，用事件库最新 `topic` 重建 `[事件列表]` 并写回 Markdown；事件 update/reextract 后主动同步引用该事件的 summary 文件，保证 LLM 重跑标题后摘要事件列表能实时反映并固化。
 - [x] **实际 AstrBot 路径鲁棒性复核**：本轮新增逻辑已同时接到 `web/plugin_routes.py` 与 `web/server.py`，共享 `core.tasks.summary_links`，避免 dev server 可用但 AstrBot 插件面板不可用。事件更新、reextract、summary get/regenerate 四个入口均覆盖。
+- [x] **narrow evidence scoring（fee 宽泛召回修复，Problem B）**：`_event_contains_term` 改为字段加权评分函数 `_event_term_score`（topic=1.0、tag=0.9、tag_category=0.7、summary=0.4）；evidence filter 用覆盖度阈值 `_MIN_EVIDENCE_COVERAGE=0.35` 替代原二值过滤；`_score` 新增 `_EVIDENCE_WEIGHT=0.3` × evidence_coverage 分量；constants 先硬编码，稳定后再入 `RetrievalConfig`。双向验证：fee 精准事件 hits>0 且不再命中宽泛事件、原神无证据仍 hits=0。
+- [x] **evidence filter 架构修正（academic 漏召回根本解法）**：evidence filter 的硬性 `return []` 与 standard RAG rerank+top-k 语义重叠，且会误杀向量相关但词面不对齐的合法召回（如 academic 查询）。已移除该 hard guard：低覆盖度候选穿透到 `_score` 的 `_EVIDENCE_WEIGHT` 分量自然降权；`_MIN_EVIDENCE_COVERAGE` 过滤仅在"有高覆盖候选"时生效，zero-coverage 时不再强制 return []。LLM 在注入端自我评估忽略无关上下文（baseline 已验证"严格 prompt 能正确回答没有相关证据"）。academic 查询从此可由 vector search 正常穿透。
 
 #### 次要
-- [ ] **encoder 模式 distill 调用数优化**：评估“每窗口一次 batch distill”或“相邻 partition 批量蒸馏”，降低当前约 26 次 LLM distill 调用。
+- [x] **encoder 模式 distill 并发化**：同一 window 内各 partition 的 distill 调用由顺序改为 `asyncio.gather` 并发；LLMTaskManager 保持全局并发上限不变。wall time 从 N×avg_distill 降至 max(single_distill)；API 调用次数不变，适合多 partition window 场景。异常由 gather return_exceptions=True 捕获并逐条 warning，不影响其他 partition。若后续需进一步降低 API 调用次数，可评估批量 distillation（单 prompt N partition → JSON array 输出）。
 - [x] **LLM 并发控制基线**：实际插件已有 `LLMTaskManager`；dev runner 已接入 `LLM_CONCURRENCY` 并传入 extraction、persona synthesis、group summary，使测试更接近实际环境。
 - [ ] **encoder 模式后处理合并**：对同一窗口内相邻、时间连续、tag 重叠或 summary 互补的 partition 合并，减少 semantic clustering 过度碎片化。
 - [x] **raw link 差异解释**：runner 的 Event Quality 已输出 `Unlinked raw messages` 和最多 5 条未链接样本；下一轮实测用它判断是 noise filter 预期丢弃还是链接遗漏。
@@ -192,7 +212,6 @@
 - [ ] `task_summary` / `task_synthesis` 新计时是否与 WebUI stats 页面展示一致；需要实际跑一次 summary/synthesis 后确认非 0 且数量合理。
 - [x] 层级 tag 第一版决策：暂不持久化新字段，由 `chat_content_tags` 动态派生 `tag_categories`；API/WebUI 可读，后续如需人工编辑 category 再做迁移。
 - [x] Summary `[事件列表]` 绑定 event_id 前缀第一版已验证；本轮采用后端解析 event_id 前缀并返回 `linked_events`。如果出现前缀碰撞，先保留原文本项并标记 unresolved；后续可改为隐藏 JSON sidecar metadata。
-- [ ] 用户修改母类集合后的行为验证：修改 category 词表后，已有事件的 `chat_content_tags` 不应改变；`tag_categories` 应按新词表/override 即时变化；如 category 被写入向量索引或 FTS，需要确认重建后召回结果一致。
 - [ ] 默认 embedding 节流下调后的限流风险：本地 encoder 应显著降低 recall benchmark 时间；远端 embedding API 需要用户实测是否需把 `embedding_request_interval_ms` 调回较高值。
 
 ### Possible implementation / 当前可能的技术实现办法
@@ -202,14 +221,15 @@
 - [x] `parse_llm_output` / `_extract_batch`：parse 失败时保留短 response snippet；实现一次“严格 JSON 修复 prompt retry”，失败后再 fallback。
 - [x] `fallback_single_extraction` / tag alignment 后处理：增加 topic/tag sanitizer，拒绝 URL、过长文本、纯问候、人名/UID 和句子片段；topic 空值回退到“未命名事件”。
 - [x] `RecallManager.recall()`：加入实体词覆盖检查，BM25=0 且 vector-only 候选没有同一事件覆盖查询实体词时返回 0。
+- [x] `_event_term_score`（`core/managers/recall_manager.py`）：返回字段加权命中分；`_event_contains_term` 保留为 `> 0.0` 的 bool 包装；`recall()` 预计算全候选 evidence 覆盖度，用 `_MIN_EVIDENCE_COVERAGE` 门控过滤，再用 `_EVIDENCE_WEIGHT * ev_coverage` 参与 `_score`；`evidence_scores` 在 `_score` 闭包前计算，避免重复遍历。
 - [x] `PerfTracker` 与 task 包装：`task_summary`、`task_synthesis` 计时覆盖真实 LLM 调用；runner 继续展示同一 phase 命名。
 - [ ] `RecallManager.recall()` debug 增强：后续返回 BM25/vector/RRF/final score 分量，帮助解释为什么某条事件最终被注入。
 - [x] tag hierarchy 方案 A：保留 `chat_content_tags` 为具体 tag，新增派生 `tag_categories`，不让 LLM 自由生成；当前通过规则映射到预设类别，后续可替换为 embedding/配置映射。
 - [ ] tag hierarchy 方案 B：不改数据模型，维护内存/配置级 `tag_taxonomy`，检索时把 query 和 event tags 动态扩展到类别词；实现成本低但 WebUI 难展示层级。
-- [ ] tag relink 方案：新增 `tag_taxonomy_version = hash(categories + rules + manual_overrides)`；每次保存 taxonomy 时比较 version。派生模式只清缓存；持久化模式扫描 distinct tags 重算 `tag_category_links`；如果 category 参与 embedding/FTS，则将受影响 events 加入 reindex 队列。
+- [ ] tag relink 方案（前提：tag_categories 落库或进索引后才需要）：新增 `tag_taxonomy_version = hash(categories + rules + manual_overrides)`；每次保存 taxonomy 时比较 version。派生模式只清缓存；持久化模式扫描 distinct tags 重算 `tag_category_links`；如果 category 参与 embedding/FTS，则将受影响 events 加入 reindex 队列。当前 `tag_categories` 纯派生不落库，改预设规则后下次读取即时生效，无需此方案。实现此方案时需同步验证：① `chat_content_tags` 不被回写；② `tag_categories` 即时反映新词表；③ FTS/向量索引重建后召回结果一致。
 - [ ] tag manual override 方案：提供 `tag_category_overrides: {具体tag: 母类}`，优先级高于规则/embedding 推断；删除或重命名母类时，把相关 override 标记为 orphan，让 WebUI 提示用户重新选择。
-- [ ] summary binding 方案 A：Summary UI 解析 `[事件列表]` 中的 `[event_id8]`，调用现有 `/api/events` 后按前缀匹配并跳转到 `/events?event_id=...`。
-- [ ] summary binding 方案 B：后端 `/api/summary` 返回 `{ content, linked_events }`，由 summary task 同步写 sidecar JSON，保证绑定稳定并减少前端解析 markdown。
+- ❌ summary binding 方案 A（未采用）：前端解析 `[event_id8]` 后调用 `/api/events` 前缀匹配跳转，后端零改动；但前端需 parse Markdown + 拉全量事件，前缀碰撞在前端处理，逻辑分散，被方案 C 替代。
+- ❌ summary binding 方案 B（未采用）：后端写 sidecar JSON 记录绑定，文件系统多出一类文件维护成本高，被方案 C 替代。
 - [x] summary binding 本轮方案 C：不新增 sidecar 文件，新增共享 helper `core.tasks.summary_links`。`/api/summary` 返回 `{content, linked_events}`，同时把 Markdown 中的 `[事件列表]` 重写为当前 event topic；事件 update/reextract 后调用 helper 扫描并同步引用该 event 的 summary 文件。这样对旧摘要兼容、无迁移、可立即固化标题变化。
 
 ### v0.16.3 Handoff notes / 交接说明（给下一个 agent）
@@ -275,6 +295,11 @@
 - [x] `cd web\frontend && npm.cmd run build` → passed（首次 sandbox 失败：当前 shell 找不到 `conda`，且 Google Fonts 网络被拦；授权网络后 `npm.cmd run build` 通过）。
 - [x] `python tools\sync_frontend.py -f` → synced 到 `pages/moirai/`（授权网络后通过）。
 - [x] 新增/更新 encoder partition 复用、tag sanitizer、vector no-evidence guard 相关测试。
+- [x] `pytest tests\backend\test_recall_manager_extra.py -q` → 20 passed（新增 9 条 narrow evidence scoring 单测，含字段权重、覆盖度门控、fee 精准/宽泛对照、ranked ordering；`_event_contains_term` 原有测试无回归）。
+- [x] `pytest tests\backend -q --ignore=...debug_visibility --ignore=...event_handler_extra` → 645 passed，2 warnings（collection error 为既有 `astrbot` 模块缺失问题，与本轮无关）。
+- [x] `python -m py_compile core\managers\recall_manager.py` → passed（hard guard 移除后语法正确）。
+- [x] `pytest tests\backend\test_recall_manager_extra.py -q` → 20 passed（hard guard 移除后相关测试已更新：原 `blocks_vector_only_without_explicit_evidence` 等断言翻转为 pass-through；ranking test 不受影响）。
+- [x] `pytest tests\backend -q --ignore=...` → 645 passed，2 warnings（与移除 hard guard 前基线一致）。
 - [ ] `python run_realtime_dev.py` with `EVENT_MODE = "encoder"` → 用户实测记录优化后 Phase 1/2/5/7 全量输出；重点看 `partition avg`、`partition_encode`、未链接 raw 样本、注入事件。
 - [ ] `python run_realtime_dev.py` with `EVENT_MODE = "llm"` + `RETRIEVAL_ENCODER_ENABLED = True` → 用户实测确认 `Vector candidates` 不再固定为 0、无原神证据查询注入 0、`task_summary/task_synthesis` 非 0。
 - [ ] 如涉及 WebUI 静态资源，本轮未修改前端，不需要 `npm run build` / `sync_frontend.py -f`；若后续改 WebUI stats 展示再执行。

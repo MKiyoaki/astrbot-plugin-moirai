@@ -1,4 +1,23 @@
-# 变更日志
+# CHANGELOG
+
+## [v0.16.4] - 2026-05-22
+
+### Pipeline 性能优化与代码健康
+
+#### 性能优化
+
+- **DBSCAN 时间惩罚向量化**：`SemanticPartitioner` 中 O(n²) Python 嵌套循环改为 NumPy 广播表达式（`np.abs(times[:, None] - times[None, :]) / time_range * time_penalty`），直接降低 encoder 模式 partition 阶段耗时。
+- **事件向量批量索引**：持久化循环内的逐事件 `_index_vector(encode → upsert)` 改为循环后一次性调用 `_batch_index_vectors`，所有事件文本以 `encode_batch` 单批编码、`asyncio.gather` 并发 upsert，消除每个 partition 一次 encode 的顺序累积延迟。
+- **短 TTL DB 查询缓存**：`list_frequent_tags`（TTL=60s）与 `persona_repo.list_all`（TTL=300s）两处每窗口必触发的 DB 调用接入 `TTLCache`，同一 extractor 实例在 TTL 内复用缓存值，降低轻微 DB 压力。`TTLCache` 已添加至 `core/utils/cache.py`，与现有 `_LRUCache` / `BoundedKeysMixin` 并列。
+
+#### 死代码清理
+
+- 移除 `_distill` 中紧跟第一个 `if provider is None: return` 之后的冗余 `if provider is None` 块（含假 fallback dict），以及 `return fallback_single_extraction(messages)` 后的不可达 dict literal。
+- 移除 `_extract` legacy wrapper（`return await self._extract_batch(window)`），调用方已全部使用 `_extract_batch`。
+
+#### 验证
+
+- 全量后端测试 650 passed，全部通过。
 
 ## [v0.16.3] - 2026-05-22
 
@@ -24,9 +43,37 @@
 - `/api/summary` 与 `/api/summary/regenerate` 新增 `linked_events` 结构化 metadata，Summary UI 可直接渲染可点击事件链。
 - Summary UI 中点击事件列表项会跳转到 Event Stream 并聚焦对应事件；standalone WebUI 与 AstrBot plugin routes 均接入同一套 core helper，避免运行环境差异。
 
+#### 注入位置兼容适配器
+
+- 新增 `core/utils/injection_compat.py`，当 `injection_position = fake_tool_call` 时自动检测当前模型名称，对已知不兼容 provider 降级到 `user_message_before`，避免合成 tool-call 上下文被提供商拒绝。
+- **已知不兼容（自动降级）**：OpenAI o-series（`o1`、`o1-mini`、`o3`、`o3-mini` 等，匹配 `^o\d`）；Gemini 系列经 OpenAI 兼容适配器访问时（匹配 `^gemini`）。
+- **兼容提供商（保持原位）**：OpenAI 标准 chat 模型（`gpt-4o` 等）、Claude/Anthropic、DeepSeek、其他未匹配模型名及无法获取模型信息时均保留已配置值不变。
+- `RecallManager.recall_and_inject` 在每次注入前调用适配器；降级发生时写入 debug 日志 `injection_compat: downgraded fake_tool_call → user_message_before for model=...`，不影响正常路径性能。
+- **Token 影响**：兼容模型无变化；不兼容模型降级到 `user_message_before`，与 v0.16.2 新默认位置一致，不额外增加 token 开销。
+- 新增 `tests/backend/test_injection_compat.py`（20 个单元测试），覆盖兼容保留、不兼容降级、无模型信息透传、大小写不敏感和非 fake_tool_call 配置不受影响五类分支。
+
+#### Encoder 模式 distill 并发化
+
+- encoder 模式下同一 window 内各 partition 的 distill 调用由顺序改为 `asyncio.gather` 并发，wall time 从 N×avg 降至 max(single)；全局 LLM 并发上限由 LLMTaskManager 保持不变。partition 级异常通过 `return_exceptions=True` 捕获并写 warning，不影响其他 partition 的结果。
+
+#### 召回质量精化
+
+- `_event_contains_term` 重构为字段加权评分函数 `_event_term_score`（topic=1.0 / tag=0.9 / tag_category=0.7 / summary=0.4），每个 evidence term 取最高命中字段权重而非平均，原 bool 版保留为向后兼容包装器。
+- evidence filter 改用覆盖度阈值（`_MIN_EVIDENCE_COVERAGE=0.35`）：候选事件的平均 term 命中分低于阈值时不进入高质量候选集，避免仅在 summary 顺带提及关键词的宽泛事件与聚焦事件平级竞争。
+- `_score` 新增 `_EVIDENCE_WEIGHT=0.3` × evidence_coverage 分量，使聚焦事件在排名中相对宽泛事件获得额外加分，即便两者都通过覆盖阈值时仍能区分优劣。两个常量均硬编码，待实测稳定后再考虑暴露至 `RetrievalConfig`。
+- 移除 BM25=0、仅 vector 候选时的硬性 `return []` 守门：该守门与 standard RAG rerank+top-k 的职责重叠，且会误杀向量相关但词面与查询短语不对齐的合法事件（如"学术圈靠关系"→ 事件 tag 为"学术"）。低覆盖度候选现在穿透至 `_score`，以 evidence_score≈0 自然降权；LLM 在注入端自我评估并忽略无关上下文，行为已在 baseline 中验证（"严格 prompt 能正确回答没有相关证据"）。
+
+#### `reanalyze_impressions_llm` i18n 修复（延迟自 v0.13.1）
+
+- 用户 prompt 从硬编码英文改为三语 i18n：中文（默认）/ English / 日本語，随 `language` 参数选择，与 synthesis / summary 提示词国际化方式一致。
+- 新增专用 `system_prompt` 常量 `_DEFAULT_REANALYZE_IMPRESSION_SYSTEM_PROMPT`，明确指示 LLM 只输出 `benevolence` / `power` 两字段的单行 JSON，格式鲁棒性与其他 LLM 调用点对齐。
+- `SynthesisConfig` 新增 `reanalyze_system_prompt` 字段（可通过配置键 `synthesis_reanalyze_system_prompt` 覆盖）；`plugin_routes.py` 与 `server.py` 均已接入，自动透传用户 `language` 与 `reanalyze_system_prompt`。
+
 #### 验证
 
 - 新增 summary event-link 同步单测，覆盖 stale title 刷新、文件持久化、standalone WebUI API 和 AstrBot plugin routes。
+- 新增 `_event_term_score` 字段权重、coverage 门控、fee 精准/宽泛排名、hard guard 移除后 pass-through 行为等 9 条单测，`test_recall_manager_extra.py` 共 20 passed。
+- 新增 `test_reanalyze_llm.py` i18n 测试（5 条）；共 11 passed，全量后端 650 passed。
 - 后端与前端结构测试、typecheck、构建和静态资源同步均已执行。
 
 ## [v0.16.2] - 2026-05-21

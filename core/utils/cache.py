@@ -1,12 +1,14 @@
 """Shared caching utilities.
 
 _LRUCache       — generic bounded LRU dict (text→embedding, identity lookup, …)
+TTLCache        — time-to-live cache for short-lived DB query results.
 BoundedKeysMixin — mixin for classes that maintain several parallel dicts keyed
                    by the same token (uid, session_id, …).  Tracks LRU order and
                    fires _on_evict(key) when the key set grows beyond maxsize.
 """
 from __future__ import annotations
 
+import time as _time
 from collections import OrderedDict
 from typing import Generic, TypeVar
 
@@ -36,6 +38,31 @@ class _LRUCache(Generic[_V]):
 
     def __len__(self) -> int:
         return len(self._cache)
+
+
+class TTLCache(Generic[_V]):
+    """Single-slot TTL cache.  Stores one value that expires after *ttl* seconds.
+
+    Typical use: caching an expensive DB call (e.g. list_frequent_tags) that
+    produces the same result for all callers within a short window.
+    """
+
+    def __init__(self, ttl: float) -> None:
+        self._ttl = ttl
+        self._value: _V | None = None
+        self._expires_at: float = 0.0
+
+    def get(self) -> _V | None:
+        if _time.monotonic() < self._expires_at:
+            return self._value
+        return None
+
+    def put(self, value: _V) -> None:
+        self._value = value
+        self._expires_at = _time.monotonic() + self._ttl
+
+    def invalidate(self) -> None:
+        self._expires_at = 0.0
 
 
 class BoundedKeysMixin:

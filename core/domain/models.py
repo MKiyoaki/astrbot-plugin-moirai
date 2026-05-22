@@ -4,7 +4,6 @@ Core domain model — pure Python, zero I/O, zero external dependencies.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any

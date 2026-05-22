@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from collections import deque
-from typing import Any, Callable, Coroutine, Dict, Optional, TypeVar
+from typing import Any, Callable, Coroutine, Dict, TypeVar
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ import logging
 from ..domain.models import Event
 from ..embedding.encoder import Encoder, NullEncoder
 from ..repository.base import EventRepository
-from .rrf import rrf_fuse, rrf_scores
+from .rrf import rrf_scores
 
 logger = logging.getLogger(__name__)
 

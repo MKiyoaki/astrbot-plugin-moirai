@@ -115,10 +115,8 @@ class SemanticPartitioner(BasePartitioner):
         if len(times) > 1:
             time_range = times.max() - times.min()
             if time_range > 0:
-                for i in range(len(times)):
-                    for j in range(len(times)):
-                        gap_ratio = abs(times[i] - times[j]) / time_range
-                        dists[i, j] += gap_ratio * self._time_penalty
+                gap_matrix = np.abs(times[:, None] - times[None, :]) / time_range
+                dists += gap_matrix * self._time_penalty
 
         # 4. Perform clustering
         async with performance_timer("partition_cluster"):

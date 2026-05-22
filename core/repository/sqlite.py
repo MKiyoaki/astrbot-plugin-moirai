@@ -26,7 +26,6 @@ import json
 import logging
 import math
 import shutil
-import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator

@@ -11,10 +11,18 @@ from typing import TYPE_CHECKING, Any, Callable
 if TYPE_CHECKING:
     from core.repository.base import EventRepository, ImpressionRepository, PersonaRepository
 
+from core.utils.i18n import get_string, LANG_ZH
+
 logger = logging.getLogger(__name__)
 
 _ALPHA = 0.4  # weight for new LLM score when blending with existing impression
 _SEMAPHORE_LIMIT = 3
+
+_DEFAULT_REANALYZE_SYSTEM_PROMPT = (
+    "你是一个社交关系分析器。根据用户提供的互动事件摘要，输出单行 JSON，"
+    "包含两个浮点字段：benevolence（亲和度，0.0~1.0，越高越友善正向）和 "
+    "power（支配度，0.0~1.0，越高越强势权威）。不要输出任何其他内容。"
+)
 
 
 class ReanalyzeError(Exception):
@@ -32,6 +40,8 @@ async def reanalyze_impressions_llm(
     provider_getter: Callable[[], Any],
     persona_repo: "PersonaRepository | None" = None,
     llm_manager: Any = None,
+    language: str = LANG_ZH,
+    system_prompt: str | None = None,
 ) -> int:
     """Reanalyze all participant-pair impressions in *scope* using an LLM.
 
@@ -42,6 +52,8 @@ async def reanalyze_impressions_llm(
     provider = provider_getter()
     if provider is None:
         raise ReanalyzeError("provider_none", "重新分析失败：没有可用 LLM provider。")
+
+    effective_system_prompt = system_prompt if system_prompt is not None else _DEFAULT_REANALYZE_SYSTEM_PROMPT
 
     group_id = None if scope == "global" else scope
     events = await event_repo.list_by_group(group_id, limit=1000, bot_persona_name=bot_persona_name)
@@ -79,18 +91,15 @@ async def reanalyze_impressions_llm(
         summary_text = "\n".join(
             f"- [{ev.topic}] {ev.summary}" for ev in shared[-10:]
         )
-        prompt = (
-            f"Based on the following shared interaction events between {obs_name} (observer) "
-            f"and {subj_name} (subject), rate the observer's impression of the subject.\n\n"
-            f"{summary_text}\n\n"
-            f"Return JSON with exactly two keys: \"benevolence\" (0.0-1.0, higher = more friendly/positive) "
-            f"and \"power\" (0.0-1.0, higher = more dominant/authoritative). "
-            f"Example: {{\"benevolence\": 0.7, \"power\": 0.3}}"
+        prompt = get_string("reanalyze.pair_prompt", language).format(
+            obs_name=obs_name,
+            subj_name=subj_name,
+            summary_text=summary_text,
         )
 
         async with sem:
             try:
-                resp = await provider.text_chat(prompt=prompt, system_prompt="")
+                resp = await provider.text_chat(prompt=prompt, system_prompt=effective_system_prompt)
                 raw = resp.completion_text.strip()
                 # Extract JSON object from response
                 start = raw.find("{")

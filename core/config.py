@@ -142,6 +142,12 @@ _DEFAULT_IMPRESSION_SYSTEM_PROMPT = (
     "confidence（0.0到1.0 Hendrick 的浮点数）。不要输出任何其他内容。"
 )
 
+_DEFAULT_REANALYZE_IMPRESSION_SYSTEM_PROMPT = (
+    "你是一个社交关系分析器。根据用户提供的互动事件摘要，输出单行 JSON，"
+    "包含两个浮点字段：benevolence（亲和度，0.0~1.0，越高越友善正向）和 "
+    "power（支配度，0.0~1.0，越高越强势权威）。不要输出任何其他内容。"
+)
+
 
 @dataclass
 class SynthesisConfig:
@@ -149,6 +155,7 @@ class SynthesisConfig:
     max_events: int = 10
     persona_system_prompt: str = _DEFAULT_PERSONA_SYSTEM_PROMPT
     impression_system_prompt: str = _DEFAULT_IMPRESSION_SYSTEM_PROMPT
+    reanalyze_system_prompt: str = _DEFAULT_REANALYZE_IMPRESSION_SYSTEM_PROMPT
     language: str = LANG_ZH
     llm_provider: str | None = None
     # weight for new synthesis vs existing scores (0=freeze, 1=replace)
@@ -464,11 +471,14 @@ class PluginConfig:
             "synthesis_persona_system_prompt", "").strip()
         impression_prompt = self._str(
             "synthesis_impression_system_prompt", "").strip()
+        reanalyze_prompt = self._str(
+            "synthesis_reanalyze_system_prompt", "").strip()
         return SynthesisConfig(
             llm_timeout=self._float("synthesis_llm_timeout_seconds", 30.0),
             max_events=self._int("synthesis_max_events", 10),
             persona_system_prompt=persona_prompt or _DEFAULT_PERSONA_SYSTEM_PROMPT,
             impression_system_prompt=impression_prompt or _DEFAULT_IMPRESSION_SYSTEM_PROMPT,
+            reanalyze_system_prompt=reanalyze_prompt or _DEFAULT_REANALYZE_IMPRESSION_SYSTEM_PROMPT,
             language=self.language,
             llm_provider=self.llm_provider,
         )

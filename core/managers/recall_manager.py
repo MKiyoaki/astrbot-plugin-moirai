@@ -64,6 +64,8 @@ _QUERY_STOP_TERMS = {
 _QUERY_SPLIT_RE = re.compile(
     r"的|对|和|与|及|以及|关于|是什么|什么|怎么|如何|为啥|为什么|发生|互动|请求|问题|谁说|谁|都|了|吗|呢|吧|，|。|？|！|、|,|\?|!"
 )
+_EVIDENCE_WEIGHT = 0.3
+_MIN_EVIDENCE_COVERAGE = 0.35
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -108,18 +110,29 @@ def _required_query_terms(query: str, terms: list[str]) -> list[str]:
     return required[:5]
 
 
+def _event_term_score(ev: Event, term: str) -> float:
+    """Field-weighted match score for *term* in *ev*. Returns 0.0 if not found.
+
+    Field weights: topic=1.0, tag=0.9, tag_category=0.7, summary=0.4.
+    Returns the highest matching field weight (not a sum), so one precise
+    hit in topic beats a weak summary hit without double-counting.
+    """
+    t = term.lower()
+    if t in str(getattr(ev, "topic", "") or "").lower():
+        return 1.0
+    tags = [str(x).lower() for x in (getattr(ev, "chat_content_tags", []) or [])]
+    if any(t in tag for tag in tags):
+        return 0.9
+    tag_cats = derive_tag_categories(getattr(ev, "chat_content_tags", []) or [])
+    if any(t in str(v).lower() for v in tag_cats.values()):
+        return 0.7
+    if t in str(getattr(ev, "summary", "") or "").lower():
+        return 0.4
+    return 0.0
+
+
 def _event_contains_term(ev: Event, term: str) -> bool:
-    tag_categories = derive_tag_categories(getattr(ev, "chat_content_tags", []) or [])
-    haystack = " ".join(
-        str(part or "")
-        for part in [
-            getattr(ev, "topic", ""),
-            getattr(ev, "summary", ""),
-            " ".join(getattr(ev, "chat_content_tags", []) or []),
-            " ".join(tag_categories.values()),
-        ]
-    )
-    return term.lower() in haystack.lower()
+    return _event_term_score(ev, term) > 0.0
 
 
 def _event_debug_summary(ev: Event) -> dict[str, str]:
@@ -575,23 +588,25 @@ class RecallManager(BaseRecallManager):
             terms = _explicit_query_terms(query)
             required_terms = _required_query_terms(query, terms)
             evidence_terms = required_terms or terms
+
+            # Pre-compute field-weighted evidence coverage for every candidate.
+            # Coverage = avg(_event_term_score per evidence term); 0.0 when no terms.
+            evidence_scores: dict[str, float] = {}
             if evidence_terms:
+                for ev in candidates:
+                    term_hits = [_event_term_score(ev, t) for t in evidence_terms]
+                    evidence_scores[ev.event_id] = sum(term_hits) / len(evidence_terms)
+
                 evidence_candidates = [
                     ev for ev in candidates
-                    if any(_event_contains_term(ev, term) for term in evidence_terms)
+                    if evidence_scores.get(ev.event_id, 0.0) >= _MIN_EVIDENCE_COVERAGE
                 ]
                 if evidence_candidates:
+                    # Narrow to events that cleared the coverage bar.
                     candidates = evidence_candidates
-                elif not bm25 and vec:
-                    _log.info(
-                        "[RecallManager] no-evidence guard skipped vector-only recall: "
-                        "query=%r terms=%s required=%s candidates=%d",
-                        query,
-                        terms,
-                        required_terms,
-                        len(candidates),
-                    )
-                    return []
+                # No hard guard for the zero-evidence case: low-coverage events pass
+                # through with evidence_score≈0 so _score demotes them naturally.
+                # The LLM is expected to self-assess and discard irrelevant context.
 
             max_rrf = max(scores.values()) if scores else 1.0
 
@@ -603,6 +618,7 @@ class RecallManager(BaseRecallManager):
                     cfg.relevance_weight * rrf / max_rrf
                     + cfg.salience_weight * ev.salience
                     + cfg.recency_weight * recency
+                    + _EVIDENCE_WEIGHT * evidence_scores.get(ev.event_id, 0.0)
                 )
 
             episode_anchors = sorted(candidates, key=_score, reverse=True)[:final_limit]

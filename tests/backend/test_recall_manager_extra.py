@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
-from core.managers.recall_manager import RecallManager, _event_contains_term, _explicit_query_terms
+from core.managers.recall_manager import RecallManager, _event_contains_term, _event_term_score, _explicit_query_terms
 from core.domain.models import Event, EventType, Persona, Impression, RawStoredMessage
 from core.config import RetrievalConfig, InjectionConfig, SoulConfig
 from core.repository.memory import InMemoryRawMessageRepository
@@ -68,7 +68,9 @@ async def test_recall_returns_episodes(recall_manager):
 
 
 @pytest.mark.asyncio
-async def test_recall_blocks_vector_only_without_explicit_evidence() -> None:
+async def test_recall_vector_only_low_evidence_passes_through() -> None:
+    # Low-evidence events are no longer hard-blocked; they pass through with
+    # evidence_score≈0 so _score demotes them. The LLM self-assesses relevance.
     unrelated = Event(
         event_id="e1",
         topic="卿泽对gariton的撒娇与学术互动",
@@ -85,7 +87,9 @@ async def test_recall_blocks_vector_only_without_explicit_evidence() -> None:
 
     events = await rm.recall("卿泽对原神的看法是什么？大家都说了些什么？")
 
-    assert events == []
+    # Unrelated event passes through (evidence_score=0 but not hard-blocked).
+    assert len(events) == 1
+    assert events[0].event_id == "e1"
 
 
 @pytest.mark.asyncio
@@ -268,3 +272,135 @@ async def test_recall_and_inject_hydrates_raw_message_details() -> None:
 
     assert count == 1
     assert "hydrated raw detail" in req.system_prompt
+
+
+# ── _event_term_score field-weight tests ──────────────────────────────────────
+
+def test_event_term_score_topic_highest():
+    ev = Event(event_id="e1", topic="稿费纠纷", summary="", end_time=1000.0)
+    assert _event_term_score(ev, "稿费") == 1.0
+
+
+def test_event_term_score_tag_second():
+    ev = Event(event_id="e1", topic="日常讨论", summary="", chat_content_tags=["稿费问题"], end_time=1000.0)
+    assert _event_term_score(ev, "稿费") == 0.9
+
+
+def test_event_term_score_summary_lowest():
+    ev = Event(event_id="e1", topic="普通事件", summary="顺带提了一句稿费的事", end_time=1000.0)
+    assert _event_term_score(ev, "稿费") == 0.4
+
+
+def test_event_term_score_absent():
+    ev = Event(event_id="e1", topic="游戏讨论", summary="明日方舟攻略", end_time=1000.0)
+    assert _event_term_score(ev, "稿费") == 0.0
+
+
+def test_event_contains_term_backward_compat():
+    ev = Event(event_id="e1", topic="稿费纠纷", summary="", end_time=1000.0)
+    assert _event_contains_term(ev, "稿费") is True
+    ev2 = Event(event_id="e2", topic="游戏讨论", summary="", end_time=1000.0)
+    assert _event_contains_term(ev2, "稿费") is False
+
+
+def test_event_term_score_topic_beats_summary():
+    ev = Event(event_id="e1", topic="稿费主题事件", summary="同时也提到了稿费", end_time=1000.0)
+    assert _event_term_score(ev, "稿费") == 1.0
+
+
+# ── evidence coverage filter integration tests ────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_recall_focused_event_passes_coverage_threshold() -> None:
+    """Event with term in topic/tag should pass the coverage threshold."""
+    focused = Event(
+        event_id="e_focused",
+        topic="导师拒绝给稿费的纠纷",
+        summary="讨论了导师不给稿费的问题",
+        chat_content_tags=["稿费", "导师关系"],
+        end_time=1000.0,
+    )
+    retriever, _ = _make_vector_retriever(vector_events=[focused])
+    rm = RecallManager(
+        retriever,
+        RetrievalConfig(final_limit=5, vector_fallback_enabled=True),
+        InjectionConfig(),
+    )
+    events = await rm.recall("导师和稿费的问题是什么？")
+    assert any(e.event_id == "e_focused" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_recall_broad_event_alone_passes_through() -> None:
+    """When only a broad event exists, it passes through with low evidence_score.
+    Mixed-candidate ranking (focused > broad) is tested separately."""
+    broad = Event(
+        event_id="e_broad",
+        topic="研究生日常吐槽",
+        summary="提到了导师的一些事情",
+        chat_content_tags=["日常", "吐槽"],
+        end_time=1000.0,
+    )
+    retriever, _ = _make_vector_retriever(vector_events=[broad])
+    rm = RecallManager(
+        retriever,
+        RetrievalConfig(final_limit=5, vector_fallback_enabled=True),
+        InjectionConfig(),
+    )
+    # "导师和稿费" → evidence_terms = ["导师", "稿费"]
+    # broad: "导师" in summary → 0.4; "稿费" absent → 0.0; coverage = 0.2 < 0.35
+    # No evidence_candidates → candidates kept as-is, LLM handles relevance.
+    events = await rm.recall("导师和稿费的问题是什么？")
+    assert len(events) == 1
+    assert events[0].event_id == "e_broad"
+
+
+@pytest.mark.asyncio
+async def test_recall_low_evidence_passes_through_llm_handles_relevance() -> None:
+    """Vector-only results with no matching evidence terms pass through (not hard-blocked).
+    The LLM is expected to self-assess and discard irrelevant injected context."""
+    unrelated = Event(
+        event_id="e_unrelated",
+        topic="卿泽对gariton的撒娇与学术互动",
+        summary="卿泽与gariton讨论互动",
+        chat_content_tags=["情感", "技术"],
+        end_time=1000.0,
+    )
+    retriever, _ = _make_vector_retriever(vector_events=[unrelated])
+    rm = RecallManager(
+        retriever,
+        RetrievalConfig(final_limit=5, vector_fallback_enabled=True),
+        InjectionConfig(),
+    )
+    events = await rm.recall("卿泽对原神的看法是什么？大家都说了些什么？")
+    assert len(events) == 1
+    assert events[0].event_id == "e_unrelated"
+
+
+@pytest.mark.asyncio
+async def test_recall_focused_ranks_above_broad_in_mixed_candidates() -> None:
+    """When both events pass threshold, focused event should rank first."""
+    focused = Event(
+        event_id="e_focused",
+        topic="导师拒绝给稿费的纠纷",
+        summary="稿费问题详细经过",
+        chat_content_tags=["稿费"],
+        salience=0.5,
+        end_time=1000.0,
+    )
+    broad = Event(
+        event_id="e_broad",
+        topic="稿费随口一提",
+        summary="大家讨论了很多，导师和稿费都提到了",
+        chat_content_tags=["日常"],
+        salience=0.9,
+        end_time=900.0,
+    )
+    retriever, _ = _make_vector_retriever(vector_events=[focused, broad])
+    rm = RecallManager(
+        retriever,
+        RetrievalConfig(final_limit=5, vector_fallback_enabled=True),
+        InjectionConfig(),
+    )
+    events = await rm.recall("导师和稿费的问题是什么？")
+    assert events[0].event_id == "e_focused"

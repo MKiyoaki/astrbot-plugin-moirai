@@ -8,6 +8,7 @@ import pytest
 from core.domain.models import Event, Impression
 from core.repository.memory import InMemoryEventRepository, InMemoryImpressionRepository
 from core.tasks.reanalyze_llm import ReanalyzeError, reanalyze_impressions_llm
+from core.utils.i18n import LANG_EN, LANG_JA, LANG_ZH
 
 
 # ---------------------------------------------------------------------------
@@ -172,3 +173,110 @@ async def test_reanalyze_llm_merges_with_existing_impression() -> None:
     assert imp is not None
     # alpha=0.4: 0.4*1.0 + 0.6*0.5 = 0.7
     assert abs(imp.benevolence - 0.7) < 0.01
+
+
+# ---------------------------------------------------------------------------
+# i18n prompt and system_prompt tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_reanalyze_llm_default_language_is_zh() -> None:
+    """No language arg → prompt defaults to Chinese (contains Chinese characters)."""
+    er = InMemoryEventRepository()
+    ir = InMemoryImpressionRepository()
+    await er.upsert(_event("e1", ["u1", "u2"]))
+
+    captured: list[str] = []
+
+    class _CapturingProvider:
+        async def text_chat(self, prompt: str = "", system_prompt: str = "") -> SimpleNamespace:
+            captured.append(prompt)
+            return SimpleNamespace(completion_text='{"benevolence": 0.5, "power": 0.5}')
+
+    await reanalyze_impressions_llm(er, ir, "g1", None, lambda: _CapturingProvider())
+    assert captured, "no prompt captured"
+    assert any(ord(c) > 127 for c in captured[0]), "expected Chinese characters in default prompt"
+
+
+@pytest.mark.asyncio
+async def test_reanalyze_llm_english_prompt() -> None:
+    """language=LANG_EN → prompt is in English."""
+    er = InMemoryEventRepository()
+    ir = InMemoryImpressionRepository()
+    await er.upsert(_event("e1", ["u1", "u2"]))
+
+    captured: list[str] = []
+
+    class _CapturingProvider:
+        async def text_chat(self, prompt: str = "", system_prompt: str = "") -> SimpleNamespace:
+            captured.append(prompt)
+            return SimpleNamespace(completion_text='{"benevolence": 0.5, "power": 0.5}')
+
+    await reanalyze_impressions_llm(
+        er, ir, "g1", None, lambda: _CapturingProvider(), language=LANG_EN
+    )
+    assert captured
+    assert "observer" in captured[0].lower()
+    assert "benevolence" in captured[0]
+
+
+@pytest.mark.asyncio
+async def test_reanalyze_llm_japanese_prompt() -> None:
+    """language=LANG_JA → prompt contains Japanese characters."""
+    er = InMemoryEventRepository()
+    ir = InMemoryImpressionRepository()
+    await er.upsert(_event("e1", ["u1", "u2"]))
+
+    captured: list[str] = []
+
+    class _CapturingProvider:
+        async def text_chat(self, prompt: str = "", system_prompt: str = "") -> SimpleNamespace:
+            captured.append(prompt)
+            return SimpleNamespace(completion_text='{"benevolence": 0.5, "power": 0.5}')
+
+    await reanalyze_impressions_llm(
+        er, ir, "g1", None, lambda: _CapturingProvider(), language=LANG_JA
+    )
+    assert captured
+    assert any(ord(c) > 127 for c in captured[0])
+
+
+@pytest.mark.asyncio
+async def test_reanalyze_llm_custom_system_prompt() -> None:
+    """system_prompt kwarg is forwarded to provider.text_chat."""
+    er = InMemoryEventRepository()
+    ir = InMemoryImpressionRepository()
+    await er.upsert(_event("e1", ["u1", "u2"]))
+
+    captured_sys: list[str] = []
+
+    class _CapturingProvider:
+        async def text_chat(self, prompt: str = "", system_prompt: str = "") -> SimpleNamespace:
+            captured_sys.append(system_prompt)
+            return SimpleNamespace(completion_text='{"benevolence": 0.5, "power": 0.5}')
+
+    custom = "CUSTOM_SYSTEM_PROMPT"
+    await reanalyze_impressions_llm(
+        er, ir, "g1", None, lambda: _CapturingProvider(), system_prompt=custom
+    )
+    assert captured_sys
+    assert all(s == custom for s in captured_sys)
+
+
+@pytest.mark.asyncio
+async def test_reanalyze_llm_default_system_prompt_is_nonempty() -> None:
+    """Default system_prompt (no kwarg) is a non-empty string."""
+    er = InMemoryEventRepository()
+    ir = InMemoryImpressionRepository()
+    await er.upsert(_event("e1", ["u1", "u2"]))
+
+    captured_sys: list[str] = []
+
+    class _CapturingProvider:
+        async def text_chat(self, prompt: str = "", system_prompt: str = "") -> SimpleNamespace:
+            captured_sys.append(system_prompt)
+            return SimpleNamespace(completion_text='{"benevolence": 0.5, "power": 0.5}')
+
+    await reanalyze_impressions_llm(er, ir, "g1", None, lambda: _CapturingProvider())
+    assert captured_sys
+    assert all(len(s) > 0 for s in captured_sys), "system_prompt must not be empty"

@@ -910,12 +910,16 @@ class PluginRoutes:
         try:
             if method == "llm":
                 from core.tasks.reanalyze_llm import ReanalyzeError, reanalyze_impressions_llm
+                from core.config import PluginConfig
+                _synthesis_cfg = PluginConfig(self._initial_config).get_synthesis_config()
                 updated = await reanalyze_impressions_llm(
                     self._event_repo, self._impression_repo,
                     scope, bot_persona_name,
                     self._provider_getter,
                     persona_repo=self._persona_repo,
                     llm_manager=self._llm_manager,
+                    language=_synthesis_cfg.language,
+                    system_prompt=_synthesis_cfg.reanalyze_system_prompt,
                 )
             else:
                 updated = await self._reanalyze_impressions_for_scope(

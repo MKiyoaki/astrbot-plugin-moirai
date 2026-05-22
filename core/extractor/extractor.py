@@ -204,6 +204,10 @@ class EventExtractor:
         # does not raise RuntimeError: no running event loop.
         self._seeds_initialized: bool = False
 
+        from ..utils.cache import TTLCache
+        self._frequent_tags_cache: TTLCache[list[str]] = TTLCache(ttl=60.0)
+        self._personas_cache: TTLCache[list] = TTLCache(ttl=300.0)
+
         # Initialize partitioner
         if self._strategy == "semantic":
             eps = cfg.semantic_clustering_eps
@@ -256,7 +260,10 @@ class EventExtractor:
         bot_name, bot_desc = await self._resolve_window_persona(window)
 
         # 2. Fetch existing tags and merge with seeds for few-shot steering
-        frequent_tags = await self._event_repo.list_frequent_tags(limit=20)
+        frequent_tags = self._frequent_tags_cache.get()
+        if frequent_tags is None:
+            frequent_tags = await self._event_repo.list_frequent_tags(limit=20)
+            self._frequent_tags_cache.put(frequent_tags)
         steering_tags = list(dict.fromkeys(self._tag_seeds + frequent_tags))[:30]
 
         # 3. Partitioning
@@ -283,14 +290,30 @@ class EventExtractor:
                     start, end = res.get("start_idx", 0), res.get("end_idx", len(window.messages)-1)
                     extracted_results.append((list(range(start, end + 1)), res))
         else:
-            # Per-partition distillation: partitioner already handled splitting.
-            for part in partitions:
+            # Per-partition distillation: run all partitions concurrently.
+            # LLMTaskManager caps actual LLM concurrency; asyncio.gather just
+            # removes the artificial serialisation that was the main bottleneck.
+            async def _distill_part(part: "Partition") -> "tuple[list[int], dict] | None":
                 sub_messages = [window.messages[i] for i in part.indices]
                 if not sub_messages:
-                    continue
+                    return None
                 async with performance_timer("distill"):
-                    res = await self._distill(sub_messages, existing_tags=steering_tags, bot_persona_desc=bot_desc)
-                    extracted_results.append((part.indices, res))
+                    res = await self._distill(
+                        sub_messages,
+                        existing_tags=steering_tags,
+                        bot_persona_desc=bot_desc,
+                    )
+                return (part.indices, res)
+
+            distill_outcomes = await asyncio.gather(
+                *[_distill_part(p) for p in partitions],
+                return_exceptions=True,
+            )
+            for outcome in distill_outcomes:
+                if isinstance(outcome, BaseException):
+                    logger.warning("[EventExtractor] distill partition failed: %s", outcome)
+                elif outcome is not None:
+                    extracted_results.append(outcome)
 
         # 5. Batch tag normalization across all extracted events
         all_raw_tags = []
@@ -387,7 +410,6 @@ class EventExtractor:
                     event = dataclasses.replace(event, bot_persona_name=event_persona)
 
             await self._event_repo.upsert(event)
-            await self._index_vector(event)
             await self._link_raw_messages(event.event_id, sub_messages)
             persisted_events.append(event)
 
@@ -399,6 +421,8 @@ class EventExtractor:
                         personality_data=res.get("participants_personality")
                     )
                 )
+
+        await self._batch_index_vectors(persisted_events)
 
         if ipc_tasks:
             await asyncio.gather(*ipc_tasks)
@@ -505,7 +529,10 @@ class EventExtractor:
         if self._persona_repo is None:
             return None
         try:
-            personas = await self._persona_repo.list_all()
+            personas = self._personas_cache.get()
+            if personas is None:
+                personas = await self._persona_repo.list_all()
+                self._personas_cache.put(personas)
         except Exception as exc:
             logger.debug("[EventExtractor] persona list_all failed: %s", exc)
             return None
@@ -532,7 +559,6 @@ class EventExtractor:
         return None, None
 
     async def _align_tags(self, raw_tags: list[str]) -> list[str]:
-        """Legacy method for single event tag alignment. Prefer _batch_align_tags."""
         mapping = await self._batch_align_tags(raw_tags)
         return list(dict.fromkeys(mapping.get(tag, tag) for tag in raw_tags))
 
@@ -666,17 +692,6 @@ class EventExtractor:
         provider = self._provider_getter()
         if provider is None:
             return fallback_single_extraction(messages)
-        if provider is None:
-            # Fake a result from messages
-            topic = messages[0].text[:30]
-            return {
-                "topic": topic,
-                "summary": f"聚合了 {len(messages)} 条相关消息。",
-                "chat_content_tags": [],
-                "salience": 0.5,
-                "confidence": 0.2,
-                "inherit": False
-            }
 
         prompt = build_distillation_prompt(
             messages, 
@@ -695,20 +710,6 @@ class EventExtractor:
             logger.warning("[EventExtractor] LLM distillation failed: %s", exc)
 
         return fallback_single_extraction(messages)
-
-        # Fallback for single item
-        return {
-            "topic": messages[0].text[:30],
-            "summary": f"提炼失败，原始消息：{messages[0].text[:100]}...",
-            "chat_content_tags": [],
-            "salience": 0.4,
-            "confidence": 0.1,
-            "inherit": False
-        }
-
-    async def _extract(self, window: MessageWindow) -> list[dict]:
-        """Legacy method, kept for compatibility if needed."""
-        return await self._extract_batch(window)
 
     async def _run_ipc_analysis(
         self, 
@@ -779,6 +780,29 @@ class EventExtractor:
             )
         except Exception as exc:
             logger.warning("[EventExtractor] IPC analysis failed: %s", exc)
+
+    async def _batch_index_vectors(self, events: list) -> None:
+        if self._encoder.dim == 0 or not events:
+            return
+        texts = []
+        for event in events:
+            text = event.topic
+            if event.summary:
+                text += " " + event.summary
+            if event.chat_content_tags:
+                text += " " + " ".join(event.chat_content_tags)
+            texts.append(text.strip())
+        valid_pairs = [(e, t) for e, t in zip(events, texts) if t]
+        if not valid_pairs:
+            return
+        try:
+            embeddings = await self._encoder.encode_batch([t for _, t in valid_pairs])
+            await asyncio.gather(*[
+                self._event_repo.upsert_vector(e.event_id, emb)
+                for (e, _), emb in zip(valid_pairs, embeddings)
+            ])
+        except Exception as exc:
+            logger.warning("[EventExtractor] batch vector indexing failed: %s", exc)
 
     async def _index_vector(self, event: Event) -> None:
         if self._encoder.dim == 0:

@@ -81,6 +81,16 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "projector.affect_negative": "负面（{value:+.2f}）",
         "projector.affect_neutral": "中性（{value:+.2f}）",
 
+        # Reanalyze LLM
+        "reanalyze.pair_prompt": (
+            "根据以下 {obs_name}（观察者）与 {subj_name}（对象）之间的共同互动事件，"
+            "评估观察者对对象的印象。\n\n"
+            "{summary_text}\n\n"
+            "请以 JSON 格式输出，包含两个字段：\"benevolence\"（亲和度，0.0~1.0，越高越友善正向）"
+            "和 \"power\"（支配度，0.0~1.0，越高越强势权威）。"
+            "示例：{{\"benevolence\": 0.7, \"power\": 0.3}}"
+        ),
+
         # IPC Labels
         "ipc.affinity": "亲和",
         "ipc.active": "活跃",
@@ -273,6 +283,16 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "projector.affect_negative": "Negative ({value:+.2f})",
         "projector.affect_neutral": "Neutral ({value:+.2f})",
 
+        # Reanalyze LLM
+        "reanalyze.pair_prompt": (
+            "Based on the following shared interaction events between {obs_name} (observer) "
+            "and {subj_name} (subject), rate the observer's impression of the subject.\n\n"
+            "{summary_text}\n\n"
+            "Return JSON with exactly two keys: \"benevolence\" (0.0-1.0, higher = more friendly/positive) "
+            "and \"power\" (0.0-1.0, higher = more dominant/authoritative). "
+            "Example: {{\"benevolence\": 0.7, \"power\": 0.3}}"
+        ),
+
         # IPC Labels
         "ipc.affinity": "Friendly",
         "ipc.active": "Outgoing",
@@ -464,6 +484,16 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "projector.affect_positive": "ポジティブ（{value:+.2f}）",
         "projector.affect_negative": "ネガティブ（{value:+.2f}）",
         "projector.affect_neutral": "ニュートラル（{value:+.2f}）",
+
+        # Reanalyze LLM
+        "reanalyze.pair_prompt": (
+            "以下の {obs_name}（観察者）と {subj_name}（対象）の共有インタラクションイベントに基づいて、"
+            "観察者の対象への印象を評価してください。\n\n"
+            "{summary_text}\n\n"
+            "2 つのフィールドを含む JSON 形式で出力してください：\"benevolence\"（親和度、0.0〜1.0、高いほど友好的/肯定的）"
+            "および \"power\"（支配度、0.0〜1.0、高いほど支配的/権威的）。"
+            "例：{{\"benevolence\": 0.7, \"power\": 0.3}}"
+        ),
 
         # IPC Labels
         "ipc.affinity": "親和的",
