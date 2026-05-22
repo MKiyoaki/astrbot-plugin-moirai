@@ -299,10 +299,17 @@
                 "default": 3600,
                 "level": "advanced"
             },
-            "context_window_size": {
-                "description": "上下文窗口大小",
+            "extractor_context_messages": {
+                "description": "提取器上下文消息数",
                 "type": "int",
-                "hint": "传给 LLM 进行事件总结的最大历史消息条数",
+                "hint": "事件提取时 LLM prompt 中最多包含的历史消息条数。不设置时回退到 context_window_size。",
+                "default": 50,
+                "level": "advanced"
+            },
+            "context_window_size": {
+                "description": "VCM 会话窗口大小",
+                "type": "int",
+                "hint": "VCM 内存会话窗口保留的消息条数。提取器 prompt 上下文请改用 extractor_context_messages。",
                 "default": 50,
                 "level": "advanced"
             },

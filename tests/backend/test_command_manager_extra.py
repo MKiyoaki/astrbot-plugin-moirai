@@ -8,7 +8,7 @@ from core.domain.models import Persona, Impression, Event
 @pytest.fixture
 def command_manager():
     scheduler = MagicMock()
-    scheduler.task_names = ["daily_maintenance", "consolidated_maintenance"]
+    scheduler.task_names = ["salience_decay", "memory_cleanup", "markdown_projection", "consolidated_maintenance"]
     recall = AsyncMock()
     context_manager = MagicMock()
     persona_repo = AsyncMock()
@@ -61,7 +61,7 @@ async def test_run_task_command(command_manager):
     
     res = await cm.run_task("decay")
     assert "triggered" in res or "已触发" in res
-    sched.run_now.assert_called_with("daily_maintenance")
+    sched.run_now.assert_called_with("salience_decay")
     
     sched.run_now = AsyncMock(return_value=False)
     res = await cm.run_task("unknown")

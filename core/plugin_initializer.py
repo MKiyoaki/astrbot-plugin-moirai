@@ -314,6 +314,10 @@ class PluginInitializer:
         # Wire the same callback into ContextManager so LRU-evicted windows are
         # also extracted instead of silently dropped.
         self.context_manager._evict_callback = on_event_close
+        # Keep RecallManager's per-session state in sync with ContextManager's
+        # session lifecycle so soul states and debug caches are freed promptly.
+        if self.recall is not None:
+            self.context_manager._on_session_evict = self.recall.evict_session
 
         resolver = IdentityResolver(
             persona_repo, default_confidence=cfg.persona_default_confidence)
@@ -357,19 +361,33 @@ class PluginInitializer:
 
         self.scheduler = TaskScheduler()
 
-        # Daily maintenance: decay → cleanup → projection (order matters).
-        # Decay runs first so archived events are excluded from the projection render.
         cleanup_cfg = cfg.get_cleanup_config()
 
-        async def _daily_maintenance() -> None:
+        async def _decay_task() -> None:
             if cfg.decay_enabled and self.memory:
                 await self.memory.apply_decay()
+
+        self.scheduler.register(
+            "salience_decay",
+            interval=cfg.decay_interval_seconds,
+            fn=_decay_task,
+        )
+
+        async def _cleanup_task() -> None:
             if cleanup_cfg.enabled:
                 await run_memory_cleanup(event_repo, cleanup_cfg)
             await run_raw_message_cleanup(
                 raw_message_repo,
                 retention_days=cleanup_cfg.raw_message_retention_days,
             )
+
+        self.scheduler.register(
+            "memory_cleanup",
+            interval=cleanup_cfg.interval_days * 86400,
+            fn=_cleanup_task,
+        )
+
+        async def _projection_task() -> None:
             if cfg.markdown_projection_enabled:
                 if self.projector:
                     await self.projector.render_all_personas()
@@ -377,9 +395,9 @@ class PluginInitializer:
                     await self.syncer.register_all()
 
         self.scheduler.register(
-            "daily_maintenance",
+            "markdown_projection",
             interval=cfg.decay_interval_seconds,
-            fn=_daily_maintenance,
+            fn=_projection_task,
         )
 
         backup_cfg = cfg.get_backup_config()

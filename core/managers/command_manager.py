@@ -281,10 +281,12 @@ class CommandManager:
     # ------------------------------------------------------------------
 
     _TASK_ALIASES: dict[str, str] = {
-        "decay":     "daily_maintenance",
-        "synthesis": "persona_synthesis",
-        "summary":   "group_summary",
-        "cleanup":   "context_cleanup",
+        "decay":      "salience_decay",
+        "cleanup":    "memory_cleanup",
+        "projection": "markdown_projection",
+        "synthesis":  "persona_synthesis",
+        "summary":    "group_summary",
+        "ctx_cleanup": "context_cleanup",
     }
 
     async def run_task(self, task: str) -> str:

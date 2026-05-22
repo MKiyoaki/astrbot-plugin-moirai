@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from ..repository.base import EventRepository, PersonaRepository, ImpressionRepository
     from ..managers.llm_manager import LLMTaskManager
 
+from ..domain.models import INTERNAL_PLATFORM
 from ..utils.i18n import get_string, LANG_ZH
 
 logger = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ async def _build_mood_section_db(
         try:
             personas = await persona_repo.list_all()
             for p in personas:
-                if any(bi[0] == "internal" for bi in (p.bound_identities or [])):
+                if any(bi[0] == INTERNAL_PLATFORM for bi in (p.bound_identities or [])):
                     bot_uid = p.uid
                     break
         except Exception:
@@ -401,24 +402,39 @@ async def run_group_summary(
                 pass
 
         group_ids = await event_repo.list_group_ids()
-        today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+        now_utc = datetime.now(tz=timezone.utc)
+        today = now_utc.strftime("%Y-%m-%d")
+        today_start_ts = now_utc.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
 
         async def _process_one(group_id) -> bool:
             events = await event_repo.list_by_group(group_id, limit=cfg.max_events)
             if not events:
                 return False
 
+            if group_id is None:
+                summary_dir = data_dir / "global" / "summaries"
+            else:
+                summary_dir = data_dir / "groups" / group_id / "summaries"
+            summary_path = summary_dir / f"{today}.md"
+
+            # Skip regeneration if today's file exists and no events arrived since it was written.
+            if summary_path.exists():
+                file_mtime = summary_path.stat().st_mtime
+                cutoff = max(file_mtime, today_start_ts)
+                if not any(e.end_time > cutoff for e in events):
+                    logger.debug(
+                        "[%s] no new events for group %r since last write, skipping",
+                        _MODULE_NAME, group_id or "私聊",
+                    )
+                    return False
+
             try:
                 content, topic_text = await _generate_summary_for_group(
                     group_id, events, today, provider, cfg, uid_to_name,
                     impression_repo, persona_repo, llm_manager
                 )
-                if group_id is None:
-                    summary_dir = data_dir / "global" / "summaries"
-                else:
-                    summary_dir = data_dir / "groups" / group_id / "summaries"
                 summary_dir.mkdir(parents=True, exist_ok=True)
-                (summary_dir / f"{today}.md").write_text(content, encoding="utf-8")
+                summary_path.write_text(content, encoding="utf-8")
                 logger.debug(f"[{_MODULE_NAME}] wrote summary for group %r", group_id or "私聊")
                 return True
             except Exception as exc:

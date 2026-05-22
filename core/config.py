@@ -573,7 +573,10 @@ class PluginConfig:
         tag_seeds_str = self._str("tag_seeds", "社交,日常,技术,知识,工作,娱乐,艺术,情感,资讯")
         tag_seeds = [s.strip() for s in tag_seeds_str.split(",") if s.strip()]
         return ExtractorConfig(
-            max_context_messages=self._int("context_window_size", 50),
+            max_context_messages=self._int(
+                "extractor_context_messages",
+                self._int("context_window_size", 50),
+            ),
             llm_timeout=self._float("extractor_llm_timeout_seconds", 30.0),
             system_prompt=custom_prompt or DEFAULT_EXTRACTOR_SYSTEM_PROMPT,
             distillation_system_prompt=custom_distill_prompt or DEFAULT_DISTILLATION_SYSTEM_PROMPT,

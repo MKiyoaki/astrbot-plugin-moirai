@@ -5,7 +5,6 @@ whose salience falls below the configured threshold.
 """
 from __future__ import annotations
 
-import dataclasses
 import logging
 import math
 
@@ -31,7 +30,7 @@ async def run_salience_decay(
     logger.info("[Decay] salience decay applied to %d events (λ=%.4f)", count, cfg.lambda_)
 
     if cfg.archive_threshold > 0:
-        archived = await _archive_below_threshold(event_repo, cfg.archive_threshold)
+        archived = await event_repo.archive_low_salience_events(cfg.archive_threshold)
         if archived:
             logger.info("[Decay] archived %d events (salience < %.3f)", archived, cfg.archive_threshold)
 
@@ -66,18 +65,8 @@ async def run_access_weighted_decay(
     logger.info("[Decay] access-weighted decay applied to %d events (λ_base=%.4f)", updated, base_lambda)
 
     if cfg.archive_threshold > 0:
-        archived = await _archive_below_threshold(event_repo, cfg.archive_threshold)
+        archived = await event_repo.archive_low_salience_events(cfg.archive_threshold)
         if archived:
             logger.info("[Decay] archived %d events (salience < %.3f)", archived, cfg.archive_threshold)
 
     return updated
-
-
-async def _archive_below_threshold(event_repo: EventRepository, threshold: float) -> int:
-    active_events = await event_repo.list_by_status(EventStatus.ACTIVE, limit=10_000)
-    archived = 0
-    for event in active_events:
-        if event.salience < threshold:
-            await event_repo.set_status(event.event_id, EventStatus.ARCHIVED)
-            archived += 1
-    return archived

@@ -16,7 +16,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
-from ..domain.models import PersonaGroup
+from ..domain.models import INTERNAL_PLATFORM, PersonaGroup
 from ..tasks.synthesis import run_persona_synthesis_for_uid, synthesize_persona_group
 
 if TYPE_CHECKING:
@@ -41,7 +41,7 @@ class AccountLinkError(ValueError):
 def _is_bot_persona(persona) -> bool:
     if getattr(persona, "bot_persona_name", None):
         return True
-    return any(p == "internal" for p, _ in (persona.bound_identities or []))
+    return any(p == INTERNAL_PLATFORM for p, _ in (persona.bound_identities or []))
 
 
 class AccountLinkManager:

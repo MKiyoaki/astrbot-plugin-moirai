@@ -54,12 +54,20 @@
 
 ### 架构 / 清理
 
+- 💬 **[A1] 印象双路径写入冲突**：存在两条独立的 `Impression` 写入链路，没有协调机制：
+  - 路径 A（自动周期）：`synthesize_persona_group` → Big Five attrs → IPC 公式 → `impression_repo.upsert(benevolence, power)`
+  - 路径 B（WebUI 管理员）：`reanalyze_impressions_llm` → LLM 直接输出 JSON → `impression_repo.upsert(benevolence, power)`
+  - 问题：路径 B 手动修正后，下一次每周合成会用 Big Five 公式重新覆写，LLM 结果静默丢失；`Event` 有 `is_locked` 防覆写，`Impression` 没有
+  - 备选方案：① 给 `Impression` 加 `is_locked` 字段，路径 B 写入时置位；② 在 `synthesize_persona_group` 跳过已锁定行；③ 明确定义优先级规则（路径 A 始终胜出，路径 B 为一次性覆写）
+- 💬 **[B3] `run_access_weighted_decay` 实现完整但从未挂载**：`core/tasks/decay.py` 中实现了基于访问频率的差异化衰减（高访问事件衰减更慢），但实际调度链 `scheduler → memory.apply_decay() → run_salience_decay` 只用均匀衰减；访问权重衰减函数孤立存在，`weight=0.1` 也未纳入 `DecayConfig`；需决策：① 替换均匀衰减；② 作为可配置选项 `decay_mode: uniform | access_weighted`；③ 删除
+- 💬 **[C6] `list_events` 全群查询分布不均衡**：无 `group_id` 时按 `per_group = max(1, limit // len(group_ids))` 均分配额，100 群 + limit=100 时每群只取 1 条，且群间无全局时序排序，结果质量取决于群返回顺序；建议改为全局 `ORDER BY start_time DESC LIMIT n` 单次查询
+
 - [ ] **Persona synthesis 脏 UID 队列评估**：v0.12.14 已将 `BigFiveBuffer` 改为 `BoundedKeysMixin(maxkeys=500)` 有界内存（`_on_evict` 清理全部平行 dict 并取消 in-flight task），内存无限增长问题已解决；残留问题是跨重启的 trigger state 是否需要持久化——v0.12.11 新增了基于事件计数的实时触发机制（`persona_synthesis_trigger_messages` / `persona_synthesis_min_events`），大幅降低了对重启后状态恢复的依赖，但仍需评估是否完全不需要持久化
 - [ ] **重命名 `summary_trigger_rounds`**：改为事件窗口阈值语义名称，同时保留旧 key 向后兼容加载
-- [ ] **拆分 `context_window_size`**：分为 extractor context size 和 VCM session window size；旧 key 作为兼容性输入保留
-- [ ] **`memory_cleanup_interval_days` 独立生效**：使其不依赖 daily maintenance 单独运行，或从用户配置中移除
-- [ ] **拆分 `daily_maintenance`**：拆为 salience decay、memory cleanup、Markdown projection fallback 三个更清晰的任务项
-- [ ] **群组摘要改为日历日生成**：仅在当天有新事件时才重新生成，替代当前每小时任意重写
+- [x] **拆分 `context_window_size`**：新增 `extractor_context_messages` 独立控制提取器 prompt 上下文消息数，`context_window_size` 保留为 VCM 窗口 + 向后兼容 fallback（v0.16.4）
+- [x] **`memory_cleanup_interval_days` 独立生效**：`daily_maintenance` 拆分后 `memory_cleanup` 独立注册，interval 直接取 `interval_days × 86400`，配置项真实生效（v0.16.4）
+- [x] **拆分 `daily_maintenance`**：已拆为 `salience_decay`、`memory_cleanup`、`markdown_projection` 三个独立调度任务，各有独立间隔和 enable/disable（v0.16.4）
+- [x] **群组摘要改为日历日生成**：`_process_one` 在写前检查 `today.md` 是否存在且无新事件，跳过不必要的 LLM 调用（v0.16.4）
 - [ ] **`periodic_flush` 降级为 idle-window 兜底**：不再是主要事件分段机制
 - [ ] **低影响运营参数移至高级设置**：v0.12.13 已将 `markdown_projection_enabled` 移至 level `advanced`；剩余未移的包括 context cleanup batch sizes、embedding 微调参数等
 

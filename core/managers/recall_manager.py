@@ -349,6 +349,14 @@ class RecallManager(BaseRecallManager):
         """Return all active soul states as a dict of dicts."""
         return {sid: state.__dict__.copy() for sid, state in self._soul_states.items()}
 
+    def evict_session(self, session_id: str) -> None:
+        """Remove all per-session cached state for a session that has ended."""
+        self._soul_states.pop(session_id, None)
+        self._soul_state_accessed.pop(session_id, None)
+        self._last_recall_debug.pop(session_id, None)
+        self._last_injection_debug.pop(session_id, None)
+        self._last_injected_ids.pop(session_id, None)
+
     def _evict_soul_states(self) -> None:
         """Remove soul states that have not been accessed within the TTL."""
         if not self._soul_states:

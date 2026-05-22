@@ -12,6 +12,10 @@ from ..mixins.base import SerializableMixin, ValidationMixin
 from ..tags import derive_tag_categories
 
 
+# Platform identifier used for the internal bot identity across all persona checks.
+INTERNAL_PLATFORM = "internal"
+
+
 # ---------------------------------------------------------------------------
 # Event lifecycle states
 # ---------------------------------------------------------------------------
@@ -102,7 +106,7 @@ class Persona(SerializableMixin, ValidationMixin):
                 ],
                 "created_at": datetime.fromtimestamp(self.created_at, tz=timezone.utc).isoformat(),
                 "last_active_at": datetime.fromtimestamp(self.last_active_at, tz=timezone.utc).isoformat(),
-                "is_bot": any(p == "internal" for p, _ in self.bound_identities),
+                "is_bot": any(p == INTERNAL_PLATFORM for p, _ in self.bound_identities),
                 "group_id": self.group_id,
             }
         }

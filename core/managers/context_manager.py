@@ -5,7 +5,7 @@ import asyncio
 import logging
 import time
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
 from ..boundary.window import MessageWindow
 from ..utils.context_state_utils import VCMState, determine_next_state
@@ -31,9 +31,12 @@ class ContextManager:
         self,
         config: ContextConfig,
         evict_callback: Callable[[MessageWindow], Awaitable[None]] | None = None,
+        on_session_evict: Optional[Callable[[str], None]] = None,
     ) -> None:
         self._cfg = config
         self._evict_callback = evict_callback
+        # Called with session_id whenever a session is removed (TTL, LRU, or explicit pop).
+        self._on_session_evict = on_session_evict
         # session_id -> MessageWindow
         self._windows: OrderedDict[str, MessageWindow] = OrderedDict()
         # session_id -> VCMState
@@ -71,7 +74,13 @@ class ContextManager:
         """Remove and return a window (e.g. when an event closes)."""
         self._states.pop(session_id, None)
         self._last_active.pop(session_id, None)
-        return self._windows.pop(session_id, None)
+        window = self._windows.pop(session_id, None)
+        if self._on_session_evict is not None:
+            try:
+                self._on_session_evict(session_id)
+            except Exception:
+                logger.debug("[ContextManager] on_session_evict raised for %s", session_id)
+        return window
 
     def update_state(self, session_id: str, drift_detected: bool = False, recall_hit: bool = False) -> VCMState:
         """Update and return the VCM state for a session."""
@@ -124,11 +133,10 @@ class ContextManager:
         """
         if not self._windows:
             return
-        sid, window = self._windows.popitem(last=False)
-        self._states.pop(sid, None)
-        self._last_active.pop(sid, None)
+        sid = next(iter(self._windows))
+        window = self.pop_window(sid)  # handles _on_session_evict too
         logger.debug("[ContextManager] LRU eviction of session %s", sid)
-        if self._evict_callback is not None:
+        if window is not None and self._evict_callback is not None:
             try:
                 asyncio.get_running_loop().create_task(self._evict_callback(window))
             except RuntimeError:

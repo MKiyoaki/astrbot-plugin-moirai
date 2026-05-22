@@ -5,6 +5,7 @@ web/server.py delegates to these and wraps results in HTTP responses.
 """
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import logging
 import time
@@ -13,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 logger = logging.getLogger(__name__)
 
-from .domain.models import Event, EventStatus, Impression, Persona
+from .domain.models import Event, EventStatus, Impression, INTERNAL_PLATFORM, Persona
 from .tags import derive_tag_categories
 from .utils.version import get_plugin_version
 
@@ -68,7 +69,7 @@ def persona_to_dict(persona: Persona) -> dict[str, Any]:
         ],
         "created_at": _ts(persona.created_at),
         "last_active_at": _ts(persona.last_active_at),
-        "is_bot": any(p == "internal" for p, _ in persona.bound_identities),
+        "is_bot": any(p == INTERNAL_PLATFORM for p, _ in persona.bound_identities),
     }
 
 
@@ -110,23 +111,14 @@ async def get_stats(
     from .utils.perf import tracker
     perf_metrics = await tracker.get_metrics()
     
-    personas = await persona_repo.list_all()
-    group_ids = await event_repo.list_group_ids()
-    event_count = 0
-    locked_count = 0
-    archived_count = 0
-    for gid in group_ids:
-        # We list active and archived separately to get counts accurately
-        active_evs = await event_repo.list_by_group(gid, limit=10_000)
-        event_count += len(active_evs)
-        locked_count += sum(1 for e in active_evs if e.is_locked)
-    
-    # Refined count logic for all statuses
     from .domain.models import EventStatus
-    active_count = await event_repo.count_by_status(EventStatus.ACTIVE)
-    archived_count = await event_repo.count_by_status(EventStatus.ARCHIVED)
-    # We still need the locked count, which usually applies to active
-    active_sample = await event_repo.list_by_status(EventStatus.ACTIVE, limit=10_000)
+    personas, group_ids, active_count, archived_count, active_sample = await asyncio.gather(
+        persona_repo.list_all(),
+        event_repo.list_group_ids(),
+        event_repo.count_by_status(EventStatus.ACTIVE),
+        event_repo.count_by_status(EventStatus.ARCHIVED),
+        event_repo.list_by_status(EventStatus.ACTIVE, limit=10_000),
+    )
     locked_count = sum(1 for e in active_sample if e.is_locked)
     
     impression_count = 0

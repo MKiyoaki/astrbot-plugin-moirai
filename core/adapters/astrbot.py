@@ -113,7 +113,8 @@ class MessageRouter:
         content_hash = hashlib.sha256(
             f"{platform}\0{physical_id}\0{now:.6f}\0{text}".encode("utf-8", "ignore")
         ).hexdigest()
-        role = "assistant" if platform == "internal" else "user"
+        from ..domain.models import INTERNAL_PLATFORM
+        role = "assistant" if platform == INTERNAL_PLATFORM else "user"
 
         # 1. Add message to window immediately (no delay)
         msg_idx = window.message_count

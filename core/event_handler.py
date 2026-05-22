@@ -613,6 +613,7 @@ class EventHandler:
         self, event: AstrMessageEvent, resp: ProviderResponse
     ) -> None:
         """Record the bot's own response into the memory stream."""
+        from .domain.models import INTERNAL_PLATFORM
         router = self._init.router
         text = _response_text(resp)
         if router is None or not text:
@@ -644,7 +645,7 @@ class EventHandler:
             physical_id = "bot"
 
         await router.process(
-            platform="internal",
+            platform=INTERNAL_PLATFORM,
             physical_id=physical_id,
             display_name=display_name,
             text=normalize_message_text(text),

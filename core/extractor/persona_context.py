@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from ..domain.models import INTERNAL_PLATFORM
+
 if TYPE_CHECKING:
     from ..repository.base import PersonaRepository
 
@@ -12,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def _is_internal_bound(persona) -> bool:
     return any(
-        (bi[0] if isinstance(bi, tuple) else getattr(bi, "platform", None)) == "internal"
+        (bi[0] if isinstance(bi, tuple) else getattr(bi, "platform", None)) == INTERNAL_PLATFORM
         for bi in (persona.bound_identities or [])
     )
 
