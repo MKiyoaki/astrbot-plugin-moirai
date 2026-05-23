@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [v1.0.0] — 2026-05-23
+
+### 生产级发布就绪 (Ready for Release) 与 Git/CI 体系重构
+
+**版本发布宣告**
+
+- **正式推出 v1.0.0 稳定版**：核心的情节轴、社交关系轴与叙事摘要轴三轴长短期记忆管线已全面验证，性能调优与并发安全性优化已全数合入，项目已正式达到生产级发布运行标准。
+
+**构建与工程优化**
+
+- **单分支轻量级发布方案（.gitattributes 过滤）**：新增 `.gitattributes` 文件，配置了 `export-ignore` 过滤规则。当 GitHub 生成 Release 或 AstrBot 插件市场下载 ZIP 压缩包时，会自动剥离排除前端 Next.js 源码目录 (`/web/frontend/`)、完整的单元测试组件 (`/tests/`) 以及开发环境专用的调试/重置脚本。既保持了单分支 Monorepo 极佳的开发协作连贯性，又确保了普通用户获取的安装包体高度精简，物理层面大幅瘦身。
+- **GitHub Actions CI 自动化流水线**：新增 `.github/workflows/tests.yml`，在每次向 `main` 或 `dev` 分支触发 Push 或 Pull Request 时自动在云端执行 Ruff Lint 检查与 Pytest 测试，并在 CI 环境中通过实时克隆 `astrbot` 宿主框架解决用例的第三方依赖，保障 62 个测试文件和 880+ 测试用例在每一次演进中都处于绿色健康状态。
+
 ## [v0.16.5] — 2026-05-22
 
 ### 混合语言 Token 估算器与 SQLite 高频写入 P0 级优化

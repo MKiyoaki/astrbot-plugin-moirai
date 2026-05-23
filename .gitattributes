@@ -1,0 +1,22 @@
+# .gitattributes
+# Ensure consistent line endings across platforms
+*.py text eol=lf
+*.md text eol=lf
+*.tsx text eol=lf
+*.ts text eol=lf
+*.css text eol=lf
+*.json text eol=lf
+
+# Exclude developer-specific files from release ZIPs (Github ZIP generation respects this)
+/web/frontend/              export-ignore
+/tests/                     export-ignore
+/tools/                     export-ignore
+/.claude/                   export-ignore
+/.agents/                   export-ignore
+/run_*_dev.py               export-ignore
+/reset_*_dev.py             export-ignore
+/test_*.py                  export-ignore
+/findings.md                export-ignore
+/.gitignore                 export-ignore
+/pyproject.toml             export-ignore
+/bump_version.py            export-ignore
