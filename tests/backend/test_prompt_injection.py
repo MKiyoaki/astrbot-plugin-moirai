@@ -234,9 +234,9 @@ def test_estimate_tokens_mixed_language() -> None:
     # 7 * 1.3 = 9.1 -> 9 tokens
     assert _estimate_tokens("我们今天吃火锅") == 9
     
-    # 4. Mixed text: "我们今天吃 hotpot!" (7 Chinese characters, 8 non-CJK characters)
-    # CJK: 7 * 1.3 = 9 tokens
-    # Non-CJK: 8 // 3 = 2 tokens
-    # Total = 11 tokens
-    assert _estimate_tokens("我们今天吃 hotpot!") == 11
+    # 4. Mixed text: "我们今天吃 hotpot!" (5 Chinese characters, 8 non-CJK characters)
+    # CJK: 5 * 1.3 = 6 tokens
+    # Non-CJK: " hotpot!" = 8 chars -> 8 // 3 = 2 tokens
+    # Total = 8 tokens
+    assert _estimate_tokens("我们今天吃 hotpot!") == 8
 
