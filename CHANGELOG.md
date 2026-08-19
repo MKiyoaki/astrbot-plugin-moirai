@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [v1.0.9] — 2026-07-21
+
+### 开发环境：realtime dev 测试数据持久化 / 断点续跑
+
+**新增功能**
+
+- **`run_realtime_dev.py` 默认保留测试数据，支持断点恢复**：不再在每次启动时归档重建、退出时删除 `.dev_data/realtime_test.db` 与本次生成的群摘要文件。启动时若检测到上次会话遗留的 `realtime_test.db`，会询问是否恢复（默认是）；选择恢复则跳过消息注入、LLM 事件抽取、人格合成、群总结、RAG 演示等全部构建阶段（Phase 1-7），直接读取已有数据启动 WebUI，不产生任何新的 LLM 调用/token 消耗。新增 `--fresh` / `--resume` 命令行参数可跳过交互式提示。退出（Ctrl+C / Ctrl+Q）时会将本次生成的群摘要暂存到 `.dev_data/realtime_groups/`，供下次恢复时换回。
+- **`reset_realtime_dev.py` 扩展为完整的硬重置工具**：新增清理 `.dev_data/realtime_groups/`（可恢复摘要暂存目录）的步骤，语义上从"崩溃应急清理"扩展为"想彻底清空重新开始时使用的重置工具"。
+
 ## [v1.0.0] — 2026-05-23
 
 ### 生产级发布就绪 (Ready for Release) 与 Git/CI 体系重构

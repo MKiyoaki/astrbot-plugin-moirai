@@ -2,12 +2,22 @@
 and serves results via WebUI at port 2656.
 
 Usage:
-    python run_realtime_dev.py
+    python run_realtime_dev.py            # auto: resume if prior session found, else build
+    python run_realtime_dev.py --resume   # force resume, skip the prompt
+    python run_realtime_dev.py --fresh    # force a full rebuild, skip the prompt
+
+Persistence:
+    .dev_data/realtime_test.db and the group summaries it generates are no longer
+    wiped on exit. If a previous session's DB is found on startup, you'll be asked
+    whether to resume (skips re-ingesting mock_realtime.json and re-running the LLM
+    extraction/synthesis/summary pipeline — no token cost) or rebuild fresh (old
+    data is archived under .dev_data/archive/, same as before).
+    Run reset_realtime_dev.py for a full, unconditional wipe back to a clean slate.
 
 Controls:
-    Press Ctrl+Q  — stop and clean up (Windows)
-    Type 'q' + Enter — stop and clean up (fallback / non-Windows)
-    Ctrl+C        — emergency stop (also triggers cleanup)
+    Press Ctrl+Q  — stop (Windows)
+    Type 'q' + Enter — stop (fallback / non-Windows)
+    Ctrl+C        — emergency stop
 
 Configurations:
     Default:   EVENT_MODE="llm" to validate the LLM extractor path first.
@@ -23,6 +33,27 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
+
+# ── Diagnostics: verbose pipeline logging ────────────────────────────────────
+# Dev-only — lives in this gitignored/dev-tooling script, does not touch any
+# core/*.py production code. Surfaces the logger.debug/info calls that already
+# exist in the extraction/embedding/LLM pipeline so a stuck run can be pinned
+# to an exact line instead of guessed at. Toggle off with --quiet.
+if "--quiet" not in sys.argv:
+    import logging as _logging
+    _logging.basicConfig(
+        level=_logging.WARNING,
+        format="%(asctime)s.%(msecs)03d [%(levelname)s][%(name)s] %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    for _name in (
+        "core.extractor.extractor",
+        "core.extractor.partitioner",
+        "core.managers.embedding_manager",
+        "core.managers.llm_manager",
+        "core.adapters.astrbot",
+    ):
+        _logging.getLogger(_name).setLevel(_logging.DEBUG)
 
 # ── tqdm with graceful fallback ──────────────────────────────────────────────
 
@@ -126,6 +157,9 @@ DEV_DATA = _ROOT / ".dev_data"
 ARCHIVE_DIR = DEV_DATA / "archive"
 REALTIME_DB = DEV_DATA / "realtime_test.db"
 DATAFLOW_DB = DEV_DATA / "dataflow_test.db"
+# Stash for this script's own group summaries between runs, so a resumed
+# session gets its markdown output back without re-running Phase 4.
+REALTIME_GROUPS_STASH = DEV_DATA / "realtime_groups"
 PORT = 2656
 
 # Tracks where the previous groups/ directory was archived so _cleanup()
@@ -133,16 +167,43 @@ PORT = 2656
 _archived_groups: Path | None = None
 
 
+# ── Resume prompt ────────────────────────────────────────────────────────────
+
+def _resume_requested() -> bool:
+    """Decide whether to resume a prior session instead of rebuilding.
+
+    --fresh / --resume on argv skip the interactive prompt. Otherwise, if no
+    prior realtime_test.db exists there's nothing to resume, so build fresh
+    silently; if one does exist, ask (default: resume).
+    """
+    if "--fresh" in sys.argv:
+        return False
+    if "--resume" in sys.argv:
+        return True
+    if not REALTIME_DB.exists():
+        return False
+    ans = input(
+        "\n[Dev] 检测到已有测试数据 (.dev_data/realtime_test.db)。"
+        "是否恢复上次会话进度，跳过重新构建？(Y/n): "
+    ).strip().lower()
+    return ans not in ("n", "no")
+
+
 # ── Archive step ──────────────────────────────────────────────────────────────
 
-def _archive_step() -> None:
-    """Back up existing DB files and relocate the summary dir before injection."""
+def _archive_step(resume: bool) -> None:
+    """Back up existing DB files and relocate the summary dir before injection.
+
+    When resuming, realtime_test.db is left untouched (it will be opened
+    directly) and any stashed realtime_groups/ from the previous session is
+    moved back into groups/ so the WebUI serves last session's summaries.
+    """
     global _archived_groups
 
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    if REALTIME_DB.exists():
+    if not resume and REALTIME_DB.exists():
         dest = ARCHIVE_DIR / f"realtime_test_stale_{ts}.db"
         try:
             shutil.move(str(REALTIME_DB), str(dest))
@@ -157,6 +218,8 @@ def _archive_step() -> None:
             except PermissionError:
                 print("[Archive] WARNING: realtime_test.db is locked and cannot be deleted. "
                       "Close any process holding it and retry.")
+    elif resume:
+        print(f"[Archive] Resuming — keeping existing realtime_test.db in place.")
 
     if DATAFLOW_DB.exists():
         dest = ARCHIVE_DIR / f"dataflow_test_{ts}.db"
@@ -171,6 +234,10 @@ def _archive_step() -> None:
         _archived_groups = dest
         print(
             f"[Archive] Moved summary dir → archive/groups_{ts}/ (will restore on exit)")
+
+    if resume and REALTIME_GROUPS_STASH.exists():
+        shutil.move(str(REALTIME_GROUPS_STASH), str(groups_dir))
+        print("[Archive] Restored previous session's group summaries → groups/")
 
 
 # ── Mock_Data.md parser ───────────────────────────────────────────────────────
@@ -233,16 +300,19 @@ def _cleanup() -> None:
     global _archived_groups
 
     if REALTIME_DB.exists():
-        REALTIME_DB.unlink()
-        print("[Cleanup] Deleted realtime_test.db")
+        print("[Cleanup] realtime_test.db preserved — run again to resume, "
+              "or use reset_realtime_dev.py for a clean slate.")
     else:
-        print("[Cleanup] realtime_test.db already removed")
+        print("[Cleanup] realtime_test.db not present")
 
-    # Remove realtime-generated summary files
+    # Stash this session's generated summary files (replacing any older
+    # stash) so a future resume can put them back.
     realtime_groups = DEV_DATA / "groups"
     if realtime_groups.exists():
-        shutil.rmtree(str(realtime_groups))
-        print("[Cleanup] Removed realtime summary files")
+        if REALTIME_GROUPS_STASH.exists():
+            shutil.rmtree(str(REALTIME_GROUPS_STASH))
+        shutil.move(str(realtime_groups), str(REALTIME_GROUPS_STASH))
+        print("[Cleanup] Stashed realtime summary files → .dev_data/realtime_groups/")
 
     # Restore the original summary dir that was moved at startup
     if _archived_groups is not None and _archived_groups.exists():
@@ -257,11 +327,13 @@ def _cleanup() -> None:
 # ── Main async pipeline ───────────────────────────────────────────────────────
 
 async def main() -> None:
-    # Step 1: Archive existing state
+    # Step 1: Resume decision + archive existing state
     print("=" * 70)
     print("  REALTIME DEV TEST  |  EVENT_MODE:", _EVENT_MODE.upper(), " |  LLM:", LLM_MODEL)
     print("=" * 70)
-    _archive_step()
+    resume = _resume_requested()
+    print(f"  MODE: {'RESUME (skip rebuild)' if resume else 'FRESH BUILD'}")
+    _archive_step(resume)
 
     # Step 2: Imports (lazy, inside main — same pattern as run_dataflow_dev.py)
     from core.utils.llm import SimpleLLMClient, MockProviderBridge  # noqa: F401 (SimpleLLMClient kept for reference)
@@ -452,15 +524,17 @@ async def main() -> None:
                 )
         print("=" * 58)
 
-    # Step 3: Parse Mock_Data.md
-    print(f"\n[Parser] Reading {MOCK_DATA_PATH.name} ...")
-    if not MOCK_DATA_PATH.exists():
-        print(f"[Parser] ERROR: file not found at {MOCK_DATA_PATH}")
-        return
-    messages = _parse_mock_data(MOCK_DATA_PATH)
-    groups = {m["group_id"] for m in messages}
-    print(
-        f"[Parser] {len(messages)} messages parsed across {len(groups)} groups: {sorted(groups)}")
+    # Step 3: Parse Mock_Data.md (skipped when resuming — nothing to (re-)ingest)
+    messages: list[dict] = []
+    if not resume:
+        print(f"\n[Parser] Reading {MOCK_DATA_PATH.name} ...")
+        if not MOCK_DATA_PATH.exists():
+            print(f"[Parser] ERROR: file not found at {MOCK_DATA_PATH}")
+            return
+        messages = _parse_mock_data(MOCK_DATA_PATH)
+        groups = {m["group_id"] for m in messages}
+        print(
+            f"[Parser] {len(messages)} messages parsed across {len(groups)} groups: {sorted(groups)}")
 
     # Step 4: Config (mirrors run_dataflow_dev.py)
     def _build_config(mode: str) -> PluginConfig:
@@ -540,227 +614,243 @@ async def main() -> None:
         from core.managers.llm_manager import LLMTaskManager
         llm_manager = LLMTaskManager(concurrency=cfg.llm_concurrency)
 
-        # ── 模拟 Persona 选项 ──────────────────────────────────────────
-        use_mock_persona = input(
-            "\n[Dev] 是否启用模拟性格进行 [Eval] 测试？(y/N): "
-        ).strip().lower() in ("y", "yes")
+        if not resume:
+            # ── 模拟 Persona 选项 ──────────────────────────────────────────
+            use_mock_persona = input(
+                "\n[Dev] 是否启用模拟性格进行 [Eval] 测试？(y/N): "
+            ).strip().lower() in ("y", "yes")
 
-        if use_mock_persona:
-            import time as _time
-            from core.domain.models import Persona as _Persona
-            _persona_text = MOCK_PERSONA_PATH.read_text(encoding="utf-8")
-            _persona_name = "MockPersona"
-            for _line in _persona_text.splitlines():
-                if _line.startswith("# Mock Persona:"):
-                    _persona_name = _line.removeprefix(
-                        "# Mock Persona:").strip()
-                    break
-            _mock_persona = _Persona(
-                uid="bot_internal_gariton",
-                bound_identities=[("internal", "gariton")],
-                primary_name=_persona_name,
-                persona_attrs={"description": _persona_text},
-                confidence=0.9,
-                created_at=_time.time(),
-                last_active_at=_time.time(),
-            )
-            await persona_repo.upsert(_mock_persona)
-            print("[Dev] persona 已植入。")
-
-        extractor_cfg = cfg.get_extractor_config()
-        if use_mock_persona:
-            extractor_cfg.persona_influenced_summary = True
-
-        extractor = EventExtractor(
-            event_repo=event_repo,
-            provider_getter=lambda: mock_provider,
-            encoder=encoder,
-            extractor_config=extractor_cfg,
-            big_five_buffer=BigFiveBuffer(x_messages=10),
-            orientation_analyzer=SocialOrientationAnalyzer(
-                impression_repo=impression_repo,
-                event_repo=event_repo,
-                cfg=cfg,
-            ),
-            ipc_enabled=True,
-            persona_repo=persona_repo,
-            llm_manager=llm_manager,
-            raw_message_repo=raw_message_repo,
-            raw_message_writer=raw_message_writer,
-        )
-
-        extraction_futures: list[asyncio.Task] = []
-
-        async def on_event_close(window):
-            task = asyncio.create_task(extractor(window))
-            extraction_futures.append(task)
-
-        router = MessageRouter(
-            event_repo=event_repo,
-            identity_resolver=resolver,
-            detector=detector,
-            context_manager=context_manager,
-            encoder=encoder,
-            on_event_close=on_event_close,
-            raw_message_writer=raw_message_writer,
-        )
-
-        # ── Phase 1: Message ingestion ──────────────────────────────────────
-        print(f"\n[Phase 1] Ingesting {len(messages)} messages ...")
-        with _tqdm(total=len(messages), desc="  Ingesting", unit="msg") as bar:
-            for msg in messages:
-                await router.process(
-                    platform="discord",
-                    physical_id=msg["user_id"],
-                    display_name=msg["nickname"],
-                    text=msg["content"],
-                    raw_group_id=msg["group_id"],
-                    now=msg["timestamp"],
+            if use_mock_persona:
+                import time as _time
+                from core.domain.models import Persona as _Persona
+                _persona_text = MOCK_PERSONA_PATH.read_text(encoding="utf-8")
+                _persona_name = "MockPersona"
+                for _line in _persona_text.splitlines():
+                    if _line.startswith("# Mock Persona:"):
+                        _persona_name = _line.removeprefix(
+                            "# Mock Persona:").strip()
+                        break
+                _mock_persona = _Persona(
+                    uid="bot_internal_gariton",
+                    bound_identities=[("internal", "gariton")],
+                    primary_name=_persona_name,
+                    persona_attrs={"description": _persona_text},
+                    confidence=0.9,
+                    created_at=_time.time(),
+                    last_active_at=_time.time(),
                 )
-                bar.update(1)
+                await persona_repo.upsert(_mock_persona)
+                print("[Dev] persona 已植入。")
 
-        print("[Phase 1] Flushing router windows ...")
-        await router.flush_all()
-        await raw_message_writer.flush_once()
-        print(
-            f"[Phase 1] Done. {len(extraction_futures)} extraction task(s) queued.")
+            extractor_cfg = cfg.get_extractor_config()
+            if use_mock_persona:
+                extractor_cfg.persona_influenced_summary = True
 
-        # ── Phase 2: Wait for LLM extraction ───────────────────────────────
-        if extraction_futures:
-            print(
-                f"\n[Phase 2] Running {len(extraction_futures)} LLM extraction task(s) ...")
-            with _tqdm(total=len(extraction_futures), desc="  Extracting", unit="task") as bar:
-                for fut in asyncio.as_completed(extraction_futures):
-                    try:
-                        await fut
-                    except Exception as exc:
-                        print(f"\n  [Warning] Extraction task raised: {exc}")
+            extractor = EventExtractor(
+                event_repo=event_repo,
+                provider_getter=lambda: mock_provider,
+                encoder=encoder,
+                extractor_config=extractor_cfg,
+                big_five_buffer=BigFiveBuffer(x_messages=10),
+                orientation_analyzer=SocialOrientationAnalyzer(
+                    impression_repo=impression_repo,
+                    event_repo=event_repo,
+                    cfg=cfg,
+                ),
+                ipc_enabled=True,
+                persona_repo=persona_repo,
+                llm_manager=llm_manager,
+                raw_message_repo=raw_message_repo,
+                raw_message_writer=raw_message_writer,
+            )
+
+            extraction_futures: list[asyncio.Task] = []
+
+            async def on_event_close(window):
+                task = asyncio.create_task(extractor(window))
+                extraction_futures.append(task)
+
+            router = MessageRouter(
+                event_repo=event_repo,
+                identity_resolver=resolver,
+                detector=detector,
+                context_manager=context_manager,
+                encoder=encoder,
+                on_event_close=on_event_close,
+                raw_message_writer=raw_message_writer,
+            )
+
+            # ── Phase 1: Message ingestion ──────────────────────────────────────
+            print(f"\n[Phase 1] Ingesting {len(messages)} messages ...")
+            with _tqdm(total=len(messages), desc="  Ingesting", unit="msg") as bar:
+                for msg in messages:
+                    await router.process(
+                        platform="discord",
+                        physical_id=msg["user_id"],
+                        display_name=msg["nickname"],
+                        text=msg["content"],
+                        raw_group_id=msg["group_id"],
+                        now=msg["timestamp"],
+                    )
                     bar.update(1)
+
+            print("[Phase 1] Flushing router windows ...")
+            await router.flush_all()
+            await raw_message_writer.flush_once()
+            print(
+                f"[Phase 1] Done. {len(extraction_futures)} extraction task(s) queued.")
+
+            # ── Phase 2: Wait for LLM extraction ───────────────────────────────
+            if extraction_futures:
+                print(
+                    f"\n[Phase 2] Running {len(extraction_futures)} LLM extraction task(s) ...")
+                with _tqdm(total=len(extraction_futures), desc="  Extracting", unit="task") as bar:
+                    for fut in asyncio.as_completed(extraction_futures):
+                        try:
+                            await fut
+                        except Exception as exc:
+                            print(f"\n  [Warning] Extraction task raised: {exc}")
+                        bar.update(1)
+            else:
+                print("\n[Phase 2] No extraction tasks queued.")
+
+            # ── Phase 3: Persona synthesis (writes big_five + big_five_evidence) ──
+            print("\n[Phase 3] Running persona synthesis ...")
+            from core.tasks.synthesis import run_persona_synthesis
+            from core.config import SynthesisConfig
+            synthesis_cfg = SynthesisConfig(llm_timeout=_TIMEOUT)
+            n_synth = await run_persona_synthesis(
+                persona_repo=persona_repo,
+                event_repo=event_repo,
+                provider_getter=lambda: mock_provider,
+                synthesis_config=synthesis_cfg,
+                llm_manager=llm_manager,
+            )
+            print(f"[Phase 3] Persona synthesis: {n_synth} persona(s) updated.")
+
+            # ── Phase 4: Generate group summaries via LLM ──────────────────────
+            print("\n[Phase 4] Generating group summaries via LLM ...")
+            from core.tasks.summary import run_group_summary
+            from core.config import SummaryConfig  # noqa: F811 (re-import for local use)
+            # match Gemma 26B latency
+            summary_cfg = SummaryConfig(
+                llm_timeout=300.0, mood_source=_MOOD_SOURCE)
+            n_written = await run_group_summary(
+                event_repo=event_repo,
+                data_dir=DEV_DATA,
+                provider_getter=lambda: mock_provider,
+                summary_config=summary_cfg,
+                persona_repo=persona_repo,
+                impression_repo=impression_repo,
+                llm_manager=llm_manager,
+            )
+            print(f"[Phase 4] {n_written} summary file(s) written.")
+
+            # ── Success summary ─────────────────────────────────────────────────
+            events = await event_repo.list_all(limit=10_000)
+            personas = await persona_repo.list_all()
+            async with db.execute("SELECT COUNT(*) FROM impressions") as cur:
+                row = await cur.fetchone()
+            imp_count = row[0] if row else 0
+
+            print("\n" + "=" * 70)
+            print("  INJECTION COMPLETE")
+            print(f"  Events      : {len(events)}")
+            print(f"  Personas    : {len(personas)}")
+            print(f"  Impressions : {imp_count}")
+            print("=" * 70)
+            await _print_event_quality_report(events, db)
+
+            # ── Phase 5: RAG Validation & Prompt Injection ──────────────────────
+            print("\n[Phase 5] Testing RAG Retrieval and Prompt Injection ...")
+            query = "卿泽对原神的看法是什么？大家都说了些什么？"
+            sid_rag = "test:114514"
+            test_group_id = "114514"
+            llm_client = SimpleLLMClient(LLM_API_URL, LLM_API_KEY, LLM_MODEL)
+
+            req = ProviderRequest(
+                prompt="You are now in a chatroom. The user asks: " + query,
+                system_prompt=(
+                    "You are a helpful assistant. For this dev validation, answer only from "
+                    "explicitly provided memory evidence. If the memory block does not contain "
+                    "the requested fact, say there is no evidence. Cite the recalled event topic "
+                    "or say which evidence is missing."
+                ),
+            )
+
+            print(f"  [LLM] Generating response WITHOUT memory for query: '{query}'")
+            try:
+                resp_no_mem = await llm_client.text_chat(req.prompt, req.system_prompt)
+                no_mem_text = resp_no_mem.completion_text
+            except Exception as e:
+                print(f"  [Warning] LLM call failed ({e}). Using simulated response.")
+                no_mem_text = "I don't know who Rain is."
+
+            # Force RECALL state for testing
+            context_manager._states[sid_rag] = VCMState.RECALL
+
+            injected_count = await recall.recall_and_inject(
+                query=query,
+                req=req,
+                session_id=sid_rag,
+                group_id=test_group_id,
+                store_debug=True,
+                store_injection_debug=True,
+            )
+            print(f"  [Recall] Injected {injected_count} event(s).")
+            await _print_recall_diagnostics(query, test_group_id, retriever, recall, req)
+
+            print(f"  [LLM] Generating response WITH memory ...")
+            try:
+                resp_with_mem = await llm_client.text_chat(req.prompt, req.system_prompt)
+                with_mem_text = resp_with_mem.completion_text
+            except Exception as e:
+                print(f"  [Warning] LLM call failed ({e}). Using simulated response.")
+                with_mem_text = "Based on the chat history, Rain mentions playing Genshin Impact..."
+
+            print("\n  " + "=" * 20 + " RAG COMPARISON " + "=" * 20)
+            print(f"  QUERY: {query}")
+            print("  " + "-" * 40)
+            print(f"  BEFORE MEMORY:\n  {no_mem_text[:200]}...")
+            print("  " + "-" * 40)
+            print(f"  AFTER MEMORY (RAG):\n  {with_mem_text[:200]}...")
+            print("  " + "=" * 52)
+            await _run_recall_benchmark()
+
+            # ── Phase 6: VCM State Stress Test ──────────────────────────────────
+            print("\n[Phase 6] VCM State Stress Test (Focused -> Eviction -> Drift) ...")
+            small_cfg = ContextConfig(vcm_enabled=True, window_size=5)
+            stress_cm = ContextManager(small_cfg)
+            stress_sid = "test:stress"
+
+            print(f"  Initial State: {stress_cm.update_state(stress_sid).value}")
+            # Fill to trigger EVICTION (80% of 5 = 4 messages)
+            win = stress_cm.get_window(stress_sid, create=True)
+            for i in range(4):
+                win.add_message("u", f"stress {i}", time.time())
+                state = stress_cm.update_state(stress_sid)
+                print(f"  Msg {i+1}: State -> {state.value}")
+
+            state = stress_cm.update_state(stress_sid, drift_detected=True)
+            print(f"  Topic Drift Detected: State -> {state.value}")
+
+            # ── Phase 7: Performance Metrics ────────────────────────────────────
+            await _print_perf_report()
         else:
-            print("\n[Phase 2] No extraction tasks queued.")
+            # ── Resume: skip build entirely, just report what's already there ──
+            events = await event_repo.list_all(limit=10_000)
+            personas = await persona_repo.list_all()
+            async with db.execute("SELECT COUNT(*) FROM impressions") as cur:
+                row = await cur.fetchone()
+            imp_count = row[0] if row else 0
 
-        # ── Phase 3: Persona synthesis (writes big_five + big_five_evidence) ──
-        print("\n[Phase 3] Running persona synthesis ...")
-        from core.tasks.synthesis import run_persona_synthesis
-        from core.config import SynthesisConfig
-        synthesis_cfg = SynthesisConfig(llm_timeout=_TIMEOUT)
-        n_synth = await run_persona_synthesis(
-            persona_repo=persona_repo,
-            event_repo=event_repo,
-            provider_getter=lambda: mock_provider,
-            synthesis_config=synthesis_cfg,
-            llm_manager=llm_manager,
-        )
-        print(f"[Phase 3] Persona synthesis: {n_synth} persona(s) updated.")
-
-        # ── Phase 4: Generate group summaries via LLM ──────────────────────
-        print("\n[Phase 4] Generating group summaries via LLM ...")
-        from core.tasks.summary import run_group_summary
-        from core.config import SummaryConfig  # noqa: F811 (re-import for local use)
-        # match Gemma 26B latency
-        summary_cfg = SummaryConfig(
-            llm_timeout=300.0, mood_source=_MOOD_SOURCE)
-        n_written = await run_group_summary(
-            event_repo=event_repo,
-            data_dir=DEV_DATA,
-            provider_getter=lambda: mock_provider,
-            summary_config=summary_cfg,
-            persona_repo=persona_repo,
-            impression_repo=impression_repo,
-            llm_manager=llm_manager,
-        )
-        print(f"[Phase 4] {n_written} summary file(s) written.")
-
-        # ── Success summary ─────────────────────────────────────────────────
-        events = await event_repo.list_all(limit=10_000)
-        personas = await persona_repo.list_all()
-        async with db.execute("SELECT COUNT(*) FROM impressions") as cur:
-            row = await cur.fetchone()
-        imp_count = row[0] if row else 0
-
-        print("\n" + "=" * 70)
-        print("  INJECTION COMPLETE")
-        print(f"  Events      : {len(events)}")
-        print(f"  Personas    : {len(personas)}")
-        print(f"  Impressions : {imp_count}")
-        print("=" * 70)
-        await _print_event_quality_report(events, db)
-
-        # ── Phase 5: RAG Validation & Prompt Injection ──────────────────────
-        print("\n[Phase 5] Testing RAG Retrieval and Prompt Injection ...")
-        query = "卿泽对原神的看法是什么？大家都说了些什么？"
-        sid_rag = "test:114514"
-        test_group_id = "114514"
-        llm_client = SimpleLLMClient(LLM_API_URL, LLM_API_KEY, LLM_MODEL)
-
-        req = ProviderRequest(
-            prompt="You are now in a chatroom. The user asks: " + query,
-            system_prompt=(
-                "You are a helpful assistant. For this dev validation, answer only from "
-                "explicitly provided memory evidence. If the memory block does not contain "
-                "the requested fact, say there is no evidence. Cite the recalled event topic "
-                "or say which evidence is missing."
-            ),
-        )
-
-        print(f"  [LLM] Generating response WITHOUT memory for query: '{query}'")
-        try:
-            resp_no_mem = await llm_client.text_chat(req.prompt, req.system_prompt)
-            no_mem_text = resp_no_mem.completion_text
-        except Exception as e:
-            print(f"  [Warning] LLM call failed ({e}). Using simulated response.")
-            no_mem_text = "I don't know who Rain is."
-
-        # Force RECALL state for testing
-        context_manager._states[sid_rag] = VCMState.RECALL
-        
-        injected_count = await recall.recall_and_inject(
-            query=query,
-            req=req,
-            session_id=sid_rag,
-            group_id=test_group_id,
-            store_debug=True,
-            store_injection_debug=True,
-        )
-        print(f"  [Recall] Injected {injected_count} event(s).")
-        await _print_recall_diagnostics(query, test_group_id, retriever, recall, req)
-
-        print(f"  [LLM] Generating response WITH memory ...")
-        try:
-            resp_with_mem = await llm_client.text_chat(req.prompt, req.system_prompt)
-            with_mem_text = resp_with_mem.completion_text
-        except Exception as e:
-            print(f"  [Warning] LLM call failed ({e}). Using simulated response.")
-            with_mem_text = "Based on the chat history, Rain mentions playing Genshin Impact..."
-
-        print("\n  " + "=" * 20 + " RAG COMPARISON " + "=" * 20)
-        print(f"  QUERY: {query}")
-        print("  " + "-" * 40)
-        print(f"  BEFORE MEMORY:\n  {no_mem_text[:200]}...")
-        print("  " + "-" * 40)
-        print(f"  AFTER MEMORY (RAG):\n  {with_mem_text[:200]}...")
-        print("  " + "=" * 52)
-        await _run_recall_benchmark()
-
-        # ── Phase 6: VCM State Stress Test ──────────────────────────────────
-        print("\n[Phase 6] VCM State Stress Test (Focused -> Eviction -> Drift) ...")
-        small_cfg = ContextConfig(vcm_enabled=True, window_size=5)
-        stress_cm = ContextManager(small_cfg)
-        stress_sid = "test:stress"
-        
-        print(f"  Initial State: {stress_cm.update_state(stress_sid).value}")
-        # Fill to trigger EVICTION (80% of 5 = 4 messages)
-        win = stress_cm.get_window(stress_sid, create=True)
-        for i in range(4):
-            win.add_message("u", f"stress {i}", time.time())
-            state = stress_cm.update_state(stress_sid)
-            print(f"  Msg {i+1}: State -> {state.value}")
-            
-        state = stress_cm.update_state(stress_sid, drift_detected=True)
-        print(f"  Topic Drift Detected: State -> {state.value}")
-
-        # ── Phase 7: Performance Metrics ────────────────────────────────────
-        await _print_perf_report()
+            print("\n" + "=" * 70)
+            print("  RESUMED FROM PREVIOUS SESSION  (no LLM calls made)")
+            print(f"  Events      : {len(events)}")
+            print(f"  Personas    : {len(personas)}")
+            print(f"  Impressions : {imp_count}")
+            print("=" * 70)
+            await _print_event_quality_report(events, db)
 
         # ── Phase 8: Start WebUI ────────────────────────────────────────────
         from core.tasks.synthesis import run_persona_synthesis as _run_persona_synthesis, run_impression_recalculation

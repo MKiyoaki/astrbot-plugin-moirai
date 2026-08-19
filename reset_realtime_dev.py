@@ -1,15 +1,21 @@
-"""Emergency synchronous reset for the realtime dev environment.
+"""Hard reset for the realtime dev environment.
 
-Run this if run_realtime_dev.py crashed and left a stale state.
+run_realtime_dev.py now persists .dev_data/realtime_test.db and its generated
+group summaries (.dev_data/realtime_groups/) across runs so you can resume a
+session without re-running the LLM pipeline. Run this script whenever you
+want to intentionally discard that state and start from a clean slate — or
+if run_realtime_dev.py crashed and left things in an inconsistent state.
 Mirrors every mutation that run_realtime_dev._archive_step() performed:
 
   1. Deletes .dev_data/realtime_test.db (if present)
-  2. Restores the most-recent .dev_data/archive/dataflow_test_*.db
+  2. Deletes .dev_data/realtime_groups/ (the resumable summary stash, if present)
+  3. Restores the most-recent .dev_data/archive/dataflow_test_*.db
      back to .dev_data/dataflow_test.db (original is usually still intact
      because _archive_step uses copy2, but restores from archive on crash)
-  3. Removes any realtime-generated .dev_data/groups/ directory
-  4. Restores the most-recent .dev_data/archive/groups_<ts>/ back to
+  4. Removes any realtime-generated .dev_data/groups/ directory
+  5. Restores the most-recent .dev_data/archive/groups_<ts>/ back to
      .dev_data/groups/ (the demo summary files from run_webui_dev.py)
+  6. Wipes all remaining .dev_data/archive/ history
 
 Usage:
     python reset_realtime_dev.py
@@ -19,12 +25,13 @@ import shutil
 import sys
 from pathlib import Path
 
-_ROOT       = Path(__file__).parent
-DEV_DATA    = _ROOT / ".dev_data"
-REALTIME_DB = DEV_DATA / "realtime_test.db"
-DATAFLOW_DB = DEV_DATA / "dataflow_test.db"
-GROUPS_DIR  = DEV_DATA / "groups"
-ARCHIVE_DIR = DEV_DATA / "archive"
+_ROOT           = Path(__file__).parent
+DEV_DATA        = _ROOT / ".dev_data"
+REALTIME_DB     = DEV_DATA / "realtime_test.db"
+REALTIME_GROUPS = DEV_DATA / "realtime_groups"
+DATAFLOW_DB     = DEV_DATA / "dataflow_test.db"
+GROUPS_DIR      = DEV_DATA / "groups"
+ARCHIVE_DIR     = DEV_DATA / "archive"
 
 
 def main() -> int:
@@ -46,6 +53,16 @@ def main() -> int:
             print(f"[Reset] Error deleting {REALTIME_DB.name}: {e}")
     else:
         print(f"[Reset] {REALTIME_DB.name} not found — nothing to delete")
+
+    # Step 1b: Delete the resumable summary stash
+    if REALTIME_GROUPS.exists():
+        try:
+            shutil.rmtree(REALTIME_GROUPS)
+            print(f"[Reset] Deleted {REALTIME_GROUPS.name}/")
+        except Exception as e:
+            print(f"[Reset] Error deleting {REALTIME_GROUPS.name}/: {e}")
+    else:
+        print(f"[Reset] {REALTIME_GROUPS.name}/ not found — nothing to delete")
 
     if not ARCHIVE_DIR.exists():
         print("[Reset] No archive directory found — skipping remaining restore steps")
