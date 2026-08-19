@@ -47,14 +47,13 @@ from core.event_handler import EventHandler
 from core.domain.models import Event
 from core.config import PluginConfig
 from astrbot.api.star import Context, Star, StarTools, register
-from astrbot.api.event import filter
+from astrbot.api.event import filter, AstrMessageEvent
 from typing import TYPE_CHECKING
 import uuid
 import time
 
 
 if TYPE_CHECKING:
-    from astrbot.api.event import AstrMessageEvent
     from astrbot.api.provider import ProviderRequest, ProviderResponse
     from astrbot.api.model import CommandResult
 
