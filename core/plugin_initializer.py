@@ -362,6 +362,7 @@ class PluginInitializer:
         self.scheduler = TaskScheduler()
 
         cleanup_cfg = cfg.get_cleanup_config()
+        extractor_cfg = cfg.get_extractor_config()
 
         async def _decay_task() -> None:
             if cfg.decay_enabled and self.memory:
@@ -375,7 +376,12 @@ class PluginInitializer:
 
         async def _cleanup_task() -> None:
             if cleanup_cfg.enabled:
-                await run_memory_cleanup(event_repo, cleanup_cfg)
+                await run_memory_cleanup(
+                    event_repo, cleanup_cfg,
+                    tag_promotion_min_df=extractor_cfg.tag_promotion_min_df,
+                    tag_candidate_ttl_days=extractor_cfg.tag_candidate_ttl_days,
+                    tag_seeds=extractor_cfg.tag_seeds,
+                )
             await run_raw_message_cleanup(
                 raw_message_repo,
                 retention_days=cleanup_cfg.raw_message_retention_days,

@@ -482,17 +482,14 @@ class PluginRoutes:
                 bot_persona_name=bot_persona_name, include_legacy=include_legacy,
             )
         else:
-            group_ids = await self._event_repo.list_group_ids()
-            if not group_ids:
-                return {"items": []}
-            per_group = max(1, limit // len(group_ids))
-            events: list[Event] = []
-            for gid in group_ids:
-                events.extend(await self._event_repo.list_by_group(
-                    gid, limit=per_group,
-                    bot_persona_name=bot_persona_name, include_legacy=include_legacy,
-                ))
-            events = events[:limit]
+            # One time-ordered query. The previous per-group quota
+            # (limit // len(group_ids)) let dormant groups crowd out recent
+            # activity, so the newest events were missing from a list the UI
+            # presents chronologically.
+            events = await self._event_repo.list_all(
+                limit=limit,
+                bot_persona_name=bot_persona_name, include_legacy=include_legacy,
+            )
         return {"items": await self._events_to_dicts(events), "total": len(events)}
 
     async def graph_data(self, bot_persona_name: str | None = None) -> dict[str, Any]:
@@ -1072,12 +1069,9 @@ class PluginRoutes:
         })
 
     async def _handle_tags(self, request: web.Request) -> web.Response:
-        counts: dict[str, int] = {}
-        for gid in await self._event_repo.list_group_ids():
-            for ev in await self._event_repo.list_by_group(gid, limit=10_000):
-                for tag in (ev.chat_content_tags or []):
-                    counts[tag] = counts.get(tag, 0) + 1
-        tags = [{"name": k, "count": v} for k, v in sorted(counts.items(), key=lambda x: -x[1])]
+        # One aggregate, replacing a full event load per group just to tally tags.
+        counts = await self._event_repo.count_tags()
+        tags = [{"name": k, "count": v} for k, v in counts.items()]
         return _json({"tags": tags})
 
     # ------------------------------------------------------------------

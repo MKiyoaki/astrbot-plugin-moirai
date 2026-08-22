@@ -28,6 +28,7 @@ import math
 import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Any, AsyncIterator
 
 import aiosqlite
@@ -44,6 +45,7 @@ from ..domain.models import (
 )
 from .base import (
     EventRepository,
+    EventStatusStats,
     ImpressionRepository,
     PersonaGroupRepository,
     PersonaRepository,
@@ -529,6 +531,11 @@ class SQLitePersonaRepository(PersonaRepository):
             rows = await cur.fetchall()
         return [_row_to_persona(r) for r in rows]
 
+    async def count(self) -> int:
+        async with self._db.execute("SELECT COUNT(*) FROM personas") as cur:
+            row = await cur.fetchone()
+        return row[0] if row else 0
+
     async def upsert(self, persona: Persona) -> None:
         async with _txn(self._db, self._lock):
             await self._db.execute(
@@ -923,6 +930,32 @@ class SQLiteEventRepository(EventRepository):
             row = await cur.fetchone()
         return row[0] if row else 0
 
+    async def aggregate_by_status(self) -> dict[str, EventStatusStats]:
+        async with self._db.execute(
+            "SELECT status, COUNT(*), "
+            "COALESCE(SUM(CASE WHEN is_locked THEN 1 ELSE 0 END), 0), "
+            "COALESCE(AVG(salience), 0.0), COALESCE(MIN(salience), 0.0), "
+            "COALESCE(MAX(salience), 0.0) "
+            "FROM events GROUP BY status"
+        ) as cur:
+            rows = await cur.fetchall()
+        return {
+            row[0]: EventStatusStats(
+                total=row[1], locked=row[2],
+                avg_salience=row[3], min_salience=row[4], max_salience=row[5],
+            )
+            for row in rows
+        }
+
+    async def count_groups(self) -> int:
+        # A nested DISTINCT keeps NULL (private chat) counted as one group,
+        # which COUNT(DISTINCT group_id) would drop.
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM (SELECT DISTINCT group_id FROM events)"
+        ) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else 0
+
     async def list_by_status(
         self, status: str, limit: int = 100,
         bot_persona_name: str | None = None, include_legacy: bool = True,
@@ -1261,23 +1294,53 @@ class SQLiteEventRepository(EventRepository):
             rows = await cur.fetchall()
         return [row[0] for row in rows]
 
+    async def count_tags(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> dict[str, int]:
+        where, params = _persona_where(bot_persona_name, include_legacy)
+        sql = (
+            "SELECT value, COUNT(*) FROM events, json_each(events.chat_content_tags)"
+        )
+        if where:
+            sql += " WHERE " + where
+        sql += " GROUP BY value ORDER BY COUNT(*) DESC, value ASC"
+        async with self._db.execute(sql, tuple(params)) as cur:
+            rows = await cur.fetchall()
+        return {row[0]: row[1] for row in rows if row[0]}
+
     async def search_canonical_tag(
-        self, embedding: list[float], limit: int = 5, threshold: float = 0.85
+        self, embedding: list[float], limit: int = 5, threshold: float = 0.85,
+        prefer_min_df: int = 0, exclude: Sequence[str] | None = None,
     ) -> list[tuple[str, float]]:
         if not embedding:
             return []
         try:
-            # sqlite-vec distance for cosine is 1 - similarity.
-            # similarity = 1 - distance.
+            # sqlite-vec needs its own k, and the exclude predicate is applied
+            # after the vector scan — over-fetch so filtered rows do not eat
+            # into the caller's limit.
+            excluded = [t for t in (exclude or []) if t]
+            clauses = ["embedding MATCH ?", "k = ?", "similarity >= ?"]
+            params: list[Any] = [json.dumps(embedding), max(limit * 4, 20), threshold]
+            if excluded:
+                clauses.append(
+                    "c.tag_text NOT IN (" + ",".join("?" * len(excluded)) + ")"
+                )
+                params.extend(excluded)
+            if prefer_min_df > 0:
+                # Established anchors first, then by similarity.
+                order = "ORDER BY (c.df >= ?) DESC, v.distance"
+                params.append(prefer_min_df)
+            else:
+                order = "ORDER BY v.distance"
+            params.append(limit)
             async with self._db.execute(
                 "SELECT c.tag_text, (1.0 - v.distance) as similarity "
                 "FROM tags_vec v "
                 "JOIN canonical_tags c ON c.id = v.rowid "
-                "WHERE embedding MATCH ? "
-                "AND similarity >= ? "
-                "ORDER BY distance "
+                "WHERE " + " AND ".join(clauses) + " "
+                + order + " "
                 "LIMIT ?",
-                (json.dumps(embedding), threshold, limit),
+                tuple(params),
             ) as cur:
                 rows = await cur.fetchall()
             return [(row[0], row[1]) for row in rows]
@@ -1285,13 +1348,15 @@ class SQLiteEventRepository(EventRepository):
             logger.debug("[SQLiteEventRepository] search_canonical_tag failed: %s", exc)
             return []
 
-    async def upsert_canonical_tag(self, tag_text: str, embedding: list[float]) -> None:
+    async def upsert_canonical_tag(
+        self, tag_text: str, embedding: list[float], df_delta: int = 1,
+    ) -> None:
         import time
         async with _txn(self._db, self._lock):
             await self._db.execute(
-                "INSERT INTO canonical_tags(tag_text, created_at) VALUES (?, ?) "
-                "ON CONFLICT(tag_text) DO NOTHING",
-                (tag_text, time.time()),
+                "INSERT INTO canonical_tags(tag_text, created_at, df) VALUES (?, ?, ?) "
+                "ON CONFLICT(tag_text) DO UPDATE SET df = df + ?",
+                (tag_text, time.time(), max(df_delta, 0), df_delta),
             )
             try:
                 await self._db.execute(
@@ -1301,6 +1366,45 @@ class SQLiteEventRepository(EventRepository):
                 )
             except Exception as exc:
                 logger.debug("[SQLiteEventRepository] upsert_canonical_tag vector failed: %s", exc)
+
+    async def bump_canonical_tag_df(self, tag_text: str, delta: int = 1) -> int:
+        async with _txn(self._db, self._lock):
+            await self._db.execute(
+                "UPDATE canonical_tags SET df = df + ? WHERE tag_text = ?",
+                (delta, tag_text),
+            )
+        async with self._db.execute(
+            "SELECT df FROM canonical_tags WHERE tag_text = ?", (tag_text,)
+        ) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else 0
+
+    async def prune_canonical_tags(
+        self, min_df: int, older_than_ts: float,
+        protect: Sequence[str] | None = None,
+    ) -> int:
+        protected = [t for t in (protect or []) if t]
+        sql = "SELECT id FROM canonical_tags WHERE df < ? AND created_at < ?"
+        params: list[Any] = [min_df, older_than_ts]
+        if protected:
+            sql += " AND tag_text NOT IN (" + ",".join("?" * len(protected)) + ")"
+            params.extend(protected)
+        async with _txn(self._db, self._lock):
+            async with self._db.execute(sql, tuple(params)) as cur:
+                ids = [row[0] for row in await cur.fetchall()]
+            if not ids:
+                return 0
+            placeholders = ",".join("?" * len(ids))
+            try:
+                await self._db.execute(
+                    f"DELETE FROM tags_vec WHERE rowid IN ({placeholders})", tuple(ids)
+                )
+            except Exception as exc:
+                logger.debug("[SQLiteEventRepository] prune tags_vec failed: %s", exc)
+            cursor = await self._db.execute(
+                f"DELETE FROM canonical_tags WHERE id IN ({placeholders})", tuple(ids)
+            )
+            return int(cursor.rowcount or 0)
 
 
 # ---------------------------------------------------------------------------
@@ -1390,6 +1494,21 @@ class SQLiteImpressionRepository(ImpressionRepository):
         async with self._db.execute(sql, tuple(params)) as cur:
             rows = await cur.fetchall()
         return [_row_to_impression(r) for r in rows]
+
+    async def count_all(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+        known_observers_only: bool = False,
+    ) -> int:
+        where, params = _persona_where(bot_persona_name, include_legacy)
+        clauses = [where] if where else []
+        if known_observers_only:
+            clauses.append("observer_uid IN (SELECT uid FROM personas)")
+        sql = "SELECT COUNT(*) FROM impressions"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        async with self._db.execute(sql, tuple(params)) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else 0
 
     async def upsert(self, impression: Impression) -> None:
         async with _txn(self._db, self._lock):

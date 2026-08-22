@@ -12,12 +12,12 @@ Sync guarantees (see BaseMemoryManager docstring for the contract):
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING
 
 from ..domain.models import Event, EventStatus
+from ..repository.base import EventStatusStats
 from ..tasks.decay import run_salience_decay
 from .base import BaseMemoryManager
 
@@ -159,26 +159,20 @@ class MemoryManager(BaseMemoryManager):
     # ------------------------------------------------------------------
 
     async def stats(self) -> dict:
-        # Use COUNT(*) for counts to avoid loading all rows into memory.
-        active_count, archived_count = await asyncio.gather(
-            self._repo.count_by_status(EventStatus.ACTIVE),
-            self._repo.count_by_status(EventStatus.ARCHIVED),
-        )
-        # Salience stats still require loading active events (no SQL aggregation API yet).
-        # Limit to a reasonable cap to avoid OOM on very large datasets.
-        active_sample = await self._repo.list_by_status(EventStatus.ACTIVE, limit=10_000)
-        saliences = [e.salience for e in active_sample]
-        avg_salience = sum(saliences) / len(saliences) if saliences else 0.0
-        locked_count = sum(1 for e in active_sample if e.is_locked)
+        # Counts and salience summaries both come from one grouped aggregate —
+        # no event rows are loaded, so this stays flat as the dataset grows.
+        status_stats = await self._repo.aggregate_by_status()
+        active = status_stats.get(EventStatus.ACTIVE, EventStatusStats())
+        archived = status_stats.get(EventStatus.ARCHIVED, EventStatusStats())
 
         return {
-            "active_count": active_count,
-            "archived_count": archived_count,
-            "locked_count": locked_count,
-            "total_count": active_count + archived_count,
-            "avg_salience": round(avg_salience, 4),
-            "min_salience": round(min(saliences, default=0.0), 4),
-            "max_salience": round(max(saliences, default=0.0), 4),
+            "active_count": active.total,
+            "archived_count": archived.total,
+            "locked_count": active.locked,
+            "total_count": active.total + archived.total,
+            "avg_salience": round(active.avg_salience, 4),
+            "min_salience": round(active.min_salience, 4),
+            "max_salience": round(active.max_salience, 4),
         }
 
     # ------------------------------------------------------------------

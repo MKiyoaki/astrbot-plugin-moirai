@@ -547,6 +547,20 @@
                 "hint": "0-1 之间的向量相似度。提取标签时，若与现有标签相似度超过此值，则自动归并到现有标签下。",
                 "level": "expert"
             },
+            "tag_promotion_min_df": {
+                "description": "🎯标签晋升门槛（文档频率）",
+                "type": "int",
+                "default": 3,
+                "hint": "新标签首次出现时只算「候选」，需在至少这么多个事件中出现过才会晋升为正式标签，此后其它相近标签才会被归并到它名下。调大可更强地抑制细碎标签；设为 1 等同于旧行为（首次出现即生效）。",
+                "level": "expert"
+            },
+            "tag_candidate_ttl_days": {
+                "description": "🎯标签候选保留天数",
+                "type": "int",
+                "default": 30,
+                "hint": "超过此天数仍未达到晋升门槛的候选标签，会在每日清理任务中移除。已晋升的正式标签不受影响。",
+                "level": "expert"
+            },
             "boundary_time_gap_minutes": {
                 "description": "⏱️空闲时间阈值（分钟）",
                 "type": "int",

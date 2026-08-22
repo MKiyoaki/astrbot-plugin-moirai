@@ -406,17 +406,12 @@ class WebuiServer:
                 bot_persona_name=bot_persona_name, include_legacy=include_legacy,
             )
         else:
-            group_ids = await self._event_repo.list_group_ids()
-            if not group_ids: return {"items": []}
-            per_group = max(1, limit // len(group_ids))
-            events = []
-            for gid in group_ids:
-                events.extend(await self._event_repo.list_by_group(
-                    gid, limit=per_group,
-                    bot_persona_name=bot_persona_name, include_legacy=include_legacy,
-                ))
-            events = events[:limit]
-        events = [e for e in events if e.status == "active"]
+            # Same time-ordered query as the plugin route; the old per-group
+            # quota dropped the newest events from a chronological list.
+            events = await self._event_repo.list_all(
+                limit=limit,
+                bot_persona_name=bot_persona_name, include_legacy=include_legacy,
+            )
         return {"items": await self._events_to_dicts(events), "total": len(events)}
 
     async def graph_data(self, bot_persona_name: str | None = None) -> dict[str, Any]:
@@ -1073,11 +1068,8 @@ class WebuiServer:
         return _json({"ok": True, "updated": updated})
 
     async def _handle_tags(self, _: web.Request) -> web.Response:
-        counts = {}
-        for gid in await self._event_repo.list_group_ids():
-            for ev in await self._event_repo.list_by_group(gid, limit=10000):
-                for tag in (ev.chat_content_tags or []): counts[tag] = counts.get(tag, 0) + 1
-        return _json({"tags": [{"name": k, "count": v} for k, v in sorted(counts.items(), key=lambda x: -x[1])]})
+        counts = await self._event_repo.count_tags()
+        return _json({"tags": [{"name": k, "count": v} for k, v in counts.items()]})
 
     async def _handle_get_config(self, _: web.Request) -> web.Response:
         raw = json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {}

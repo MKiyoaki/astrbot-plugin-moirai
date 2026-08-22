@@ -35,7 +35,10 @@ DEFAULT_DISTILLATION_SYSTEM_PROMPT = (
     "格式示例（有人格）：\n"
     "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 [Eval] 这段交流展现了对方对古典音乐的真诚热情，值得深入记录\n"
     "- chat_content_tags: 2~5个主题标签。必须是名词或名词短语，"
-    "禁止使用句子、对话原文片段、动词短语或人名；标签应反映话题领域，而非复述内容细节。\n"
+    "禁止使用句子、对话原文片段、动词短语或人名。"
+    "标签应是【可复用的话题域标签】：同类对话下次再发生时，应当能复用同一个标签。"
+    "具体名词是允许且鼓励的（作品名、游戏名、技术名词、机制名），"
+    "但不要把只属于这一次对话的情节细节写成标签。\n"
     "- salience: 重要性分值 0.0~1.0\n"
     "- confidence: 本次提取结果的置信度 0.0~1.0\n"
     "- inherit: 是否是上一个事件的直接延续（true/false）\n"
@@ -79,8 +82,11 @@ DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
     "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 | [What] 话题转向了近期音乐会安排，Alice 推荐了一场即将上演的室内乐 [Who] Alice [How] 对话在期待中结束，未确定是否同去\n"
     "格式示例（有人格）：\n"
     "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 [Eval] 这段交流展现了对方对古典音乐的真诚热情，值得深入记录\n"
-    "- chat_content_tags: 2~5个主题标签。必须是名词或名词短语（如“音乐推荐”、“情绪表达”、“游戏讨论”），"
-    "禁止使用句子、对话原文片段、动词短语或人名；标签应反映话题领域，而非复述内容细节。\n"
+    "- chat_content_tags: 2~5个主题标签。必须是名词或名词短语，"
+    "禁止使用句子、对话原文片段、动词短语或人名。"
+    "标签应是【可复用的话题域标签】：同类对话下次再发生时，应当能复用同一个标签。"
+    "具体名词是允许且鼓励的（作品名、游戏名、技术名词、机制名，如“明日方舟”、“向量检索”），"
+    "但不要把只属于这一次对话的情节细节写成标签（如“周三那把卫戍翻车”）。\n"
     "- salience: 重要性分值 0.0~1.0\n"
     "- confidence: 本次提取结果的置信度 0.0~1.0\n"
     "- inherit: 是否继承上一个已知事件的主题（即本段是上段的延续）\n"
@@ -292,6 +298,11 @@ class ExtractorConfig:
     # pin cross-platform deployments of one persona to a single data bucket.
     bot_persona_name_override: str = ""
     tag_normalization_threshold: float = 0.85
+    # A newly seen tag is only a candidate; it must recur this many times
+    # before other tags may be normalized onto it.
+    tag_promotion_min_df: int = 3
+    # Candidates that never reach tag_promotion_min_df expire after this long.
+    tag_candidate_ttl_days: int = 30
     tag_seeds: list[str] = field(
         default_factory=lambda: [
             "社交", "日常", "技术", "知识", "工作", "娱乐", "艺术", "情感", "资讯"
@@ -600,6 +611,8 @@ class PluginConfig:
                 "tag_normalization_threshold",
                 0.85
             ),
+            tag_promotion_min_df=self._int("tag_promotion_min_df", 3),
+            tag_candidate_ttl_days=self._int("tag_candidate_ttl_days", 30),
             tag_seeds=tag_seeds,
             llm_provider=self.llm_provider,
         )

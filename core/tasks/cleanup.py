@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -24,8 +25,16 @@ RAW_MESSAGE_RETENTION_DAYS = 14
 async def run_memory_cleanup(
     event_repo: EventRepository,
     cleanup_config: CleanupConfig,
+    tag_promotion_min_df: int = 0,
+    tag_candidate_ttl_days: int = 30,
+    tag_seeds: Sequence[str] | None = None,
 ) -> int:
-    """Two-phase cleanup: archive low-salience events, then delete old archived ones."""
+    """Two-phase cleanup: archive low-salience events, then delete old archived ones.
+
+    Also expires canonical-tag candidates that never recurred often enough to be
+    promoted, so the normalization vocabulary stops growing monotonically.
+    Pass tag_promotion_min_df=0 to skip that phase.
+    """
     from ..utils.perf import performance_timer
     async with performance_timer("task_cleanup"):
         if not cleanup_config.enabled:
@@ -53,6 +62,20 @@ async def run_memory_cleanup(
                 archived, cleanup_config.threshold,
             )
         total += archived
+
+        # Phase 3: expire tag candidates that never earned promotion. Anchors
+        # (df >= min_df) are never touched.
+        if tag_promotion_min_df > 0:
+            tag_cutoff = time.time() - max(1, tag_candidate_ttl_days) * 86400.0
+            pruned = await event_repo.prune_canonical_tags(
+                tag_promotion_min_df, tag_cutoff, protect=tag_seeds,
+            )
+            if pruned > 0:
+                logger.info(
+                    "[CleanupTask] pruned %d unpromoted tag candidates "
+                    "(min_df=%d, ttl=%d days)",
+                    pruned, tag_promotion_min_df, tag_candidate_ttl_days,
+                )
 
     except Exception as exc:
         logger.error("[CleanupTask] failed: %s", exc)

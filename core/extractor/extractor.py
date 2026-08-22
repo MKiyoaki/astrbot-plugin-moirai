@@ -194,6 +194,7 @@ class EventExtractor:
             getattr(cfg, "bot_persona_name_override", "") or ""
         ).strip()
         self._tag_normalization_threshold = cfg.tag_normalization_threshold
+        self._tag_promotion_min_df = cfg.tag_promotion_min_df
         self._tag_seeds = cfg.tag_seeds
         self._big_five_buffer = big_five_buffer
         self._orientation_analyzer = orientation_analyzer
@@ -229,7 +230,9 @@ class EventExtractor:
             return
         for tag, embedding in zip(self._tag_seeds, embeddings):
             try:
-                await self._event_repo.upsert_canonical_tag(tag, embedding)
+                # df_delta=0: registering seeds at startup is not a sighting,
+                # otherwise every restart would inflate their frequency.
+                await self._event_repo.upsert_canonical_tag(tag, embedding, df_delta=0)
             except Exception as exc:
                 logger.debug("[EventExtractor] tag seed upsert failed for %s: %s", tag, exc)
 
@@ -464,20 +467,31 @@ class EventExtractor:
 
         # 2. Concurrent canonical-tag search
         async def _resolve(tag: str, embedding: list[float]) -> tuple[str, str]:
+            # Broad seed labels steer the LLM's abstraction level; they are not
+            # lossy replacements for a specific topic label, so they are dropped
+            # inside the query rather than after it — otherwise a handful of
+            # seeds could fill the result limit and hide a real anchor.
+            exclude = [seed for seed in self._tag_seeds if seed != tag]
             try:
                 matches = await self._event_repo.search_canonical_tag(
-                    embedding, threshold=self._tag_normalization_threshold
+                    embedding,
+                    threshold=self._tag_normalization_threshold,
+                    prefer_min_df=self._tag_promotion_min_df,
+                    exclude=exclude,
                 )
             except Exception as exc:
                 logger.debug("[EventExtractor] canonical tag search failed: %s", exc)
                 return tag, tag
             for canonical, _score in matches:
-                # Broad seed labels are steering categories, not lossy canonical
-                # replacements for more specific topic labels.
-                if canonical in self._tag_seeds and canonical != tag:
-                    continue
+                if canonical == tag:
+                    # Sighting of an established anchor by its own name.
+                    await self._event_repo.upsert_canonical_tag(tag, embedding)
+                else:
+                    await self._event_repo.bump_canonical_tag_df(canonical)
                 return tag, canonical
-            # No match found, upsert as a new canonical tag
+            # Nothing close enough. Record the tag as a candidate — it stays
+            # prunable until it has recurred tag_promotion_min_df times, so a
+            # one-off label never becomes a permanent part of the vocabulary.
             await self._event_repo.upsert_canonical_tag(tag, embedding)
             return tag, tag
 

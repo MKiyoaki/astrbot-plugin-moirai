@@ -7,12 +7,15 @@ the store. All write methods store deep copies for the same reason.
 from __future__ import annotations
 
 import math
+import time
+from collections.abc import Sequence
 from copy import deepcopy
 
 from ..domain.models import Event, Impression, Persona, PersonaGroup, RawStoredMessage
 
 from .base import (
     EventRepository,
+    EventStatusStats,
     ImpressionRepository,
     PersonaGroupRepository,
     PersonaRepository,
@@ -38,6 +41,9 @@ class InMemoryPersonaRepository(PersonaRepository):
 
     async def list_all(self) -> list[Persona]:
         return [deepcopy(p) for p in self._store.values()]
+
+    async def count(self) -> int:
+        return len(self._store)
 
     async def upsert(self, persona: Persona) -> None:
         # Remove stale bindings that belonged to the previous version of this uid
@@ -114,6 +120,10 @@ class InMemoryPersonaGroupRepository(PersonaGroupRepository):
 class InMemoryEventRepository(EventRepository):
     def __init__(self) -> None:
         self._store: dict[str, Event] = {}
+        # Canonical tag bookkeeping — no vectors, but the df promotion gate is
+        # mirrored so behaviour matches the SQLite repo.
+        self._canonical_df: dict[str, int] = {}
+        self._canonical_created_at: dict[str, float] = {}
 
     async def get(self, event_id: str) -> Event | None:
         event = self._store.get(event_id)
@@ -236,6 +246,25 @@ class InMemoryEventRepository(EventRepository):
         for event in self._store.values():
             event.salience = max(0.0, event.salience * factor)
         return len(self._store)
+
+    async def aggregate_by_status(self) -> dict[str, EventStatusStats]:
+        buckets: dict[str, list[Event]] = {}
+        for event in self._store.values():
+            buckets.setdefault(event.status, []).append(event)
+        result: dict[str, EventStatusStats] = {}
+        for status, events in buckets.items():
+            saliences = [e.salience for e in events]
+            result[status] = EventStatusStats(
+                total=len(events),
+                locked=sum(1 for e in events if e.is_locked),
+                avg_salience=(sum(saliences) / len(saliences)) if saliences else 0.0,
+                min_salience=min(saliences, default=0.0),
+                max_salience=max(saliences, default=0.0),
+            )
+        return result
+
+    async def count_groups(self) -> int:
+        return len({e.group_id for e in self._store.values()})
 
     async def count_by_status(self, status: str) -> int:
         return sum(1 for e in self._store.values() if e.status == status)
@@ -380,6 +409,18 @@ class InMemoryEventRepository(EventRepository):
 
     # --- Tag Abstraction & Normalization ---
 
+    async def count_tags(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for event in self._store.values():
+            if not _event_persona_matches(event, bot_persona_name, include_legacy):
+                continue
+            for tag in (event.chat_content_tags or []):
+                if tag:
+                    counts[tag] = counts.get(tag, 0) + 1
+        return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
     async def list_frequent_tags(self, limit: int = 50) -> list[str]:
         counts: dict[str, int] = {}
         for event in self._store.values():
@@ -389,14 +430,40 @@ class InMemoryEventRepository(EventRepository):
         return [t[0] for t in sorted_tags[:limit]]
 
     async def search_canonical_tag(
-        self, embedding: list[float], limit: int = 5, threshold: float = 0.85
+        self, embedding: list[float], limit: int = 5, threshold: float = 0.85,
+        prefer_min_df: int = 0, exclude: Sequence[str] | None = None,
     ) -> list[tuple[str, float]]:
         # Stub: memory repo has no vector store for tags
         return []
 
-    async def upsert_canonical_tag(self, tag_text: str, embedding: list[float]) -> None:
-        # Stub: memory repo just accepts it
-        pass
+    async def upsert_canonical_tag(
+        self, tag_text: str, embedding: list[float], df_delta: int = 1,
+    ) -> None:
+        # No vectors here, but document frequency is tracked so the promotion
+        # gate behaves the same way against the in-memory repo.
+        self._canonical_df[tag_text] = self._canonical_df.get(tag_text, 0) + max(df_delta, 0)
+        self._canonical_created_at.setdefault(tag_text, time.time())
+
+    async def bump_canonical_tag_df(self, tag_text: str, delta: int = 1) -> int:
+        if tag_text not in self._canonical_df:
+            return 0
+        self._canonical_df[tag_text] += delta
+        return self._canonical_df[tag_text]
+
+    async def prune_canonical_tags(
+        self, min_df: int, older_than_ts: float,
+        protect: Sequence[str] | None = None,
+    ) -> int:
+        protected = set(protect or ())
+        stale = [
+            tag for tag, df in self._canonical_df.items()
+            if df < min_df and self._canonical_created_at.get(tag, 0.0) < older_than_ts
+            and tag not in protected
+        ]
+        for tag in stale:
+            self._canonical_df.pop(tag, None)
+            self._canonical_created_at.pop(tag, None)
+        return len(stale)
 
 
 class InMemoryRawMessageRepository(RawMessageRepository):
@@ -444,11 +511,14 @@ class InMemoryRawMessageRepository(RawMessageRepository):
 
 
 class InMemoryImpressionRepository(ImpressionRepository):
-    def __init__(self) -> None:
+    def __init__(self, persona_repo: PersonaRepository | None = None) -> None:
         # Unique key: (observer_uid, subject_uid, scope, bot_persona_name_or_empty).
         # bot_persona_name is normalized to '' when None so dict equality matches
         # the SQLite ifnull(bot_persona_name, '') unique index semantics.
         self._store: dict[tuple[str, str, str, str], Impression] = {}
+        # Stands in for the SQLite persona-table join used by
+        # count_all(known_observers_only=True); without it the flag is a no-op.
+        self._persona_repo = persona_repo
 
     def _key(
         self, observer_uid: str, subject_uid: str, scope: str,
@@ -495,6 +565,19 @@ class InMemoryImpressionRepository(ImpressionRepository):
             for imp in self._store.values()
             if _persona_matches(imp.bot_persona_name, bot_persona_name, include_legacy)
         ]
+
+    async def count_all(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+        known_observers_only: bool = False,
+    ) -> int:
+        known: set[str] | None = None
+        if known_observers_only and self._persona_repo is not None:
+            known = {p.uid for p in await self._persona_repo.list_all()}
+        return sum(
+            1 for imp in self._store.values()
+            if _persona_matches(imp.bot_persona_name, bot_persona_name, include_legacy)
+            and (known is None or imp.observer_uid in known)
+        )
 
     async def upsert(self, impression: Impression) -> None:
         key = self._key(

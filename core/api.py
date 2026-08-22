@@ -112,19 +112,19 @@ async def get_stats(
     perf_metrics = await tracker.get_metrics()
     
     from .domain.models import EventStatus
-    personas, group_ids, active_count, archived_count, active_sample = await asyncio.gather(
-        persona_repo.list_all(),
-        event_repo.list_group_ids(),
-        event_repo.count_by_status(EventStatus.ACTIVE),
-        event_repo.count_by_status(EventStatus.ARCHIVED),
-        event_repo.list_by_status(EventStatus.ACTIVE, limit=10_000),
+    from .repository.base import EventStatusStats
+    persona_count, group_count, status_stats, impression_count = await asyncio.gather(
+        persona_repo.count(),
+        event_repo.count_groups(),
+        event_repo.aggregate_by_status(),
+        # Orphaned rows (observer persona deleted) stay excluded, matching
+        # both the previous count and what the relation graph renders.
+        impression_repo.count_all(known_observers_only=True),
     )
-    locked_count = sum(1 for e in active_sample if e.is_locked)
-    
-    impression_count = 0
-    for p in personas:
-        imps = await impression_repo.list_by_observer(p.uid)
-        impression_count += len(imps)
+    active = status_stats.get(EventStatus.ACTIVE, EventStatusStats())
+    archived = status_stats.get(EventStatus.ARCHIVED, EventStatusStats())
+    active_count, archived_count = active.total, archived.total
+    locked_count = active.locked
 
     # Count summary files and calculate simple metrics
     summary_count = 0
@@ -182,7 +182,7 @@ async def get_stats(
             logger.warning("[get_stats] failed to read active_sessions from context_manager: %s", e, exc_info=True)
 
     return {
-        "personas": len(personas),
+        "personas": persona_count,
         "events": active_count,
         "archived_events": archived_count,
         "locked_count": locked_count,
@@ -190,7 +190,7 @@ async def get_stats(
         "summaries": summary_count,
         "summary_days": len(summary_days),
         "avg_summary_chars": round(avg_summary_chars, 1),
-        "groups": len(group_ids),
+        "groups": group_count,
         "version": plugin_version,
         "perf": perf_stats,
         "llm_stats": llm_stats,
@@ -281,10 +281,17 @@ async def get_graph(
     """Return personas (nodes) + impressions (edges) in a flat serializable format."""
     personas = await persona_repo.list_all()
     nodes = [persona_to_dict(p) for p in personas]
-    edges: list[dict[str, Any]] = []
-    for persona in personas:
-        imps = await impression_repo.list_by_observer(persona.uid)
-        edges.extend(impression_to_dict(imp) for imp in imps)
+    # One query for every impression, then walked in persona order so the edge
+    # sequence matches what the per-persona loop produced.
+    impressions = await impression_repo.list_all()
+    by_observer: dict[str, list[Impression]] = {}
+    for imp in impressions:
+        by_observer.setdefault(imp.observer_uid, []).append(imp)
+    edges: list[dict[str, Any]] = [
+        impression_to_dict(imp)
+        for persona in personas
+        for imp in by_observer.get(persona.uid, ())
+    ]
     return {"nodes": nodes, "edges": edges}
 
 

@@ -7,8 +7,25 @@ implementation. Both satisfy the same interface, enabling interface-swap tests.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 from ..domain.models import Event, Impression, Persona, PersonaGroup, RawStoredMessage
+
+
+@dataclass(frozen=True)
+class EventStatusStats:
+    """Per-status aggregate returned by EventRepository.aggregate_by_status().
+
+    Lets callers that only need counts and salience summaries avoid pulling
+    whole Event rows (and their JSON columns) into memory.
+    """
+
+    total: int = 0
+    locked: int = 0
+    avg_salience: float = 0.0
+    min_salience: float = 0.0
+    max_salience: float = 0.0
 
 
 class PersonaRepository(ABC):
@@ -20,6 +37,11 @@ class PersonaRepository(ABC):
 
     @abstractmethod
     async def list_all(self) -> list[Persona]: ...
+
+    @abstractmethod
+    async def count(self) -> int:
+        """Number of stored personas, without materialising the rows."""
+        ...
 
     @abstractmethod
     async def upsert(self, persona: Persona) -> None: ...
@@ -284,6 +306,20 @@ class EventRepository(ABC):
         ...
 
     @abstractmethod
+    async def aggregate_by_status(self) -> dict[str, EventStatusStats]:
+        """Single-pass aggregate: {status: EventStatusStats}.
+
+        Covers the counts and salience summaries that status dashboards need,
+        so they never have to load event rows just to fold over them.
+        """
+        ...
+
+    @abstractmethod
+    async def count_groups(self) -> int:
+        """Number of distinct group_id values, counting NULL (private) as one."""
+        ...
+
+    @abstractmethod
     async def count_messages_by_uid_scope_bulk(self) -> dict[tuple[str | None, str], int]:
         """Single-pass aggregate: {(group_id, uid): message_count}.
 
@@ -312,17 +348,60 @@ class EventRepository(ABC):
         ...
 
     @abstractmethod
-    async def search_canonical_tag(
-        self, embedding: list[float], limit: int = 5, threshold: float = 0.85
-    ) -> list[tuple[str, float]]:
-        """Find existing canonical tags similar to the given embedding.
-        Returns a list of (tag_text, similarity_score).
+    async def count_tags(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> dict[str, int]:
+        """Single-pass aggregate: {tag: usage_count} over every event.
+
+        The unbounded counterpart to list_frequent_tags(), for callers that need
+        the full tag cloud with counts rather than a top-N slice.
         """
         ...
 
     @abstractmethod
-    async def upsert_canonical_tag(self, tag_text: str, embedding: list[float]) -> None:
-        """Store a new canonical tag and its embedding."""
+    async def search_canonical_tag(
+        self, embedding: list[float], limit: int = 5, threshold: float = 0.85,
+        prefer_min_df: int = 0, exclude: Sequence[str] | None = None,
+    ) -> list[tuple[str, float]]:
+        """Find existing canonical tags similar to the given embedding.
+
+        prefer_min_df ranks tags that have recurred at least that often ahead of
+        one-off candidates, so an established anchor wins over a label that
+        merely happens to be marginally closer. Filtering them out entirely is
+        wrong: near-duplicate variants must still be able to collapse onto a
+        candidate, which is how a family accumulates the frequency to promote.
+        exclude drops the given tag texts inside the query, so they do not
+        consume the limit budget. Returns a list of (tag_text, similarity).
+        """
+        ...
+
+    @abstractmethod
+    async def upsert_canonical_tag(
+        self, tag_text: str, embedding: list[float], df_delta: int = 1,
+    ) -> None:
+        """Store a canonical tag and its embedding, adding df_delta to its
+        document frequency. Pass df_delta=0 to register a tag without letting
+        repeated registration count as recurrence (used for configured seeds).
+        """
+        ...
+
+    @abstractmethod
+    async def bump_canonical_tag_df(self, tag_text: str, delta: int = 1) -> int:
+        """Add delta to an existing canonical tag's document frequency.
+
+        Returns the new value, or 0 when the tag is not present.
+        """
+        ...
+
+    @abstractmethod
+    async def prune_canonical_tags(
+        self, min_df: int, older_than_ts: float,
+        protect: Sequence[str] | None = None,
+    ) -> int:
+        """Delete candidate tags that never reached min_df and were created
+        before older_than_ts. Tags listed in protect are always kept — configured
+        seeds sit at df 0 by design and must survive. Returns the number removed.
+        """
         ...
 
 
@@ -396,6 +475,19 @@ class ImpressionRepository(ABC):
 
         Lets callers that need the whole relation graph avoid one
         list_by_observer() round trip per persona.
+        """
+        ...
+
+    @abstractmethod
+    async def count_all(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+        known_observers_only: bool = False,
+    ) -> int:
+        """Number of stored impressions, without materialising the rows.
+
+        known_observers_only drops rows whose observer has no persona record.
+        Deleting a persona does not cascade to its impressions, so those rows
+        outlive the node they belong to and are invisible in the relation graph.
         """
         ...
 
