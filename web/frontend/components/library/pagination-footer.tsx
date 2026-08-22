@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -7,7 +8,7 @@ import {
   Pagination, PaginationContent, PaginationItem,
   PaginationNext, PaginationPrevious,
 } from '@/components/ui/pagination'
-import { useApp } from '@/lib/store'
+import { useI18n } from '@/lib/store'
 
 interface PaginationFooterProps {
   totalItems: number
@@ -18,10 +19,10 @@ interface PaginationFooterProps {
   onPageSizeChange: (sz: number) => void
 }
 
-export function PaginationFooter({
+function PaginationFooterImpl({
   totalItems, totalPages, pageSize, currentPage, onPageChange, onPageSizeChange,
 }: PaginationFooterProps) {
-  const { i18n } = useApp()
+  const { i18n } = useI18n()
   const pt = i18n.common.pagination
 
   return (
@@ -70,3 +71,5 @@ export function PaginationFooter({
     </div>
   )
 }
+
+export const PaginationFooter = memo(PaginationFooterImpl)

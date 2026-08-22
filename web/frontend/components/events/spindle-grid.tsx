@@ -1,8 +1,9 @@
 'use client'
 
+import { useMemo } from 'react'
 import type { DateRange } from 'react-day-picker'
 import type { SpindleCard as SpindleCardData } from '@/lib/events-aggregator'
-import { useApp } from '@/lib/store'
+import { useI18n } from '@/lib/store'
 import { SpindleCard } from './spindle-card'
 
 interface SpindleGridProps {
@@ -40,8 +41,14 @@ function matchesSpindle(spindle: SpindleCardData, search: string, activeTags: Se
 }
 
 export function SpindleGrid({ spindles, search, activeTags, dateRange, onOpen }: SpindleGridProps) {
-  const { i18n } = useApp()
-  const visible = spindles.filter(spindle => matchesSpindle(spindle, search, activeTags, dateRange))
+  const { i18n } = useI18n()
+  // Each match scans every event in the spindle — recompute only when filters change.
+  const visible = useMemo(
+    () => spindles.filter(spindle => matchesSpindle(spindle, search, activeTags, dateRange)),
+    [spindles, search, activeTags, dateRange])
+  const totalEvents = useMemo(
+    () => spindles.reduce((sum, spindle) => sum + spindle.total, 0),
+    [spindles])
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -53,7 +60,7 @@ export function SpindleGrid({ spindles, search, activeTags, dateRange, onOpen }:
           <p className="mt-1 text-sm text-muted-foreground">
             {i18n.events.loomSummary
               .replace('{filtered}', String(visible.length))
-              .replace('{total}', String(spindles.reduce((sum, spindle) => sum + spindle.total, 0)))}
+              .replace('{total}', String(totalEvents))}
           </p>
         </section>
 

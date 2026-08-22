@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Plus, Undo2, Trash2, Pencil, Check, ChevronsUpDown, X, Lock, Unlock, Archive, RefreshCw } from 'lucide-react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -45,6 +45,9 @@ const toLocalIso = (ts: number) => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
+/** Max inherit candidates rendered at once. */
+const INHERIT_PAGE = 100
+
 function GroupPicker({
   value,
   onChange,
@@ -59,8 +62,13 @@ function GroupPicker({
   const [search, setSearch] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const knownGroups = Array.from(new Set(events.map(ev => ev.group).filter(Boolean) as string[]))
-  const filtered = knownGroups.filter(g => g.toLowerCase().includes(search.toLowerCase()))
+  const knownGroups = useMemo(
+    () => Array.from(new Set(events.map(ev => ev.group).filter(Boolean) as string[])),
+    [events])
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase()
+    return q ? knownGroups.filter(g => g.toLowerCase().includes(q)) : knownGroups
+  }, [knownGroups, search])
 
   const select = (g: string) => {
     onChange(g)
@@ -156,14 +164,28 @@ function EventInheritPicker({
   const [search, setSearch] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const filtered = events.filter(ev => {
+  // Filter only while open, and cap the rendered slice — the list can hold thousands.
+  const filtered = useMemo(() => {
+    if (!open) return []
     const q = search.toLowerCase()
-    return (
+    if (!q) return events
+    return events.filter(ev =>
       (ev.topic || '').toLowerCase().includes(q) ||
       (ev.content || '').toLowerCase().includes(q) ||
       ev.id.toLowerCase().includes(q)
     )
-  })
+  }, [open, events, search])
+  const visible = useMemo(() => filtered.slice(0, INHERIT_PAGE), [filtered])
+
+  const labelIndex = useMemo(() => {
+    if (value.length === 0) return new Map<string, string>()
+    const wanted = new Set(value)
+    const index = new Map<string, string>()
+    for (const ev of events) {
+      if (wanted.has(ev.id)) index.set(ev.id, ev.topic || ev.content || ev.id.slice(0, 12))
+    }
+    return index
+  }, [events, value])
 
   const toggle = (id: string) => {
     if (value.includes(id)) {
@@ -175,10 +197,7 @@ function EventInheritPicker({
 
   const remove = (id: string) => onChange(value.filter(x => x !== id))
 
-  const labelFor = (id: string) => {
-    const ev = events.find(e => e.id === id)
-    return ev ? (ev.topic || ev.content || id.slice(0, 12)) : id.slice(0, 12)
-  }
+  const labelFor = (id: string) => labelIndex.get(id) ?? id.slice(0, 12)
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -221,7 +240,7 @@ function EventInheritPicker({
               {events.length === 0 ? i18n.events.inheritEmpty : i18n.events.inheritNoMatch}
             </p>
           ) : (
-            filtered.map(ev => {
+            visible.map(ev => {
               const selected = value.includes(ev.id)
               return (
                 <Button
@@ -245,6 +264,11 @@ function EventInheritPicker({
                 </Button>
               )
             })
+          )}
+          {filtered.length > visible.length && (
+            <p className="text-muted-foreground px-2 py-1.5 text-xs">
+              +{filtered.length - visible.length}
+            </p>
           )}
         </div>
       </PopoverContent>
@@ -628,7 +652,10 @@ export function EditEventDialog({ open, event, onClose, onSubmit, tagSuggestions
     }
   }
 
-  const inheritCandidates = events.filter(ev => ev.id !== event?.id)
+  // Skip the scan while closed — this runs on every parent render.
+  const inheritCandidates = useMemo(
+    () => (open ? events.filter(ev => ev.id !== event?.id) : []),
+    [open, events, event?.id])
 
   return (
     <Dialog open={open} onOpenChange={(v: boolean) => !v && onClose()}>

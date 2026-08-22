@@ -1,11 +1,11 @@
 'use client'
 
-import { Fragment } from 'react'
+import { Fragment, memo } from 'react'
 import { Building2, MessageSquare, Activity, ChevronDown, ChevronRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { TableCell, TableRow } from '@/components/ui/table'
-import { useApp } from '@/lib/store'
+import { useI18n } from '@/lib/store'
 import type { PersonaNode } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -27,10 +27,10 @@ interface GroupRowProps {
   onGoToEvents: (gid: string) => void
 }
 
-export function GroupRow({
+function GroupRowImpl({
   group, personas, expanded, lang, onToggleExpand, onGoToEvents,
 }: GroupRowProps) {
-  const { i18n } = useApp()
+  const { i18n } = useI18n()
   const isGroup = group.type === 'group'
 
   return (
@@ -91,7 +91,7 @@ function GroupDetailPanel({
   personas: PersonaNode[]
   onGoToEvents: (gid: string) => void
 }) {
-  const { i18n } = useApp()
+  const { i18n } = useI18n()
   const members = personas.filter(p => group.participants.includes(p.data.id))
   const platforms = Array.from(
     new Set(members.flatMap(p => p.data.bound_identities?.map(b => b.platform) ?? []))
@@ -161,3 +161,6 @@ function MetaItem({ label, value }: { label: string; value: React.ReactNode }) {
     </div>
   )
 }
+
+/** Re-renders only when its own props change (see useI18n + stable parent callbacks). */
+export const GroupRow = memo(GroupRowImpl)

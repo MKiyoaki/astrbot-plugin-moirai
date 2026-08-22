@@ -1,10 +1,11 @@
 'use client'
 
+import { memo } from 'react'
 import { Archive, ArrowRight, Clock, Lock, Sparkles, Users } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import type { SpindleCard as SpindleCardData } from '@/lib/events-aggregator'
-import { useApp } from '@/lib/store'
+import { useI18n } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { MiniThread } from './mini-thread'
 
@@ -27,8 +28,8 @@ function participantCount(events: SpindleCardData['events']) {
   return names.size
 }
 
-export function SpindleCard({ spindle, index, onOpen }: SpindleCardProps) {
-  const { i18n } = useApp()
+function SpindleCardImpl({ spindle, index, onOpen }: SpindleCardProps) {
+  const { i18n } = useI18n()
   const participantTotal = participantCount(spindle.events)
 
   return (
@@ -115,3 +116,6 @@ export function SpindleCard({ spindle, index, onOpen }: SpindleCardProps) {
     </button>
   )
 }
+
+/** Re-renders only when its own props change (see useI18n + stable parent callbacks). */
+export const SpindleCard = memo(SpindleCardImpl)

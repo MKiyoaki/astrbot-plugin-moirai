@@ -91,6 +91,11 @@ interface AppActions {
 
 const AppContext = createContext<(AppState & AppActions) | null>(null)
 
+/** Narrow context that only changes with `lang`. Hot components subscribe to
+ *  this instead of AppContext so stats polling / toasts / tasks don't re-render them. */
+interface I18nContextValue { lang: 'zh' | 'en' | 'ja'; i18n: i18n_lib.I18n }
+const I18nContext = createContext<I18nContextValue | null>(null)
+
 const DEFAULT_STATS: api.Stats = { personas: 0, events: 0, locked_count: 0, impressions: 0, summaries: 0, groups: 0, version: '…' }
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -355,11 +360,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     startTask, finishTask, dismissTask, runTask,
   ])
 
-  return <AppContext.Provider value={ctx}>{children}</AppContext.Provider>
+  const i18nCtx = useMemo<I18nContextValue>(() => ({ lang, i18n }), [lang, i18n])
+
+  return (
+    <AppContext.Provider value={ctx}>
+      <I18nContext.Provider value={i18nCtx}>{children}</I18nContext.Provider>
+    </AppContext.Provider>
+  )
 }
 
 export function useApp() {
   const ctx = useContext(AppContext)
   if (!ctx) throw new Error('useApp must be used within AppProvider')
+  return ctx
+}
+
+/** lang + i18n only. Use this in list rows and other presentational components
+ *  so React.memo isn't defeated by unrelated store updates. */
+export function useI18n() {
+  const ctx = useContext(I18nContext)
+  if (!ctx) throw new Error('useI18n must be used within AppProvider')
   return ctx
 }

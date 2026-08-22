@@ -1,12 +1,12 @@
 'use client'
 
-import { Fragment } from 'react'
+import { Fragment, memo } from 'react'
 import { Network, Pencil, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { TableCell, TableRow } from '@/components/ui/table'
-import { useApp } from '@/lib/store'
+import { useI18n } from '@/lib/store'
 import type { PersonaNode } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -25,7 +25,7 @@ interface PersonaRowProps {
   onTagClick: (tag: string) => void
 }
 
-export function PersonaRow({
+function PersonaRowImpl({
   node, expanded, editMode, selected, sudoMode, activeTags,
   onToggleExpand, onToggleSelect, onEdit, onDelete, onGoToGraph, onTagClick,
 }: PersonaRowProps) {
@@ -128,7 +128,7 @@ function PersonaDetailPanel({
   onEdit: (node: PersonaNode) => void
   onDelete: (id: string, label: string) => void
 }) {
-  const { i18n } = useApp()
+  const { i18n } = useI18n()
   const d = node.data
   const attrs = d.attrs || {}
 
@@ -227,3 +227,6 @@ function MetaItem({ label, value }: { label: string; value: React.ReactNode }) {
     </div>
   )
 }
+
+/** Re-renders only when its own props change (see useI18n + stable parent callbacks). */
+export const PersonaRow = memo(PersonaRowImpl)

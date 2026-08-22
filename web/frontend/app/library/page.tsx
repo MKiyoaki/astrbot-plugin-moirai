@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useDeferredValue, useMemo } from 'react'
 import { Search, Pencil, Trash2, Archive, Activity, Clock, Users, Building2 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
@@ -32,6 +32,15 @@ import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 
+/** Start time in ms. Prefers the numeric start_ts the API already sends,
+ *  so hot paths never re-parse the ISO string. */
+function eventStartMsOf(ev: api.ApiEvent): number {
+  return ev.start_ts ? ev.start_ts * 1000 : new Date(ev.start).getTime()
+}
+
+/** Months rendered per batch in the Time tab. */
+const MONTH_PAGE = 12
+
 function LibraryContent() {
   const { i18n, lang, refreshStats, setRawGraph, toast, sudo, currentPersonaName, scopeMode } = useApp()
   const personaFilter = scopeMode === 'single' ? (currentPersonaName ?? api.LEGACY_PERSONA_TOKEN) : null
@@ -50,6 +59,7 @@ function LibraryContent() {
     loading: lang === 'zh' ? '加载中…' : lang === 'ja' ? '読み込み中…' : 'Loading…',
     actionsHead: lang === 'zh' ? '操作' : lang === 'ja' ? '操作' : 'Actions',
     nameHead: lang === 'zh' ? '名称' : lang === 'ja' ? '名前' : 'Name',
+    loadMoreMonths: (n: number) => lang === 'zh' ? `加载更早的月份（还有 ${n} 个）` : lang === 'ja' ? `さらに読み込む（残り ${n} ヶ月）` : `Load earlier months (${n} left)`,
   }), [lang])
 
   const [tab, setTab] = useState(() => {
@@ -60,11 +70,13 @@ function LibraryContent() {
     return 'events'
   })
   const [search, setSearch] = useState('')
+  // Input stays responsive; filtering runs at lower priority.
+  const deferredSearch = useDeferredValue(search)
+  const [monthLimit, setMonthLimit] = useState(MONTH_PAGE)
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set())
   const [dateRange, setDateRange] = useState<DateRange | undefined>()
   const [tagList, setTagList] = useState<{ name: string; count: number }[]>([])
   const [personaList, setPersonaList] = useState<api.PersonaNode[]>([])
-  const [groupList, setGroupList] = useState<GroupInfo[]>([])
   const [eventList, setEventList] = useState<api.ApiEvent[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [editMode, setEditMode] = useState(false)
@@ -104,7 +116,7 @@ function LibraryContent() {
       await api.events.restore(eventId)
       toast(i18n.events.restoreSuccess)
       setBinItems(prev => prev.filter(x => x.id !== eventId))
-      loadData()
+      loadEvents()
       refreshStats()
     } catch (e: any) {
       toast(e?.body || e?.message || i18n.common.updateFailed, 'destructive')
@@ -142,146 +154,252 @@ function LibraryContent() {
       await api.events.unarchive(eventId)
       toast(i18n.events.unarchiveSuccess)
       setArchiveBinItems(prev => prev.filter(x => x.id !== eventId))
-      loadData()
+      loadEvents()
       refreshStats()
     } catch (e: any) {
       toast(e?.body || e?.message || i18n.common.updateFailed, 'destructive')
     }
   }
 
-  const loadData = useCallback(async () => {
+  /** Tags + events only. /api/graph issues one impression query per persona and one
+   *  message-count query per impression, so the list must not wait on it. */
+  const loadEvents = useCallback(async () => {
     setIsRefreshing(true)
     try {
-      const [tagsData, graphData, eventsData] = await Promise.allSettled([
+      const [tagsData, eventsData] = await Promise.allSettled([
         api.tags.list(),
-        api.graph.get(personaFilter),
         api.events.list(1000, personaFilter),
       ])
       if (tagsData.status === 'fulfilled') setTagList(tagsData.value.tags)
-      if (graphData.status === 'fulfilled') {
-        setPersonaList(graphData.value.nodes)
-        setRawGraph(graphData.value)
-      }
-      if (eventsData.status === 'fulfilled' && graphData.status === 'fulfilled') {
-        const evs = eventsData.value.items
-        const personas = graphData.value.nodes
-        setEventList(evs)
-
-        const groups = new Map<string, GroupInfo>()
-        const botUids = new Set(personas.filter(n => n.data.is_bot).map(n => n.data.id))
-
-        evs.forEach(ev => {
-          let groupId = ev.group
-          let type: 'group' | 'private' = 'group'
-          let displayName = ev.group || ''
-
-          if (!groupId) {
-            const other = ev.participants.find(p => !botUids.has(p))
-            if (other) {
-              groupId = `private:${other}`
-              type = 'private'
-              const pNode = personas.find(n => n.data.id === other)
-              displayName = pNode ? pNode.data.label : other
-            } else {
-              groupId = 'private:unknown'
-              type = 'private'
-              displayName = i18n.events.privateChat
-            }
-          }
-
-          const existing = groups.get(groupId)
-          if (!existing) {
-            groups.set(groupId, { id: groupId, displayName, type, event_count: 1, last_active: ev.start, participants: [...ev.participants] })
-          } else {
-            existing.event_count++
-            if (!existing.last_active || ev.start > existing.last_active) existing.last_active = ev.start
-            ev.participants.forEach(p => { if (!existing.participants.includes(p)) existing.participants.push(p) })
-          }
-        })
-        setGroupList(Array.from(groups.values()).sort((a, b) => (b.last_active || '') > (a.last_active || '') ? 1 : -1))
+      if (eventsData.status === 'fulfilled') {
+        // Sorted once here so render-time filtering stays order-preserving.
+        setEventList([...eventsData.value.items].sort((a, b) => eventStartMsOf(b) - eventStartMsOf(a)))
       }
     } finally {
       setTimeout(() => setIsRefreshing(false), 600)
     }
-  }, [setRawGraph, i18n.events.privateChat, personaFilter])
+  }, [personaFilter])
 
-  useEffect(() => { setTimeout(() => loadData(), 0) }, [loadData])
+  /** Personas + graph. Only the Personas tab and group member names need it. */
+  const loadGraph = useCallback(async () => {
+    try {
+      const graph = await api.graph.get(personaFilter)
+      setPersonaList(graph.nodes)
+      setRawGraph(graph)
+    } catch {
+      /* Missing personas only degrade display names */
+    }
+  }, [setRawGraph, personaFilter])
+
+  const loadData = useCallback(async () => {
+    await Promise.allSettled([loadEvents(), loadGraph()])
+  }, [loadEvents, loadGraph])
+
+  useEffect(() => { loadData() }, [loadData])
+
+  // Reset paging/selection on filter change; equality-guarded to avoid no-op renders.
+  useEffect(() => {
+    setCurrentPage(prev => (prev === 1 ? prev : 1))
+    setSelectedIds(prev => (prev.size === 0 ? prev : new Set()))
+    setExpandedId(prev => (prev === null ? prev : null))
+    setMonthLimit(prev => (prev === MONTH_PAGE ? prev : MONTH_PAGE))
+  }, [tab, deferredSearch, activeTags, dateRange, pageSize])
 
   useEffect(() => {
-    setTimeout(() => { setCurrentPage(1); setSelectedIds(new Set()); setExpandedId(null) }, 0)
-  }, [tab, search, activeTags, dateRange, pageSize])
-
-  useEffect(() => {
-    if (!editMode) setTimeout(() => setSelectedIds(new Set()), 0)
+    if (!editMode) setSelectedIds(prev => (prev.size === 0 ? prev : new Set()))
   }, [editMode])
 
-  const q = search.toLowerCase()
+  // ── Derived data ──────────────────────────────────────────────────────────
 
-  const filteredPersonas = personaList.filter(n => {
-    if (q && !(n.data.label || '').toLowerCase().includes(q) && !(n.data.attrs?.description || '').toLowerCase().includes(q)) return false
-    if (activeTags.size > 0 && !(n.data.attrs?.content_tags ?? []).some(t => activeTags.has(t))) return false
-    if (dateRange?.from) {
-      const fromTs = dateRange.from.getTime()
-      const toTs = dateRange.to ? dateRange.to.getTime() + 86400000 : fromTs + 86400000
-      const ts = new Date(n.data.last_active_at || 0).getTime()
-      if (ts < fromTs || ts > toTs) return false
+  /** Group rows + event→group index, built in one pass. Derived rather than stored
+   *  so it recomputes once personas arrive. */
+  const { groupList, eventGroupIndex } = useMemo(() => {
+    const groups = new Map<string, GroupInfo>()
+    const index = new Map<string, string>()
+    const botUids = new Set(personaList.filter(n => n.data.is_bot).map(n => n.data.id))
+    const labelByUid = new Map(personaList.map(n => [n.data.id, n.data.label]))
+
+    for (const ev of eventList) {
+      let groupId = ev.group
+      let type: 'group' | 'private' = 'group'
+      let displayName = ev.group || ''
+
+      if (!groupId) {
+        const other = ev.participants.find(p => !botUids.has(p))
+        if (other) {
+          groupId = `private:${other}`
+          type = 'private'
+          displayName = labelByUid.get(other) ?? other
+        } else {
+          groupId = 'private:unknown'
+          type = 'private'
+          displayName = i18n.events.privateChat
+        }
+      }
+      index.set(ev.id, groupId)
+
+      const existing = groups.get(groupId)
+      if (!existing) {
+        groups.set(groupId, { id: groupId, displayName, type, event_count: 1, last_active: ev.start, participants: [...ev.participants] })
+      } else {
+        existing.event_count++
+        if (!existing.last_active || ev.start > existing.last_active) existing.last_active = ev.start
+        ev.participants.forEach(p => { if (!existing.participants.includes(p)) existing.participants.push(p) })
+      }
     }
-    return true
-  })
 
-  const filteredEvents = eventList.filter(ev => {
-    if (q && !(ev.content || '').toLowerCase().includes(q) && !(ev.topic || '').toLowerCase().includes(q) && !(ev.group || '').toLowerCase().includes(q) && !(ev.tags || []).some(t => t.toLowerCase().includes(q))) return false
-    if (activeTags.size > 0 && !(ev.tags || []).some(t => activeTags.has(t))) return false
-    if (dateRange?.from) {
-      const fromTs = dateRange.from.getTime()
-      const toTs = dateRange.to ? dateRange.to.getTime() + 86400000 : fromTs + 86400000
-      const ts = new Date(ev.start).getTime()
-      if (ts < fromTs || ts > toTs) return false
+    return {
+      groupList: Array.from(groups.values())
+        .sort((a, b) => (b.last_active || '') > (a.last_active || '') ? 1 : -1),
+      eventGroupIndex: index,
     }
-    return true
-  })
+  }, [eventList, personaList, i18n.events.privateChat])
 
-  const tagMatchedGroupIds = activeTags.size > 0
-    ? new Set(filteredEvents.map(ev => {
-        if (ev.group) return ev.group
-        const other = ev.participants.find(p => !personaList.find(n => n.data.id === p)?.data.is_bot)
-        return other ? `private:${other}` : 'private:unknown'
-      }))
-    : null
+  // Cached against their sources: typing, paging and store updates no longer
+  // re-lowercase, re-parse or re-sort the full event set.
 
-  const filteredGroups = groupList.filter(g => {
-    if (q && !g.id.toLowerCase().includes(q) && !g.displayName.toLowerCase().includes(q)) return false
-    if (tagMatchedGroupIds && !tagMatchedGroupIds.has(g.id)) return false
-    return true
-  })
+  const q = deferredSearch.trim().toLowerCase()
 
-  const paginate = <T,>(items: T[]) => items.slice((currentPage - 1) * pageSize, currentPage * pageSize)
-  const paginatedPersonas = paginate(filteredPersonas)
+  /** Event id → prebuilt lowercase haystack; search does one includes per row. */
+  const eventHaystack = useMemo(() => {
+    const index = new Map<string, string>()
+    for (const ev of eventList) {
+      index.set(ev.id, [ev.content, ev.topic, ev.group, ...(ev.tags ?? [])]
+        .filter(Boolean).join(' ').toLowerCase())
+    }
+    return index
+  }, [eventList])
+
+  /** Persona uid → lowercase haystack. */
+  const personaHaystack = useMemo(() => {
+    const index = new Map<string, string>()
+    for (const n of personaList) {
+      index.set(n.data.id, `${n.data.label ?? ''} ${n.data.attrs?.description ?? ''}`.toLowerCase())
+    }
+    return index
+  }, [personaList])
+
+  /** Persona uid → last_active in ms. */
+  const personaActiveMs = useMemo(() => {
+    const index = new Map<string, number>()
+    for (const n of personaList) {
+      index.set(n.data.id, new Date(n.data.last_active_at || 0).getTime())
+    }
+    return index
+  }, [personaList])
+
+  /** Range bounds computed once. */
+  const dateBounds = useMemo(() => {
+    if (!dateRange?.from) return null
+    const fromTs = dateRange.from.getTime()
+    return { fromTs, toTs: dateRange.to ? dateRange.to.getTime() + 86400000 : fromTs + 86400000 }
+  }, [dateRange])
+
+  const filteredPersonas = useMemo(() => {
+    if (!q && activeTags.size === 0 && !dateBounds) return personaList
+    return personaList.filter(n => {
+      if (q && !(personaHaystack.get(n.data.id) ?? '').includes(q)) return false
+      if (activeTags.size > 0 && !(n.data.attrs?.content_tags ?? []).some(t => activeTags.has(t))) return false
+      if (dateBounds) {
+        const ts = personaActiveMs.get(n.data.id) ?? 0
+        if (ts < dateBounds.fromTs || ts > dateBounds.toTs) return false
+      }
+      return true
+    })
+  }, [personaList, personaHaystack, personaActiveMs, q, activeTags, dateBounds])
+
+  // eventList is already sorted at load time and filtering preserves order.
+  const filteredEvents = useMemo(() => {
+    if (!q && activeTags.size === 0 && !dateBounds) return eventList
+    return eventList.filter(ev => {
+      if (q && !(eventHaystack.get(ev.id) ?? '').includes(q)) return false
+      if (activeTags.size > 0 && !(ev.tags ?? []).some(t => activeTags.has(t))) return false
+      if (dateBounds) {
+        const ts = eventStartMsOf(ev)
+        if (ts < dateBounds.fromTs || ts > dateBounds.toTs) return false
+      }
+      return true
+    })
+  }, [eventList, eventHaystack, q, activeTags, dateBounds])
+
+  const tagMatchedGroupIds = useMemo(() => {
+    if (activeTags.size === 0) return null
+    const ids = new Set<string>()
+    for (const ev of filteredEvents) {
+      ids.add(eventGroupIndex.get(ev.id) ?? (ev.group || 'private:unknown'))
+    }
+    return ids
+  }, [activeTags, filteredEvents, eventGroupIndex])
+
+  const filteredGroups = useMemo(() => {
+    if (!q && !tagMatchedGroupIds) return groupList
+    return groupList.filter(g => {
+      if (q && !g.id.toLowerCase().includes(q) && !g.displayName.toLowerCase().includes(q)) return false
+      if (tagMatchedGroupIds && !tagMatchedGroupIds.has(g.id)) return false
+      return true
+    })
+  }, [groupList, q, tagMatchedGroupIds])
+
+  const sliceStart = (currentPage - 1) * pageSize
+  const paginatedPersonas = useMemo(
+    () => filteredPersonas.slice(sliceStart, sliceStart + pageSize),
+    [filteredPersonas, sliceStart, pageSize])
   const totalPersonaPages = Math.max(1, Math.ceil(filteredPersonas.length / pageSize))
-  const paginatedGroups = paginate(filteredGroups)
+  const paginatedGroups = useMemo(
+    () => filteredGroups.slice(sliceStart, sliceStart + pageSize),
+    [filteredGroups, sliceStart, pageSize])
   const totalGroupPages = Math.max(1, Math.ceil(filteredGroups.length / pageSize))
-  const sortedEvents = [...filteredEvents].sort((a, b) => new Date(b.start).getTime() - new Date(a.start).getTime())
-  const paginatedEvents = paginate(sortedEvents)
-  const totalEventPages = Math.max(1, Math.ceil(sortedEvents.length / pageSize))
+  const paginatedEvents = useMemo(
+    () => filteredEvents.slice(sliceStart, sliceStart + pageSize),
+    [filteredEvents, sliceStart, pageSize])
+  const totalEventPages = Math.max(1, Math.ceil(filteredEvents.length / pageSize))
 
-  const toggleExpand = (id: string) => { if (!editMode) setExpandedId(prev => prev === id ? null : id) }
-  const toggleSelect = (id: string) => {
-    const next = new Set(selectedIds)
-    if (next.has(id)) next.delete(id); else next.add(id)
-    setSelectedIds(next)
-  }
+  /** Time tab: bucket by month only when the filtered set changes. */
+  const eventsByMonth = useMemo(() => {
+    const byMonth = new Map<string, api.ApiEvent[]>()
+    for (const ev of filteredEvents) {
+      const month = ev.start.slice(0, 7)
+      const bucket = byMonth.get(month)
+      if (bucket) bucket.push(ev)
+      else byMonth.set(month, [ev])
+    }
+    return Array.from(byMonth.entries()).sort(([a], [b]) => b.localeCompare(a))
+  }, [filteredEvents])
 
-  const currentIds = tab === 'personas'
-    ? paginatedPersonas.map(n => n.data.id)
-    : (tab === 'events' || tab === 'time') ? paginatedEvents.map(ev => ev.id) : []
+  const visibleMonths = useMemo(
+    () => eventsByMonth.slice(0, monthLimit),
+    [eventsByMonth, monthLimit])
+
+  // Row components are memoised — these must keep a stable identity.
+  const toggleExpand = useCallback((id: string) => {
+    if (!editMode) setExpandedId(prev => prev === id ? null : id)
+  }, [editMode])
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+
+  const currentIds = useMemo(() => (
+    tab === 'personas'
+      ? paginatedPersonas.map(n => n.data.id)
+      : (tab === 'events' || tab === 'time') ? paginatedEvents.map(ev => ev.id) : []
+  ), [tab, paginatedPersonas, paginatedEvents])
+
   const allSelected = currentIds.length > 0 && currentIds.every(id => selectedIds.has(id))
   const someSelected = currentIds.some(id => selectedIds.has(id))
-  const toggleAll = () => {
-    const next = new Set(selectedIds)
-    if (allSelected) currentIds.forEach(id => next.delete(id))
-    else currentIds.forEach(id => next.add(id))
-    setSelectedIds(next)
-  }
+  const toggleAll = useCallback(() => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      const isAll = currentIds.length > 0 && currentIds.every(id => next.has(id))
+      if (isAll) currentIds.forEach(id => next.delete(id))
+      else currentIds.forEach(id => next.add(id))
+      return next
+    })
+  }, [currentIds])
 
   const handleDeleteSelected = async () => {
     if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
@@ -326,11 +444,11 @@ function LibraryContent() {
       confidence:        editEvent?.confidence ?? 0.8,
     })
     toast(i18n.common.updateOk)
-    loadData()
+    loadEvents()
     setEditEvent(null)
   }
 
-  const handleLockToggle = async (ev: api.ApiEvent) => {
+  const handleLockToggle = useCallback(async (ev: api.ApiEvent) => {
     if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
     try {
       const res = await api.events.update(ev.id, { is_locked: !ev.is_locked }) as any
@@ -341,9 +459,9 @@ function LibraryContent() {
     } catch (e: unknown) {
       toast(i18n.common.updateFailed + '：' + (e as api.ApiError).body, 'destructive')
     }
-  }
+  }, [sudo, toast, i18n, refreshStats])
 
-  const handleDeletePersona = (id: string, label: string) => {
+  const handleDeletePersona = useCallback((id: string, label: string) => {
     if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
     setDeleteDialog({
       open: true,
@@ -360,9 +478,9 @@ function LibraryContent() {
         }
       },
     })
-  }
+  }, [sudo, toast, i18n, loadData, refreshStats])
 
-  const handleDeleteEvent = (ev: api.ApiEvent) => {
+  const handleDeleteEvent = useCallback((ev: api.ApiEvent) => {
     if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
     setDeleteDialog({
       open: true,
@@ -372,35 +490,41 @@ function LibraryContent() {
           await api.events.delete(ev.id)
           toast(i18n.events.moveBinSuccess)
           setExpandedId(null)
-          loadData()
+          loadEvents()
           refreshStats()
         } catch (e: unknown) {
           toast(i18n.common.deleteFailed + '：' + (e as api.ApiError).body, 'destructive')
         }
       },
     })
-  }
+  }, [sudo, toast, i18n, loadEvents, refreshStats])
 
-  const handleArchiveEvent = async (ev: api.ApiEvent) => {
+  const handleArchiveEvent = useCallback(async (ev: api.ApiEvent) => {
     if (!sudo) { toast(i18n.common.needSudo, 'destructive'); return }
     try {
       await api.events.archive(ev.id)
       toast(i18n.events.archiveSuccess)
       setExpandedId(prev => prev === ev.id ? null : prev)
-      loadData()
+      loadEvents()
       refreshStats()
     } catch (e: any) {
       toast(e?.body || e?.message || i18n.common.updateFailed, 'destructive')
     }
-  }
+  }, [sudo, toast, i18n, loadEvents, refreshStats])
 
-  const goToGraph = (uid: string) => { setStored('em_focus_persona', uid, 'session'); router.push('/graph') }
-  const goToEvents = (eventId: string) => { setStored('em_focus_event', eventId, 'session'); router.push('/events') }
-  const handleTagClick = (t: string) => {
-    const next = new Set(activeTags)
-    if (next.has(t)) next.delete(t); else next.add(t)
-    setActiveTags(next)
-  }
+  const goToGraph = useCallback((uid: string) => {
+    setStored('em_focus_persona', uid, 'session'); router.push('/graph')
+  }, [router])
+  const goToEvents = useCallback((eventId: string) => {
+    setStored('em_focus_event', eventId, 'session'); router.push('/events')
+  }, [router])
+  const handleTagClick = useCallback((t: string) => {
+    setActiveTags(prev => {
+      const next = new Set(prev)
+      if (next.has(t)) next.delete(t); else next.add(t)
+      return next
+    })
+  }, [])
 
   const actions = (
     <div className="flex items-center gap-2">
@@ -538,7 +662,7 @@ function LibraryContent() {
               </div>
             </ScrollArea>
             <PaginationFooter
-              totalItems={sortedEvents.length}
+              totalItems={filteredEvents.length}
               totalPages={totalEventPages}
               pageSize={pageSize}
               currentPage={currentPage}
@@ -552,39 +676,40 @@ function LibraryContent() {
             <ScrollArea className="h-full">
               <div className="flex flex-col gap-6 pb-6">
                 <p className="text-muted-foreground text-sm">{i18n.library.time.description}</p>
-                {(() => {
-                  const byMonth = new Map<string, api.ApiEvent[]>()
-                  filteredEvents.forEach(ev => {
-                    const month = ev.start.slice(0, 7)
-                    if (!byMonth.has(month)) byMonth.set(month, [])
-                    byMonth.get(month)!.push(ev)
-                  })
-                  return Array.from(byMonth.entries()).sort(([a], [b]) => b.localeCompare(a)).map(([month, evs]) => (
-                    <div key={month} className="flex flex-col gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-sm font-semibold">{month}</span>
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
-                          {evs.length} {i18n.library.tabs.events}
-                        </Badge>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {evs.slice(0, 50).map(ev => (
-                          <Badge
-                            key={ev.id}
-                            variant={selectedIds.has(ev.id) ? 'default' : 'outline'}
-                            className="cursor-pointer text-[10px] py-1 transition-colors hover:bg-accent"
-                            onClick={() => editMode ? toggleSelect(ev.id) : goToEvents(ev.id)}
-                          >
-                            {ev.start.slice(5, 10)} {(ev.topic || ev.content)?.slice(0, 12) || ev.id.slice(0, 8)}
-                          </Badge>
-                        ))}
-                        {evs.length > 50 && (
-                          <Badge variant="outline" className="text-[10px]">+{evs.length - 50}</Badge>
-                        )}
-                      </div>
+                {visibleMonths.map(([month, evs]) => (
+                  <div key={month} className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-sm font-semibold">{month}</span>
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                        {evs.length} {i18n.library.tabs.events}
+                      </Badge>
                     </div>
-                  ))
-                })()}
+                    <div className="flex flex-wrap gap-1.5">
+                      {evs.slice(0, 50).map(ev => (
+                        <Badge
+                          key={ev.id}
+                          variant={selectedIds.has(ev.id) ? 'default' : 'outline'}
+                          className="cursor-pointer text-[10px] py-1 transition-colors hover:bg-accent"
+                          onClick={() => editMode ? toggleSelect(ev.id) : goToEvents(ev.id)}
+                        >
+                          {ev.start.slice(5, 10)} {(ev.topic || ev.content)?.slice(0, 12) || ev.id.slice(0, 8)}
+                        </Badge>
+                      ))}
+                      {evs.length > 50 && (
+                        <Badge variant="outline" className="text-[10px]">+{evs.length - 50}</Badge>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {eventsByMonth.length > visibleMonths.length && (
+                  <Button
+                    variant="outline" size="sm"
+                    className="self-start h-7 text-xs"
+                    onClick={() => setMonthLimit(n => n + MONTH_PAGE)}
+                  >
+                    {L.loadMoreMonths(eventsByMonth.length - visibleMonths.length)}
+                  </Button>
+                )}
               </div>
             </ScrollArea>
           </TabsContent>

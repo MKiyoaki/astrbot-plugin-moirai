@@ -1,13 +1,13 @@
 'use client'
 
-import { Fragment, useState, useRef } from 'react'
+import { Fragment, memo, useState, useRef } from 'react'
 import { Lock, Unlock, Pencil, Trash2, GitBranch, ChevronDown, ChevronRight, Archive } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Checkbox } from '@/components/ui/checkbox'
 import { TableCell, TableRow } from '@/components/ui/table'
-import { useApp } from '@/lib/store'
+import { useI18n } from '@/lib/store'
 import type { ApiEvent } from '@/lib/api'
 import { cn, parseSummaryTopics } from '@/lib/utils'
 import { getThreadColor } from '@/lib/colors'
@@ -30,11 +30,11 @@ interface EventRowProps {
   onTagClick: (tag: string) => void
 }
 
-export function EventRow({
+function EventRowImpl({
   ev, expanded, editMode, selected, sudoMode, activeTags, lang,
   onToggleExpand, onToggleSelect, onEdit, onDelete, onLockToggle, onArchive, onGoToEvents, onTagClick,
 }: EventRowProps) {
-  const { i18n } = useApp()
+  const { i18n } = useI18n()
   const threadColor = getThreadColor(ev.id)
 
   return (
@@ -127,7 +127,7 @@ function EventDetailPanel({
   onLockToggle: (ev: ApiEvent) => void
   onArchive?: (ev: ApiEvent) => void
 }) {
-  const { i18n } = useApp()
+  const { i18n } = useI18n()
   const [pendingArchive, setPendingArchive] = useState(false)
   const archiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const topics = parseSummaryTopics(ev.summary)
@@ -248,3 +248,6 @@ function MetaItem({ label, value }: { label: string; value: React.ReactNode }) {
     </div>
   )
 }
+
+/** Re-renders only when its own props change (see useI18n + stable parent callbacks). */
+export const EventRow = memo(EventRowImpl)

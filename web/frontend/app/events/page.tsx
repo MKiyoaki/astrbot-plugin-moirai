@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { useEffect, useState, useCallback, useDeferredValue, useRef, useMemo } from 'react'
 import { ChevronLeft, Plus, Trash2, Archive, Search, X, MessageSquareOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,6 +37,8 @@ export default function EventsPage() {
   const personaFilter = scopeMode === 'single' ? (currentPersonaName ?? api.LEGACY_PERSONA_TOKEN) : null
 
   const [search, setSearch]             = useState('')
+  // Input stays responsive; spindle filtering runs at lower priority.
+  const deferredSearch                  = useDeferredValue(search)
   const [timeGap, setTimeGap]           = useState(7200000) // Default 2h
   const [dateRange, setDateRange]       = useState<DateRange | undefined>()
   const [activeTags, setActiveTags]     = useState<Set<string>>(new Set())
@@ -122,8 +124,8 @@ export default function EventsPage() {
 
   const filtered = useMemo(() => {
     return app.rawEvents.filter(ev => {
-      if (search) {
-        const q = search.toLowerCase()
+      if (deferredSearch) {
+        const q = deferredSearch.toLowerCase()
         const hit =
           (ev.content || '').toLowerCase().includes(q) ||
           (ev.topic || '').toLowerCase().includes(q) ||
@@ -143,7 +145,7 @@ export default function EventsPage() {
       }
       return true
     })
-  }, [app.rawEvents, search, dateRange, activeTags])
+  }, [app.rawEvents, deferredSearch, dateRange, activeTags])
 
   const hasActiveFilters = search || activeTags.size > 0 || !!dateRange
   const spindles = useMemo(
@@ -403,7 +405,7 @@ export default function EventsPage() {
         {!expandedGroupId ? (
           <SpindleGrid
             spindles={spindles}
-            search={search}
+            search={deferredSearch}
             activeTags={activeTags}
             dateRange={dateRange}
             onOpen={groupId => {
