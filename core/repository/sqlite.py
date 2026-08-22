@@ -1218,6 +1218,35 @@ class SQLiteEventRepository(EventRepository):
             row = await cur.fetchone()
         return row[0] if row else 0
 
+    async def count_messages_by_uid_scope_bulk(self) -> dict[tuple[str | None, str], int]:
+        """Single-pass aggregate: {(group_id, uid): message_count}."""
+        async with self._db.execute(
+            "SELECT events.group_id, json_extract(msg.value, '$.sender_uid'), COUNT(*) "
+            "FROM events, json_each(events.interaction_flow) AS msg "
+            "GROUP BY events.group_id, json_extract(msg.value, '$.sender_uid')"
+        ) as cur:
+            rows = await cur.fetchall()
+        return {(row[0], row[1]): row[2] for row in rows if row[1] is not None}
+
+    async def list_participants_by_group(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> dict[str | None, list[str]]:
+        """Return {group_id: sorted participant uids} across every event."""
+        where, params = _persona_where(bot_persona_name, include_legacy)
+        sql = (
+            "SELECT DISTINCT events.group_id, uid.value "
+            "FROM events, json_each(events.participants) AS uid"
+        )
+        if where:
+            sql += " WHERE " + where
+        async with self._db.execute(sql, tuple(params)) as cur:
+            rows = await cur.fetchall()
+        members: dict[str | None, set[str]] = {}
+        for group_id, uid in rows:
+            if uid:
+                members.setdefault(group_id, set()).add(uid)
+        return {gid: sorted(uids) for gid, uids in members.items()}
+
     # --- Tag Abstraction & Normalization ---
 
     async def list_frequent_tags(self, limit: int = 50) -> list[str]:
@@ -1344,6 +1373,20 @@ class SQLiteImpressionRepository(ImpressionRepository):
                 where.append("bot_persona_name = ?")
                 params.append(bot_persona_name)
         sql = f"{_IMPRESSION_SELECT} WHERE " + " AND ".join(where)
+        async with self._db.execute(sql, tuple(params)) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_impression(r) for r in rows]
+
+    async def list_all(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Impression]:
+        where, params = _persona_where(bot_persona_name, include_legacy)
+        sql = _IMPRESSION_SELECT
+        if where:
+            sql += " WHERE " + where
+        # Explicit order mirrors idx_impressions_observer(observer_uid, scope), so
+        # grouping this by observer yields the same sequence list_by_observer does.
+        sql += " ORDER BY observer_uid, scope, id"
         async with self._db.execute(sql, tuple(params)) as cur:
             rows = await cur.fetchall()
         return [_row_to_impression(r) for r in rows]

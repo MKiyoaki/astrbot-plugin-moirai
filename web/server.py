@@ -467,14 +467,27 @@ class WebuiServer:
                 node["data"]["msg_count"] = uid_msg_counts.get(primary, 0)
             nodes.append(node)
 
+        # Bulk aggregates replace one impression query per persona and one
+        # message-count query per impression. Persona order is preserved so the
+        # confidence tie-break below behaves the same.
+        impressions = await self._impression_repo.list_all(
+            bot_persona_name=bot_persona_name, include_legacy=include_legacy,
+        )
+        imps_by_observer: dict[str, list[Impression]] = {}
+        for imp in impressions:
+            imps_by_observer.setdefault(imp.observer_uid, []).append(imp)
+        scope_msg_counts = await self._event_repo.count_messages_by_uid_scope_bulk()
+
+        def _edge_msg_count(uid1: str, uid2: str, scope: str) -> int:
+            uids = {uid1, uid2}
+            if scope == "global":
+                return sum(uid_msg_counts.get(uid, 0) for uid in uids)
+            return sum(scope_msg_counts.get((scope, uid), 0) for uid in uids)
+
         edges = []
         edge_index: dict[tuple[str, str, str], int] = {}
         for persona in personas:
-            imps = await self._impression_repo.list_by_observer(
-                persona.uid,
-                bot_persona_name=bot_persona_name, include_legacy=include_legacy,
-            )
-            for imp in imps:
+            for imp in imps_by_observer.get(persona.uid, ()):
                 src = uid_to_primary.get(imp.observer_uid, imp.observer_uid)
                 tgt = uid_to_primary.get(imp.subject_uid, imp.subject_uid)
                 if src == tgt:
@@ -483,7 +496,7 @@ class WebuiServer:
                 edge["data"]["source"] = src
                 edge["data"]["target"] = tgt
                 edge["data"]["id"] = f"{src}--{tgt}--{imp.scope}"
-                edge["data"]["msg_count"] = await self._event_repo.count_edge_messages(imp.observer_uid, imp.subject_uid, imp.scope)
+                edge["data"]["msg_count"] = _edge_msg_count(imp.observer_uid, imp.subject_uid, imp.scope)
                 key = (src, tgt, imp.scope)
                 prev = edge_index.get(key)
                 if prev is None:
@@ -491,14 +504,9 @@ class WebuiServer:
                     edges.append(edge)
                 elif edge["data"].get("confidence", 0) > edges[prev]["data"].get("confidence", 0):
                     edges[prev] = edge
-        group_members = {}
-        for gid in await self._event_repo.list_group_ids():
-            events = await self._event_repo.list_by_group(
-                gid, limit=1000,
-                bot_persona_name=bot_persona_name, include_legacy=include_legacy,
-            )
-            uids = {uid for event in events for uid in (event.participants or [])}
-            if uids: group_members[gid] = sorted(uids)
+        group_members = await self._event_repo.list_participants_by_group(
+            bot_persona_name=bot_persona_name, include_legacy=include_legacy,
+        )
         return {"nodes": nodes, "edges": edges, "group_members": group_members}
 
     async def bot_personas_data(self) -> dict[str, Any]:

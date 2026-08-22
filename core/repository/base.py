@@ -283,6 +283,27 @@ class EventRepository(ABC):
         """
         ...
 
+    @abstractmethod
+    async def count_messages_by_uid_scope_bulk(self) -> dict[tuple[str | None, str], int]:
+        """Single-pass aggregate: {(group_id, uid): message_count}.
+
+        group_id is None for private chats. Bulk counterpart to count_edge_messages —
+        an edge's count is the sum of both endpoints for the matching scope, so a
+        whole graph needs one query instead of one per impression.
+        """
+        ...
+
+    @abstractmethod
+    async def list_participants_by_group(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> dict[str | None, list[str]]:
+        """Return {group_id: sorted participant uids} across every event.
+
+        Bulk counterpart to calling list_by_group() per group id when only the
+        participant set is needed. group_id is None for private chats.
+        """
+        ...
+
     # --- Tag Abstraction & Normalization ---
 
     @abstractmethod
@@ -366,6 +387,17 @@ class ImpressionRepository(ABC):
         self, subject_uid: str, scope: str | None = None,
         bot_persona_name: str | None = None, include_legacy: bool = True,
     ) -> list[Impression]: ...
+
+    @abstractmethod
+    async def list_all(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Impression]:
+        """Return every impression, optionally scoped to one bot persona.
+
+        Lets callers that need the whole relation graph avoid one
+        list_by_observer() round trip per persona.
+        """
+        ...
 
     @abstractmethod
     async def upsert(self, impression: Impression) -> None:

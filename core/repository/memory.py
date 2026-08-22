@@ -359,6 +359,25 @@ class InMemoryEventRepository(EventRepository):
                     count += 1
         return count
 
+    async def count_messages_by_uid_scope_bulk(self) -> dict[tuple[str | None, str], int]:
+        counts: dict[tuple[str | None, str], int] = {}
+        for event in self._store.values():
+            for msg in event.interaction_flow:
+                key = (event.group_id, msg.sender_uid)
+                counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    async def list_participants_by_group(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> dict[str | None, list[str]]:
+        members: dict[str | None, set[str]] = {}
+        for event in self._store.values():
+            if not _event_persona_matches(event, bot_persona_name, include_legacy):
+                continue
+            for uid in (event.participants or []):
+                members.setdefault(event.group_id, set()).add(uid)
+        return {gid: sorted(uids) for gid, uids in members.items()}
+
     # --- Tag Abstraction & Normalization ---
 
     async def list_frequent_tags(self, limit: int = 50) -> list[str]:
@@ -466,6 +485,15 @@ class InMemoryImpressionRepository(ImpressionRepository):
             if subj == subject_uid
             and (scope is None or sc == scope)
             and _persona_matches(imp.bot_persona_name, bot_persona_name, include_legacy)
+        ]
+
+    async def list_all(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Impression]:
+        return [
+            deepcopy(imp)
+            for imp in self._store.values()
+            if _persona_matches(imp.bot_persona_name, bot_persona_name, include_legacy)
         ]
 
     async def upsert(self, impression: Impression) -> None:

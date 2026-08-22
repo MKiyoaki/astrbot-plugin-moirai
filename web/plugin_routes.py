@@ -543,14 +543,28 @@ class PluginRoutes:
                 node["data"]["msg_count"] = uid_msg_counts.get(primary, 0)
             nodes.append(node)
 
+        # Edges come from two bulk aggregates instead of one impression query per
+        # persona plus one message-count query per impression. Impressions are
+        # still walked in persona order so the confidence tie-break is unchanged.
+        impressions = await self._impression_repo.list_all(
+            bot_persona_name=bot_persona_name, include_legacy=include_legacy,
+        )
+        imps_by_observer: dict[str, list[Impression]] = {}
+        for imp in impressions:
+            imps_by_observer.setdefault(imp.observer_uid, []).append(imp)
+        scope_msg_counts = await self._event_repo.count_messages_by_uid_scope_bulk()
+
+        def _edge_msg_count(uid1: str, uid2: str, scope: str) -> int:
+            """Messages sent by either endpoint within scope; mirrors count_edge_messages."""
+            uids = {uid1, uid2}
+            if scope == "global":
+                return sum(uid_msg_counts.get(uid, 0) for uid in uids)
+            return sum(scope_msg_counts.get((scope, uid), 0) for uid in uids)
+
         edges: list[dict[str, Any]] = []
         edge_index: dict[tuple[str, str, str], int] = {}
         for persona in personas:
-            imps = await self._impression_repo.list_by_observer(
-                persona.uid,
-                bot_persona_name=bot_persona_name, include_legacy=include_legacy,
-            )
-            for imp in imps:
+            for imp in imps_by_observer.get(persona.uid, ()):
                 src = uid_to_primary.get(imp.observer_uid, imp.observer_uid)
                 tgt = uid_to_primary.get(imp.subject_uid, imp.subject_uid)
                 if src == tgt:
@@ -559,7 +573,7 @@ class PluginRoutes:
                 edge["data"]["source"] = src
                 edge["data"]["target"] = tgt
                 edge["data"]["id"] = f"{src}--{tgt}--{imp.scope}"
-                edge["data"]["msg_count"] = await self._event_repo.count_edge_messages(
+                edge["data"]["msg_count"] = _edge_msg_count(
                     imp.observer_uid, imp.subject_uid, imp.scope
                 )
                 key = (src, tgt, imp.scope)
@@ -570,22 +584,16 @@ class PluginRoutes:
                 elif edge["data"].get("confidence", 0) > edges[prev]["data"].get("confidence", 0):
                     edges[prev] = edge
 
+        # One aggregate over participants, replacing a full event fetch per group.
         _PRIVATE_KEY = "__private__"
-        group_members: dict[str, list[str]] = {}
-        group_ids = await self._event_repo.list_group_ids()
-        for gid in group_ids:
-            events = await self._event_repo.list_by_group(
-                gid, limit=1000,
-                bot_persona_name=bot_persona_name, include_legacy=include_legacy,
-            )
-            uids: set[str] = set()
-            for event in events:
-                for uid in (event.participants or []):
-                    uids.add(uid)
-            if uids:
-                # None group_id means private chat; use a stable string key
-                key = gid if gid is not None else _PRIVATE_KEY
-                group_members[key] = sorted(uids)
+        members_by_group = await self._event_repo.list_participants_by_group(
+            bot_persona_name=bot_persona_name, include_legacy=include_legacy,
+        )
+        group_members: dict[str, list[str]] = {
+            # None group_id means private chat; use a stable string key
+            (gid if gid is not None else _PRIVATE_KEY): uids
+            for gid, uids in members_by_group.items()
+        }
 
         return {"nodes": nodes, "edges": edges, "group_members": group_members}
 
