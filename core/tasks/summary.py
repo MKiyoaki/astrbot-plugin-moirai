@@ -1,8 +1,10 @@
 """Group summarised-memory generation (daily LLM task).
 
-Writes one Markdown file per active group per day:
-    data_dir/groups/<gid>/summaries/<YYYY-MM-DD>.md
-    data_dir/global/summaries/<YYYY-MM-DD>.md  (for private-chat / group_id=None)
+Writes one Markdown file per (scope, bot persona, day).  Scope is a group chat
+or a single private-chat peer, so a summary can never mix two groups, two bot
+personas, or two days:
+    data_dir/groups/<gid>/summaries/<persona>/<YYYY-MM-DD>.md
+    data_dir/private/<peer_uid>/summaries/<persona>/<YYYY-MM-DD>.md
 
 Output format — three sections:
     [主要话题]   LLM-generated free-form summary (≤word_limit chars)
@@ -26,9 +28,41 @@ if TYPE_CHECKING:
 
 from ..domain.models import INTERNAL_PLATFORM
 from ..utils.i18n import get_string, LANG_ZH
+from .summary_paths import summary_path
 
 logger = logging.getLogger(__name__)
 _MODULE_NAME = "Summary"
+
+
+async def _resolve_bot_uid(persona_repo: PersonaRepository | None) -> str:
+    """Return the uid of the bot persona (identity='internal')."""
+    if persona_repo is None:
+        return "bot"
+    try:
+        personas = await persona_repo.list_all()
+    except Exception:
+        return "bot"
+    for p in personas:
+        if any(bi[0] == INTERNAL_PLATFORM for bi in (p.bound_identities or [])):
+            return p.uid
+    return "bot"
+
+
+def _bucket_events_by_peer(
+    events: list[Event], bot_uid: str,
+) -> dict[str, list[Event]]:
+    """Split private-chat events into one bucket per non-bot participant.
+
+    Event.group_id is NULL for every private chat, so the peer uid is the only
+    thing separating one person's DMs from another's.
+    """
+    buckets: dict[str, list[Event]] = {}
+    for ev in events:
+        for uid in (ev.participants or []):
+            if uid == bot_uid:
+                continue
+            buckets.setdefault(uid, []).append(ev)
+    return buckets
 
 
 def _build_event_list_section(
@@ -66,17 +100,7 @@ async def _build_mood_section_db(
     """Option A: Aggregate group mood from Impression DB. 
     Returns None if data density is too low for fallback.
     """
-    # Try to find the actual Bot UID from personas (identity='internal')
-    bot_uid = "bot" 
-    if persona_repo:
-        try:
-            personas = await persona_repo.list_all()
-            for p in personas:
-                if any(bi[0] == INTERNAL_PLATFORM for bi in (p.bound_identities or [])):
-                    bot_uid = p.uid
-                    break
-        except Exception:
-            pass
+    bot_uid = await _resolve_bot_uid(persona_repo)
 
     participants: set[str] = set()
     for ev in events:
@@ -251,7 +275,7 @@ async def _build_mood_section_llm(
 
 
 async def _generate_summary_for_group(
-    group_id: str | None,
+    group_label: str,
     events: list[Event],
     today: str,
     provider: Any,
@@ -262,9 +286,8 @@ async def _generate_summary_for_group(
     llm_manager: LLMTaskManager | None = None,
 ) -> str:
 
-    """Generate the full three-section markdown content for one group."""
+    """Generate the full three-section markdown content for one scope."""
     lang = cfg.language or LANG_ZH
-    group_label = group_id or get_string("summary.private_chat", lang)
     start_ts = min(e.start_time for e in events)
     end_ts = max(e.end_time for e in events)
     start_str = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%H:%M")
@@ -372,6 +395,73 @@ async def _generate_summary_for_group(
     return content, topic_text
 
 
+def _scope_label(
+    group_id: str | None,
+    peer_uid: str | None,
+    uid_to_name: dict[str, str],
+    lang: str,
+) -> str:
+    """Human label for one summary scope, used in the header and LLM prompt."""
+    if group_id is not None:
+        return group_id
+    if peer_uid is not None:
+        return uid_to_name.get(peer_uid, peer_uid)
+    return get_string("summary.private_chat", lang)
+
+
+async def _write_scope_summary(
+    *,
+    events: list[Event],
+    data_dir: Path,
+    group_id: str | None,
+    peer_uid: str | None,
+    persona: str | None,
+    date: str,
+    day_start_ts: float,
+    provider: Any,
+    cfg: SummaryConfig,
+    uid_to_name: dict[str, str],
+    impression_repo: ImpressionRepository | None,
+    persona_repo: PersonaRepository | None,
+    llm_manager: LLMTaskManager | None,
+) -> bool:
+    """Generate and persist one (scope, persona, day) summary."""
+    if not events:
+        return False
+
+    path = summary_path(
+        data_dir, date=date, group_id=group_id, peer_uid=peer_uid, persona=persona,
+    )
+    label = _scope_label(group_id, peer_uid, uid_to_name, cfg.language or LANG_ZH)
+
+    # Skip regeneration when the file already covers every event of the day.
+    if path.exists():
+        cutoff = max(path.stat().st_mtime, day_start_ts)
+        if not any(e.end_time > cutoff for e in events):
+            logger.debug(
+                "[%s] no new events for scope %r (persona=%r) since last write, skipping",
+                _MODULE_NAME, label, persona,
+            )
+            return False
+
+    try:
+        content, _topic_text = await _generate_summary_for_group(
+            label, events, date, provider, cfg, uid_to_name,
+            impression_repo, persona_repo, llm_manager,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        logger.debug(
+            "[%s] wrote summary for scope %r (persona=%r)", _MODULE_NAME, label, persona,
+        )
+        return True
+    except Exception as exc:
+        logger.warning(
+            "[%s] failed for scope %r (persona=%r): %s", _MODULE_NAME, label, persona, exc,
+        )
+        return False
+
+
 async def run_group_summary(
     event_repo: EventRepository,
     data_dir: Path,
@@ -380,8 +470,13 @@ async def run_group_summary(
     persona_repo: PersonaRepository | None = None,
     impression_repo: ImpressionRepository | None = None,
     llm_manager: LLMTaskManager | None = None,
+    persona_isolation_enabled: bool = True,
 ) -> int:
-    """Generate and write a daily summary for every active group."""
+    """Generate today's summary for every (scope, bot persona) pair.
+
+    Scopes are enumerated from the day's events, so each file covers exactly one
+    group (or one private-chat peer), one bot persona, and one day.
+    """
     from ..utils.perf import performance_timer
     async with performance_timer("task_summary"):
         from ..config import SummaryConfig as _SC
@@ -392,7 +487,6 @@ async def run_group_summary(
             logger.debug(f"[{_MODULE_NAME}] no provider, skipping group summary")
             return 0
 
-        # Build uid→name lookup if persona_repo is available
         uid_to_name: dict[str, str] = {}
         if persona_repo is not None:
             try:
@@ -401,50 +495,66 @@ async def run_group_summary(
             except Exception:
                 pass
 
-        group_ids = await event_repo.list_group_ids()
+        bot_uid = await _resolve_bot_uid(persona_repo)
+
         now_utc = datetime.now(tz=timezone.utc)
         today = now_utc.strftime("%Y-%m-%d")
-        today_start_ts = now_utc.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        day_start = now_utc.replace(
+            hour=0, minute=0, second=0, microsecond=0,
+        ).timestamp()
+        day_end = day_start + 86400.0
 
-        async def _process_one(group_id) -> bool:
-            events = await event_repo.list_by_group(group_id, limit=cfg.max_events)
+        scopes = await event_repo.list_summary_scopes(day_start, day_end)
+        if not persona_isolation_enabled:
+            # Collapse every persona into the default bucket, matching the rest
+            # of the plugin when isolation is switched off.
+            scopes = sorted({(gid, None) for gid, _persona in scopes},
+                            key=lambda s: s[0] or "")
+
+        async def _process_scope(
+            group_id: str | None, persona: str | None,
+        ) -> int:
+            # "" selects rows whose bot_persona_name IS NULL; include_legacy is
+            # forced off so NULL-persona events never leak into a named persona.
+            events = await event_repo.list_by_group_window(
+                group_id, day_start, day_end, limit=cfg.max_events,
+                bot_persona_name=(persona if persona is not None else "")
+                if persona_isolation_enabled else None,
+                include_legacy=False,
+            )
             if not events:
-                return False
+                return 0
 
+            common = dict(
+                data_dir=data_dir, persona=persona, date=today,
+                day_start_ts=day_start, provider=provider, cfg=cfg,
+                uid_to_name=uid_to_name, impression_repo=impression_repo,
+                persona_repo=persona_repo, llm_manager=llm_manager,
+            )
             if group_id is None:
-                summary_dir = data_dir / "global" / "summaries"
-            else:
-                summary_dir = data_dir / "groups" / group_id / "summaries"
-            summary_path = summary_dir / f"{today}.md"
-
-            # Skip regeneration if today's file exists and no events arrived since it was written.
-            if summary_path.exists():
-                file_mtime = summary_path.stat().st_mtime
-                cutoff = max(file_mtime, today_start_ts)
-                if not any(e.end_time > cutoff for e in events):
-                    logger.debug(
-                        "[%s] no new events for group %r since last write, skipping",
-                        _MODULE_NAME, group_id or "私聊",
+                buckets = _bucket_events_by_peer(events, bot_uid)
+                results = await asyncio.gather(*[
+                    _write_scope_summary(
+                        events=peer_events, group_id=None, peer_uid=peer_uid, **common,
                     )
-                    return False
+                    for peer_uid, peer_events in buckets.items()
+                ])
+                return sum(1 for r in results if r)
 
-            try:
-                content, topic_text = await _generate_summary_for_group(
-                    group_id, events, today, provider, cfg, uid_to_name,
-                    impression_repo, persona_repo, llm_manager
-                )
-                summary_dir.mkdir(parents=True, exist_ok=True)
-                summary_path.write_text(content, encoding="utf-8")
-                logger.debug(f"[{_MODULE_NAME}] wrote summary for group %r", group_id or "私聊")
-                return True
-            except Exception as exc:
-                logger.warning(f"[{_MODULE_NAME}] failed for group %r: %s", group_id, exc)
-                return False
+            written = await _write_scope_summary(
+                events=events, group_id=group_id, peer_uid=None, **common,
+            )
+            return 1 if written else 0
 
-        results = await asyncio.gather(*[_process_one(gid) for gid in group_ids])
-        written = sum(1 for r in results if r)
+        counts = await asyncio.gather(*[
+            _process_scope(gid, persona) for gid, persona in scopes
+        ])
+        written = sum(counts)
 
-        logger.info(f"[{_MODULE_NAME}] group summaries written: %d/%d", written, len(group_ids))
+        logger.info(
+            f"[{_MODULE_NAME}] summaries written: %d over %d scope(s)",
+            written, len(scopes),
+        )
         return written
 
 
@@ -458,8 +568,12 @@ async def regenerate_single_summary(
     persona_repo: PersonaRepository | None = None,
     impression_repo: ImpressionRepository | None = None,
     llm_manager: LLMTaskManager | None = None,
+    peer_uid: str | None = None,
+    bot_persona_name: str | None = None,
+    include_legacy: bool = False,
+    persona_dir: str | None = None,
 ) -> str | None:
-    """Regenerate summary for a specific group + date and return new content.
+    """Regenerate one (scope, persona, date) summary and return its content.
 
     Used by the WebUI [调用LLM重新总结] button.
     """
@@ -478,20 +592,36 @@ async def regenerate_single_summary(
         except Exception:
             pass
 
-    events = await event_repo.list_by_group(group_id, limit=cfg.max_events)
+    try:
+        day_start = datetime.strptime(date, "%Y-%m-%d").replace(
+            tzinfo=timezone.utc,
+        ).timestamp()
+    except ValueError:
+        return None
+    day_end = day_start + 86400.0
+
+    events = await event_repo.list_by_group_window(
+        group_id, day_start, day_end, limit=cfg.max_events,
+        bot_persona_name=bot_persona_name,
+        include_legacy=include_legacy,
+    )
+    if group_id is None and peer_uid is not None:
+        bot_uid = await _resolve_bot_uid(persona_repo)
+        events = _bucket_events_by_peer(events, bot_uid).get(peer_uid, [])
     if not events:
         return None
 
-    content, topic_text = await _generate_summary_for_group(
-        group_id, events, date, provider, cfg, uid_to_name, impression_repo, persona_repo,
+    label = _scope_label(group_id, peer_uid, uid_to_name, cfg.language or LANG_ZH)
+    content, _topic_text = await _generate_summary_for_group(
+        label, events, date, provider, cfg, uid_to_name, impression_repo, persona_repo,
         llm_manager=llm_manager,
     )
 
-    if group_id is None:
-        summary_dir = data_dir / "global" / "summaries"
-    else:
-        summary_dir = data_dir / "groups" / group_id / "summaries"
-    summary_dir.mkdir(parents=True, exist_ok=True)
-    (summary_dir / f"{date}.md").write_text(content, encoding="utf-8")
+    path = summary_path(
+        data_dir, date=date, group_id=group_id, peer_uid=peer_uid,
+        persona=bot_persona_name or None, persona_dir=persona_dir,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
     return content

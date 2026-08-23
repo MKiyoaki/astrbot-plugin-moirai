@@ -157,9 +157,11 @@ async def refresh_summary_files_for_event(
     event_id: str,
 ) -> int:
     """Refresh all summary files that reference ``event_id`` or its 8-char prefix."""
+    from .summary_paths import iter_summary_paths
+
     refs = {event_id, event_id[:8]}
     updated = 0
-    for path in data_dir.glob("**/summaries/*.md"):
+    for path in iter_summary_paths(data_dir):
         try:
             content = path.read_text(encoding="utf-8")
         except OSError:

@@ -174,6 +174,9 @@ export interface PersonaNode {
     last_active_at: string
     is_bot?: boolean
     msg_count?: number
+    /** Persona-group collapse: set when several bound accounts render as one node. */
+    group_id?: string | null
+    group_member_uids?: string[]
   }
 }
 export interface ImpressionEdge {
@@ -248,7 +251,23 @@ export const graph = {
 }
 
 // ── Summaries ─────────────────────────────────────────────────────────────
-export interface SummaryMeta { group_id: string | null; date: string; label: string }
+export type SummaryKind = 'group' | 'private' | 'legacy_private'
+export interface SummaryMeta {
+  group_id: string | null
+  peer_uid: string | null
+  kind: SummaryKind
+  bot_persona_name: string | null
+  persona_dir: string
+  date: string
+  label: string
+}
+/** Identifies one summary file: scope + bot persona + date. */
+export interface SummaryKey {
+  group_id: string | null
+  peer_uid: string | null
+  persona_dir: string
+  date: string
+}
 export interface SummaryLinkedEvent {
   ref: string
   title: string
@@ -260,22 +279,26 @@ export interface SummaryContentResponse {
   content: string
   linked_events?: SummaryLinkedEvent[]
 }
+function summaryQuery(key: SummaryKey): string {
+  const params = new URLSearchParams({ date: key.date, persona_dir: key.persona_dir })
+  if (key.group_id) params.set('group_id', key.group_id)
+  if (key.peer_uid) params.set('peer_uid', key.peer_uid)
+  return params.toString()
+}
+
 export const summaries = {
-  list: () => request<SummaryMeta[]>('/api/summaries'),
-  get: (groupId: string | null, date: string) => {
-    const qs = groupId ? `group_id=${encodeURIComponent(groupId)}&date=${encodeURIComponent(date)}` : `date=${encodeURIComponent(date)}`
-    return request<SummaryContentResponse>(`/api/summary?${qs}`)
-  },
-  save: (groupId: string | null, date: string, content: string) =>
-    request('/api/summary', { method: 'PUT', body: JSON.stringify({ group_id: groupId, date, content }) }),
-  regenerate: (groupId: string | null, date: string) =>
+  list: (persona?: string | null) =>
+    request<SummaryMeta[]>(withPersona('/api/summaries', persona)),
+  get: (key: SummaryKey) =>
+    request<SummaryContentResponse>(`/api/summary?${summaryQuery(key)}`),
+  save: (key: SummaryKey, content: string) =>
+    request('/api/summary', { method: 'PUT', body: JSON.stringify({ ...key, content }) }),
+  regenerate: (key: SummaryKey) =>
     request<SummaryContentResponse>('/api/summary/regenerate', {
-      method: 'POST', body: JSON.stringify({ group_id: groupId, date }),
+      method: 'POST', body: JSON.stringify({ ...key }),
     }),
-  delete: (groupId: string | null, date: string) => {
-    const qs = groupId ? `group_id=${encodeURIComponent(groupId)}&date=${encodeURIComponent(date)}` : `date=${encodeURIComponent(date)}`
-    return request('/api/summary?' + qs, { method: 'DELETE' })
-  },
+  delete: (key: SummaryKey) =>
+    request(`/api/summary?${summaryQuery(key)}`, { method: 'DELETE' }),
 }
 
 // ── Recall ────────────────────────────────────────────────────────────────

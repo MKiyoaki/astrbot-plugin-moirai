@@ -323,7 +323,11 @@ class MoiraiPlugin(Star):
         target = target.strip()
 
         if scope == "here":
-            result = await cmd.reset_here(session_id, group_id)
+            result = await cmd.reset_here(
+                session_id, group_id,
+                platform=event.get_platform_name(),
+                sender_id=str(event.get_sender_id() or ""),
+            )
         elif scope == "event":
             if target == "all":
                 result = await cmd.reset_event_all(session_id)

@@ -9,8 +9,8 @@ import { FilterBar } from '@/components/shared/filter-bar'
 import { DateRange } from 'react-day-picker'
 import { EditPersonaDialog, EditImpressionDialog } from '@/components/graph/persona-dialogs'
 import { ReanalyzeMethodDialog, type ReanalyzeMethod } from '@/components/shared/reanalyze-method-dialog'
-import { NetworkGraph } from '@/components/graph/network-graph'
-import { ParamsPanel } from '@/components/graph/params-panel'
+import { NetworkGraph, GRAPH_VIEWPORT_ID } from '@/components/graph/network-graph'
+import { ParamsPanel, type GraphExportFormat } from '@/components/graph/params-panel'
 import { NodeDetail } from '@/components/graph/node-detail'
 import { EdgeDetail } from '@/components/graph/edge-detail'
 import { GroupCardList } from '@/components/graph/group-card-list'
@@ -23,12 +23,22 @@ import * as api from '@/lib/api'
 import {
   DEFAULT_PHYSICS_PARAMS,
   DEFAULT_VISUAL_PARAMS,
+  gephiAutoSettings,
+  type EdgePair,
   type PhysicsParams,
   type VisualParams,
   type ViewMode,
   type GroupCard,
 } from '@/lib/graph-types'
-import { buildGroupCards, GROUP_ID_GLOBAL, GROUP_ID_PRIVATE } from '@/lib/graph-utils'
+import {
+  buildGroupCards, computeNodeRadius, degreeMap, mockCluster,
+  GROUP_ID_GLOBAL, GROUP_ID_PRIVATE,
+} from '@/lib/graph-utils'
+import {
+  buildExportGraph, downloadText, exportFilename, exportPng, exportSvg,
+  toEdgesCsv, toGexf, toNodesCsv,
+} from '@/lib/graph-export'
+import { getPaletteColor } from '@/lib/colors'
 import { useForceSimulation } from '@/hooks/use-force-simulation'
 import { useRouter } from 'next/navigation'
 
@@ -168,6 +178,8 @@ export default function GraphPage() {
   }, [currentGroup, activeNodes])
 
   // ── Force simulation ────────────────────────────────────────────────────────
+  const [exportMode, setExportMode] = useState(false)
+
   const { positions, refresh: refreshLayout } = useForceSimulation({
     nodes: activeNodes,
     edgePairs: activePairs,
@@ -240,6 +252,103 @@ export default function GraphPage() {
     setSelectedPairKey(key)
     if (key) setSelectedNodeId(null)
   }, [])
+
+  // ── Auto settings ───────────────────────────────────────────────────────────
+  // Gephi's own "reset properties" values, computed from the visible node count.
+  const handleAutoSettings = useCallback(() => {
+    setPhysics(p => ({ ...p, ...gephiAutoSettings(activeNodes.length) }))
+    toast(i18n.graph.params.autoSettings)
+  }, [activeNodes.length, toast, i18n.graph.params.autoSettings])
+
+  // ── Export ──────────────────────────────────────────────────────────────────
+  const clusterMap = useMemo(() => {
+    if (!visual.leidenEnabled) return {}
+    return mockCluster(activeNodes, activePairs, visual.leidenResolution)
+  }, [visual.leidenEnabled, visual.leidenResolution, activeNodes, activePairs])
+
+  const exportRadius = useMemo(() => {
+    const degrees = degreeMap(activeNodes, activePairs)
+    let minDeg = Infinity
+    let maxDeg = 1
+    for (const d of degrees.values()) {
+      minDeg = Math.min(minDeg, d)
+      maxDeg = Math.max(maxDeg, d)
+    }
+    if (!Number.isFinite(minDeg)) minDeg = 0
+    const radii = new Map<string, number>()
+    for (const [id, deg] of degrees) radii.set(id, computeNodeRadius(deg, minDeg, maxDeg))
+    return radii
+  }, [activeNodes, activePairs])
+
+  const handleExport = useCallback(async (
+    format: GraphExportFormat,
+    options: { scale: number; transparent: boolean },
+  ) => {
+    const name = currentGroup?.name ?? 'graph'
+
+    if (format === 'gexf' || format === 'csv') {
+      const graph = buildExportGraph({
+        name,
+        nodes: activeNodes,
+        edgePairs: activePairs,
+        positions,
+        edgeWeightSource: physics.edgeWeightSource,
+        nodeRadius: id => exportRadius.get(id) ?? 12,
+        nodeColor: n => {
+          if (n.data.is_bot) return 'var(--primary)'
+          if (visual.leidenEnabled) return getPaletteColor(clusterMap[n.data.id] ?? 0)
+          return 'var(--muted)'
+        },
+        edgeColor: (pair: EdgePair) => {
+          if (!visual.sentimentEnabled) return '#aaaaaa'
+          const pick = (e: api.ImpressionEdge) =>
+            visual.sentimentAxis === 'power' ? e.data.power : e.data.affect
+          const avg = pair.isBidirectional && pair.bwd
+            ? (pick(pair.fwd) + pick(pair.bwd)) / 2
+            : pick(pair.fwd)
+          if (avg > 0.3) return '#2d7d46'
+          if (avg < -0.1) return '#c0392b'
+          return '#aaaaaa'
+        },
+        clusterOf: id => (visual.leidenEnabled ? clusterMap[id] : undefined),
+      })
+
+      if (graph.nodes.length === 0) {
+        toast(i18n.graph.params.exportFailed, 'destructive')
+        return
+      }
+      if (format === 'gexf') {
+        downloadText(toGexf(graph), exportFilename(name, 'gexf'), 'application/xml')
+      } else {
+        downloadText(toNodesCsv(graph), exportFilename(`${name}_nodes`, 'csv'), 'text/csv')
+        downloadText(toEdgesCsv(graph), exportFilename(`${name}_edges`, 'csv'), 'text/csv')
+      }
+      return
+    }
+
+    // Image formats need a repaint with every label shown and no hover dimming.
+    const svg = svgRef.current
+    if (!svg) return
+    setExportMode(true)
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    try {
+      const imageOpts = {
+        viewportGroupId: GRAPH_VIEWPORT_ID,
+        background: options.transparent ? null : 'var(--background)',
+        scale: options.scale,
+      }
+      const ok = format === 'png'
+        ? await exportPng(svg, exportFilename(name, 'png'), imageOpts)
+        : exportSvg(svg, exportFilename(name, 'svg'), imageOpts)
+      if (!ok) toast(i18n.graph.params.exportFailed, 'destructive')
+    } finally {
+      setExportMode(false)
+    }
+  }, [
+    currentGroup, activeNodes, activePairs, positions, physics.edgeWeightSource,
+    exportRadius, clusterMap, visual.leidenEnabled, visual.sentimentEnabled,
+    visual.sentimentAxis, toast, i18n.graph.params.exportFailed,
+  ])
 
   // ── Fit view ────────────────────────────────────────────────────────────────
   const graphContainerRef = useRef<HTMLDivElement>(null)
@@ -465,6 +574,8 @@ export default function GraphPage() {
         groupNodes={currentGroup?.nodes ?? []}
         onFocusNode={setFocusNodeId}
         onRefreshLayout={refreshLayout}
+        onAutoSettings={handleAutoSettings}
+        onExport={handleExport}
         svgEl={svgRef.current}
         groupName={currentGroup?.name}
         onClearScope={handleClearCurrentScopeImpressions}
@@ -521,6 +632,7 @@ export default function GraphPage() {
             selectedNodeId={selectedNodeId}
             selectedPairKey={selectedPairKey}
             focusNodeId={focusNodeId}
+            exportMode={exportMode}
             onSelectNode={handleSelectNode}
             onSelectPair={handleSelectPair}
             onSizeChange={setContainerSize}

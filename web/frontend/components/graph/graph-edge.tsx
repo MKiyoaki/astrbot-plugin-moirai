@@ -1,3 +1,4 @@
+import { memo } from "react"
 import { cn } from "@/lib/utils"
 
 interface GraphEdgeProps {
@@ -7,6 +8,7 @@ interface GraphEdgeProps {
   y2: number
   color: string
   width: number
+  opacity?: number
   isBidirectional?: boolean
   isHovered?: boolean
   isSelected?: boolean
@@ -21,8 +23,8 @@ interface GraphEdgeProps {
   onMouseLeave?: () => void
 }
 
-export function GraphEdge({
-  x1, y1, x2, y2, color, width, isBidirectional, isHovered, isSelected, isFocused, isDimmed,
+function GraphEdgeImpl({
+  x1, y1, x2, y2, color, width, opacity = 1, isBidirectional, isHovered, isSelected, isFocused, isDimmed,
   arrowId, perpX, perpY, offset, onClick, onMouseEnter, onMouseLeave
 }: GraphEdgeProps) {
   const strokeW = (isHovered || isSelected) ? width + 2.5 : (isFocused ? width + 1.2 : width)
@@ -37,6 +39,7 @@ export function GraphEdge({
         "cursor-pointer transition-opacity duration-400",
         isDimmed && "opacity-10"
       )}
+      opacity={isHovered || isSelected ? 1 : opacity}
     >
       {/* Glow effect for selection or hover */}
       {(isHovered || isSelected) && (
@@ -82,3 +85,5 @@ export function GraphEdge({
     </g>
   )
 }
+
+export const GraphEdge = memo(GraphEdgeImpl)

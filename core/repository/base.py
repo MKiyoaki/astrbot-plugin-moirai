@@ -133,6 +133,30 @@ class EventRepository(ABC):
         ...
 
     @abstractmethod
+    async def list_by_group_window(
+        self, group_id: str | None, start_ts: float, end_ts: float,
+        limit: int = 100,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Event]:
+        """list_by_group() restricted to events ending in [start_ts, end_ts).
+
+        The daily summary task uses this so a day's summary can never pull in
+        events from another day.
+        """
+        ...
+
+    @abstractmethod
+    async def list_summary_scopes(
+        self, start_ts: float, end_ts: float,
+    ) -> list[tuple[str | None, str | None]]:
+        """Distinct (group_id, bot_persona_name) pairs active in a time window.
+
+        One summary is generated per pair, which is what keeps a daily summary
+        from bleeding across groups or bot personas.
+        """
+        ...
+
+    @abstractmethod
     async def search_fts(
         self, query: str, limit: int = 20, active_only: bool = True,
         group_id: str | None = None,

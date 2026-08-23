@@ -163,6 +163,32 @@ class InMemoryEventRepository(EventRepository):
     async def list_group_ids(self) -> list[str | None]:
         return list({e.group_id for e in self._store.values()})
 
+    async def list_by_group_window(
+        self, group_id: str | None, start_ts: float, end_ts: float,
+        limit: int = 100,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Event]:
+        events = [
+            deepcopy(e) for e in self._store.values()
+            if e.group_id == group_id
+            and start_ts <= e.end_time < end_ts
+            and _event_persona_matches(e, bot_persona_name, include_legacy)
+        ]
+        events.sort(key=lambda e: e.start_time, reverse=True)
+        return events[:limit]
+
+    async def list_summary_scopes(
+        self, start_ts: float, end_ts: float,
+    ) -> list[tuple[str | None, str | None]]:
+        return sorted(
+            {
+                (e.group_id, e.bot_persona_name)
+                for e in self._store.values()
+                if start_ts <= e.end_time < end_ts
+            },
+            key=lambda item: (item[0] or "", item[1] or ""),
+        )
+
     async def search_fts(
         self, query: str, limit: int = 20, active_only: bool = True,
         group_id: str | None = None, event_type: str | None = None,

@@ -1,11 +1,10 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { RotateCcw, Download, Maximize2, Trash2, FlaskConical } from 'lucide-react'
+import { RotateCcw, Download, Maximize2, Trash2, FlaskConical, Wand2, Image as ImageIcon, FileSpreadsheet, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -14,9 +13,12 @@ import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Badge } from '@/components/ui/badge'
+import { NumberField } from '@/components/graph/number-field'
 import type { PersonaNode } from '@/lib/api'
 import type { PhysicsParams, VisualParams, ViewMode } from '@/lib/graph-types'
 import { useApp } from '@/lib/store'
+
+export type GraphExportFormat = 'gexf' | 'csv' | 'svg' | 'png'
 
 interface ParamsPanelProps {
   physics: PhysicsParams
@@ -32,6 +34,8 @@ interface ParamsPanelProps {
   groupNodes: PersonaNode[]
   onFocusNode: (id: string) => void
   onRefreshLayout: () => void
+  onAutoSettings: () => void
+  onExport: (format: GraphExportFormat, options: { scale: number; transparent: boolean }) => void
   svgEl?: SVGSVGElement | null
   groupName?: string
   onClearScope?: () => void
@@ -53,8 +57,9 @@ export function ParamsPanel({
   groupNodes,
   onFocusNode,
   onRefreshLayout,
+  onAutoSettings,
+  onExport,
   svgEl,
-  groupName,
   onClearScope,
   canClearScope = false,
   sudoMode = false,
@@ -68,6 +73,10 @@ export function ParamsPanel({
   // Search state for node focus
   const [searchQ, setSearchQ] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
+
+  // Export options
+  const [pngScale, setPngScale] = useState(2)
+  const [transparent, setTransparent] = useState(false)
 
   const searchResults = useMemo(() => {
     if (!searchQ.trim()) return []
@@ -89,24 +98,12 @@ export function ParamsPanel({
     })
   }, [groupNodes, memberSort])
 
-  const handleExportPng = () => {
-    if (!svgEl) return
-    const serializer = new XMLSerializer()
-    const svgStr = serializer.serializeToString(svgEl)
-    const blob = new Blob([svgStr], { type: 'image/svg+xml' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    const filename = groupName ? `RelationGraph_[${groupName}].svg` : 'relation-graph.svg'
-    a.download = filename
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
   const handleFullscreen = () => {
     const el = svgEl?.parentElement
     if (el?.requestFullscreen) el.requestFullscreen()
   }
+
+  const exportOptions = { scale: pngScale, transparent }
 
   return (
     <div className="flex h-full flex-col overflow-hidden text-sm">
@@ -206,7 +203,7 @@ export function ParamsPanel({
                 onValueChange={v => onSelectedMemberId(v || null)}
               >
                 <SelectTrigger className="h-7 text-xs">
-                  <SelectValue placeholder="选择成员…" />
+                  <SelectValue placeholder={t.memberPlaceholder} />
                 </SelectTrigger>
                 <SelectContent>
                   {sortedMembers.map(n => (
@@ -228,18 +225,87 @@ export function ParamsPanel({
         </TabsList>
 
         <ScrollArea className="flex-1">
-          {/* ── Physics Tab ───────────────────────────────────────────── */}
+          {/* ── Physics Tab — Gephi ForceAtlas2 ───────────────────────── */}
           <TabsContent value="phys" className="mt-0 px-3 py-2 space-y-3">
-            {/* Gravity source */}
-            <ParamRow label={t.dataSrcGravity}>
+            <Button
+              size="sm" variant="secondary" className="w-full text-xs h-8"
+              disabled={physDisabled}
+              onClick={onAutoSettings}
+            >
+              <Wand2 className="mr-1.5 h-3 w-3" />
+              {t.autoSettings}
+            </Button>
+            <p className="text-muted-foreground text-[11px] leading-relaxed">
+              {t.autoSettingsTip}
+            </p>
+
+            <Separator />
+            <SectionTitle disabled={physDisabled}>{t.groupTuning}</SectionTitle>
+
+            <NumberField
+              label={t.scalingRatio} value={physics.scalingRatio}
+              min={0} step={0.1} disabled={physDisabled}
+              onChange={v => onPhysics('scalingRatio', v)} tooltip={t.scalingRatioTip}
+            />
+            <SwitchRow label={t.strongGravityMode} checked={physics.strongGravityMode}
+              disabled={physDisabled} onChange={v => onPhysics('strongGravityMode', v)}
+              tooltip={t.strongGravityModeTip} />
+            <NumberField
+              label={t.gravity} value={physics.gravity}
+              min={0} step={0.1} disabled={physDisabled}
+              onChange={v => onPhysics('gravity', v)} tooltip={t.gravityTip}
+            />
+
+            <Separator />
+            <SectionTitle disabled={physDisabled}>{t.groupBehavior}</SectionTitle>
+
+            <SwitchRow label={t.dissuadeHubs} checked={physics.outboundAttractionDistribution}
+              disabled={physDisabled} onChange={v => onPhysics('outboundAttractionDistribution', v)}
+              tooltip={t.dissuadeHubsTip} />
+            <SwitchRow label={t.linLog} checked={physics.linLogMode}
+              disabled={physDisabled} onChange={v => onPhysics('linLogMode', v)}
+              tooltip={t.linLogTip} />
+            <SwitchRow label={t.preventOverlap} checked={physics.adjustSizes}
+              disabled={physDisabled} onChange={v => onPhysics('adjustSizes', v)}
+              tooltip={t.preventOverlapTip} />
+            <NumberField
+              label={t.edgeWeightInfluence} value={physics.edgeWeightInfluence}
+              min={0} step={0.1} disabled={physDisabled}
+              onChange={v => onPhysics('edgeWeightInfluence', v)} tooltip={t.edgeWeightInfluenceTip}
+            />
+
+            <Separator />
+            <SectionTitle disabled={physDisabled}>{t.groupPerformance}</SectionTitle>
+
+            <NumberField
+              label={t.jitterTolerance} value={physics.jitterTolerance}
+              min={0} step={0.1} disabled={physDisabled}
+              onChange={v => onPhysics('jitterTolerance', v)} tooltip={t.jitterToleranceTip}
+            />
+            <SwitchRow label={t.barnesHutOptimize} checked={physics.barnesHutOptimize}
+              disabled={physDisabled} onChange={v => onPhysics('barnesHutOptimize', v)}
+              tooltip={t.barnesHutOptimizeTip} />
+            <NumberField
+              label={t.barnesHutTheta} value={physics.barnesHutTheta}
+              min={0} step={0.1} disabled={physDisabled || !physics.barnesHutOptimize}
+              onChange={v => onPhysics('barnesHutTheta', v)} tooltip={t.barnesHutThetaTip}
+            />
+
+            <Separator />
+            <SectionTitle disabled={isLocked}>{t.groupMoirai}</SectionTitle>
+
+            <NumberField
+              label={t.iterations} value={physics.iterations}
+              min={1} max={5000} step={10} integer disabled={physDisabled}
+              onChange={v => onPhysics('iterations', v)} tooltip={t.iterationsTip}
+            />
+            <ParamRow label={t.dataSrcWeight} disabled={isLocked}>
               <Select
-                value={physics.gravSource}
-                onValueChange={v => onPhysics('gravSource', v as PhysicsParams['gravSource'])}
-                disabled={physDisabled}
+                value={physics.edgeWeightSource}
+                onValueChange={v => onPhysics('edgeWeightSource', v as PhysicsParams['edgeWeightSource'])}
+                disabled={isLocked}
               >
-                <SelectTrigger className="h-7 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="affinity">{t.srcAffinity}</SelectItem>
                   <SelectItem value="msgs">{t.srcMsgs}</SelectItem>
@@ -247,95 +313,11 @@ export function ParamsPanel({
                 </SelectContent>
               </Select>
             </ParamRow>
-
-            {/* Edge width source */}
-            <ParamRow label={t.dataSrcEdgeWidth}>
-              <Select
-                value={visual.edgeWidthSource}
-                onValueChange={v => onVisual('edgeWidthSource', v as VisualParams['edgeWidthSource'])}
-                disabled={isLocked}
-              >
-                <SelectTrigger className="h-7 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="equal">{t.srcEqual}</SelectItem>
-                  <SelectItem value="affinity">{t.srcAffinity}</SelectItem>
-                  <SelectItem value="msgs">{t.srcMsgs}</SelectItem>
-                </SelectContent>
-              </Select>
-            </ParamRow>
-
-            <Separator />
-
-            {/* Bi-weight with tooltip */}
-            <div className={`space-y-1 ${isLocked ? 'opacity-50 grayscale-[0.5]' : ''}`}>
-              <div className="flex items-center gap-1">
-                <span className="text-xs text-muted-foreground flex-1">{t.biWeight}</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Badge variant="outline" className="h-4 w-4 cursor-help text-[9px] p-0 flex items-center justify-center">?</Badge>
-                  </TooltipTrigger>
-                  <TooltipContent side="left" className="max-w-56 text-xs">{t.biWeightTip}</TooltipContent>
-                </Tooltip>
-                <span className="text-xs font-mono w-8 text-right">{physics.biWeight.toFixed(1)}</span>
-              </div>
-              <Slider
-                min={1.0} max={2.0} step={0.05}
-                value={[physics.biWeight]}
-                onValueChange={v => onPhysics('biWeight', Array.isArray(v) ? v[0] : v)}
-                disabled={isLocked}
-              />
-            </div>
-
-            <Separator />
-            <p className={`text-xs text-muted-foreground font-medium ${physDisabled ? 'opacity-50' : ''}`}>{t.physParams}</p>
-
-            <SliderParam
-              label={t.scalingRatio}
-              value={physics.scalingRatio} min={0.1} max={30} step={0.1}
-              disabled={physDisabled}
-              onChange={v => onPhysics('scalingRatio', v)}
-              tooltip={t.scalingRatioTip}
+            <NumberField
+              label={t.biWeight} value={physics.biWeight}
+              min={1} step={0.05} disabled={isLocked}
+              onChange={v => onPhysics('biWeight', v)} tooltip={t.biWeightTip}
             />
-            <SliderParam
-              label={t.gravity}
-              value={physics.gravity} min={0} max={10} step={0.1}
-              disabled={physDisabled}
-              onChange={v => onPhysics('gravity', v)}
-              tooltip={t.gravityTip}
-            />
-            <SliderParam
-              label={t.edgeWeightInfluence}
-              value={physics.edgeWeightInfluence} min={0} max={2} step={0.05}
-              disabled={physDisabled}
-              onChange={v => onPhysics('edgeWeightInfluence', v)}
-              tooltip={t.edgeWeightInfluenceTip}
-            />
-            <SliderParam
-              label={t.damping}
-              value={physics.damping} min={0.1} max={1} step={0.05}
-              disabled={physDisabled}
-              onChange={v => onPhysics('damping', v)}
-              tooltip={t.dampingTip}
-            />
-            <SliderParam
-              label={t.iterations}
-              value={physics.iterations} min={40} max={400} step={10}
-              disabled={physDisabled}
-              onChange={v => onPhysics('iterations', Math.round(v))}
-              tooltip={t.iterationsTip}
-            />
-
-            <Separator />
-            <p className={`text-xs text-muted-foreground font-medium ${physDisabled ? 'opacity-50' : ''}`}>{t.switches}</p>
-
-            <SwitchRow label={t.preventOverlap} checked={physics.preventOverlap} disabled={physDisabled}
-              onChange={v => onPhysics('preventOverlap', v)} tooltip={t.preventOverlapTip} />
-            <SwitchRow label={t.linLog} checked={physics.linLog} disabled={physDisabled}
-              onChange={v => onPhysics('linLog', v)} tooltip={t.linLogTip} />
-            <SwitchRow label={t.dissuadeHubs} checked={physics.dissuadeHubs} disabled={physDisabled}
-              onChange={v => onPhysics('dissuadeHubs', v)} tooltip={t.dissuadeHubsTip} />
 
             <Button
               size="sm" variant="outline" className="w-full text-xs h-8"
@@ -349,35 +331,56 @@ export function ParamsPanel({
 
           {/* ── Visual Tab ────────────────────────────────────────────── */}
           <TabsContent value="visual" className="mt-0 px-3 py-2 space-y-3">
-            <p className="text-xs text-muted-foreground font-medium">{t.renderParams}</p>
+            <SectionTitle>{t.renderParams}</SectionTitle>
 
-            <SliderParam
-              label={t.edgeOpacity}
-              value={visual.edgeOpacity} min={0.05} max={1} step={0.05}
+            <NumberField
+              label={t.edgeOpacity} value={visual.edgeOpacity}
+              min={0.05} max={1} step={0.05}
               onChange={v => onVisual('edgeOpacity', v)}
             />
-            <SliderParam
-              label={t.defaultEdgeWidth}
-              value={visual.defaultEdgeWidth} min={0.5} max={5.4} step={0.1}
+            <NumberField
+              label={t.defaultEdgeWidth} value={visual.defaultEdgeWidth}
+              min={0.1} step={0.1}
               onChange={v => onVisual('defaultEdgeWidth', v)}
             />
+            <ParamRow label={t.dataSrcEdgeWidth}>
+              <Select
+                value={visual.edgeWidthSource}
+                onValueChange={v => onVisual('edgeWidthSource', v as VisualParams['edgeWidthSource'])}
+              >
+                <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="equal">{t.srcEqual}</SelectItem>
+                  <SelectItem value="affinity">{t.srcAffinity}</SelectItem>
+                  <SelectItem value="msgs">{t.srcMsgs}</SelectItem>
+                </SelectContent>
+              </Select>
+            </ParamRow>
             <SwitchRow label={t.showArrows} checked={visual.showArrows}
               onChange={v => onVisual('showArrows', v)} />
             {visual.showArrows && (
-              <SliderParam
-                label={t.arrowSize}
-                value={visual.arrowSize} min={3} max={64} step={1}
+              <NumberField
+                label={t.arrowSize} value={visual.arrowSize}
+                min={1} step={1} integer
                 onChange={v => onVisual('arrowSize', v)}
               />
             )}
 
             <Separator />
+            <SectionTitle>{t.labelParams}</SectionTitle>
+            <SwitchRow label={t.alwaysShowLabels} checked={visual.alwaysShowLabels}
+              onChange={v => onVisual('alwaysShowLabels', v)} tooltip={t.alwaysShowLabelsTip} />
+            <NumberField
+              label={t.labelFontSize} value={visual.labelFontSize}
+              min={4} step={1} integer
+              onChange={v => onVisual('labelFontSize', v)}
+            />
             <SwitchRow label={t.showEdgeLabels} checked={visual.showEdgeLabels}
               onChange={v => onVisual('showEdgeLabels', v)} />
             {visual.showEdgeLabels && (
-              <SliderParam
-                label={t.fontSize}
-                value={visual.edgeLabelFontSize} min={6} max={24} step={1}
+              <NumberField
+                label={t.fontSize} value={visual.edgeLabelFontSize}
+                min={4} step={1} integer
                 onChange={v => onVisual('edgeLabelFontSize', v)}
               />
             )}
@@ -386,7 +389,7 @@ export function ParamsPanel({
 
             {/* Node search */}
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground font-medium">{t.searchNode}</p>
+              <SectionTitle>{t.searchNode}</SectionTitle>
               <Popover open={searchOpen && searchResults.length > 0} onOpenChange={setSearchOpen}>
                 <PopoverTrigger asChild>
                   <Input
@@ -418,7 +421,7 @@ export function ParamsPanel({
             </div>
 
             <Separator />
-            <p className="text-xs text-muted-foreground font-medium">{t.colorMapping}</p>
+            <SectionTitle>{t.colorMapping}</SectionTitle>
 
             {/* Leiden clustering */}
             <div className="space-y-2">
@@ -430,23 +433,12 @@ export function ParamsPanel({
                 />
               </div>
               {visual.leidenEnabled && (
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs text-muted-foreground flex-1">{t.leidenResolution}</span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Badge variant="outline" className="h-4 w-4 cursor-help text-[9px] p-0 flex items-center justify-center">?</Badge>
-                      </TooltipTrigger>
-                      <TooltipContent side="left" className="max-w-56 text-xs">{t.leidenResolutionTip}</TooltipContent>
-                    </Tooltip>
-                    <span className="text-xs font-mono w-10 text-right">{visual.leidenResolution.toFixed(2)}</span>
-                  </div>
-                  <Slider
-                    min={0.1} max={10} step={0.1}
-                    value={[visual.leidenResolution]}
-                    onValueChange={v => onVisual('leidenResolution', Array.isArray(v) ? v[0] : v)}
-                  />
-                </div>
+                <NumberField
+                  label={t.leidenResolution} value={visual.leidenResolution}
+                  min={0.01} step={0.1}
+                  onChange={v => onVisual('leidenResolution', v)}
+                  tooltip={t.leidenResolutionTip}
+                />
               )}
             </div>
 
@@ -484,18 +476,47 @@ export function ParamsPanel({
 
           {/* ── Export Tab ────────────────────────────────────────────── */}
           <TabsContent value="export" className="mt-0 px-3 py-2 space-y-3">
-            <p className="text-xs text-muted-foreground font-medium">{t.perfControl}</p>
-            <SwitchRow label={t.highFps} checked={false} onChange={() => {}} />
-            <SwitchRow label={t.webgl} checked={false} onChange={() => {}} />
+            <SectionTitle>{t.exportData}</SectionTitle>
+            <p className="text-muted-foreground text-[11px] leading-relaxed">
+              {t.exportDataTip}
+            </p>
+            <Button size="sm" variant="outline" className="w-full text-xs h-8"
+              onClick={() => onExport('gexf', exportOptions)}>
+              <Share2 className="mr-1.5 h-3 w-3" />
+              {t.exportGexf}
+            </Button>
+            <Button size="sm" variant="outline" className="w-full text-xs h-8"
+              onClick={() => onExport('csv', exportOptions)}>
+              <FileSpreadsheet className="mr-1.5 h-3 w-3" />
+              {t.exportCsv}
+            </Button>
+
             <Separator />
-            <Button size="sm" variant="outline" className="w-full text-xs h-8" onClick={handleExportPng}>
-              <Download className="mr-1.5 h-3 w-3" />
+            <SectionTitle>{t.exportImage}</SectionTitle>
+            <p className="text-muted-foreground text-[11px] leading-relaxed">
+              {t.exportImageTip}
+            </p>
+            <NumberField
+              label={t.pngScale} value={pngScale}
+              min={1} max={8} step={1} integer
+              onChange={setPngScale}
+            />
+            <SwitchRow label={t.transparentBg} checked={transparent} onChange={setTransparent} />
+            <Button size="sm" variant="outline" className="w-full text-xs h-8"
+              onClick={() => onExport('png', exportOptions)}>
+              <ImageIcon className="mr-1.5 h-3 w-3" />
               {t.exportPng}
+            </Button>
+            <Button size="sm" variant="outline" className="w-full text-xs h-8"
+              onClick={() => onExport('svg', exportOptions)}>
+              <Download className="mr-1.5 h-3 w-3" />
+              {t.exportSvg}
             </Button>
             <Button size="sm" variant="outline" className="w-full text-xs h-8" onClick={handleFullscreen}>
               <Maximize2 className="mr-1.5 h-3 w-3" />
               {t.fullscreen}
             </Button>
+
             <Separator />
             <Button
               size="sm"
@@ -516,47 +537,19 @@ export function ParamsPanel({
 
 // ── Internal helper components ────────────────────────────────────────────────
 
+function SectionTitle({ children, disabled = false }: { children: React.ReactNode; disabled?: boolean }) {
+  return (
+    <p className={`text-xs text-muted-foreground font-medium ${disabled ? 'opacity-50' : ''}`}>
+      {children}
+    </p>
+  )
+}
+
 function ParamRow({ label, children, disabled = false }: { label: string; children: React.ReactNode, disabled?: boolean }) {
   return (
     <div className={`space-y-1 ${disabled ? 'opacity-50 grayscale-[0.5]' : ''}`}>
       <Label className="text-xs text-muted-foreground">{label}</Label>
       {children}
-    </div>
-  )
-}
-
-function SliderParam({
-  label, value, min, max, step, disabled = false, onChange, tooltip,
-}: {
-  label: string
-  value: number
-  min: number
-  max: number
-  step: number
-  disabled?: boolean
-  onChange: (v: number) => void
-  tooltip?: string
-}) {
-  return (
-    <div className={`space-y-1 transition-opacity ${disabled ? 'opacity-40 grayscale-[0.6]' : ''}`}>
-      <div className="flex items-center gap-1">
-        <span className="text-xs text-muted-foreground flex-1">{label}</span>
-        {tooltip && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Badge variant="outline" className="h-3.5 w-3.5 cursor-help text-[9px] p-0 flex items-center justify-center opacity-70 hover:opacity-100 transition-opacity">?</Badge>
-            </TooltipTrigger>
-            <TooltipContent side="left" className="max-w-56 text-xs">{tooltip}</TooltipContent>
-          </Tooltip>
-        )}
-        <span className="text-xs font-mono w-10 text-right">{value % 1 === 0 ? value : value.toFixed(2)}</span>
-      </div>
-      <Slider
-        min={min} max={max} step={step}
-        value={[value]}
-        onValueChange={v => onChange(Array.isArray(v) ? v[0] : v)}
-        disabled={disabled}
-      />
     </div>
   )
 }

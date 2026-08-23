@@ -396,19 +396,53 @@ class CommandManager:
         self._pending[session_id] = (key, time.time() + _CONFIRM_TTL)
         return self._t("cmd.reset.confirm_warn", desc=description, ttl=int(_CONFIRM_TTL))
 
-    async def reset_here(self, session_id: str, group_id: str | None) -> str:
+    async def _delete_scope_summaries(
+        self, *, group_id: str | None = None, peer_uid: str | None = None,
+    ) -> int:
+        """Delete every summary of one scope, across all bot personas."""
+        if self._data_dir is None:
+            return 0
+        if group_id is None and peer_uid is None:
+            return 0
+        from ..tasks.summary_paths import scope_summary_paths
+
+        deleted = 0
+        for path in scope_summary_paths(
+            self._data_dir, group_id=group_id, peer_uid=peer_uid,
+        ):
+            try:
+                path.unlink()
+                deleted += 1
+            except OSError:
+                continue
+        return deleted
+
+    async def _resolve_peer_uid(
+        self, platform: str | None, physical_id: str | None,
+    ) -> str | None:
+        """Look up an existing uid without creating a Persona."""
+        if not platform or not physical_id or self._persona_repo is None:
+            return None
+        try:
+            persona = await self._persona_repo.get_by_identity(platform, physical_id)
+        except Exception:
+            return None
+        return persona.uid if persona is not None else None
+
+    async def reset_here(
+        self, session_id: str, group_id: str | None,
+        platform: str | None = None, sender_id: str | None = None,
+    ) -> str:
         if self._event_repo is None:
             return self._t("cmd.reset.no_event_repo")
 
         async def _do() -> str:
             count = await self._event_repo.delete_by_group(group_id)
-            deleted_summaries = 0
-            if group_id and self._data_dir:
-                summary_dir = self._data_dir / "groups" / group_id / "summaries"
-                if summary_dir.exists():
-                    for f in summary_dir.glob("*.md"):
-                        f.unlink()
-                        deleted_summaries += 1
+            if group_id:
+                deleted_summaries = await self._delete_scope_summaries(group_id=group_id)
+            else:
+                peer_uid = await self._resolve_peer_uid(platform, sender_id)
+                deleted_summaries = await self._delete_scope_summaries(peer_uid=peer_uid)
             base = self._t("cmd.reset.here_done", count=count)
             if deleted_summaries:
                 base += "，" + self._t("cmd.reset.summary_suffix", count=deleted_summaries)
@@ -425,13 +459,7 @@ class CommandManager:
 
         async def _do() -> str:
             count = await self._event_repo.delete_by_group(group_id)
-            deleted_summaries = 0
-            if self._data_dir:
-                summary_dir = self._data_dir / "groups" / group_id / "summaries"
-                if summary_dir.exists():
-                    for f in summary_dir.glob("*.md"):
-                        f.unlink()
-                        deleted_summaries += 1
+            deleted_summaries = await self._delete_scope_summaries(group_id=group_id)
             base = self._t("cmd.reset.event_group_done", gid=group_id, count=count)
             if deleted_summaries:
                 base += "，" + self._t("cmd.reset.summary_suffix", count=deleted_summaries)

@@ -750,6 +750,34 @@ class SQLiteEventRepository(EventRepository):
             rows = await cur.fetchall()
         return [row[0] for row in rows]
 
+    async def list_by_group_window(
+        self, group_id: str | None, start_ts: float, end_ts: float,
+        limit: int = 100,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Event]:
+        clauses = ["group_id IS ?", "end_time >= ?", "end_time < ?"]
+        params: list[Any] = [group_id, start_ts, end_ts]
+        persona_where, persona_params = _persona_where(bot_persona_name, include_legacy)
+        if persona_where:
+            clauses.append(persona_where)
+            params.extend(persona_params)
+        sql = f"{_EVENT_SELECT} WHERE " + " AND ".join(clauses) + " ORDER BY start_time DESC LIMIT ?"
+        params.append(limit)
+        async with self._db.execute(sql, tuple(params)) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_event(r) for r in rows]
+
+    async def list_summary_scopes(
+        self, start_ts: float, end_ts: float,
+    ) -> list[tuple[str | None, str | None]]:
+        async with self._db.execute(
+            "SELECT DISTINCT group_id, bot_persona_name FROM events "
+            "WHERE end_time >= ? AND end_time < ?",
+            (start_ts, end_ts),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [(row[0], row[1]) for row in rows]
+
     async def search_fts(
         self, query: str, limit: int = 20, active_only: bool = True,
         group_id: str | None = None,

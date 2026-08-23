@@ -132,7 +132,8 @@ async def get_stats(
     summary_days = set()
     if data_dir:
         try:
-            summary_files = list(data_dir.glob("**/summaries/*.md"))
+            from .tasks.summary_paths import iter_summary_paths
+            summary_files = list(iter_summary_paths(data_dir))
             summary_count = len(summary_files)
             for f in summary_files:
                 summary_days.add(f.stem) # YYYY-MM-DD

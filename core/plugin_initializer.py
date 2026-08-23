@@ -466,6 +466,13 @@ class PluginInitializer:
                 ),
             )
         if cfg.summary_enabled:
+            from .tasks.summary_paths import migrate_legacy_layout
+            try:
+                migrate_legacy_layout(data_dir)
+            except Exception as exc:
+                logger.warning(
+                    "[%s] summary layout migration skipped: %s", _PLUGIN_NAME, exc,
+                )
             self.scheduler.register(
                 "group_summary",
                 interval=cfg.summary_interval_seconds,
@@ -475,6 +482,7 @@ class PluginInitializer:
                     persona_repo=persona_repo,
                     impression_repo=impression_repo,
                     llm_manager=self.llm_manager,
+                    persona_isolation_enabled=cfg.persona_isolation_enabled,
                 ),
             )
         await self.scheduler.start()

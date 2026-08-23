@@ -1,3 +1,4 @@
+import { memo } from "react"
 import { cn } from "@/lib/utils"
 
 interface GraphNodeProps {
@@ -14,17 +15,17 @@ interface GraphNodeProps {
   isBot?: boolean
   botLabel?: string
   fontSize: number
-  labelOpacity: number
   showLabel: boolean
   onClick?: (e: React.MouseEvent) => void
   onMouseEnter?: () => void
   onMouseLeave?: () => void
 }
 
-export function GraphNode({
+function GraphNodeImpl({
   x, y, r, label, fill, strokeColor, isSelected, isHovered, isFocused, isDimmed, isBot, botLabel,
-  fontSize, labelOpacity, showLabel, onClick, onMouseEnter, onMouseLeave
+  fontSize, showLabel, onClick, onMouseEnter, onMouseLeave
 }: GraphNodeProps) {
+  void isFocused
   return (
     <g
       transform={`translate(${x},${y})`}
@@ -46,7 +47,7 @@ export function GraphNode({
           className="animate-graph-pulse"
         />
       )}
-      
+
       <circle
         r={r}
         fill={fill}
@@ -60,27 +61,28 @@ export function GraphNode({
       />
       {showLabel && (
         <text
-          y={r + 12}
+          y={r + fontSize + 2}
           fontSize={fontSize}
           fill="var(--foreground)"
+          stroke="var(--background)"
+          strokeWidth={fontSize * 0.4}
+          paintOrder="stroke"
           textAnchor="middle"
           dominantBaseline="middle"
-          className="select-none pointer-events-none transition-opacity duration-300"
-          style={{ opacity: isFocused ? 1 : labelOpacity }}
+          className="select-none pointer-events-none animate-in fade-in duration-200"
         >
           {label}
         </text>
       )}
-      {isBot && (
+      {isBot && showLabel && (
         <text
-          y={r + 22}
-          fontSize={8}
+          y={r + fontSize * 2 + 4}
+          fontSize={fontSize * 0.8}
           fill={strokeColor}
           textAnchor="middle"
           dominantBaseline="middle"
           fontWeight="bold"
-          className="select-none pointer-events-none transition-opacity duration-300"
-          style={{ opacity: isFocused ? 1 : labelOpacity }}
+          className="select-none pointer-events-none animate-in fade-in duration-200"
         >
           {botLabel ?? 'BOT'}
         </text>
@@ -88,3 +90,5 @@ export function GraphNode({
     </g>
   )
 }
+
+export const GraphNode = memo(GraphNodeImpl)

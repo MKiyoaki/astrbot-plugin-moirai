@@ -1,5 +1,5 @@
 import type { PersonaNode, ImpressionEdge } from './api'
-import type { EdgePair, GroupCard, PositionMap } from './graph-types'
+import type { EdgePair, EdgeWeightSource, GroupCard, PositionMap } from './graph-types'
 
 // ── buildEdgePairs ────────────────────────────────────────────────────────────
 // Pairs ImpressionEdges into EdgePairs. Bidirectional when both A→B and B→A
@@ -57,6 +57,29 @@ export function computeAffinity(pair: Pick<EdgePair, 'fwd' | 'bwd' | 'isBidirect
     return (pair.fwd.data.intensity + pair.bwd.data.intensity) * biWeight
   }
   return pair.fwd.data.intensity
+}
+
+// ── edgePairWeight ────────────────────────────────────────────────────────────
+// The Gephi `weight` of an edge pair. Feeds ForceAtlas2 attraction and is what
+// lands in the exported GEXF/CSV, so both stay in agreement.
+
+export function edgePairWeight(pair: EdgePair, source: EdgeWeightSource): number {
+  if (source === 'affinity') return Math.max(0.01, pair.affinity)
+  if (source === 'msgs') return Math.max(0.01, pair.totalMsgs / 120)
+  return 1
+}
+
+// ── degreeMap ─────────────────────────────────────────────────────────────────
+// One pass over the edge pairs instead of a filter() per node.
+
+export function degreeMap(nodes: PersonaNode[], edgePairs: EdgePair[]): Map<string, number> {
+  const degrees = new Map<string, number>()
+  for (const n of nodes) degrees.set(n.data.id, 0)
+  for (const p of edgePairs) {
+    if (degrees.has(p.srcId)) degrees.set(p.srcId, degrees.get(p.srcId)! + 1)
+    if (degrees.has(p.tgtId)) degrees.set(p.tgtId, degrees.get(p.tgtId)! + 1)
+  }
+  return degrees
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────

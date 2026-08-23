@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Pencil, Save, X, Search, RotateCcw, ScrollText, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -27,9 +27,23 @@ import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 interface SummaryState {
-  groupId: string | null
-  date: string
+  key: api.SummaryKey | null
   content: string
+}
+
+const EMPTY_STATE: SummaryState = { key: null, content: '' }
+
+function metaKey(meta: api.SummaryMeta): api.SummaryKey {
+  return {
+    group_id: meta.group_id,
+    peer_uid: meta.peer_uid,
+    persona_dir: meta.persona_dir,
+    date: meta.date,
+  }
+}
+
+function keyId(key: api.SummaryKey): string {
+  return `${key.group_id ?? ''}|${key.peer_uid ?? ''}|${key.persona_dir}|${key.date}`
 }
 
 interface Sections {
@@ -69,9 +83,12 @@ function assembleSections(sections: Sections): string {
 export default function SummaryPage() {
   const app = useApp()
   const router = useRouter()
-  const { i18n } = app
+  const { i18n, currentPersonaName, scopeMode } = app
+  const personaFilter = scopeMode === 'single'
+    ? (currentPersonaName ?? api.LEGACY_PERSONA_TOKEN)
+    : null
   const [summaries, setSummaries] = useState<api.SummaryMeta[]>([])
-  const [current, setCurrent] = useState<SummaryState>({ groupId: null, date: '', content: '' })
+  const [current, setCurrent] = useState<SummaryState>(EMPTY_STATE)
   const [sections, setSections] = useState<Sections>({ topic: '', events: '', mood: '' })
   const [linkedEvents, setLinkedEvents] = useState<api.SummaryLinkedEvent[]>([])
   const [editing, setEditing] = useState(false)
@@ -82,28 +99,11 @@ export default function SummaryPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
 
-  const loadList = useCallback(async () => {
-    try {
-      const list = await api.summaries.list()
-      setSummaries(list)
-      if (list.length && !current.date) {
-        loadSummary(list[0].group_id, list[0].date)
-      }
-    } catch {
-      app.toast(i18n.common.error, 'destructive')
-    }
-  }, [app, current.date, i18n.common.error]) // eslint-disable-line
-
-  useEffect(() => {
-    loadList()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const loadSummary = async (groupId: string | null, date: string) => {
+  const loadSummary = useCallback(async (key: api.SummaryKey) => {
     setLoading(true)
     try {
-      const { content, linked_events } = await api.summaries.get(groupId, date)
-      setCurrent({ groupId, date, content })
+      const { content, linked_events } = await api.summaries.get(key)
+      setCurrent({ key, content })
       setSections(parseSections(content))
       setLinkedEvents(linked_events ?? [])
     } catch {
@@ -111,13 +111,43 @@ export default function SummaryPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [app, i18n.summary.loadError])
+
+  const currentKeyRef = useRef<api.SummaryKey | null>(null)
+  currentKeyRef.current = current.key
+
+  const loadList = useCallback(async () => {
+    try {
+      const list = await api.summaries.list(personaFilter)
+      setSummaries(list)
+      // Keep the open summary if it survived the filter change, else open the newest.
+      const open = currentKeyRef.current
+      const stillThere = open && list.some(s => keyId(metaKey(s)) === keyId(open))
+      if (!stillThere) {
+        if (list.length) {
+          loadSummary(metaKey(list[0]))
+        } else {
+          setCurrent(EMPTY_STATE)
+          setSections({ topic: '', events: '', mood: '' })
+          setLinkedEvents([])
+        }
+      }
+    } catch {
+      app.toast(i18n.common.error, 'destructive')
+    }
+  }, [app, i18n.common.error, personaFilter, loadSummary])
+
+  useEffect(() => {
+    loadList()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personaFilter])
 
   const handleSave = async () => {
     const newSections = { ...sections, topic: editTopic }
     const newContent = assembleSections(newSections)
     try {
-      await api.summaries.save(current.groupId, current.date, newContent)
+      if (!current.key) return
+      await api.summaries.save(current.key, newContent)
       setCurrent(prev => ({ ...prev, content: newContent }))
       setSections(newSections)
       setEditing(false)
@@ -129,11 +159,13 @@ export default function SummaryPage() {
 
   const handleRegenerate = async () => {
     setConfirmOpen(false)
+    if (!current.key) return
+    const key = current.key
     setRegenerating(true)
     try {
       const { content, linked_events } = await app.runTask(
         i18n.tasks.regenerateSummary,
-        () => api.summaries.regenerate(current.groupId, current.date),
+        () => api.summaries.regenerate(key),
       )
       setCurrent(prev => ({ ...prev, content }))
       setSections(parseSections(content))
@@ -148,15 +180,17 @@ export default function SummaryPage() {
 
   const handleDelete = async () => {
     setDeleteConfirmOpen(false)
+    if (!current.key) return
+    const id = keyId(current.key)
     try {
-      await api.summaries.delete(current.groupId, current.date)
+      await api.summaries.delete(current.key)
       app.toast(i18n.summary.deleteSuccess)
-      const newList = summaries.filter(s => !(s.group_id === current.groupId && s.date === current.date))
+      const newList = summaries.filter(s => keyId(metaKey(s)) !== id)
       setSummaries(newList)
       if (newList.length) {
-        loadSummary(newList[0].group_id, newList[0].date)
+        loadSummary(metaKey(newList[0]))
       } else {
-        setCurrent({ groupId: null, date: '', content: '' })
+        setCurrent(EMPTY_STATE)
         setSections({ topic: '', events: '', mood: '' })
         setLinkedEvents([])
       }
@@ -171,6 +205,17 @@ export default function SummaryPage() {
     (s.label || '').toLowerCase().includes(search.toLowerCase()) ||
     s.date.includes(search),
   )
+
+  const KIND_ORDER: api.SummaryKind[] = ['group', 'private', 'legacy_private']
+  const kindLabel: Record<api.SummaryKind, string> = {
+    group: i18n.summary.kindGroup,
+    private: i18n.summary.kindPrivate,
+    legacy_private: i18n.summary.kindLegacy,
+  }
+  const grouped = KIND_ORDER
+    .map(kind => ({ kind, items: filtered.filter(s => s.kind === kind) }))
+    .filter(g => g.items.length > 0)
+  const currentId = current.key ? keyId(current.key) : null
 
   const focusEvent = (eventId: string | null) => {
     if (!eventId) return
@@ -190,7 +235,7 @@ export default function SummaryPage() {
         />
       </div>
 
-      {current.date && !editing && (
+      {current.key && !editing && (
         <>
           <Button
             variant="outline"
@@ -223,7 +268,7 @@ export default function SummaryPage() {
           variant="outline"
           size="sm"
           className="h-8 gap-1.5 px-2"
-          disabled={!current.date || !app.sudo}
+          disabled={!current.key || !app.sudo}
           onClick={() => { setEditing(true); setEditTopic(sections.topic) }}
         >
           <Pencil className="size-3.5" />
@@ -302,20 +347,37 @@ export default function SummaryPage() {
                   {i18n.summary.noneHint}
                 </p>
               ) : (
-                filtered.map(s => (
-                  <button
-                    key={`${s.group_id ?? ''}-${s.date}`}
-                    className={cn(
-                      'w-full rounded-lg px-3 py-2 text-left text-sm transition-all duration-200',
-                      current.date === s.date && current.groupId === s.group_id
-                        ? 'bg-accent text-accent-foreground shadow-sm'
-                        : 'hover:bg-muted text-muted-foreground hover:text-foreground',
-                    )}
-                    onClick={() => { setEditing(false); loadSummary(s.group_id, s.date) }}
-                  >
-                    <div className="truncate font-medium">{s.label}</div>
-                    <div className="text-muted-foreground text-xs">{s.date}</div>
-                  </button>
+                grouped.map(group => (
+                  <div key={group.kind} className="mb-1">
+                    <div className="text-muted-foreground px-3 pb-1 pt-2 text-[10px] font-medium tracking-wide uppercase">
+                      {kindLabel[group.kind]}
+                    </div>
+                    {group.items.map(s => {
+                      const id = keyId(metaKey(s))
+                      return (
+                        <button
+                          key={id}
+                          className={cn(
+                            'w-full rounded-lg px-3 py-2 text-left text-sm transition-all duration-200',
+                            currentId === id
+                              ? 'bg-accent text-accent-foreground shadow-sm'
+                              : 'hover:bg-muted text-muted-foreground hover:text-foreground',
+                          )}
+                          onClick={() => { setEditing(false); loadSummary(metaKey(s)) }}
+                        >
+                          <div className="truncate font-medium">{s.label}</div>
+                          <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                            <span>{s.date}</span>
+                            {scopeMode === 'all' && (
+                              <span className="truncate opacity-70">
+                                · {s.bot_persona_name ?? i18n.personaSelector.defaultPersona}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
                 ))
               )}
             </div>
@@ -323,7 +385,7 @@ export default function SummaryPage() {
         </div>
 
         <div className="flex flex-1 flex-col overflow-hidden min-w-0">
-          {!current.date ? (
+          {!current.key ? (
             <PageEmptyOverlay
               icon={ScrollText}
               title={summaries.length === 0 ? i18n.summary.noneHint.split('\n')[0] : i18n.summary.placeholder}
@@ -336,7 +398,7 @@ export default function SummaryPage() {
           ) : (
             <ScrollArea className="flex-1">
               <div 
-                key={`${current.groupId}-${current.date}`}
+                key={current.key ? keyId(current.key) : 'none'}
                 className="flex flex-col gap-4 p-6 animate-in fade-in slide-in-from-right-4 duration-300 ease-out"
               >
 

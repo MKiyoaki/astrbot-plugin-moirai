@@ -32,34 +32,51 @@ export interface GroupCard {
 }
 
 // ── Physics / Visual params ───────────────────────────────────────────────────
+// The ForceAtlas2 fields mirror Gephi Desktop's layout properties one for one —
+// same names, same defaults, same semantics — so a value tuned here means the
+// same thing after the graph is exported to GEXF and reopened in Gephi.
+
+export type EdgeWeightSource = 'affinity' | 'msgs' | 'equal'
 
 export interface PhysicsParams {
   layoutMode: 'circular' | 'force'
   locked: boolean
-  scalingRatio: number      // 0.1 – 30: global repulsion strength
-  gravity: number           // 0 – 10: center gravity
-  edgeWeightInfluence: number  // 0 – 2: edge weight on attraction
-  damping: number           // 0.1 – 1: velocity damping per step
-  iterations: number        // 40 – 400
-  linLog: boolean
-  preventOverlap: boolean
-  dissuadeHubs: boolean
-  gravSource: 'affinity' | 'msgs' | 'equal'
-  biWeight: number          // 1.0 – 2.0: bidirectional affinity multiplier
+
+  // Tuning
+  scalingRatio: number        // Gephi "Scaling"
+  strongGravityMode: boolean  // Gephi "Stronger Gravity"
+  gravity: number             // Gephi "Gravity"
+
+  // Behavior Alternatives
+  outboundAttractionDistribution: boolean  // Gephi "Dissuade Hubs"
+  linLogMode: boolean                      // Gephi "LinLog mode"
+  adjustSizes: boolean                     // Gephi "Prevent Overlap"
+  edgeWeightInfluence: number              // Gephi "Edge Weight Influence"
+
+  // Performance
+  jitterTolerance: number     // Gephi "Tolerance (speed)"
+  barnesHutOptimize: boolean  // Gephi "Approximate Repulsion"
+  barnesHutTheta: number      // Gephi "Approximation"
+
+  // Moirai-specific — Gephi runs continuously, we run a bounded pass.
+  iterations: number
+  edgeWeightSource: EdgeWeightSource  // what feeds the Gephi `weight` attribute
+  biWeight: number                    // bidirectional impression multiplier
 }
 
 export interface VisualParams {
   showBot: boolean
   edgeOpacity: number         // 0.05 – 1
-  defaultEdgeWidth: number    // 0.5 – 6 (base 1.8)
-  labelZoomThreshold: number  // minimum node radius to show label
+  defaultEdgeWidth: number
+  alwaysShowLabels: boolean   // off: names appear only around the hovered node
+  labelFontSize: number
   showArrows: boolean
   arrowSize: number
   edgeWidthSource: 'equal' | 'affinity' | 'msgs'
   showEdgeLabels: boolean     // Toggle for relationship type labels
-  edgeLabelFontSize: number   // 6 – 24
+  edgeLabelFontSize: number
   leidenEnabled: boolean
-  leidenResolution: number    // 0.001 – 10
+  leidenResolution: number
   sentimentEnabled: boolean
   sentimentAxis: 'benevolence' | 'power'
 }
@@ -70,20 +87,41 @@ export type ViewMode = 'all' | 'member'
 
 export type PositionMap = Record<string, { x: number; y: number }>
 
+// ── Gephi auto settings ───────────────────────────────────────────────────────
+// Port of Gephi Desktop's ForceAtlas2.resetPropertiesValues(): the "generate the
+// settings that fit the current graph best" button. Only the node count varies.
+
+export type GephiAutoSettings = Pick<
+  PhysicsParams,
+  | 'scalingRatio' | 'strongGravityMode' | 'gravity'
+  | 'outboundAttractionDistribution' | 'linLogMode' | 'adjustSizes'
+  | 'edgeWeightInfluence' | 'jitterTolerance'
+  | 'barnesHutOptimize' | 'barnesHutTheta'
+>
+
+export function gephiAutoSettings(nodeCount: number): GephiAutoSettings {
+  return {
+    scalingRatio: nodeCount >= 100 ? 2.0 : 10.0,
+    strongGravityMode: false,
+    gravity: 1.0,
+    outboundAttractionDistribution: false,
+    linLogMode: false,
+    adjustSizes: false,
+    edgeWeightInfluence: 1.0,
+    jitterTolerance: 1.0,
+    barnesHutOptimize: nodeCount >= 1000,
+    barnesHutTheta: 1.2,
+  }
+}
+
 // ── Defaults ──────────────────────────────────────────────────────────────────
 
 export const DEFAULT_PHYSICS_PARAMS: PhysicsParams = {
   layoutMode: 'circular',
   locked: false,
-  scalingRatio: 0.1,
-  gravity: 0.0,
-  edgeWeightInfluence: 0.0,
-  damping: 0.1,
-  iterations: 100,
-  linLog: false,
-  preventOverlap: true,
-  dissuadeHubs: false,
-  gravSource: 'affinity',
+  ...gephiAutoSettings(0),
+  iterations: 300,
+  edgeWeightSource: 'affinity',
   biWeight: 1.0,
 }
 
@@ -91,7 +129,8 @@ export const DEFAULT_VISUAL_PARAMS: VisualParams = {
   showBot: true,
   edgeOpacity: 0.7,
   defaultEdgeWidth: 1.8,
-  labelZoomThreshold: 0,
+  alwaysShowLabels: false,
+  labelFontSize: 10,
   showArrows: true,
   arrowSize: 6,
   edgeWidthSource: 'equal',

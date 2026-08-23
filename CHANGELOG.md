@@ -1,5 +1,138 @@
 # CHANGELOG
 
+## [v1.0.11] — 2026-08-23
+
+### 每日摘要跨人格 / 跨会话 / 跨天泄漏修复
+
+**问题**
+
+`run_group_summary()`（`core/tasks/summary.py`）存在三条彼此独立的泄漏路径，任何一条都会让一份摘要里混进不属于它的内容：
+
+- 调用 `EventRepository.list_by_group()` 时未传 `bot_persona_name`（该方法本身支持此参数），切换人格后新人格的日摘要里仍带着旧人格的事件；
+- 该调用完全没有时间窗口，取的是该群**最近 `max_events` 条**事件而非**当天**事件，低活跃群的「今日摘要」实际是过去若干天内容的重写；
+- 私聊事件的 `Event.group_id` 恒为 `NULL`（`core/event_handler.py` 的 `_resolve_stream_scope`），所有人的私聊被写入同一份 `global/summaries/<date>.md`，A 的私聊内容会出现在写给 B 的摘要里。
+
+**落盘布局变更**
+
+摘要现在按 `(会话范围, Bot 人格, 日期)` 三元组唯一确定，路径中每一维都显式出现：
+
+```
+data/groups/<gid>/summaries/<persona>/<YYYY-MM-DD>.md
+data/private/<peer_uid>/summaries/<persona>/<YYYY-MM-DD>.md
+data/global/summaries/__default__/<YYYY-MM-DD>.md   ← 迁移进来的历史私聊合并摘要，只读
+```
+
+`<persona>` 对 `bot_persona_name IS NULL` 的数据取 `__default__`。新增 `core/tasks/summary_paths.py` 作为摘要路径的唯一来源（`persona_dirname` / `resolve_persona_dirname` / `summary_path` / `iter_summary_files` / `scope_summary_paths` / `migrate_legacy_layout`），此前散落在 `core/api.py`、`core/tasks/summary_links.py`、`core/managers/command_manager.py`、`web/plugin_routes.py`、`web/server.py` 五处的路径拼接与 glob 全部改为调用该模块。插件启动时调用 `migrate_legacy_layout()` 幂等迁移旧的平铺 `summaries/*.md` 到 `summaries/__default__/`，已在子目录中的文件与已存在的目标文件均不触碰。
+
+**行为变更**
+
+- `EventRepository` 新增 `list_by_group_window(group_id, start_ts, end_ts, ...)` 与 `list_summary_scopes(start_ts, end_ts)` 两个接口（`base.py` / `sqlite.py` / `memory.py` 三份实现同步）；后者返回当日活跃的 `(group_id, bot_persona_name)` 去重组合，摘要任务改为「枚举 scope → 逐 scope 生成」。
+- 摘要生成路径强制 `include_legacy=False`：`_persona_where()` 在 `include_legacy=True` 时会把 `bot_persona_name IS NULL` 的行并入**每一个**人格的结果集，正是需要消除的穿透源；`bot_persona_name=""` 走 `IS NULL` 分支，作为独立的 `__default__` scope 单独出一份摘要。WebUI 的**读取**路径仍尊重 `persona_isolation_legacy_visible`，仅**生成**路径强制精确匹配。`persona_isolation_enabled=false` 时退化为单一 `__default__` scope。
+- 私聊事件按非-Bot participant uid 分桶（`_bucket_events_by_peer`），每个私聊对象各出一份摘要，摘要头部与 LLM prompt 中的对象名改为该 peer 的 `primary_name` 而非笼统的「私聊」。Bot uid 解析抽为模块级 `_resolve_bot_uid()`，与 `_build_mood_section_db()` 共用。
+- `regenerate_single_summary()` 新增 `peer_uid` / `bot_persona_name` / `persona_dir` 参数，与定时任务走同一套路径与同一日窗口。
+- `/mrm reset here` 与 `/mrm reset event <gid>` 改为递归清除该 scope 下所有人格的摘要；`reset here` 在私聊场景下现在会按发送者 uid 定位 `private/<peer_uid>/`（`main.py` 传入 platform 与 sender_id，`CommandManager._resolve_peer_uid()` 用 `get_by_identity` 查询，不创建新 Persona）。
+- `/api/summaries` 支持 `?persona=` 过滤，返回项新增 `peer_uid` / `kind` / `bot_persona_name` / `persona_dir`；`/api/summary` 的 GET/PUT/POST/DELETE 全部改为按 `group_id + peer_uid + persona_dir + date` 寻址。`web/server.py`（standalone debug）同步改造。
+- WebUI 摘要页按当前人格过滤列表，并按「群聊 / 私聊 / 私聊（历史合并）」分组展示，私聊项显示对方名字。
+
+**保持不变**：日界仍按 UTC 计算，与本模块既有的时间戳格式化保持一致。
+
+### 关系图：ForceAtlas2 对齐 Gephi、Gephi 兼容导出、渲染性能
+
+**参数与 Gephi Desktop 对齐**
+
+`PhysicsParams` 重写为与 Gephi ForceAtlas2 逐项同名同义的字段，面板上的**滑块全部替换为数值输入框**（新增 `components/graph/number-field.tsx`，输入中保留原始文本、blur/Enter 提交、非法或越界回滚），并按 Gephi 的 Tuning / Behavior Alternatives / Performance 三组重排：
+
+| 原字段 | 现字段（Gephi 名） | 默认值 |
+|---|---|---|
+| `scalingRatio`（0.1，滑块 0.1–30） | `scalingRatio`（Scaling） | `10.0` |
+| — | `strongGravityMode`（Stronger Gravity） | `false` |
+| `gravity`（0.0） | `gravity` | `1.0` |
+| `dissuadeHubs` | `outboundAttractionDistribution`（Dissuade Hubs） | `false` |
+| `linLog` | `linLogMode` | `false` |
+| `preventOverlap` | `adjustSizes`（Prevent Overlap） | `false` |
+| `edgeWeightInfluence`（0.0） | `edgeWeightInfluence` | `1.0` |
+| `damping`（0.1） | `jitterTolerance`（Tolerance / speed） | `1.0` |
+| — | `barnesHutOptimize`（Approximate Repulsion） | `false` |
+| — | `barnesHutTheta`（Approximation） | `1.2` |
+| `gravSource` | `edgeWeightSource`（写入 Gephi `weight`） | `affinity` |
+
+新增「一键最佳参数」按钮：逐行移植 Gephi `ForceAtlas2.resetPropertiesValues()`，按当前可见节点数 N 一次写入十个字段（`scalingRatio = N >= 100 ? 2.0 : 10.0`、`barnesHutOptimize = N >= 1000`、`barnesHutTheta = 1.2` 等），见 `lib/graph-types.ts` 的 `gephiAutoSettings()`。`iterations` 作为 Moirai 专有项保留（Gephi 为常驻迭代），默认 300、上限 5000。
+
+**ForceAtlas2 内核重写**
+
+参数名对齐但公式不对齐等于没对齐。原 `runForceAtlas2()` 是固定步长加 `damping` 的朴素积分，`jitterTolerance` 在其中没有对应物。新增 `lib/fa2/kernel.ts` + `lib/fa2/quadtree.ts`，按 Gephi 的 `ForceAtlas2.goAlgo()` 与 `ForceFactory.java` 逐条移植：
+
+- 节点质量 `mass = degree + 1`，状态用 `Float64Array` 保存；
+- 斥力 `coefficient * m1 * m2 / d²`，`adjustSizes` 时先扣两端半径、重叠走 `100 * coefficient * m1 * m2`；
+- 引力 `g = gravity / scalingRatio`，普通模式除以距离、`strongGravityMode` 不除；
+- 吸引力 `ewc = weight ^ edgeWeightInfluence`，支持 `linLogMode` 与 `outboundAttractionDistribution`（除以源点质量并乘 `outboundAttCompensation = totalMass / N`）；
+- **自适应全局速度**：`swinging` / `traction` / `estimatedOptimalJitterTolerance` / `speedEfficiency` / `targetSpeed` / `maxRise` 全套照抄，`speed` 与 `speedEfficiency` 跨迭代持久化 —— 这是 `jitterTolerance` 唯一有意义的地方；
+- Barnes-Hut 区域树按 `(4 * size²) / d² < θ²` 判据近似远距离斥力，实测 n=3000 时较暴力法快 2.2 倍，n=500 时略慢（与 Gephi 默认 `nodesCount >= 1000` 才开启的阈值一致）。
+
+`hooks/use-force-simulation.ts` 改为 requestAnimationFrame 分帧驱动，每帧按 8ms 预算跑一批迭代并实时回吐位置，主线程不再出现长任务；同时修正原依赖数组只比较 `nodes.length` / `edgePairs.length` 导致集合内容变化时不重算的问题（改用结构性 key）。
+
+**Gephi 兼容导出**
+
+新增 `lib/graph-export/`，核心是一张声明式属性表 —— 以后新增导出字段只改 `schema.ts` 一处，GEXF 的属性声明与 CSV 的表头自动跟上：
+
+- `schema.ts`：`NODE_ATTRS` / `EDGE_ATTRS`（`{id, title, type, get, gexf?, csv?}`），当前覆盖 label / is_bot / confidence / msg_count / degree / cluster / persona group / platforms / content_tags / Big Five 五维 / created_at / last_active_at，以及边的 IPC 象限 / weight / affect / intensity / power / r_squared / confidence / scope / bot_persona_name / msg_count / evidence 数 / mutual / last_reinforced_at；
+- `model.ts`：边按**有向印象**展开而非合并后的 `EdgePair` —— Gephi 是有向图，A→B 与 B→A 各带自己的评分，合并会丢信息；节点 y 轴按 GEXF 约定翻转；
+- `gexf.ts`：手写 GEXF 1.3 writer（零新依赖），`defaultedgetype="directed"`，带 `viz:color` / `viz:size` / `viz:position`，Gephi Lite 与 Gephi 桌面版均可直接打开并保留布局；
+- `csv.ts`：`Id,Label,X,Y,Size,Color,…` 与 `Source,Target,Type,Id,Label,Weight,…`，UTF-8 BOM + RFC4180 转义；
+- `css-color.ts`：图中所有颜色都是 oklch 的 CSS 自定义属性，离开文档即失效；导出前先用 `getComputedStyle` 代入 `var()`，再经 1x1 canvas 光栅化读回 sRGB 字节。
+
+**图片导出修复**
+
+原「导出 PNG」实际导出的是当前视口的 SVG，且 `var(--foreground)` 一类变量在独立文件中无法解析、颜色全丢。`image.ts` 改为：并行遍历实时树与克隆树，用 `getComputedStyle` 把 fill / stroke / opacity / font-* / paint-order 等解析值内联到克隆节点（同时解决 CSS 变量与 Tailwind class 两类外部依赖）；移除视口变换、按全图 `getBBox()` 设置 `viewBox` 与尺寸；可选背景底色或透明；PNG 经 canvas 光栅化并支持 1–8 倍率。导出期间临时开启 `exportMode`，强制显示全部名称并清除 hover 淡出。
+
+**渲染与交互**
+
+- 消除渲染循环内的线性扫描：`nodeRadius()` 原本每次调用都做一遍 `edgePairs.filter()`，边循环内又对每条边做两次 `nodes.find()`，改为一次 `useMemo` 预计算 degree / radius / 邻接三张 `Map`，绘制复杂度从 `O(V·E)` 降到 `O(V+E)`（新增 `graph-utils.ts` 的 `degreeMap()` 与 `edgePairWeight()`）。
+- 平移缩放脱离 React：变换写入 `useRef` 并直接 `setAttribute` 到 `<g>` 上，仅缩放档位经 rAF 节流同步进 state（供标签字号使用），拖动与滚轮不再触发整树重渲染；`GraphNode` / `GraphEdge` 补 `React.memo`。
+- **节点名称默认不显示**，鼠标悬停某节点时才显示该节点及其所有相邻节点的名称（悬停边时显示两端）；新增 `alwaysShowLabels` 开关作为逃生舱，图片导出时强制开启。名称带 `paint-order` 描边，密集处仍可读。
+- 补上定义了却从未接线的 `edgeOpacity`；移除未使用的 `labelZoomThreshold` 与导出页两个占位假开关（`highFps` / `webgl`）。
+- `lib/i18n.ts` 的 zh / ja / en 三份 `graph.params` 同步增删键。
+
+## [v1.0.10] — 2026-08-22
+
+### 标签生成质量：候选/锚点两级晋升机制
+
+**问题**
+
+标签归一化此前"见即入库"：任意一次提取产生的新标签会立即成为可供后续相近标签归并的锚点，导致偶发的一次性标签永久固化进标签体系，词表只增不减。
+
+**新增功能**
+
+- `canonical_tags` 表新增 `df`（document frequency）列（新增迁移 `016_canonical_tag_df.sql`），历史数据 seed 为 1，视为候选而非既有锚点；新增索引 `idx_canonical_tags_df`。
+- 新标签首次出现只记为"候选"，需在至少 `tag_promotion_min_df`（默认 3，`_conf_schema.json` / `ExtractorConfig` 新增 expert 级配置项）个事件中出现过，才晋升为可供其它相近标签归并的正式锚点。
+- `EventRepository` 新增 `bump_canonical_tag_df` / `upsert_canonical_tag(df_delta=...)` / `prune_canonical_tags(min_df, older_than_ts, protect=...)`；`search_canonical_tag` 新增 `prefer_min_df` 与 `exclude` 参数：已晋升锚点在排序中优先于同等相似度的候选标签，检索时显式排除人格无关的种子大类标签，避免种子占满 `limit` 结果掩盖真正的锚点。
+- 每日维护任务 `run_memory_cleanup` 新增第三阶段：清理超过 `tag_candidate_ttl_days`（默认 30 天，同为新增配置项）仍未晋升的候选标签；配置种子标签（`tag_seeds`）永久保护，不参与过期清理。
+- extractor / distillation 的 system prompt 及 `build_user_prompt` / `build_distillation_prompt` 中"现有标签体系"提示语调整：更强调优先复用已有标签、允许具体名词（作品名/游戏名/技术名词/机制名），但明确排除"仅本次对话适用"的情节化细节标签。
+
+### 关系图与统计接口 N+1 查询消除
+
+**性能优化**
+
+- `/api/graph`（`core/api.py`、`web/plugin_routes.py`、`web/server.py`）：关系图边的构建原先为每个 persona 单独查询 `list_by_observer`，再为每条印象单独查询 `count_edge_messages`；群组成员列表原为每个 group 单独 `list_by_group` 拉取全部事件参与者。新增 `ImpressionRepository.list_all()`、`EventRepository.count_messages_by_uid_scope_bulk()`、`EventRepository.list_participants_by_group()` 三个批量聚合接口，将上述 N+1 查询收敛为固定次数的整表聚合查询，边与印象的排序/去重结果保持不变。
+- `get_stats`（`core/api.py`）与 `MemoryManager.stats()`：不再通过 `list_by_status(..., limit=10_000)` 拉取全部活跃事件到内存计算显著度均值/极值/锁定数，新增 `EventRepository.aggregate_by_status()` 单趟聚合返回 `EventStatusStats`（total/locked/avg_salience/min_salience/max_salience）。同时新增 `PersonaRepository.count()`、`EventRepository.count_groups()`、`ImpressionRepository.count_all()`，`personas`/`groups`/`impressions` 三项统计指标改为直接计数，不再实例化整表行对象。
+- `_handle_tags`（`web/plugin_routes.py`、`web/server.py`）：标签云统计原为逐 group 拉取全部事件（每 group 上限 10000 条）在内存中计数，改为新增的 `EventRepository.count_tags()` 单次聚合查询。
+- 事件列表默认（无标签/日期筛选）分支：原按 `limit // len(group_ids)` 对每个群组配额查询，导致长期不活跃的群组挤占配额，界面按时间排序的"最新事件"列表实际缺失真正最新的事件；改为新增的 `EventRepository.list_all(limit=...)` 单次按时间排序查询。
+
+### 前端渲染性能
+
+**Events / Library 页面**
+
+- Events 与 Library 页搜索框接入 `useDeferredValue`：输入框保持即时响应，事件/角色/群组过滤在较低优先级下异步进行，避免大数据量下输入卡顿。
+- Library 页拆分 `loadData` 为独立的 `loadEvents`（标签 + 事件列表）与 `loadGraph`（人格 + 关系图）：事件列表不再等待 `/api/graph`（对每个 persona 各发一次印象查询、每条印象再发一次消息计数查询）返回才能显示。
+- 群组聚合、搜索索引（事件/人格 haystack）、日期范围边界、月份分桶等原先每次渲染都重新计算的派生数据全部改为 `useMemo` 缓存，仅在对应依赖变化时重算；`toggleExpand` / `toggleSelect` / `handleTagClick` 等回调改为 `useCallback` 保持稳定引用。
+- Time 标签页新增分页加载（`MONTH_PAGE = 12`），不再一次性渲染全部月份分组。
+- `EventRow`、`GroupRow`、`PersonaRow`、`PaginationFooter`、`SpindleCard` 均改为 `React.memo` 包裹，并新增仅随 `lang`/`i18n` 变化的 `useI18n()` 窄 context（拆自 `AppContext`），避免统计轮询、toast、任务队列等无关的全局 store 更新触发这些列表行重渲染。
+- `EventInheritPicker` / `EditEventDialog` 的继承候选列表改为仅在弹层展开时计算，并新增 `INHERIT_PAGE = 100` 截断渲染，事件量大时不再一次性渲染数千个候选项。
+
+### 其他修复
+
+- `main.py` 适配新版本 AstrBot：`AstrMessageEvent` 由仅 `TYPE_CHECKING` 下导入改为运行时导入，避免新版 AstrBot 下的加载问题。
+
 ## [v1.0.9] — 2026-07-21
 
 ### 开发环境：realtime dev 测试数据持久化 / 断点续跑

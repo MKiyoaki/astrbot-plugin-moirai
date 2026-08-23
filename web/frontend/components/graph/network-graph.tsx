@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import type { PersonaNode, ImpressionEdge } from '@/lib/api'
 import type { EdgePair, PhysicsParams, VisualParams, PositionMap } from '@/lib/graph-types'
-import { computeNodeRadius, mockCluster } from '@/lib/graph-utils'
+import { computeNodeRadius, degreeMap, mockCluster } from '@/lib/graph-utils'
 import { GraphNode } from '@/components/graph/graph-node'
 import { GraphEdge } from '@/components/graph/graph-edge'
 import { useApp } from '@/lib/store'
@@ -13,6 +13,9 @@ const EDGE_POS_COLOR = '#2d7d46'
 const EDGE_NEG_COLOR = '#c0392b'
 const EDGE_NEU_COLOR = '#aaa'
 
+/** id of the pan/zoom group; the image exporter neutralises its transform. */
+export const GRAPH_VIEWPORT_ID = 'moirai-graph-viewport'
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface NetworkGraphProps {
@@ -23,6 +26,8 @@ interface NetworkGraphProps {
   selectedNodeId: string | null
   selectedPairKey: string | null
   focusNodeId: string | null
+  /** Export pass: reveal every label and drop hover dimming. */
+  exportMode?: boolean
   onSelectNode: (id: string | null) => void
   onSelectPair: (key: string | null) => void
   onSizeChange?: (size: { width: number; height: number }) => void
@@ -39,6 +44,7 @@ export function NetworkGraph({
   selectedNodeId,
   selectedPairKey,
   focusNodeId,
+  exportMode = false,
   onSelectNode,
   onSelectPair,
   onSizeChange,
@@ -48,13 +54,36 @@ export function NetworkGraph({
   const containerRef = useRef<HTMLDivElement>(null)
   const internalSvgRef = useRef<SVGSVGElement>(null)
   const svgRef = (externalSvgRef as React.RefObject<SVGSVGElement>) ?? internalSvgRef
+  const viewportRef = useRef<SVGGElement>(null)
 
   const [containerSize, setContainerSize] = useState({ width: 640, height: 420 })
-  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 })
+  // Pan/zoom lives in a ref and is written straight to the DOM; only the zoom
+  // level is mirrored into state, because label sizing depends on it.
+  const transformRef = useRef({ x: 0, y: 0, scale: 1 })
+  const [scale, setScale] = useState(1)
+  const scaleFrameRef = useRef(0)
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
   const [hoveredPairKey, setHoveredPairKey] = useState<string | null>(null)
   const dragRef = useRef<{ startX: number; startY: number; tx: number; ty: number } | null>(null)
   const isDraggingRef = useRef(false)
+
+  const applyTransform = useCallback(() => {
+    const t = transformRef.current
+    viewportRef.current?.setAttribute(
+      'transform', `translate(${t.x},${t.y}) scale(${t.scale})`,
+    )
+    if (scaleFrameRef.current) return
+    scaleFrameRef.current = requestAnimationFrame(() => {
+      scaleFrameRef.current = 0
+      setScale(prev => (Math.abs(prev - transformRef.current.scale) > 0.005
+        ? transformRef.current.scale
+        : prev))
+    })
+  }, [])
+
+  useEffect(() => () => {
+    if (scaleFrameRef.current) cancelAnimationFrame(scaleFrameRef.current)
+  }, [])
 
   // ResizeObserver
   useEffect(() => {
@@ -75,18 +104,30 @@ export function NetworkGraph({
     return mockCluster(nodes, edgePairs, params.leidenResolution)
   }, [nodes, edgePairs, params.leidenEnabled, params.leidenResolution])
 
-  // Pre-compute node radius bounds
-  const [minDeg, maxDeg] = useMemo(() => {
-    const degrees = nodes.map(n => {
-      return edgePairs.filter(p => p.srcId === n.data.id || p.tgtId === n.data.id).length
-    })
-    return [Math.min(...degrees, 0), Math.max(...degrees, 1)]
+  // ── Derived lookups ─────────────────────────────────────────────────────────
+  // Computed once per data change instead of scanning the edge/node arrays
+  // inside the render loop, which used to make drawing O(V·E).
+
+  const radiusById = useMemo(() => {
+    const degrees = degreeMap(nodes, edgePairs)
+    let minDeg = Infinity
+    let maxDeg = 1
+    for (const d of degrees.values()) {
+      minDeg = Math.min(minDeg, d)
+      maxDeg = Math.max(maxDeg, d)
+    }
+    if (!Number.isFinite(minDeg)) minDeg = 0
+    const radii = new Map<string, number>()
+    for (const [id, deg] of degrees) {
+      radii.set(id, computeNodeRadius(deg, minDeg, maxDeg))
+    }
+    return radii
   }, [nodes, edgePairs])
 
-  const nodeRadius = useCallback((n: PersonaNode): number => {
-    const deg = edgePairs.filter(p => p.srcId === n.data.id || p.tgtId === n.data.id).length
-    return computeNodeRadius(deg, minDeg, maxDeg)
-  }, [edgePairs, minDeg, maxDeg])
+  const nodeRadius = useCallback(
+    (id: string): number => radiusById.get(id) ?? 12,
+    [radiusById],
+  )
 
   const nodeFill = useCallback((n: PersonaNode): string => {
     if (n.data.is_bot) return 'var(--primary)'
@@ -102,11 +143,13 @@ export function NetworkGraph({
     if (!focusNodeId || !positions?.[focusNodeId]) return
     const p = positions[focusNodeId]
     const { width, height } = containerSize
-    setTransform(t => ({
+    const t = transformRef.current
+    transformRef.current = {
       ...t,
       x: width / 2 - p.x * t.scale,
       y: height / 2 - p.y * t.scale,
-    }))
+    }
+    applyTransform()
     onSelectNode(focusNodeId)
   }, [focusNodeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -121,15 +164,16 @@ export function NetworkGraph({
     const padding = 60
     const scaleX = (width - padding * 2) / (maxX - minX || 1)
     const scaleY = (height - padding * 2) / (maxY - minY || 1)
-    const scale = Math.min(scaleX, scaleY, 3.5)
+    const nextScale = Math.min(scaleX, scaleY, 3.5)
     const cx = (minX + maxX) / 2
     const cy = (minY + maxY) / 2
-    setTransform({
-      x: width / 2 - cx * scale,
-      y: height / 2 - cy * scale,
-      scale,
-    })
-  }, [positions, nodes, containerSize])
+    transformRef.current = {
+      x: width / 2 - cx * nextScale,
+      y: height / 2 - cy * nextScale,
+      scale: nextScale,
+    }
+    applyTransform()
+  }, [positions, nodes, containerSize, applyTransform])
 
   // Expose fitView on SVG element so parent can call via svgRef
   useEffect(() => {
@@ -139,13 +183,17 @@ export function NetworkGraph({
     el.__fitView = fitView
   }, [fitView, svgRef])
 
+  // Re-apply the current transform whenever the group remounts.
+  useEffect(() => { applyTransform() }, [applyTransform, positions])
+
   // ── Mouse handlers ──────────────────────────────────────────────────────────
 
   const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     if (e.button !== 0) return
     isDraggingRef.current = false
-    dragRef.current = { startX: e.clientX, startY: e.clientY, tx: transform.x, ty: transform.y }
-  }, [transform])
+    const t = transformRef.current
+    dragRef.current = { startX: e.clientX, startY: e.clientY, tx: t.x, ty: t.y }
+  }, [])
 
   const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     const drag = dragRef.current
@@ -154,10 +202,10 @@ export function NetworkGraph({
     const dy = e.clientY - drag.startY
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) isDraggingRef.current = true
     if (isDraggingRef.current) {
-      const { tx, ty } = drag
-      setTransform(t => ({ ...t, x: tx + dx, y: ty + dy }))
+      transformRef.current = { ...transformRef.current, x: drag.tx + dx, y: drag.ty + dy }
+      applyTransform()
     }
-  }, [])
+  }, [applyTransform])
 
   const handleMouseUp = useCallback(() => {
     dragRef.current = null
@@ -173,19 +221,19 @@ export function NetworkGraph({
       const rect = el.getBoundingClientRect()
       const mouseX = e.clientX - rect.left
       const mouseY = e.clientY - rect.top
-      setTransform(t => {
-        const newScale = Math.min(3.5, Math.max(0.25, t.scale * factor))
-        const scaleDiff = newScale - t.scale
-        return {
-          x: t.x - mouseX * scaleDiff / t.scale,
-          y: t.y - mouseY * scaleDiff / t.scale,
-          scale: newScale,
-        }
-      })
+      const t = transformRef.current
+      const newScale = Math.min(3.5, Math.max(0.25, t.scale * factor))
+      const scaleDiff = newScale - t.scale
+      transformRef.current = {
+        x: t.x - (mouseX * scaleDiff) / t.scale,
+        y: t.y - (mouseY * scaleDiff) / t.scale,
+        scale: newScale,
+      }
+      applyTransform()
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [svgRef])
+  }, [svgRef, applyTransform])
 
   const handleBgClick = useCallback(() => {
     if (!isDraggingRef.current) {
@@ -217,51 +265,67 @@ export function NetworkGraph({
     return base
   }, [params.edgeWidthSource, params.defaultEdgeWidth])
 
-  // --- Animation Helpers ---
+  // --- Focus / neighbourhood ---
   const activeFocusId = hoveredNodeId || selectedNodeId
   const activePairKey = hoveredPairKey || selectedPairKey
-  
-  // Calculate which edges and nodes are "connected" to the focus
+
+  // Adjacency, built once, so hover does not re-scan every edge pair.
+  const adjacency = useMemo(() => {
+    const map = new Map<string, EdgePair[]>()
+    for (const pair of edgePairs) {
+      const forSrc = map.get(pair.srcId)
+      if (forSrc) forSrc.push(pair); else map.set(pair.srcId, [pair])
+      const forTgt = map.get(pair.tgtId)
+      if (forTgt) forTgt.push(pair); else map.set(pair.tgtId, [pair])
+    }
+    return map
+  }, [edgePairs])
+
+  const pairByKey = useMemo(
+    () => new Map(edgePairs.map(p => [p.pairKey, p])),
+    [edgePairs],
+  )
+
   const { connectedNodeIds, connectedEdgeKeys } = useMemo(() => {
-    const nodes = new Set<string>()
-    const edges = new Set<string>()
+    const nodeIds = new Set<string>()
+    const edgeKeys = new Set<string>()
 
     if (activePairKey) {
-        const pair = edgePairs.find(p => p.pairKey === activePairKey)
-        if (pair) {
-            nodes.add(pair.srcId)
-            nodes.add(pair.tgtId)
-            edges.add(activePairKey)
-        }
+      const pair = pairByKey.get(activePairKey)
+      if (pair) {
+        nodeIds.add(pair.srcId)
+        nodeIds.add(pair.tgtId)
+        edgeKeys.add(activePairKey)
+      }
     } else if (activeFocusId) {
-        nodes.add(activeFocusId)
-        edgePairs.forEach(pair => {
-            if (pair.srcId === activeFocusId || pair.tgtId === activeFocusId) {
-                nodes.add(pair.srcId)
-                nodes.add(pair.tgtId)
-                edges.add(pair.pairKey)
-            }
-        })
+      nodeIds.add(activeFocusId)
+      for (const pair of adjacency.get(activeFocusId) ?? []) {
+        nodeIds.add(pair.srcId)
+        nodeIds.add(pair.tgtId)
+        edgeKeys.add(pair.pairKey)
+      }
     }
-    
-    return { connectedNodeIds: nodes, connectedEdgeKeys: edges }
-  }, [activeFocusId, activePairKey, edgePairs])
+
+    return { connectedNodeIds: nodeIds, connectedEdgeKeys: edgeKeys }
+  }, [activeFocusId, activePairKey, adjacency, pairByKey])
+
+  const hasFocus = !!activeFocusId || !!activePairKey
 
   const getIsDimmed = (id: string, type: 'node' | 'edge') => {
-    if (!activeFocusId && !activePairKey) return false
-    if (type === 'node') {
-      return !connectedNodeIds.has(id)
-    }
+    if (exportMode || !hasFocus) return false
+    if (type === 'node') return !connectedNodeIds.has(id)
     return !connectedEdgeKeys.has(id)
   }
 
-  // LOD Smooth Fading: 0.4 -> 0, 0.8 -> 1
-  const labelOpacity = Math.max(0, Math.min(1, (transform.scale - 0.4) / 0.4))
-
   // ── Render ──────────────────────────────────────────────────────────────────
 
-  const showLabel = transform.scale >= 0.5
-  const showEdgeLabel = params.showEdgeLabels && transform.scale > 0.7
+  // Names stay hidden until the pointer picks out a node — a full-graph label
+  // layer is unreadable past a few dozen people. Hovering reveals that node and
+  // everyone it is connected to.
+  const showAllLabels = exportMode || params.alwaysShowLabels
+  const isLabelVisible = (id: string) => showAllLabels || connectedNodeIds.has(id)
+  const showEdgeLabel = params.showEdgeLabels && (exportMode || scale > 0.7)
+  const labelScale = exportMode ? 1 : scale
 
   return (
     <div ref={containerRef} className="size-full relative overflow-hidden select-none">
@@ -279,80 +343,51 @@ export function NetworkGraph({
         onMouseLeave={handleMouseUp}
       >
         <defs>
-          <marker
-            id="arr"
-            markerWidth={params.arrowSize} markerHeight={params.arrowSize * 0.75}
-            refX={params.arrowSize} refY={params.arrowSize * 0.375}
-            orient="auto"
-            markerUnits="userSpaceOnUse"
-          >
-            <path
-              d={`M0,0 L${params.arrowSize},${params.arrowSize * 0.375} L0,${params.arrowSize * 0.75} Z`}
-              fill={EDGE_NEU_COLOR}
-            />
-          </marker>
-          <marker
-            id="arr-pos"
-            markerWidth={params.arrowSize} markerHeight={params.arrowSize * 0.75}
-            refX={params.arrowSize} refY={params.arrowSize * 0.375}
-            orient="auto"
-            markerUnits="userSpaceOnUse"
-          >
-            <path
-              d={`M0,0 L${params.arrowSize},${params.arrowSize * 0.375} L0,${params.arrowSize * 0.75} Z`}
-              fill={EDGE_POS_COLOR}
-            />
-          </marker>
-          <marker
-            id="arr-neg"
-            markerWidth={params.arrowSize} markerHeight={params.arrowSize * 0.75}
-            refX={params.arrowSize} refY={params.arrowSize * 0.375}
-            orient="auto"
-            markerUnits="userSpaceOnUse"
-          >
-            <path
-              d={`M0,0 L${params.arrowSize},${params.arrowSize * 0.375} L0,${params.arrowSize * 0.75} Z`}
-              fill={EDGE_NEG_COLOR}
-            />
-          </marker>
-          <marker
-            id="arr-highlight"
-            markerWidth={params.arrowSize} markerHeight={params.arrowSize * 0.75}
-            refX={params.arrowSize} refY={params.arrowSize * 0.375}
-            orient="auto"
-            markerUnits="userSpaceOnUse"
-          >
-            <path
-              d={`M0,0 L${params.arrowSize},${params.arrowSize * 0.375} L0,${params.arrowSize * 0.75} Z`}
-              fill="var(--primary)"
-            />
-          </marker>
+          {([
+            ['arr', EDGE_NEU_COLOR],
+            ['arr-pos', EDGE_POS_COLOR],
+            ['arr-neg', EDGE_NEG_COLOR],
+            ['arr-highlight', 'var(--primary)'],
+          ] as const).map(([id, fill]) => (
+            <marker
+              key={id}
+              id={id}
+              markerWidth={params.arrowSize} markerHeight={params.arrowSize * 0.75}
+              refX={params.arrowSize} refY={params.arrowSize * 0.375}
+              orient="auto"
+              markerUnits="userSpaceOnUse"
+            >
+              <path
+                d={`M0,0 L${params.arrowSize},${params.arrowSize * 0.375} L0,${params.arrowSize * 0.75} Z`}
+                fill={fill}
+              />
+            </marker>
+          ))}
         </defs>
 
         {/* Background click catcher */}
         <rect
+          data-export-omit=""
           width="100%"
           height="100%"
           fill="transparent"
           onClick={handleBgClick}
         />
 
-        <g transform={`translate(${transform.x},${transform.y}) scale(${transform.scale})`}>
+        <g id={GRAPH_VIEWPORT_ID} ref={viewportRef}>
           {/* Edges rendered first (under nodes) */}
           {positions && edgePairs.map(pair => {
             const pa = positions[pair.srcId]
             const pb = positions[pair.tgtId]
             if (!pa || !pb) return null
 
-            const nodeA = nodes.find(n => n.data.id === pair.srcId)
-            const nodeB = nodes.find(n => n.data.id === pair.tgtId)
-            const rA = nodeA ? nodeRadius(nodeA) : 10
-            const rB = nodeB ? nodeRadius(nodeB) : 10
+            const rA = nodeRadius(pair.srcId)
+            const rB = nodeRadius(pair.tgtId)
 
             const isHovered = hoveredPairKey === pair.pairKey
             const isSelected = selectedPairKey === pair.pairKey
             const isFocused = connectedEdgeKeys.has(pair.pairKey)
-            
+
             const color = edgeColor(pair)
             const w = edgeWidth(pair)
             const isDimmed = getIsDimmed(pair.pairKey, 'edge')
@@ -364,7 +399,7 @@ export function NetworkGraph({
             const unitY = dy / dist
             const perpX = -dy / dist
             const perpY = dx / dist
-            
+
             // Standard separation distance (inner gap)
             const GAP = 1.2
             // Shift center of line outwards by half-width + half-gap
@@ -384,6 +419,7 @@ export function NetworkGraph({
                 x1={x1} y1={y1} x2={x2} y2={y2}
                 color={color}
                 width={w}
+                opacity={params.edgeOpacity}
                 isBidirectional={pair.isBidirectional}
                 isHovered={isHovered}
                 isSelected={isSelected}
@@ -408,11 +444,10 @@ export function NetworkGraph({
             const isSelected = selectedNodeId === node.data.id
             const isFocused = connectedNodeIds.has(node.data.id)
             const isDimmed = getIsDimmed(node.data.id, 'node')
-            
-            const r = nodeRadius(node)
+
+            const r = nodeRadius(node.data.id)
             const fill = nodeFill(node)
             const strokeColor = 'var(--primary)'
-            const fontSize = Math.max(7, Math.min(11, r * 0.52))
             const botPlatform = node.data.is_bot
               ? (node.data.bound_identities.find(b => b.platform !== 'internal')?.platform ?? 'BOT').toUpperCase()
               : undefined
@@ -432,9 +467,8 @@ export function NetworkGraph({
                 isDimmed={isDimmed}
                 isBot={node.data.is_bot}
                 botLabel={botPlatform}
-                fontSize={fontSize}
-                labelOpacity={labelOpacity}
-                showLabel={showLabel}
+                fontSize={params.labelFontSize / labelScale}
+                showLabel={isLabelVisible(node.data.id)}
                 onClick={e => { e.stopPropagation(); if (!isDraggingRef.current) onSelectNode(node.data.id) }}
                 onMouseEnter={() => setHoveredNodeId(node.data.id)}
                 onMouseLeave={() => setHoveredNodeId(null)}
@@ -463,10 +497,10 @@ export function NetworkGraph({
                 style={{
                   userSelect: 'none',
                   pointerEvents: 'none',
-                  fontSize: `${params.edgeLabelFontSize / transform.scale}px`,
+                  fontSize: `${params.edgeLabelFontSize / labelScale}px`,
                   fill: 'var(--foreground)',
                   stroke: 'var(--background)',
-                  strokeWidth: 5 / transform.scale,
+                  strokeWidth: 5 / labelScale,
                   paintOrder: 'stroke',
                   opacity: isDimmed ? 0.08 : 1,
                 }}
@@ -479,6 +513,7 @@ export function NetworkGraph({
 
         {/* Fixed stats overlay (outside transform group) */}
         <text
+          data-export-omit=""
           x={containerSize.width - 12}
           y={20}
           fontSize={11}

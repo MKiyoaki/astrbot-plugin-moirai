@@ -59,6 +59,12 @@ def _persona_query(request: web.Request) -> str | None:
         return ""
     return value
 
+def _persona_body(body: dict) -> str | None:
+    value = body.get("persona")
+    if not isinstance(value, str) or not value:
+        return None
+    return "" if value == _LEGACY_PERSONA_TOKEN else value
+
 def _merge_persona_value(value: Any) -> tuple[bool, str | None]:
     if not isinstance(value, str):
         return False, None
@@ -541,24 +547,69 @@ class WebuiServer:
         ]
         return {"items": items}
 
-    async def summaries_data(self) -> list[dict[str, str | None]]:
-        result = []
-        groups_dir = self._data_dir / "groups"
-        if groups_dir.exists():
-            for gid_dir in sorted(groups_dir.iterdir()):
-                if not gid_dir.is_dir(): continue
-                sub = gid_dir / "summaries"
-                for f in sorted(sub.glob("*.md"), reverse=True) if sub.exists() else []:
-                    result.append({"group_id": gid_dir.name, "date": f.stem, "label": gid_dir.name})
-        global_dir = self._data_dir / "global" / "summaries"
-        if global_dir.exists():
-            for f in sorted(global_dir.glob("*.md"), reverse=True):
-                result.append({"group_id": None, "date": f.stem, "label": "私聊"})
+    async def _known_persona_names(self) -> list[str | None]:
+        try:
+            data = await self.bot_personas_data()
+        except Exception:
+            return []
+        return [item.get("name") for item in data.get("items", [])]
+
+    def summary_path_for(
+        self, group_id: str | None, date: str,
+        peer_uid: str | None = None, persona: str | None = None,
+        persona_dir: str | None = None,
+    ) -> Path:
+        from core.tasks.summary_paths import summary_path
+        return summary_path(
+            self._data_dir, date=date, group_id=group_id,
+            peer_uid=peer_uid, persona=persona, persona_dir=persona_dir,
+        )
+
+    async def summaries_data(self, bot_persona_name: str | None = None) -> list[dict[str, str | None]]:
+        from core.tasks.summary_paths import (
+            KIND_LEGACY_PRIVATE, KIND_PRIVATE, iter_summary_files,
+            persona_dirname, resolve_persona_dirname,
+        )
+        if not self._persona_iso_enabled:
+            bot_persona_name = None
+        known = await self._known_persona_names()
+        try:
+            uid_to_name = {p.uid: p.primary_name for p in await self._persona_repo.list_all()}
+        except Exception:
+            uid_to_name = {}
+        wanted_dir = None if bot_persona_name is None else persona_dirname(bot_persona_name or None)
+        legacy_dir = persona_dirname(None)
+
+        result: list[dict[str, str | None]] = []
+        for ref in iter_summary_files(self._data_dir):
+            if wanted_dir is not None and ref.persona_dir != wanted_dir:
+                if not (self._persona_legacy_visible and ref.persona_dir == legacy_dir):
+                    continue
+            if ref.kind == KIND_PRIVATE:
+                label = uid_to_name.get(ref.peer_uid or "", ref.peer_uid or "")
+            elif ref.kind == KIND_LEGACY_PRIVATE:
+                label = "私聊"
+            else:
+                label = ref.group_id or ""
+            result.append({
+                "group_id": ref.group_id,
+                "peer_uid": ref.peer_uid,
+                "kind": ref.kind,
+                "bot_persona_name": resolve_persona_dirname(ref.persona_dir, known),
+                "persona_dir": ref.persona_dir,
+                "date": ref.date,
+                "label": label,
+            })
+        result.sort(key=lambda r: (r["date"] or "", r["label"] or ""), reverse=True)
         return result
 
-    def summary_content(self, group_id: str | None, date: str) -> str | None:
+    def summary_content(
+        self, group_id: str | None, date: str,
+        peer_uid: str | None = None, persona: str | None = None,
+        persona_dir: str | None = None,
+    ) -> str | None:
         if not date: return None
-        path = self._data_dir / "groups" / group_id / "summaries" / f"{date}.md" if group_id else self._data_dir / "global" / "summaries" / f"{date}.md"
+        path = self.summary_path_for(group_id, date, peer_uid, persona, persona_dir)
         return path.read_text(encoding="utf-8") if path.exists() else None
 
     def _read_config(self) -> dict:
@@ -677,15 +728,19 @@ class WebuiServer:
     async def _handle_bot_personas_list(self, _: web.Request) -> web.Response:
         return _json(await self.bot_personas_data())
 
-    async def _handle_summaries(self, _: web.Request) -> web.Response: return _json(await self.summaries_data())
+    async def _handle_summaries(self, request: web.Request) -> web.Response:
+        return _json(await self.summaries_data(bot_persona_name=_persona_query(request)))
 
     async def _handle_summary(self, request: web.Request) -> web.Response:
-        group_id = request.rel_url.query.get("group_id")
-        date = request.rel_url.query.get("date", "")
+        q = request.rel_url.query
+        group_id = q.get("group_id") or None
+        peer_uid = q.get("peer_uid") or None
+        date = q.get("date", "")
         if not date: return _json({"error": "date required"}, status=400)
-        content = self.summary_content(group_id, date)
-        if content is None: return _json({"error": "not found"}, status=404)
-        path = self._data_dir / "groups" / group_id / "summaries" / f"{date}.md" if group_id else self._data_dir / "global" / "summaries" / f"{date}.md"
+        path = self.summary_path_for(
+            group_id, date, peer_uid, _persona_query(request), q.get("persona_dir") or None,
+        )
+        if not path.exists(): return _json({"error": "not found"}, status=404)
         from core.tasks.summary_links import refresh_summary_file_event_links
         content, links, _ = await refresh_summary_file_event_links(path, self._event_repo)
         return _json({"content": content, "linked_events": [link.to_dict() for link in links]})
@@ -707,7 +762,10 @@ class WebuiServer:
         body = await request.json()
         date, content = body.get("date", ""), body.get("content", "")
         if not date: return _json({"error": "no date"}, status=400)
-        path = self._data_dir / "groups" / body.get("group_id") / "summaries" / f"{date}.md" if body.get("group_id") else self._data_dir / "global" / "summaries" / f"{date}.md"
+        path = self.summary_path_for(
+            body.get("group_id") or None, date, body.get("peer_uid") or None,
+            _persona_body(body), body.get("persona_dir") or None,
+        )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         return _json({"ok": True})
@@ -716,6 +774,15 @@ class WebuiServer:
         if not self._provider_getter: return _json({"error": "no provider"}, status=503)
         body = await request.json()
         date = body.get("date", "")
+        group_id = body.get("group_id") or None
+        peer_uid = body.get("peer_uid") or None
+        persona_dir = body.get("persona_dir") or None
+        persona = _persona_body(body)
+        if persona is None and persona_dir:
+            from core.tasks.summary_paths import PERSONA_DIR_DEFAULT, resolve_persona_dirname
+            persona = "" if persona_dir == PERSONA_DIR_DEFAULT else resolve_persona_dirname(
+                persona_dir, await self._known_persona_names()
+            )
         try:
             from core.config import PluginConfig
             from core.tasks.summary import regenerate_single_summary
@@ -723,15 +790,19 @@ class WebuiServer:
                 event_repo=self._event_repo,
                 data_dir=self._data_dir,
                 provider_getter=self._provider_getter,
-                group_id=body.get("group_id"),
+                group_id=group_id,
                 date=date,
                 summary_config=PluginConfig(getattr(self, "_initial_config", {})).get_summary_config(),
                 persona_repo=self._persona_repo,
                 impression_repo=self._impression_repo,
+                peer_uid=peer_uid,
+                bot_persona_name=persona if self._persona_iso_enabled else None,
+                include_legacy=False,
+                persona_dir=persona_dir,
             )
         except Exception as e: return _json({"error": str(e)}, status=500)
         if content is None: return _json({"error": "failed"}, status=503)
-        path = self._data_dir / "groups" / body.get("group_id") / "summaries" / f"{date}.md" if body.get("group_id") else self._data_dir / "global" / "summaries" / f"{date}.md"
+        path = self.summary_path_for(group_id, date, peer_uid, persona, persona_dir)
         from core.tasks.summary_links import refresh_summary_file_event_links
         content, links, _ = await refresh_summary_file_event_links(path, self._event_repo)
         return _json({"content": content, "linked_events": [link.to_dict() for link in links]})
