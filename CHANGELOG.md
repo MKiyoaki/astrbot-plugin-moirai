@@ -1,5 +1,129 @@
 # CHANGELOG
 
+## [v1.0.14] — 2026-09-04
+
+### 关系图：「一键最佳参数」修复、自动适配视野、渲染性能
+
+**问题 — 那个按钮在 100 节点以下的图上必然是空操作**
+
+`DEFAULT_PHYSICS_PARAMS` 是用 `gephiAutoSettings(0)` 生成的，而 `gephiAutoSettings(N)` 只有 `scalingRatio`（N≥100）和 `barnesHutOptimize`（N≥1000）两项随 N 变化。物理参数又不做持久化，面板每次都从这个默认值开跑 —— 于是任何 100 节点以下的图，按钮算出的十个值与当前值逐项相等。`useForceSimulation` 的依赖数组比较的是十四个原始值而非 `params` 对象引用，所以连重算都不会触发，只有 toast 弹出来说成功了。
+
+根源是移植错了对象：Gephi Desktop 的 `ForceAtlas2.resetPropertiesValues()` 不是「最佳参数」，它是 Gephi 的**默认值初始化器**（见 `setGraphModel()` 里那句 `// Trick: reset here to take the profile of the graph in account`），面板上对应的是 ⟳ 恢复默认，Gephi 根本没有这个功能。把它同时当作默认值常量和「自动」按钮，两者由构造保证相等。
+
+Gephi Lite 才有同名按钮（`core/layouts/collection/forceAtlas2.ts`），它的两端是分开的：面板默认值取 graphology 的 `FA2_DEFAULT_SETTINGS`，按钮返回 `{ ...FA2_DEFAULT_SETTINGS, ...inferSettings(graph) }`，后者必定改动 5 项（`strongGravityMode` true、`gravity` 0.05、`scalingRatio` 10、`slowDown` 1+ln N、`barnesHutOptimize` N>2000），其中 `slowDown` 随节点数连续变化。照抄它的数值同样不行 —— graphology 的内核不是 Gephi 的内核，它没有全局自适应速度，用的是逐节点 `convergence·ln(1+traction)/(1+√swinging)` 除以 `slowDown`，而 `slowDown` 在本仓库这套 Gephi Desktop 版内核里没有对应物。
+
+**改动 — 参数按本仓库的像素尺度实测标定**（`lib/graph-types.ts`）
+
+`DEFAULT_PHYSICS_PARAMS` 改为独立字面量，不再由 auto 函数派生 —— 面板静止态和按钮输出必须能够不同，否则按钮无事可做。`gephiAutoSettings()` 改名 `autoPhysicsSettings()`，取值全部重新实测，判据是「自动适配视野之后，屏幕上的平均最近邻距离」（节点半径 12–22px）：
+
+- **`adjustSizes`（Prevent Overlap）随图开启**，这是唯一真正改善画面的开关，而 Gephi 和 Gephi Lite 的自动值里它都是关的。N=150 时平均间距 30px→44px、最近一对 12px→29px；N=400 时 13px→24px、4px→17px。
+- **`scalingRatio` 恒为 10**。加入自动适配视野后它在 60 节点以上是尺度不变量（实测 1/2/5/10/20/50 六档给出同样的屏幕间距），60 以下 10 最优（N=15：106px vs `scalingRatio=2` 的 45px）。
+- **`linLogMode` 与 `outboundAttractionDistribution` 保持关闭** —— 在群聊这种中心辐射结构上实测更差（N=400 时 linLog+hubs 把平均间距压到 7px）。
+- **Barnes-Hut 阈值 1000 → 1500**。本内核四叉树的实测拐点：N=1200 时近似法仍只有暴力法 0.92 倍速度，约 1600 才反超，原来的 1000 在 1000–1600 区间纯属拖慢。该阈值同时作为 `adjustSizes` 的上界，两个开关共用一个边界，顺带消掉了两个独立阈值之间那段谁都不改的死区。
+- **`iterations` 保持 300 且不进自动集合**：实测 15–800 节点全部在 300 步内收敛，加到 1200 步无任何收益。
+
+按钮现在会 diff 后报告实际改了几项（`countAutoChanges()`），无变化时明说「已是最佳」，不再用一句和按钮标题一样的 toast 掩盖空操作。
+
+**改动 — 布局收敛后自动适配视野**
+
+这是画面变糟的另一半原因：Gephi Desktop 画布会自动缩放到图，Gephi Lite 用 Sigma、每帧把坐标归一化到视口，**只有本仓库把 ForceAtlas2 的输出当像素直接用**，`fitView` 又只有工具栏按钮会调。于是任何改变布局绝对尺度的参数都表现为「图不见了」而不是「图变密了」，1200 节点的布局有 3954px 宽，直接跑到视口外。
+
+`useForceSimulation` 新增 `layoutVersion`，每次布局稳定（力导向跑完、圆形布局落定）自增一次；`NetworkGraph` 监听它重新适配，只在稳定时做，不与用户拖拽抢镜头。`fitView` 本身同步修掉四处：包围盒改用实际绘制范围（含节点半径）而非圆心，标签按屏幕常量尺寸另行预留（其字号除以缩放、不随视图缩放）；缩放下界与滚轮共用同一组常量，此前 `fitView` 只夹上界，大图会被适配到滚轮下限之外、第一次滚动就跳回去；下界从 0.25 放宽到 0.05，否则 2000 节点的图根本适配不下、约六分之一节点留在视口外；单节点或全部重叠导致包围盒为零的退化情况不再除出 Infinity。`__fitView` 挂在 SVG 元素上的猴补丁换成正常的 `useImperativeHandle`。
+
+**改动 — 渲染性能**
+
+- `GraphNode` / `GraphEdge` 都是 `memo()`，但父组件给的 `onClick` / `onMouseEnter` / `onMouseLeave` 全是内联箭头函数，memo 从来没有命中过 —— 每次 hover、每次缩放、每一个发布出去的仿真帧，全部节点和边一起重渲染。改为传 id 加稳定回调，子组件内部 `useCallback` 绑定。
+- 求解期间发布位置改为按 33ms 节流（终态一定发布）。实测求解本身不是瓶颈：400 节点跑满 300 步只要约 100ms，而按 60fps 交给 React 意味着几十次全量 reconciliation。
+- 每帧重跑 `applyTransform()` 的 effect 收窄到挂载时一次 —— 该 transform 属性是命令式写入的，React 不管理它，不存在被覆盖的问题。
+
+**试过但回退**：把四叉树改成共享索引缓冲 + 计数排序分区，消除每次迭代数千次数组分配。逐位等价（力的最大差值为 0），但 500/1000/1500/3000 四个规模上加速比都是 1.00x —— 成本在遍历本身而非 GC，纯属徒增复杂度。
+
+## [v1.0.13] — 2026-09-04
+
+### 抽取管线：坏 JSON 就地降级 + prompt 重构 + IPC 重复打分修复
+
+**问题**
+
+v1.0.12 上线后用本地 26B 跑（Gemma-4-26B-A4B / FreeToken，8K KV Cache、95% 显存），单次 `extraction` task 耗时从 ~28s 涨到 90–170s。瓶颈在**首字延迟**——每多一次 LLM 往返就多付一次 prefill，所以真正的成本单位是「往返次数 × 输入长度」，不是输出长度。拆出四条彼此独立的成因：
+
+- **坏 JSON 的产生**：`participant_style` 是嵌套对象 + `quotes` 数组，且要求「逐字照抄、保留错别字/颜文字/复读」。聊天原话带 `"` `\` 换行是常态，4B 激活的模型经常不转义。
+- **坏 JSON 的放大**：`parse_llm_output` 对整段做一次 `json.loads`，数组里坏一个对象则健康的兄弟全部陪葬；而那条「不是数组就当单对象解析」的兜底**从未生效过**——它用 `text.find("[")` 定位数组，而 `chat_content_tags` 的 `[` 永远排在前面，于是切出 `["标签"]` 这类片段，解析成功但内容不是 dict。结果：模型只要少输出一层数组，就直接掉进 [repair 往返](core/extractor/extractor.py#L671)。一个 170s 的 task 实际是「原始 + 2 次重试 + repair」串起来的。
+- **prompt 本身**：涨到 3627 字符（~2577 token）。其中 `start_idx`/`end_idx` 与「划分逻辑」四条完全是浪费——三个调用点全部传 `merge_to_single=True`，`_merge_to_session_event` 必然收敛成一个对象，`extractor.py` 随后又把 idx 覆写成整窗。`[Eval]` 强制要求和标签新建规则在两个 system prompt 和 `build_user_prompt` 里各写一遍，其中 user prompt 那份处在**不可缓存**的位置，每次调用重新 prefill。
+- **IPC 的重复打分**：`_run_ipc_analysis` 用抽取产出的 `participants_personality` 去 prime `BigFiveBuffer`，本意是省掉每人一次 `big_five_score` 调用。但 `maybe_score` 只看 `_counters[uid] >= x_messages`，**根本不检查缓存是否已被 prime**，而 prime 又发生在 `add_message` 循环之前。于是发言 ≥10 条的人照样触发打分，`_run_score` 完成后直接覆盖掉刚 prime 进去的向量。这批调用挂在 `await asyncio.gather` 上同步等，`llm_concurrency=2` 下一个 10 人窗口就是 5 轮首字延迟。
+
+**改动 — 解析器就地降级**（`core/extractor/parser.py`）
+
+坏 JSON 不再等于一次 LLM 往返：
+
+- 解码器换成 `json.JSONDecoder(strict=False)`，容忍字符串里的裸换行与控制字符——小模型转录聊天原文最常见的破法。
+- 新增 `_salvage_objects()`：用 `raw_decode` 逐个解码顶层 `{...}`，坏对象只赔上自己。`_extract_json_objects()` 同时跑「整体解码」与「逐对象打捞」，取收获更多的那个；扫描起点不假定为 0，因此模型加的前言散文一并容忍。
+- `start_idx`/`end_idx` 降为可选，缺失或越界即取整窗；`_BATCH_REQUIRED` 删除。
+- 新增 `_parse_tags()`：`chat_content_tags` 返回裸字符串时不再被逐字符切成五个单字标签。
+
+覆盖的畸形输出：单对象、数组、代码围栏、前后带散文、字符串内裸换行、数组中一个对象坏掉（前后健康对象都能救回）、tags 为裸字符串。
+
+**改动 — prompt 重构**（`core/config.py`、`core/extractor/prompts.py`）
+
+两个 system prompt 除开场白外逐字相同，v1.0.12 与本版都是并排手改、已漂移过一次，改为按片段拼装：`_build_system_prompt(preamble, with_eval)` 产出四个变体（抽取/蒸馏 × 有人格/无人格），`[Eval]` 规则**及其在范本中的出现**随人格有无一并拼入或省略——展示了任务里用不到的字段的示例，比没有示例更糟。`extractor.py` 与 `reextract.py` 按 `bot_persona_desc` 选变体（`reextract` 此前无人格时也发要求 `[Eval]` 的版本）。用户自定义 prompt 原样覆盖全部变体。
+
+内容上把 token 从没有回报的地方挪到有回报的地方：
+
+- **空壳骨架 → 填满的范本**。小模型模仿范本远比遵守散文规则可靠，所以范本给足具体：真实人名、真实数字、`confidence` 直接写 0.55、引用一律用「」而非嵌套双引号——用演示替代「含双引号或反斜杠则改写或省略」那条元指令。同时替掉了上一版的 confidence few-shot 修补。
+- **新增两组 ✗/✓ 对照**。v1.0.12 实测 35/95 写成抽象概括，而当时的 prompt 只说「避免只写抽象概括」，从未展示抽象概括长什么样。
+- **`[What] 以人名开头`**。把「代词和模糊指代解析成具体所指」这条小模型执行不了的语义要求，换成一条它能机械满足的句法约束——而满足它就被迫做了指代消解。
+- **删掉 JSON Array、`start_idx`/`end_idx`、划分逻辑四条**，改为单对象 schema；repair prompt 同步。
+- **confidence rubric 四档 → 一行**。`Event.confidence` 全仓只被写入、存库、给 API/WebUI 展示，召回重排、decay、归档、注入无一读取；且原 rubric 的「0.9+ 对话清晰、指代明确、上下文完整」对正常群聊窗口本就成立，74/95 卡在 0.9 是 rubric 授权的结果。`salience` 的五档锚点保留不动——它有真实下游。
+- **`participant_style` / `participants_personality` 各限 3 人**。此前均无上限，10 人活跃群即 10 条风格 + 10 组 OCEAN。
+- **`build_user_prompt` / `build_distillation_prompt` 的 header 只留人称信息**：`[Bot 视角人格]` 只留人格描述本身，`[现有标签体系]` 只留标签表加一句复用指令，规则回到可缓存的 system prompt。每次调用的固定样板 287 → 52 字符。
+- 示例全面中性化，去掉「明日方舟」「向量检索」「卫戍」等显性词汇。
+
+**改动 — IPC prime 真正生效**（`core/social/big_five_scorer.py`、`core/extractor/extractor.py`）
+
+新增 `BigFiveBuffer.prime(uid, vector, evidence)`：写缓存的同时清零 counter 与 text buffer（那些消息正是产出该向量的输入，已经用掉了），`maybe_score` 因此对被 prime 的 uid 返回 None。`_run_ipc_analysis` 里 prime 移到 `add_message` 循环**之后**——放在之前的话计数器会被随后的累积重新填满。同时去掉 extractor 直接写 `_big_five_buffer._cache` / `._evidence` 私有字段的做法。
+
+**改动 — 噪声过滤接上默认路径**（`core/extractor/prompts.py`）
+
+`noise_filter.is_noisy_message` 一直存在，但 `extractor.py` 的调用点是 `if self._strategy != "llm"`，而默认策略就是 `llm`——纯表情、复读、过短消息在默认路径上一条都没被过滤，既撑 prefill 又给模型噪声。新增 `_visible_messages()`，只过滤**模型看到的内容**，落库与消息关联仍用完整窗口。两条守卫：一是 50% 信号率下限，斗图窗口原样通过，否则会把「三人互发表情包玩梗」编成一场实质对话——而那本身就是该记下来的事实；二是**过滤不得抹掉发言人**，全部消息都是噪声的人会被还回一条，否则他仍在 `window.participants` 里、仍作为参与者落库，模型却从未见过这个人，`[Who]` / `participant_style` / `participants_personality` 里永远不会有他。
+
+**其他**
+
+- `extractor_context_messages` 默认 50 → 40（取 `min(40, context_window_size)`；`_conf_schema.json` 同步）。
+- repair 载荷 `raw_text[:6000]` → `[:2500]`。
+- `participant_style` 结构：嵌套对象 → 扁平字符串 `{"显示名": "一句话描述"}`。去掉一层嵌套、去掉数组、去掉 `note`/`quotes` 内层 key。`_parse_participant_style` 收字符串、兼容旧的 `{note, quotes}` 形状并扁平化、剥换行；`synthesis.py` 聚合、`models.py` docstring 同步。DB 存的是 JSON TEXT，不需要新 migration。（根因在解析器，此处是减小暴露面。）
+- 删掉 `participants_personality` 的逐维 O/C/E/A/N 中文释义（模型已知），只留形状 + 范围 + 「有依据才填」。
+- summary 标题 `【结构化记录】` → `【事实记录】`，两个 prompt 统一。
+- `migrations/017` 的注释同步为扁平形状；`_EVENT_SEARCH_COLS` 加警告注释——该路径取回的 `Event` 的 `bot_persona_name` 与 `participant_style` 是占位值，只读，回写 `upsert()` 会清空两列。
+
+**净效果**：抽取 system prompt 2999 → 2256 字符（无人格变体 2131），user prompt 固定样板 −82%，窗口 −20%，repair 载荷 −58%。坏 JSON 与单对象输出不再触发 repair 往返，被 prime 的发言人不再触发多余的 `big_five_score` 往返——两者都是直接减少首字延迟的次数。
+
+## [v1.0.12] — 2026-09-04
+
+### 事件抽取信息量提升 + 逐发言人说话风格记录
+
+**问题**
+
+用 26B 本地模型（Gemma-4-26B-A4B / FreeToken）跑完整管线后审查产出，发现事件记录的信息密度过低，几乎等于没记下任何具体内容：
+
+- 抽取 system prompt（`DEFAULT_EXTRACTOR_SYSTEM_PROMPT` / `DEFAULT_DISTILLATION_SYSTEM_PROMPT`）把 `summary` 定义为"提炼关键结论、过滤口水话"，并硬性限制 `[What]/[How]` 各 1–2 句。对闲聊群"结论"往往不存在，模型只能写抽象概括或 `[Eval] 信息不足`（实测 35/95）。
+- `salience` / `confidence` 无评分锚点，`confidence` 74/95 塌缩在 0.90。
+- 说话方式、语气、口癖、群里的角色等"风格化信息"在管线里被全程丢弃：`summary` 是事实记录、`[Eval]` 是 Bot 视角旁白、`interaction_flow` 只存 `text[:100]` 预览且下游无人回读；抽取时产出的 `participants_personality`（OCEAN 打分）只喂给 IPC 缓存，从不落到 `Event` 上。参考 2025–2026 记忆/角色扮演文献（Mem0、EMem enriched-EDU、DualMem、ReverieMem），风格应作为独立的一条流、以「一句描述 + 逐字原话」的形式记录并跨事件聚合。
+
+**改动**
+
+- **抽取 prompt 重写**（`core/config.py`，两个 prompt 同步）：
+  - `summary` 改为「事实记录」框架，`[What]` 锚点从 7 条收敛为 4 条通用规则（专有名词/指代消解、具体信息、观点/决定/约定/问答归属、分歧收场），去掉 1–2 句长度上限，改为"随信息量伸缩"。
+  - `salience` 改为「取事实价值与人物价值的较高者」并给 5 档锚点——一段"没营养"但能体现某人性格或关系的对话不再判低分。
+  - `confidence` 给 4 档锚点，明确"不要默认填 0.9"。
+  - `[Eval]` 明确为旁白、不承担记录职责；`信息不足` 收紧为"仅当该三元组确实无任何实质内容"。
+  - 新增 `participant_style` 输出字段：`{显示名: {note, quotes}}`，`note` 描述这段里真实观察到的语气/幽默方式/腔调/关系角色，`quotes` 为 1–2 条逐字原话。`participants_personality` 保留不动（IPC 仍在用）。
+- **`participant_style` 落库**：`Event` 新增 `participant_style: dict` 字段（`core/domain/models.py`，含 `to_web_dict`）；迁移 `017_event_participant_style.sql` 给 `events` 加 `participant_style TEXT NOT NULL DEFAULT '{}'`；`core/repository/sqlite.py` 的列常量、`_row_to_event`、`upsert` 三处同步；`core/extractor/parser.py` 新增 `_parse_participant_style()` 并接入 batch / single / fallback / merge 四处；`core/extractor/extractor.py` 构造 `Event` 时写入。
+- **persona 聚合**：`core/tasks/synthesis.py` 的 `_synthesize_one_persona` 收集该 persona 在近 N 个事件里的 `participant_style` 观察（按 `primary_name` 匹配，容忍 `#2` 消歧后缀），拼进 synthesis prompt；`_DEFAULT_PERSONA_SYSTEM_PROMPT` 新增 `speaking_style`（≤80 字一句话）与 `style_quotes`（1–3 条代表性原话）输出字段，写入 `persona_attrs`。
+- **注入投放**：`core/utils/formatter.py` 的 `format_persona_for_prompt` 放宽守卫（无 big_five 也可仅凭 `speaking_style` 输出），在用户画像段追加"说话风格"行与口头禅。`persona_profile.md.j2` 遍历 `persona_attrs` 自动展示，无需改动。
+- **WebUI**：`web/plugin_routes.py` 的 `_event_to_dict` 输出 `participant_style`。
+- `core/extractor/prompts.py`：`build_distillation_prompt` 删除与 system prompt 冲突的内联 JSON schema（`participants_personality` 扁平写法），改为"按 system 指令输出"；两个 builder 的 `[Bot 视角人格]` header 同步 `信息不足` 措辞。
+
+**迁移**：`017` 为纯增列（`DEFAULT '{}'`），启动时 `run_migrations` 幂等应用，旧数据 `participant_style` 为 `{}`，不影响既有事件。
+
 ## [v1.0.11] — 2026-08-23
 
 ### 每日摘要跨人格 / 跨会话 / 跨天泄漏修复

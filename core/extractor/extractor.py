@@ -395,6 +395,7 @@ class EventExtractor:
                 confidence=res["confidence"],
                 inherit_from=inherit_from,
                 last_accessed_at=sub_messages[-1].timestamp,
+                participant_style=res.get("participant_style") or {},
             )
 
             if self._bot_persona_override:
@@ -661,7 +662,7 @@ class EventExtractor:
             repair_prompt = (
                 "请把下面内容修复为严格 JSON Array。只输出 JSON Array，不要解释，不要 markdown。"
                 "每个对象必须包含 start_idx、end_idx、topic、summary、chat_content_tags、salience、confidence。\n\n"
-                f"{raw_text[:6000]}"
+                f"{raw_text[:2500]}"
             )
             repair_resp, _ = await self._call_llm_with_retry(
                 lambda: provider.text_chat(prompt=repair_prompt, system_prompt="你只负责修复 JSON。"),
@@ -732,9 +733,13 @@ class EventExtractor:
         personality_data: dict[str, dict[str, float]] | None = None
     ) -> None:
         """Feed window messages to BigFiveBuffer, trigger scoring, run orientation analysis.
-        
-        If personality_data is provided (Unified Extraction), it is used to prime
-        the BigFiveBuffer cache before analysis, skipping the extra LLM call.
+
+        If personality_data is provided (Unified Extraction), it primes the
+        BigFiveBuffer for those speakers, which skips the extra per-speaker
+        `big_five_score` call. Priming happens AFTER the messages are
+        accumulated: `prime()` clears the counter, so doing it first would let
+        the accumulation push the counter straight back over the threshold and
+        fire the very call priming is meant to avoid.
         """
         assert self._big_five_buffer is not None
         assert self._orientation_analyzer is not None
@@ -748,34 +753,31 @@ class EventExtractor:
                 name_to_uid[msg.display_name] = msg.uid
                 name_to_uid[msg.uid] = msg.uid
 
-            # 2. Prime the buffer cache if data is available
-            if personality_data:
-                for name, traits in personality_data.items():
-                    uid = name_to_uid.get(name)
-                    if not uid:
-                        continue
-
-                    # traits is {"scores": {...}, "evidence": str|None} (nested format)
-                    # or legacy {"O": 0.6, ...} if parser fell back
-                    scores = traits.get("scores", traits)
-                    vector = BigFiveVector(
-                        openness=scores.get("O", 0.0),
-                        conscientiousness=scores.get("C", 0.0),
-                        extraversion=scores.get("E", 0.0),
-                        agreeableness=scores.get("A", 0.0),
-                        neuroticism=scores.get("N", 0.0),
-                    )
-                    # Force update the cache with this fresh event-specific score
-                    self._big_five_buffer._cache[uid] = vector
-                    if traits.get("evidence"):
-                        self._big_five_buffer._evidence[uid] = traits["evidence"]
-                    logger.debug("[EventExtractor] primed cache for %s via unified extraction", uid[:8])
-
-            # 3. Accumulate messages
+            # 2. Accumulate messages
             for msg in window.messages:
                 self._big_five_buffer.add_message(msg.uid, msg.text or "")
-            
-            # 4. Trigger scoring and WAIT for them (only fires if NOT primed or x_messages reached)
+
+            # 3. Prime the buffer for speakers the extraction already scored.
+            #    Must follow step 2 — see the docstring.
+            for name, traits in (personality_data or {}).items():
+                uid = name_to_uid.get(name)
+                if not uid:
+                    continue
+
+                # traits is {"scores": {...}, "evidence": str|None} (nested format)
+                # or legacy {"O": 0.6, ...} if parser fell back
+                scores = traits.get("scores", traits)
+                vector = BigFiveVector(
+                    openness=scores.get("O", 0.0),
+                    conscientiousness=scores.get("C", 0.0),
+                    extraversion=scores.get("E", 0.0),
+                    agreeableness=scores.get("A", 0.0),
+                    neuroticism=scores.get("N", 0.0),
+                )
+                self._big_five_buffer.prime(uid, vector, traits.get("evidence"))
+                logger.debug("[EventExtractor] primed cache for %s via unified extraction", uid[:8])
+
+            # 4. Score whoever was not primed, and WAIT for them.
             scoring_tasks = []
             for uid in window.participants:
                 t = self._big_five_buffer.maybe_score(uid, self._provider_getter, self._llm_manager)

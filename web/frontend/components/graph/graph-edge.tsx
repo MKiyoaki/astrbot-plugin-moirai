@@ -1,7 +1,9 @@
-import { memo } from "react"
+import { memo, useCallback } from "react"
 import { cn } from "@/lib/utils"
 
 interface GraphEdgeProps {
+  /** Identity is passed down so the parent can hand out stable callbacks. */
+  pairKey: string
   x1: number
   y1: number
   x2: number
@@ -18,15 +20,18 @@ interface GraphEdgeProps {
   perpX?: number
   perpY?: number
   offset?: number
-  onClick?: (e: React.MouseEvent) => void
-  onMouseEnter?: () => void
-  onMouseLeave?: () => void
+  /** Stable across parent renders — see the note on GraphNode. */
+  onSelect?: (pairKey: string, e: React.MouseEvent) => void
+  onHover?: (pairKey: string | null) => void
 }
 
 function GraphEdgeImpl({
-  x1, y1, x2, y2, color, width, opacity = 1, isBidirectional, isHovered, isSelected, isFocused, isDimmed,
-  arrowId, perpX, perpY, offset, onClick, onMouseEnter, onMouseLeave
+  pairKey, x1, y1, x2, y2, color, width, opacity = 1, isBidirectional, isHovered, isSelected, isFocused, isDimmed,
+  arrowId, perpX, perpY, offset, onSelect, onHover
 }: GraphEdgeProps) {
+  const onClick = useCallback((e: React.MouseEvent) => onSelect?.(pairKey, e), [onSelect, pairKey])
+  const onMouseEnter = useCallback(() => onHover?.(pairKey), [onHover, pairKey])
+  const onMouseLeave = useCallback(() => onHover?.(null), [onHover])
   const strokeW = (isHovered || isSelected) ? width + 2.5 : (isFocused ? width + 1.2 : width)
   const edgeColor = (isHovered || isSelected) ? 'var(--accent-foreground)' : color
 

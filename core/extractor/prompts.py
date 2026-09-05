@@ -43,21 +43,18 @@ def build_user_prompt(
 
     header_parts = []
     if bot_persona_desc:
-        header_parts.append(
-            f"[Bot 视角人格] {bot_persona_desc}\n"
-            f"强制要求：summary 中每一个小话题三元组的末尾【必须】包含 [Eval] 字段，"
-            f"以上述人格的第一人称视角对该话题作一句话评价（不超过30字，可表达态度、情绪、判断）。"
-            f"不允许省略；若信息确实不足，也必须写 [Eval] 信息不足。"
-        )
+        # The [Eval] rules live in the system prompt, which is a stable, cacheable
+        # prefix; repeating them here re-prefills the same instruction on every
+        # call. Only the persona text itself is per-call information.
+        header_parts.append(f"[Bot 视角人格] {bot_persona_desc}")
 
     if existing_tags:
         tags_str = ", ".join(existing_tags)
+        # Likewise: how to build a tag is a system-prompt rule. What is carried
+        # here is the vocabulary, plus the one instruction that depends on it.
         header_parts.append(
             f"[现有标签体系] {tags_str}\n"
-            f"注意：chat_content_tags 应优先复用上述标签；只有当对话确实不属于其中任何一个话题域时才新建。"
-            f"新建时请用可复用的具体名词短语（作品名、游戏名、技术名词、机制名），"
-            f"既不要只输出“社交、情感、娱乐、知识、技术”这类大类，"
-            f"也不要把只属于本次对话的情节细节写成标签。"
+            f"chat_content_tags 应优先复用上述标签，只有当对话确实不属于其中任何一个话题域时才新建。"
         )
 
     persona_line = "\n\n".join(header_parts) + ("\n\n" if header_parts else "")
@@ -80,21 +77,18 @@ def build_distillation_prompt(
     """Build a prompt for summarizing a pre-grouped cluster of messages."""
     header_parts = []
     if bot_persona_desc:
-        header_parts.append(
-            f"[Bot 视角人格] {bot_persona_desc}\n"
-            f"强制要求：summary 中每一个小话题三元组的末尾【必须】包含 [Eval] 字段，"
-            f"以上述人格的第一人称视角对该话题作一句话评价（不超过30字，可表达态度、情绪、判断）。"
-            f"不允许省略；若信息确实不足，也必须写 [Eval] 信息不足。"
-        )
+        # The [Eval] rules live in the system prompt, which is a stable, cacheable
+        # prefix; repeating them here re-prefills the same instruction on every
+        # call. Only the persona text itself is per-call information.
+        header_parts.append(f"[Bot 视角人格] {bot_persona_desc}")
 
     if existing_tags:
         tags_str = ", ".join(existing_tags)
+        # Likewise: how to build a tag is a system-prompt rule. What is carried
+        # here is the vocabulary, plus the one instruction that depends on it.
         header_parts.append(
             f"[现有标签体系] {tags_str}\n"
-            f"注意：chat_content_tags 应优先复用上述标签；只有当对话确实不属于其中任何一个话题域时才新建。"
-            f"新建时请用可复用的具体名词短语（作品名、游戏名、技术名词、机制名），"
-            f"既不要只输出“社交、情感、娱乐、知识、技术”这类大类，"
-            f"也不要把只属于本次对话的情节细节写成标签。"
+            f"chat_content_tags 应优先复用上述标签，只有当对话确实不属于其中任何一个话题域时才新建。"
         )
 
     persona_line = "\n\n".join(header_parts) + ("\n\n" if header_parts else "")
@@ -106,10 +100,5 @@ def build_distillation_prompt(
     for i, m in enumerate(messages):
         lines.append(f"[{i}] {uid_label.get(m.uid, m.display_name or m.uid)}: {m.text}")
 
-    lines.append(
-        "\n请为这段对话提炼结构化信息，输出单个 JSON 对象，包含以下字段：\n"
-        '{"topic": "核心主题(≤30字)", "summary": "摘要", '
-        '"chat_content_tags": ["标签1", "标签2"], "salience": 0.5, "confidence": 0.8, "inherit": false, '
-        '"participants_personality": {"Alice": {"O": 0.6, "C": 0.5, "E": 0.7, "A": 0.4, "N": -0.2}}}'
-    )
+    lines.append("\n请按 system 指令为这段对话输出单个 JSON 对象。")
     return "\n".join(lines)

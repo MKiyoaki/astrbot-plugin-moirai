@@ -14,42 +14,110 @@ from core.boundary.detector import BoundaryConfig
 from core.utils.i18n import LANG_ZH, LANG_EN, LANG_JA
 
 # ---------------------------------------------------------------------------
-# Default extractor system prompt (kept here so _conf_schema.json can
-# reference the same text as the factory default).
+# Default extractor system prompts. Both are hand-maintained in parallel and
+# differ only in the segmentation section; keep edits to one mirrored in the
+# other. Users may override either via the `extractor_system_prompt` /
+# `distillation_system_prompt` config keys.
+#
+# Design notes, since these are long and every line costs prefill:
+#   * The worked example is filled in rather than a placeholder skeleton — a
+#     sample answer conveys schema, granularity and score calibration at once,
+#     and models follow it more reliably than the equivalent prose. It is
+#     explicitly labelled as structural, so it does not anchor output length.
+#   * No cap is placed on anything the memory is supposed to retain: triple
+#     count, summary length and the number of people described all scale with
+#     the conversation. Caps apply only to fields that are titles or asides
+#     (topic, [Eval]).
 # ---------------------------------------------------------------------------
+
+_CRITERION = (
+    "判定标准：没读过原对话的人，只看 summary 就能说清"
+    "「谁、就什么事、说了或做了什么、结果如何」。\n\n"
+)
+
+_EXAMPLE_NOTE = (
+    "范本只示意结构与字段；三元组个数、每段长度、写几个人，都随实际对话的信息量伸缩。"
+    "若提示词未提供 [Bot 视角人格]，则省略 [Eval] 字段；提供了则每个三元组都要有。\n\n"
+)
+
+_CONTRAST = (
+    "[What] 必须写具体，不要写成泛称：\n"
+    "  ✗ 几人讨论了周末的安排并交换了看法\n"
+    "  ✓ Alice 提议周六下午去，Carol 说自己五点后才有空，最后定了周六但钟点待定\n"
+    "  ✗ 两人就方案产生分歧，最后达成一致\n"
+    "  ✓ Bob 主张先上线再修，Carol 认为必须先补测试；争了几轮后 Bob 让步，同意周五前补完测试再发\n\n"
+)
+
+_FIELDS_SUMMARY = (
+    "- topic：核心主题，≤30 字；要具体到能和同群别的日子区分开——"
+    "点明具体的游戏/作品/事件/话题，避免「日常闲聊」「群内互动」这类放到哪天都成立的写法。\n"
+    "- summary：由若干 [What]/[Who]/[How] 三元组组成，用 \" | \" 分隔，与 chat_content_tags 对应。\n"
+    "  · 划分：话题、对象或叙事重心切换即另起一个；追问、补充、评价、情绪、方案属于同一三元组的展开；"
+    "极短的附和、单条表情、复读并入相邻三元组。对话里有几个小话题就写几个三元组，不要为了凑数而合并或拆分。\n"
+    "  · [What]：写清这个小话题实际发生了什么，要能被没读过原文的人独立读懂。"
+    "专有名词、日期、时间、数量、金额、链接、结论一律照留；"
+    "代词和模糊指代（\"那个\"、\"他\"、\"上次说的\"）解析成具体所指；"
+    "观点、决定、约定、问答要写清是谁提的、有没有得到回应；分歧要写清最后怎么收场。"
+    "对话记录里冒号后为空的行，是图片/表情/语音/视频等非文本消息：它们只说明谁在何时参与、"
+    "互动节奏如何，不承载可提炼的文字，请优先依据有文字的消息来写 [What]，不要因为空行多就判定整段无信息。\n"
+    "  · [How]：如何推进、以何种方式结束，可含情绪、态度、结论、是否悬而未决。\n"
+    "  · [Who]：只列人名。\n"
+    "  · 长度随信息量伸缩、不设上限；宁可写长，也不要把具体信息压成概括。"
+    "只有当整段几乎没有任何带文字的消息时，才可整体概括成一句具体描述"
+    "（如「三人互发表情包玩梗，无文字内容」）；只要有哪怕几条带文字的消息，"
+    "就必须具体提炼那几条，不能被图片/表情的空行淹没成一句「无实质话题」。\n"
+    "  · [Eval]：若提示词提供了 [Bot 视角人格]，每个三元组末尾【必须】加 [Eval]，"
+    "以该人格第一人称给一句 ≤30 字的评价或态度。[Eval] 只是旁白，实质内容一律写进 [What]。"
+    "信息不足也要写 [Eval] 信息不足，不允许省略。\n"
+)
+
+_FIELDS_TAIL = (
+    "- chat_content_tags：2~5 个名词或名词短语，禁止句子、原文片段、动词短语、人名。"
+    "应是【可复用的话题域标签】，同类对话下次能复用同一个；鼓励具体名词（作品名、游戏名、技术名词、机制名），"
+    "但不要把只属于这次对话的情节细节写成标签（如「上周三那次失误」）。\n"
+    "- salience：这段记忆日后值得被回忆起来的程度，取【事实价值】与【人物价值】的较高者，0.0~1.0："
+    "0.1–0.2 既无信息也无人物色彩（纯表情刷屏、单纯复读；夹带少量有内容文字的不算此档）；"
+    "0.3–0.4 有一点具体信息，或有一点性格、关系的流露；"
+    "0.5–0.6 明确的偏好/立场/关系动态，或一段有来有回、能看出各人性格的互动，或一次完整问答；"
+    "0.7–0.8 重要事实或承诺（约定、计划、个人信息），强烈情绪事件，显著冲突；"
+    "0.9+ 罕见的关键节点。"
+    "一段看似「没营养」但很能体现某人是什么样的人、或两人是什么关系的对话，不算低分。\n"
+    "- confidence：对「summary 是否忠实反映了有文字的那部分对话」的把握，0.0~1.0；"
+    "与非文本消息（图片/表情/语音等）占比无关——大部分是图片但少量文字清晰的对话，"
+    "confidence 仍可以偏高；只有对话本身跳跃、指代混乱、需要你猜测时才降低。\n"
+    "- participant_style：（可选）{\"显示名\": \"一句话\"}。"
+    "为本段中【每个实际发言且有辨识度】的人各写一句，描述其说话方式："
+    "语气（毒舌/认真/阴阳怪气/怯生生…）、幽默方式（谐音/玩梗/自嘲…）、"
+    "腔调（网络黑话/方言/中英夹杂/文绉绉…）、情绪、在关系里的角色（带节奏/捧哏/被起哄/打圆场）。"
+    "可以直接引用其原话。只写真实观察到的，不脑补；未发言的人不列入。\n"
+    "- participants_personality：（可选）"
+    "{\"显示名\": {\"scores\": {\"O/C/E/A/N\": -1.0~1.0}, \"evidence\": \"依据\"}}。"
+    "为【每个有对话依据】的人填写，只填有依据的维度，其余省略；evidence 用一两句话说清依据。"
+    "无把握则整个字段省略。仅依据该人【冒号右侧的实际发言】，忽略显示名本身。"
+)
+
 DEFAULT_DISTILLATION_SYSTEM_PROMPT = (
     "你是一个聊天记录分析助手。你的任务是为一段已经语义聚类好的对话片段提炼结构化信息。\n\n"
-    "只输出单个 JSON 对象，不输出任何其他文字或 markdown 代码块，格式如下：\n"
-    '{"topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false, "participants_personality": {"Alice": {"scores": {"O": 0.6, "E": 0.7}, "evidence": "Alice 主动发起话题、反应积极"}}}\n\n'
+    + _CRITERION +
+    "只输出单个 JSON 对象，不输出任何其他文字或 markdown 代码块。"
+    "下面是格式与写作粒度的范本：\n"
+    '{"topic": "周末聚餐安排", "summary": '
+    '"[What] Alice 说她上周去过 Bob 推荐的那家店，人均一百二，觉得偏贵但环境安静 '
+    '[Who] Alice、Bob [How] Bob 追问要不要提前订位，Alice 说周末必须订 [Eval] 这个价位偏好记一下 | '
+    '[What] Alice 提议周六下午去，Carol 说自己五点后才有空，三人没谈拢钟点 '
+    '[Who] Alice、Bob、Carol [How] 定了周六，具体时间待 Carol 确认 [Eval] 周末有安排了", '
+    '"chat_content_tags": ["聚餐", "餐厅推荐", "周末安排"], '
+    '"salience": 0.6, "confidence": 0.55, "inherit": false, '
+    '"participant_style": {"Alice": "说话直接，爱用具体数字佐证观点，习惯先给结论再解释", '
+    '"Carol": "回话简短偏被动，常以「都行」收尾"}, '
+    '"participants_personality": {"Alice": {"scores": {"O": 0.4, "E": 0.6}, '
+    '"evidence": "主动分享经历并给出建议，对细节有掌控欲"}}}\n'
+    + _EXAMPLE_NOTE
+    + _CONTRAST +
     "字段说明：\n"
-    "- topic: 该段对话的核心主题，简洁明了，30字以内\n"
-    "- summary: 该段对话的摘要，提炼关键结论和信息，过滤口水话。"
-    "按以下格式，每个小话题用 [What]/[Who]/[How] 三元组描述，多个小话题之间用 \" | \" 分隔。"
-    "建议产出 2–5 个小话题（与 chat_content_tags 对应）；只要话题、对象或叙事重心发生切换，就应单独成一个三元组，"
-    "宁多勿少；单一三元组仅在整段对话确实只讨论同一件事时使用。"
-    "但极短的承接、附和、单条 emoji/表情/复读 不要单独成三元组，应并入语义最接近的相邻三元组。"
-    "[What] 和 [How] 各写1-2句，说清楚具体发生了什么或得出了什么结论、以何种方式推进或结束（可包含情绪/态度/结果）；[Who] 保持简短只列人名。"
-    "若提示词中提供了 [Bot 视角人格]，每个三元组末尾【必须】加上 [Eval] 字段（以该人格第一人称视角对话题作一句话评价，≤30字）；信息不足也要写 [Eval] 信息不足，不允许省略。"
-    "格式示例（无人格）：\n"
-    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 | [What] 话题转向了近期音乐会安排，Alice 推荐了一场即将上演的室内乐 [Who] Alice [How] 对话在期待中结束，未确定是否同去\n"
-    "格式示例（有人格）：\n"
-    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 [Eval] 这段交流展现了对方对古典音乐的真诚热情，值得深入记录\n"
-    "- chat_content_tags: 2~5个主题标签。必须是名词或名词短语，"
-    "禁止使用句子、对话原文片段、动词短语或人名。"
-    "标签应是【可复用的话题域标签】：同类对话下次再发生时，应当能复用同一个标签。"
-    "具体名词是允许且鼓励的（作品名、游戏名、技术名词、机制名），"
-    "但不要把只属于这一次对话的情节细节写成标签。\n"
-    "- salience: 重要性分值 0.0~1.0\n"
-    "- confidence: 本次提取结果的置信度 0.0~1.0\n"
+    + _FIELDS_SUMMARY +
     "- inherit: 是否是上一个事件的直接延续（true/false）\n"
-    "- participants_personality: （可选）参与者五大人格估计，键为显示名，不确定时省略该字段。\n"
-    '  格式：{"显示名": {"scores": {"O": 0.6, "E": 0.4}, "evidence": "一句话依据"}}\n'
-    "  scores 字段 O/C/E/A/N 范围 -1.0（极低）到 1.0（极高）；\n"
-    "  O=开放性（高→好奇创意），C=尽责性（高→自律有序），E=外向性（高→健谈主动），\n"
-    "  A=宜人性（高→友善合作），N=神经质（高→易焦虑情绪化）。\n"
-    "  每个维度须有对话依据；无法判断的维度可省略不填。evidence 为对该人物本次对话表现的简短总结（≤50字）。\n"
-    "  重要：人格分析只基于该参与者的【实际发言内容】。对话格式为 [序号] 显示名: 发言，"
-    "冒号左侧的显示名/用户名本身不是有效的分析依据，请完全忽略它，只分析冒号右侧的发言内容。"
+    + _FIELDS_TAIL
 )
 
 DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
@@ -58,51 +126,40 @@ DEFAULT_EXTRACTOR_SYSTEM_PROMPT = (
     "划分逻辑：\n"
     "1. 默认输出一个覆盖 start_idx=0 到 end_idx=最后一条消息的 JSON 对象。\n"
     "2. 不要因为自然推进、追问、补充说明、评价、情绪表达、解决方案、相邻子话题切换而拆成多个数据库事件。\n"
-    "   这些内容应作为同一事件 summary 内的多个小话题三元组，用 \" | \" 分隔，并通过 chat_content_tags 覆盖关键主题。\n"
+    "   这些内容应作为同一事件 summary 内的多个小话题三元组，用 \" | \" 分隔，"
+    "并通过 chat_content_tags 覆盖关键主题。\n"
     "3. 只有当片段之间存在明显跨时间、完全无关、无法作为同一语境理解的独立对话时，才输出多个事件。\n"
     "4. 连续性：如果对话虽然中断但随后继续讨论同一话题，可以视为同一事件的延续（设置 inherit 为 true）。\n\n"
-    "输出格式（仅输出一个 JSON Array，包含一个或多个对象，不输出任何其他文字或 markdown 代码块）：\n"
-    '[\n'
-    '  {"start_idx": 0, "end_idx": 10, "topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.5, "confidence": 0.8, "inherit": false, "participants_personality": {"Alice": {"scores": {"O": 0.6, "E": 0.7}, "evidence": "Alice 主动发起多个话题、情绪积极"}}},\n'
-    '  {"start_idx": 11, "end_idx": 19, "topic": "...", "summary": "...", "chat_content_tags": ["...", "..."], "salience": 0.3, "confidence": 0.9, "inherit": true}\n'
-    ']\n\n'
+    + _CRITERION +
+    "输出格式（仅输出一个 JSON Array，包含一个或多个对象，不输出任何其他文字或 markdown 代码块）。"
+    "下面是格式与写作粒度的范本：\n"
+    "[\n"
+    '  {"start_idx": 0, "end_idx": 12, "topic": "周末聚餐安排", "summary": '
+    '"[What] Alice 说她上周去过 Bob 推荐的那家店，人均一百二，觉得偏贵但环境安静 '
+    '[Who] Alice、Bob [How] Bob 追问要不要提前订位，Alice 说周末必须订 [Eval] 这个价位偏好记一下 | '
+    '[What] Alice 提议周六下午去，Carol 说自己五点后才有空，三人没谈拢钟点 '
+    '[Who] Alice、Bob、Carol [How] 定了周六，具体时间待 Carol 确认 [Eval] 周末有安排了", '
+    '"chat_content_tags": ["聚餐", "餐厅推荐", "周末安排"], '
+    '"salience": 0.6, "confidence": 0.55, "inherit": false, '
+    '"participant_style": {"Alice": "说话直接，爱用具体数字佐证观点，习惯先给结论再解释", '
+    '"Carol": "回话简短偏被动，常以「都行」收尾"}, '
+    '"participants_personality": {"Alice": {"scores": {"O": 0.4, "E": 0.6}, '
+    '"evidence": "主动分享经历并给出建议，对细节有掌控欲"}}},\n'
+    '  {"start_idx": 13, "end_idx": 20, "topic": "显卡驱动排查", "summary": '
+    '"[What] Dave 说装了补丁后加载时间从 40 秒降到 12 秒，Bob 那边仍卡在读条 '
+    '[Who] Bob、Dave [How] Dave 建议先更新显卡驱动，约定周五还不行就远程帮看 [Eval] 记下这个约定", '
+    '"chat_content_tags": ["硬件故障", "游戏性能"], '
+    '"salience": 0.5, "confidence": 0.8, "inherit": false}\n'
+    "]\n"
+    + _EXAMPLE_NOTE +
+    "（第二个对象示范了可选字段可以整个省略。）\n\n"
+    + _CONTRAST +
     "字段说明：\n"
     "- start_idx: 该事件在提供的对话记录中的起始索引（从0开始）\n"
     "- end_idx: 该事件在提供的对话记录中的结束索引（包含）\n"
-    "- topic: 该段对话的核心主题，简洁明了，30字以内\n"
-    "- summary: 该段对话的摘要，提炼关键结论和信息，过滤掉口水话。"
-    "按以下格式，每个小话题用 [What]/[Who]/[How] 三元组描述，多个小话题之间用 \" | \" 分隔。"
-    "建议每个 event 产出 2–5 个小话题三元组（与 chat_content_tags 对应）；"
-    "自然推进、追问、补充、评价、情绪表达、解决方案、相邻子话题切换应作为同一 event 内的多个三元组表达；"
-    "单一三元组仅在整段 event 确实只讨论同一件事时使用。"
-    "但极短的承接、附和、单条 emoji/表情/复读 不要单独成三元组，应并入语义最接近的相邻三元组。"
-    "[What] 和 [How] 各写1-2句，说清楚具体发生了什么或得出了什么结论、以何种方式推进或结束（可包含情绪/态度/结果）；[Who] 保持简短只列人名。"
-    "若提示词中提供了 [Bot 视角人格]，每个三元组末尾【必须】加上 [Eval] 字段（以该人格第一人称视角对话题作一句话评价，≤30字）；信息不足也要写 [Eval] 信息不足，不允许省略。"
-    "格式示例（无人格）：\n"
-    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 | [What] 话题转向了近期音乐会安排，Alice 推荐了一场即将上演的室内乐 [Who] Alice [How] 对话在期待中结束，未确定是否同去\n"
-    "格式示例（有人格）：\n"
-    "  [What] Alice 分享了三首德彪西钢琴曲并逐一介绍了创作背景 [Who] Alice、Bob [How] Bob 提出疑问后两人深入探讨了印象派风格对现代音乐的影响 [Eval] 这段交流展现了对方对古典音乐的真诚热情，值得深入记录\n"
-    "- chat_content_tags: 2~5个主题标签。必须是名词或名词短语，"
-    "禁止使用句子、对话原文片段、动词短语或人名。"
-    "标签应是【可复用的话题域标签】：同类对话下次再发生时，应当能复用同一个标签。"
-    "具体名词是允许且鼓励的（作品名、游戏名、技术名词、机制名，如“明日方舟”、“向量检索”），"
-    "但不要把只属于这一次对话的情节细节写成标签（如“周三那把卫戍翻车”）。\n"
-    "- salience: 重要性分值 0.0~1.0\n"
-    "- confidence: 本次提取结果的置信度 0.0~1.0\n"
+    + _FIELDS_SUMMARY +
     "- inherit: 是否继承上一个已知事件的主题（即本段是上段的延续）\n"
-    "- participants_personality: （可选）对话参与者的人格特征估计。"
-    "仅在对话内容足以推断时填写，不确定时省略该字段。\n"
-    '  格式：{"显示名": {"scores": {"O": 0.6, "E": 0.4}, "evidence": "一句话依据（≤50字）"}}\n'
-    "  scores 字段 O/C/E/A/N 范围 -1.0（极低）到 1.0（极高），0.0 表示中等。\n"
-    "  O（开放性）：高→好奇、富创意、乐于接受新思想；低→务实、守旧、偏好熟悉事物。\n"
-    "  C（尽责性）：高→有条理、自律、目标导向；低→随意、拖延、缺乏计划性。\n"
-    "  E（外向性）：高→健谈、主动、精力充沛；低→内敛、寡言、偏好独处。\n"
-    "  A（宜人性）：高→友善、合作、富有同理心；低→竞争性强、怀疑心重、不轻易妥协。\n"
-    "  N（神经质）：高→情绪不稳定、易焦虑；低→沉稳、压力耐受力强。\n"
-    "  每个维度的评分须有对话中可观察到的具体依据；无法判断的维度可省略不填。"
-    "evidence 为对该人物本次对话表现的简短总结（≤50字）。\n"
-    "  重要：人格分析只基于该参与者的【实际发言内容】。对话格式为 [序号] 显示名: 发言，"
-    "冒号左侧的显示名/用户名本身不是有效的分析依据，请完全忽略它，只分析冒号右侧的发言内容。"
+    + _FIELDS_TAIL
 )
 
 
@@ -132,13 +189,18 @@ _DEFAULT_PERSONA_SYSTEM_PROMPT = (
     "  可以推断出 [X%] 的量化结果。\n"
     "  分数换算（内部-1~1 → 展示百分比）：round((score+1)/2×100)%。≥65%=高，35%–64%=中等，≤34%=低。\n"
     "  只填写有充分对话依据的维度，其余省略。\n"
+    "- speaking_style: 一句话概括这个人的说话风格——语气、口癖、幽默方式、腔调、在群里的角色，≤80字符。\n"
+    "  只基于提示词中的「说话风格观察」与事件依据；无依据则省略该字段。若已有值，可结合新观察小幅调整。\n"
+    "- style_quotes: 1–3 条最能代表其说话风格的原话，从「说话风格观察」的引用里挑，逐字保留；无则省略。\n"
     "不要输出任何其他内容。\n"
     '示例：{"description": "热衷技术讨论，表达直接，偶尔情绪化", '
     '"big_five": {"O": 0.6, "E": 0.4, "N": 0.3}, '
     '"big_five_evidence": {'
     '"O": "Alice 在开放性上表现出高水平，其显著特征为主动引入跨领域话题，可以推断出 80% 的量化结果。", '
     '"E": "Alice 在外向性上表现出中等水平，其显著特征为积极回应但较少主动发起，可以推断出 70% 的量化结果。", '
-    '"N": "Alice 在神经质上表现出中等偏高水平，其显著特征为偶因意见分歧情绪波动，可以推断出 65% 的量化结果。"}}'
+    '"N": "Alice 在神经质上表现出中等偏高水平，其显著特征为偶因意见分歧情绪波动，可以推断出 65% 的量化结果。"}, '
+    '"speaking_style": "说话直接爱抬杠，常用反问，偶尔阴阳怪气", '
+    '"style_quotes": ["就这？", "你这不对吧"]}'
 )
 
 _DEFAULT_IMPRESSION_SYSTEM_PROMPT = (
@@ -586,7 +648,7 @@ class PluginConfig:
         return ExtractorConfig(
             max_context_messages=self._int(
                 "extractor_context_messages",
-                self._int("context_window_size", 50),
+                min(40, self._int("context_window_size", 50)),
             ),
             llm_timeout=self._float("extractor_llm_timeout_seconds", 30.0),
             system_prompt=custom_prompt or DEFAULT_EXTRACTOR_SYSTEM_PROMPT,

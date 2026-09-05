@@ -147,13 +147,15 @@ def format_persona_for_prompt(persona: Persona) -> str:
     """
     attrs = persona.persona_attrs
     bf: dict = attrs.get("big_five", {})
-    if not bf:
+    speaking_style = attrs.get("speaking_style", "")
+    has_style = isinstance(speaking_style, str) and bool(speaking_style.strip())
+    if not bf and not has_style:
         return ""
 
     evidence = attrs.get("big_five_evidence", {})
     name = persona.primary_name or "用户"
     lines = [
-        f"[用户画像参考] {name} 的性格倾向（据此调整措辞风格，不要在回复中提及）："
+        f"[用户画像参考] {name}（据此调整措辞风格，不要在回复中提及）："
     ]
     for dim in ["O", "C", "E", "A", "N"]:
         val = bf.get(dim)
@@ -165,6 +167,13 @@ def format_persona_for_prompt(persona: Persona) -> str:
         line = f"- {label} {pct}%"
         if ev:
             line += f"：{ev[:60]}"
+        lines.append(line)
+
+    if has_style:
+        line = f"- 说话风格：{speaking_style.strip()[:120]}"
+        quotes = attrs.get("style_quotes", [])
+        if isinstance(quotes, list) and quotes:
+            line += "；口头禅 " + " ".join(f"「{str(q)[:40]}」" for q in quotes[:2])
         lines.append(line)
 
     if len(lines) == 1:

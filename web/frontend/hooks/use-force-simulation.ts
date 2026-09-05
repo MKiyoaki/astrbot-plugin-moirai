@@ -20,10 +20,24 @@ interface UseForceSimulationResult {
   stop: () => void
   isComputing: boolean
   progress: number
+  /**
+   * Bumped once each time a layout finishes settling. The view watches this to
+   * re-fit itself, which is what makes absolute layout size stop mattering —
+   * the same trick Sigma plays for Gephi Lite by normalising coordinates.
+   */
+  layoutVersion: number
 }
 
 /** Budget per animation frame; keeps the main thread responsive while solving. */
 const FRAME_BUDGET_MS = 8
+
+/**
+ * Publishing a fresh PositionMap re-renders every node and edge, so doing it
+ * on all 60 frames a second costs far more than the solver itself: at 400 nodes
+ * a whole 300-iteration solve is ~100ms of maths against seconds of React. The
+ * solver still runs every frame; only the hand-off to React is rationed.
+ */
+const PUBLISH_INTERVAL_MS = 33
 
 function settingsOf(p: PhysicsParams): Fa2Settings {
   return {
@@ -51,7 +65,9 @@ export function useForceSimulation({
   const [isComputing, setIsComputing] = useState(false)
   const [progress, setProgress] = useState(1)
   const [randSeed, setRandSeed] = useState(0)
+  const [layoutVersion, setLayoutVersion] = useState(0)
   const cancelRef = useRef<(() => void) | null>(null)
+  const settle = useCallback(() => setLayoutVersion(v => v + 1), [])
 
   const refresh = useCallback(() => setRandSeed(s => s + 1), [])
   const stop = useCallback(() => cancelRef.current?.(), [])
@@ -84,12 +100,17 @@ export function useForceSimulation({
     const r = Math.min(width, height) * 0.42
 
     if (locked) {
+      // No settle(): the positions are whatever they already were, so re-fitting
+      // here would only yank a locked view back from wherever the user panned it.
+      // The fallback circular layout is built around the viewport centre and
+      // already fits by construction.
       setPositions(prev => prev ?? circularLayout(nodes, cx, cy, r))
       return
     }
     if (layoutMode === 'circular') {
       setPositions(circularLayout(nodes, cx, cy, r))
       setProgress(1)
+      settle()
       return
     }
 
@@ -130,6 +151,7 @@ export function useForceSimulation({
     let done = 0
     let raf = 0
     let cancelled = false
+    let lastPublish = 0
     setIsComputing(true)
     setProgress(0)
 
@@ -141,13 +163,22 @@ export function useForceSimulation({
         done++
       } while (done < iterations && performance.now() - started < FRAME_BUDGET_MS)
 
-      publish()
-      setProgress(done / iterations)
+      const finished = done >= iterations
+      const now = performance.now()
+      // The final state always goes out; intermediate frames only when the
+      // rationing interval has elapsed, so the animation stays legible without
+      // paying full React reconciliation 60 times a second.
+      if (finished || now - lastPublish >= PUBLISH_INTERVAL_MS) {
+        lastPublish = now
+        publish()
+        setProgress(done / iterations)
+      }
 
-      if (done < iterations) {
+      if (!finished) {
         raf = requestAnimationFrame(tick)
       } else {
         setIsComputing(false)
+        settle()
       }
     }
     raf = requestAnimationFrame(tick)
@@ -166,8 +197,8 @@ export function useForceSimulation({
     scalingRatio, strongGravityMode, gravity,
     outboundAttractionDistribution, linLogMode, adjustSizes,
     edgeWeightInfluence, jitterTolerance, barnesHutOptimize, barnesHutTheta,
-    width, height, randSeed,
+    width, height, randSeed, settle,
   ])
 
-  return { positions, refresh, stop, isComputing, progress }
+  return { positions, refresh, stop, isComputing, progress, layoutVersion }
 }

@@ -87,11 +87,25 @@ export type ViewMode = 'all' | 'member'
 
 export type PositionMap = Record<string, { x: number; y: number }>
 
-// ── Gephi auto settings ───────────────────────────────────────────────────────
-// Port of Gephi Desktop's ForceAtlas2.resetPropertiesValues(): the "generate the
-// settings that fit the current graph best" button. Only the node count varies.
+// ── Auto settings ─────────────────────────────────────────────────────────────
+// The "generate the settings that fit this graph best" button.
+//
+// Gephi Desktop's ForceAtlas2.resetPropertiesValues() is NOT this function — it
+// is Gephi's *defaults initialiser*, re-run per graph (see setGraphModel), and
+// its only graph-aware terms are two thresholds. Porting it here and then also
+// deriving DEFAULT_PHYSICS_PARAMS from it made the button a guaranteed no-op on
+// every graph under 100 nodes. Gephi Lite keeps the two apart — its panel
+// defaults are graphology's FA2_DEFAULT_SETTINGS while its autoSettings button
+// returns inferSettings(graph) — which is why its button always does something.
+//
+// The values below are measured against this codebase's kernel and pixel scale
+// rather than inherited, because two things here differ from both Gephis:
+// node radii are 12–22 screen px (Gephi's default node size is 10), and the
+// view auto-fits after every solve, which normalises absolute layout size away.
+// Once size is normalised, scalingRatio stops mattering above ~60 nodes and the
+// only setting that measurably improves the picture is adjustSizes.
 
-export type GephiAutoSettings = Pick<
+export type AutoPhysicsSettings = Pick<
   PhysicsParams,
   | 'scalingRatio' | 'strongGravityMode' | 'gravity'
   | 'outboundAttractionDistribution' | 'linLogMode' | 'adjustSizes'
@@ -99,27 +113,91 @@ export type GephiAutoSettings = Pick<
   | 'barnesHutOptimize' | 'barnesHutTheta'
 >
 
-export function gephiAutoSettings(nodeCount: number): GephiAutoSettings {
+/**
+ * One boundary drives both performance switches, deliberately.
+ *
+ * It is the measured crossover for this kernel's quadtree — not Gephi's 1000:
+ * at N=1200 the approximation still runs at 0.92x the speed of brute force and
+ * only overtakes it around 1600, so switching earlier costs time and buys
+ * nothing. Below it, brute-force repulsion is affordable and adjustSizes (which
+ * the kernel can only serve brute-force) is worth having; at or above it, the
+ * quadtree takes over and adjustSizes has to go.
+ *
+ * Keeping them on the same boundary also guarantees the two branches always
+ * differ from DEFAULT_PHYSICS_PARAMS in at least one field. Two separate
+ * thresholds left a dead band between them where the button did nothing again.
+ */
+const BRUTE_FORCE_MAX_NODES = 1500
+
+export function autoPhysicsSettings(nodeCount: number): AutoPhysicsSettings {
   return {
-    scalingRatio: nodeCount >= 100 ? 2.0 : 10.0,
+    // Flat 10: with auto-fit in place this is scale-invariant above ~60 nodes,
+    // and 10 measured best below that (N=15: 106px mean separation vs 45px at 2).
+    scalingRatio: 10,
+    // linLog and dissuadeHubs both measured worse on hub-shaped chat graphs —
+    // they collapse the spokes into the bot. Same verdict as Gephi's defaults.
     strongGravityMode: false,
     gravity: 1.0,
     outboundAttractionDistribution: false,
     linLogMode: false,
-    adjustSizes: false,
+    // The one setting that actually changes the picture: at N=400 it lifts mean
+    // on-screen separation from 12px to 23px and the closest pair from 4px to
+    // 16px, against a node radius of 17. Off in both Gephi and Gephi Lite.
+    adjustSizes: nodeCount < BRUTE_FORCE_MAX_NODES,
     edgeWeightInfluence: 1.0,
     jitterTolerance: 1.0,
-    barnesHutOptimize: nodeCount >= 1000,
+    barnesHutOptimize: nodeCount >= BRUTE_FORCE_MAX_NODES,
     barnesHutTheta: 1.2,
   }
 }
 
+/** Fields autoPhysicsSettings() writes, for diffing against the current state. */
+export const AUTO_PHYSICS_KEYS = [
+  'scalingRatio', 'strongGravityMode', 'gravity',
+  'outboundAttractionDistribution', 'linLogMode', 'adjustSizes',
+  'edgeWeightInfluence', 'jitterTolerance',
+  'barnesHutOptimize', 'barnesHutTheta',
+] as const satisfies readonly (keyof AutoPhysicsSettings)[]
+
+/** How many of the auto fields differ from what the panel currently holds. */
+export function countAutoChanges(
+  current: PhysicsParams,
+  next: AutoPhysicsSettings,
+): number {
+  return AUTO_PHYSICS_KEYS.reduce(
+    (n, k) => (current[k] === next[k] ? n : n + 1),
+    0,
+  )
+}
+
 // ── Defaults ──────────────────────────────────────────────────────────────────
+// Deliberately spelled out rather than derived from autoPhysicsSettings(): the
+// panel's resting state and the button's output have to be able to differ, or
+// the button cannot do anything. These are Gephi's own small-graph defaults.
 
 export const DEFAULT_PHYSICS_PARAMS: PhysicsParams = {
   layoutMode: 'circular',
   locked: false,
-  ...gephiAutoSettings(0),
+
+  // Tuning
+  scalingRatio: 10.0,
+  strongGravityMode: false,
+  gravity: 1.0,
+
+  // Behavior Alternatives
+  outboundAttractionDistribution: false,
+  linLogMode: false,
+  adjustSizes: false,
+  edgeWeightInfluence: 1.0,
+
+  // Performance
+  jitterTolerance: 1.0,
+  barnesHutOptimize: false,
+  barnesHutTheta: 1.2,
+
+  // Moirai-specific. 300 is measured, not guessed: on-screen separation stops
+  // improving past ~300 iterations at every graph size from 15 to 800 nodes,
+  // so there is nothing to gain by scaling this with the node count.
   iterations: 300,
   edgeWeightSource: 'affinity',
   biWeight: 1.0,

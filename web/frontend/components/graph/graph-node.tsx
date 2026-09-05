@@ -1,7 +1,9 @@
-import { memo } from "react"
+import { memo, useCallback } from "react"
 import { cn } from "@/lib/utils"
 
 interface GraphNodeProps {
+  /** Identity is passed down so the parent can hand out stable callbacks. */
+  id: string
   x: number
   y: number
   r: number
@@ -16,16 +18,23 @@ interface GraphNodeProps {
   botLabel?: string
   fontSize: number
   showLabel: boolean
-  onClick?: (e: React.MouseEvent) => void
-  onMouseEnter?: () => void
-  onMouseLeave?: () => void
+  /**
+   * These must be referentially stable across the parent's renders, or memo()
+   * below never hits and every node re-renders on every hover and every
+   * simulation frame. The id is supplied back so one shared handler serves all.
+   */
+  onSelect?: (id: string, e: React.MouseEvent) => void
+  onHover?: (id: string | null) => void
 }
 
 function GraphNodeImpl({
-  x, y, r, label, fill, strokeColor, isSelected, isHovered, isFocused, isDimmed, isBot, botLabel,
-  fontSize, showLabel, onClick, onMouseEnter, onMouseLeave
+  id, x, y, r, label, fill, strokeColor, isSelected, isHovered, isFocused, isDimmed, isBot, botLabel,
+  fontSize, showLabel, onSelect, onHover
 }: GraphNodeProps) {
   void isFocused
+  const onClick = useCallback((e: React.MouseEvent) => onSelect?.(id, e), [onSelect, id])
+  const onMouseEnter = useCallback(() => onHover?.(id), [onHover, id])
+  const onMouseLeave = useCallback(() => onHover?.(null), [onHover])
   return (
     <g
       transform={`translate(${x},${y})`}

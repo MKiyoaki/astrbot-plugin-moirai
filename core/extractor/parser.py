@@ -15,6 +15,11 @@ _BATCH_REQUIRED = _REQUIRED | {"start_idx", "end_idx"}
 # Strip markdown code fences if the model wraps output in ```json ... ```
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
+# strict=False tolerates literal control characters (raw newlines, tabs) inside
+# JSON strings. Small models transcribing chat text emit those constantly, and
+# a stricter decoder turns one stray newline into a whole extra LLM round-trip.
+_DECODER = json.JSONDecoder(strict=False)
+
 # Minimum span (number of messages) for a stand-alone event. Single-message
 # events are merged into the nearest neighbor unless that is the only event.
 _MIN_EVENT_SPAN = 2
@@ -209,6 +214,85 @@ def _fallback_summary_from_messages(messages: list, topic: str, tags: list[str])
     return " ".join(parts)
 
 
+def _decode_at(text: str, idx: int) -> tuple[object, int] | None:
+    """Decode one JSON value starting at ``idx``; None if it does not parse."""
+    try:
+        return _DECODER.raw_decode(text, idx)
+    except ValueError:
+        return None
+
+
+def _salvage_objects(text: str) -> list[dict]:
+    """Decode every top-level ``{...}`` independently.
+
+    The point is partial recovery: when one object in an array has a mis-escaped
+    quote, decoding the array as a whole discards its healthy siblings too. Here a
+    bad object costs only itself. Nested objects are skipped automatically because
+    a successful decode advances past them; when the *outer* object is the broken
+    one we may surface an inner fragment instead, which the required-key check in
+    the caller then drops.
+    """
+    found: list[dict] = []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] != "{":
+            i += 1
+            continue
+        decoded = _decode_at(text, i)
+        if decoded is None:
+            i += 1
+            continue
+        value, end = decoded
+        if isinstance(value, dict):
+            found.append(value)
+            i = end
+        else:
+            i += 1
+    return found
+
+
+def _extract_json_objects(text: str) -> list[dict]:
+    """Pull candidate event objects out of a raw LLM completion.
+
+    Handles the three ways weak models routinely deviate: wrapping the payload in
+    prose or code fences, emitting a bare object where an array was requested (or
+    vice versa), and breaking one object inside an otherwise fine array. Returns
+    objects in document order; validation is the caller's job.
+    """
+    fence_match = _FENCE_RE.search(text)
+    if fence_match:
+        text = fence_match.group(1)
+    text = text.strip()
+    if not text:
+        return []
+
+    # Whole-payload decode: scan for the first position that yields a usable
+    # value. Scanning (rather than assuming position 0) skips any preamble prose.
+    whole: list[dict] = []
+    for i, ch in enumerate(text):
+        if ch not in "[{":
+            continue
+        decoded = _decode_at(text, i)
+        if decoded is None:
+            continue
+        value = decoded[0]
+        if isinstance(value, dict):
+            whole = [value]
+            break
+        if isinstance(value, list):
+            items = [v for v in value if isinstance(v, dict)]
+            if items:
+                whole = items
+                break
+        # Decodable but useless — e.g. the ["tag", "tag"] inside a broken
+        # object. Keep scanning rather than settling for it.
+
+    # A broken array still decodes object-by-object, so prefer whichever
+    # strategy recovered more.
+    salvaged = _salvage_objects(text)
+    return whole if len(whole) >= len(salvaged) else salvaged
+
+
 def _ensure_eval_field(item: dict) -> None:
     """If summary lacks any [Eval] segment, append a placeholder and discount confidence.
 
@@ -261,6 +345,12 @@ def _merge_into(target: dict, source: dict) -> dict:
     # participants_personality: keep target's if present, else source's
     if not target.get("participants_personality") and source.get("participants_personality"):
         target["participants_personality"] = source["participants_personality"]
+    # participant_style: union by display name, target wins on collision
+    src_style = source.get("participant_style") or {}
+    if src_style:
+        merged_style = dict(src_style)
+        merged_style.update(target.get("participant_style") or {})
+        target["participant_style"] = merged_style
     return target
 
 
@@ -339,35 +429,15 @@ def parse_llm_output(
     merge_to_single: bool = False,
 ) -> list[dict] | None:
     """Parse and validate JSON Array from LLM completion text."""
-    text = text.strip()
-    fence_match = _FENCE_RE.search(text)
-    if fence_match:
-        text = fence_match.group(1).strip()
-
-    start = text.find("[")
-    end = text.rfind("]") + 1
-    if start == -1 or end == 0:
-        # Fallback to single item if it's not an array
-        single = parse_single_item(text, has_bot_persona=has_bot_persona)
-        if single:
-            # Add indices to make it compatible with batch processing
-            single["start_idx"] = 0
-            single["end_idx"] = max_idx
-            return [single]
-        return None
-
-    try:
-        raw_data = json.loads(text[start:end])
-    except json.JSONDecodeError:
-        return None
-
-    if not isinstance(raw_data, list):
-        return None
-
     results = []
-    for item in raw_data:
-        if not isinstance(item, dict) or not _BATCH_REQUIRED.issubset(item):
-            continue
+    for item in _extract_json_objects(text):
+        if not _BATCH_REQUIRED.issubset(item):
+            # A bare object (no indices) is still usable: it is the single-event
+            # shape, which every caller collapses the array to anyway.
+            if _REQUIRED.issubset(item):
+                item = {**item, "start_idx": 0, "end_idx": max_idx}
+            else:
+                continue
 
         try:
             start_idx = int(item["start_idx"])
@@ -383,11 +453,12 @@ def parse_llm_output(
             "end_idx": end_idx,
             "topic": str(item["topic"])[:60],
             "summary": str(item["summary"]),
-            "chat_content_tags": [str(t)[:30] for t in item.get("chat_content_tags", [])[:5]],
+            "chat_content_tags": _parse_tags(item.get("chat_content_tags")),
             "salience": _clamp(item.get("salience", 0.5)),
             "confidence": _clamp(item.get("confidence", 0.5)),
             "inherit": bool(item.get("inherit", False)),
             "participants_personality": _parse_personality(item.get("participants_personality")),
+            "participant_style": _parse_participant_style(item.get("participant_style")),
         }
         if has_bot_persona:
             _ensure_eval_field(parsed)
@@ -406,32 +477,22 @@ def parse_llm_output(
 
 def parse_single_item(text: str, has_bot_persona: bool = False) -> dict | None:
     """Parse a single JSON object (used for distillation)."""
-    text = text.strip()
-    fence_match = _FENCE_RE.search(text)
-    if fence_match:
-        text = fence_match.group(1).strip()
-
-    start = text.find("{")
-    end = text.rfind("}") + 1
-    if start == -1 or end == 0:
-        return None
-
-    try:
-        data = json.loads(text[start:end])
-    except json.JSONDecodeError:
-        return None
-
-    if not isinstance(data, dict) or not _REQUIRED.issubset(data):
+    data = next(
+        (obj for obj in _extract_json_objects(text) if _REQUIRED.issubset(obj)),
+        None,
+    )
+    if data is None:
         return None
 
     parsed = {
         "topic": str(data["topic"])[:60],
         "summary": str(data["summary"]),
-        "chat_content_tags": [str(t)[:30] for t in data.get("chat_content_tags", [])[:5]],
+        "chat_content_tags": _parse_tags(data.get("chat_content_tags")),
         "salience": _clamp(data.get("salience", 0.5)),
         "confidence": _clamp(data.get("confidence", 0.5)),
         "inherit": bool(data.get("inherit", False)),
         "participants_personality": _parse_personality(data.get("participants_personality")),
+        "participant_style": _parse_participant_style(data.get("participant_style")),
     }
     if has_bot_persona:
         _ensure_eval_field(parsed)
@@ -464,6 +525,7 @@ def fallback_extraction(window: MessageWindow) -> list[dict]:
         "confidence": 0.2,
         "inherit": False,
         "participants_personality": None,
+        "participant_style": {},
     }]
 
 
@@ -482,6 +544,7 @@ def fallback_single_extraction(messages: list) -> dict:
         "confidence": 0.2,
         "inherit": False,
         "participants_personality": None,
+        "participant_style": {},
     }
 
 
@@ -525,3 +588,56 @@ def _parse_personality(raw: object) -> dict[str, dict] | None:
             clean_p[str(name)] = {"scores": scores, "evidence": evidence}
 
     return clean_p if clean_p else None
+
+
+def _parse_tags(raw: object) -> list[str]:
+    """Coerce the tag field to a short list of strings.
+
+    A model that answers with a bare string instead of a list used to be sliced
+    character-by-character into five one-character "tags".
+    """
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    tags: list[str] = []
+    for t in raw:
+        if isinstance(t, (dict, list)):
+            continue
+        text = str(t).strip()[:30]
+        if text:
+            tags.append(text)
+        if len(tags) >= 5:
+            break
+    return tags
+
+
+def _parse_participant_style(raw: object) -> dict[str, str]:
+    """Validate {display_name: "one-line speaking-style description"} observations.
+
+    A flat name→string map (not nested) so a weak model has far fewer ways to
+    emit malformed JSON. Tolerates a legacy {"note": ..., "quotes": [...]} object
+    per name by flattening it. Returns {} when nothing usable is present.
+    """
+    if not isinstance(raw, dict):
+        return {}
+
+    clean: dict[str, str] = {}
+    for name, val in raw.items():
+        if isinstance(val, str):
+            text = val.strip()
+        elif isinstance(val, dict):  # legacy nested shape
+            note = str(val.get("note", "")).strip()
+            quotes = val.get("quotes", [])
+            if isinstance(quotes, list) and quotes:
+                note = (note + "，" if note else "") + "、".join(
+                    f"「{str(q).strip()}」" for q in quotes[:2] if str(q).strip()
+                )
+            text = note
+        else:
+            continue
+        text = text.replace("\n", " ").strip()[:200]
+        if text:
+            clean[str(name)[:64]] = text
+
+    return clean

@@ -15,7 +15,12 @@ RETRIEVAL_ENCODER_MODEL = "BAAI/bge-small-zh-v1.5"
 RETRIEVAL_ENCODER_BATCH_INTERVAL_MS = 50
 RETRIEVAL_ENCODER_REQUEST_INTERVAL_MS = 0
 
-# LMStudio model ID — run `curl http://localhost:1234/v1/models` to list loaded models
+# OpenAI-compatible endpoint for the "lmstudio" model type.
+# Defaults to LMStudio; override to any local runner, e.g. FreeToken's
+# "http://localhost:1919/v1".
+LMSTUDIO_API_URL = "http://localhost:1234/v1"
+
+# Model ID — run `curl <LMSTUDIO_API_URL>/models` to list loaded models
 LMSTUDIO_MODEL = "gemma-4-26b-a4b-it-ultra-uncensored-heretic"
 
 # DeepSeek

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo, useImperativeHandle } from 'react'
 import type { PersonaNode, ImpressionEdge } from '@/lib/api'
 import type { EdgePair, PhysicsParams, VisualParams, PositionMap } from '@/lib/graph-types'
 import { computeNodeRadius, degreeMap, mockCluster } from '@/lib/graph-utils'
@@ -16,6 +16,21 @@ const EDGE_NEU_COLOR = '#aaa'
 /** id of the pan/zoom group; the image exporter neutralises its transform. */
 export const GRAPH_VIEWPORT_ID = 'moirai-graph-viewport'
 
+// Zoom limits are shared by the wheel handler and by fitView. They used to
+// disagree: fitView clamped only the upper bound, so a large graph could be
+// fitted below the wheel's floor and the first scroll would jump back up to it.
+// The floor is low enough for a whole-graph overview at any size the solver is
+// willing to run — at 0.25 a 2000-node layout could not be fitted at all and
+// left a sixth of its nodes stranded outside the viewport.
+const MIN_SCALE = 0.05
+const MAX_SCALE = 3.5
+/** Breathing room around a fitted graph, in screen px per side. */
+const FIT_PADDING = 32
+
+export interface NetworkGraphHandle {
+  fitView: () => void
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface NetworkGraphProps {
@@ -32,6 +47,15 @@ interface NetworkGraphProps {
   onSelectPair: (key: string | null) => void
   onSizeChange?: (size: { width: number; height: number }) => void
   svgRef?: React.RefObject<SVGSVGElement | null>
+  /** Imperative handle for the toolbar's "fit" button. */
+  handleRef?: React.RefObject<NetworkGraphHandle | null>
+  /**
+   * Bumped by the layout hook whenever a solve settles; the view re-fits on
+   * each new value. Without this the panel's physics numbers are unusable —
+   * changing scalingRatio rescales the whole layout, and a static viewport
+   * turns that into "the graph vanished" rather than "the graph is denser".
+   */
+  layoutVersion?: number
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -49,6 +73,8 @@ export function NetworkGraph({
   onSelectPair,
   onSizeChange,
   svgRef: externalSvgRef,
+  handleRef,
+  layoutVersion,
 }: NetworkGraphProps) {
   const { i18n } = useApp()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -155,36 +181,71 @@ export function NetworkGraph({
 
   // Fit to view
   const fitView = useCallback(() => {
-    if (!positions || nodes.length === 0) return
-    const xs = nodes.map(n => positions[n.data.id]?.x ?? 0)
-    const ys = nodes.map(n => positions[n.data.id]?.y ?? 0)
-    const minX = Math.min(...xs), maxX = Math.max(...xs)
-    const minY = Math.min(...ys), maxY = Math.max(...ys)
     const { width, height } = containerSize
-    const padding = 60
-    const scaleX = (width - padding * 2) / (maxX - minX || 1)
-    const scaleY = (height - padding * 2) / (maxY - minY || 1)
-    const nextScale = Math.min(scaleX, scaleY, 3.5)
+    if (!positions || nodes.length === 0 || width === 0 || height === 0) return
+
+    // Bound what is actually drawn, not the centre points. Node discs live
+    // inside the scaled group, so their radii belong in this box; names do not,
+    // because their font size divides out the zoom to stay legible, so they are
+    // reserved as fixed screen-space room below instead.
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    let seen = 0
+    for (const n of nodes) {
+      const p = positions[n.data.id]
+      if (!p) continue
+      seen++
+      const r = nodeRadius(n.data.id)
+      if (p.x - r < minX) minX = p.x - r
+      if (p.x + r > maxX) maxX = p.x + r
+      if (p.y - r < minY) minY = p.y - r
+      if (p.y + r > maxY) maxY = p.y + r
+    }
+    if (seen === 0) return
+
+    const labelRoom = (exportMode || params.alwaysShowLabels)
+      ? params.labelFontSize * 2 + 6
+      : 0
+    const availW = Math.max(width - FIT_PADDING * 2, 1)
+    const availH = Math.max(height - FIT_PADDING * 2 - labelRoom, 1)
+
+    // A single node, or every node stacked on one point, gives a zero-width box;
+    // dividing by it produced Infinity and a scale pinned to the ceiling.
+    const boxW = Math.max(maxX - minX, 1)
+    const boxH = Math.max(maxY - minY, 1)
+    const nextScale = Math.min(
+      MAX_SCALE,
+      Math.max(MIN_SCALE, Math.min(availW / boxW, availH / boxH)),
+    )
+
     const cx = (minX + maxX) / 2
     const cy = (minY + maxY) / 2
     transformRef.current = {
       x: width / 2 - cx * nextScale,
-      y: height / 2 - cy * nextScale,
+      y: (height - labelRoom) / 2 - cy * nextScale,
       scale: nextScale,
     }
     applyTransform()
-  }, [positions, nodes, containerSize, applyTransform])
+  }, [
+    positions, nodes, containerSize, applyTransform, nodeRadius,
+    exportMode, params.alwaysShowLabels, params.labelFontSize,
+  ])
 
-  // Expose fitView on SVG element so parent can call via svgRef
+  useImperativeHandle(handleRef, () => ({ fitView }), [fitView])
+
+  // Re-fit whenever a solve settles. Fitting on every publish instead would
+  // fight the user's pan mid-animation; fitting on the settled layout does not.
+  const fittedVersionRef = useRef(-1)
   useEffect(() => {
-    const el = svgRef.current
-    if (!el) return
-    // @ts-expect-error custom method
-    el.__fitView = fitView
-  }, [fitView, svgRef])
+    if (layoutVersion === undefined || layoutVersion === fittedVersionRef.current) return
+    if (!positions || nodes.length === 0 || containerSize.width === 0) return
+    fittedVersionRef.current = layoutVersion
+    fitView()
+  }, [layoutVersion, positions, nodes.length, containerSize.width, fitView])
 
-  // Re-apply the current transform whenever the group remounts.
-  useEffect(() => { applyTransform() }, [applyTransform, positions])
+  // Re-apply the current transform once the group is mounted. The attribute is
+  // written imperatively and React never manages it, so this is a mount-time
+  // concern only — re-running it per published frame was pure overhead.
+  useEffect(() => { applyTransform() }, [applyTransform])
 
   // ── Mouse handlers ──────────────────────────────────────────────────────────
 
@@ -222,7 +283,7 @@ export function NetworkGraph({
       const mouseX = e.clientX - rect.left
       const mouseY = e.clientY - rect.top
       const t = transformRef.current
-      const newScale = Math.min(3.5, Math.max(0.25, t.scale * factor))
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, t.scale * factor))
       const scaleDiff = newScale - t.scale
       transformRef.current = {
         x: t.x - (mouseX * scaleDiff) / t.scale,
@@ -234,6 +295,22 @@ export function NetworkGraph({
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
   }, [svgRef, applyTransform])
+
+  // Stable identities: GraphNode and GraphEdge are memo(), and inline arrow
+  // props defeated that completely — every node and edge re-rendered on every
+  // hover and every published simulation frame.
+  const handleNodeSelect = useCallback((id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!isDraggingRef.current) onSelectNode(id)
+  }, [onSelectNode])
+
+  const handleEdgeSelect = useCallback((key: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!isDraggingRef.current) onSelectPair(key)
+  }, [onSelectPair])
+
+  const handleNodeHover = useCallback((id: string | null) => setHoveredNodeId(id), [])
+  const handleEdgeHover = useCallback((key: string | null) => setHoveredPairKey(key), [])
 
   const handleBgClick = useCallback(() => {
     if (!isDraggingRef.current) {
@@ -416,6 +493,7 @@ export function NetworkGraph({
             return (
               <GraphEdge
                 key={pair.pairKey}
+                pairKey={pair.pairKey}
                 x1={x1} y1={y1} x2={x2} y2={y2}
                 color={color}
                 width={w}
@@ -429,9 +507,8 @@ export function NetworkGraph({
                 perpX={perpX}
                 perpY={perpY}
                 offset={offset}
-                onClick={e => { e.stopPropagation(); if (!isDraggingRef.current) onSelectPair(pair.pairKey) }}
-                onMouseEnter={() => setHoveredPairKey(pair.pairKey)}
-                onMouseLeave={() => setHoveredPairKey(null)}
+                onSelect={handleEdgeSelect}
+                onHover={handleEdgeHover}
               />
             )
           })}
@@ -455,6 +532,7 @@ export function NetworkGraph({
             return (
               <GraphNode
                 key={node.data.id}
+                id={node.data.id}
                 x={p.x}
                 y={p.y}
                 r={r}
@@ -469,9 +547,8 @@ export function NetworkGraph({
                 botLabel={botPlatform}
                 fontSize={params.labelFontSize / labelScale}
                 showLabel={isLabelVisible(node.data.id)}
-                onClick={e => { e.stopPropagation(); if (!isDraggingRef.current) onSelectNode(node.data.id) }}
-                onMouseEnter={() => setHoveredNodeId(node.data.id)}
-                onMouseLeave={() => setHoveredNodeId(null)}
+                onSelect={handleNodeSelect}
+                onHover={handleNodeHover}
               />
             )
           })}

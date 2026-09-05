@@ -150,6 +150,9 @@ class Event(SerializableMixin, ValidationMixin):
     is_locked: bool = field(default=False)
     bot_persona_name: str | None = None
     event_type: str = field(default=EventType.EPISODE)
+    # {display_name: "one-line speaking-style description"} — per-speaker style
+    # observations captured at extraction time, aggregated later into persona_attrs.
+    participant_style: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self._check_unit("salience", self.salience)
@@ -184,6 +187,7 @@ class Event(SerializableMixin, ValidationMixin):
             "is_locked": bool(self.is_locked),
             "bot_persona_name": self.bot_persona_name,
             "event_type": self.event_type,
+            "participant_style": self.participant_style or {},
         }
 
 

@@ -302,8 +302,8 @@
             "extractor_context_messages": {
                 "description": "提取器上下文消息数",
                 "type": "int",
-                "hint": "事件提取时 LLM prompt 中最多包含的历史消息条数。不设置时回退到 context_window_size。",
-                "default": 50,
+                "hint": "事件提取时 LLM prompt 中最多包含的历史消息条数。越大 prefill 越慢、越吃 KV 显存。不设置时取 min(40, context_window_size)。",
+                "default": 40,
                 "level": "advanced"
             },
             "context_window_size": {

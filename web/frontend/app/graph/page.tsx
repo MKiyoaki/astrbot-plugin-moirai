@@ -9,7 +9,7 @@ import { FilterBar } from '@/components/shared/filter-bar'
 import { DateRange } from 'react-day-picker'
 import { EditPersonaDialog, EditImpressionDialog } from '@/components/graph/persona-dialogs'
 import { ReanalyzeMethodDialog, type ReanalyzeMethod } from '@/components/shared/reanalyze-method-dialog'
-import { NetworkGraph, GRAPH_VIEWPORT_ID } from '@/components/graph/network-graph'
+import { NetworkGraph, GRAPH_VIEWPORT_ID, type NetworkGraphHandle } from '@/components/graph/network-graph'
 import { ParamsPanel, type GraphExportFormat } from '@/components/graph/params-panel'
 import { NodeDetail } from '@/components/graph/node-detail'
 import { EdgeDetail } from '@/components/graph/edge-detail'
@@ -23,7 +23,8 @@ import * as api from '@/lib/api'
 import {
   DEFAULT_PHYSICS_PARAMS,
   DEFAULT_VISUAL_PARAMS,
-  gephiAutoSettings,
+  autoPhysicsSettings,
+  countAutoChanges,
   type EdgePair,
   type PhysicsParams,
   type VisualParams,
@@ -82,6 +83,7 @@ export default function GraphPage() {
   // ── Container size ──────────────────────────────────────────────────────────
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
   const svgRef = useRef<SVGSVGElement | null>(null)
+  const graphHandleRef = useRef<NetworkGraphHandle | null>(null)
 
   // ── Dialogs ─────────────────────────────────────────────────────────────────
   const [editNode, setEditNode] = useState<api.PersonaNode | null>(null)
@@ -180,7 +182,7 @@ export default function GraphPage() {
   // ── Force simulation ────────────────────────────────────────────────────────
   const [exportMode, setExportMode] = useState(false)
 
-  const { positions, refresh: refreshLayout } = useForceSimulation({
+  const { positions, refresh: refreshLayout, layoutVersion } = useForceSimulation({
     nodes: activeNodes,
     edgePairs: activePairs,
     params: physics,
@@ -254,11 +256,24 @@ export default function GraphPage() {
   }, [])
 
   // ── Auto settings ───────────────────────────────────────────────────────────
-  // Gephi's own "reset properties" values, computed from the visible node count.
+  // Settings picked for the visible node count. The toast reports the size of
+  // the diff rather than just echoing the button's own label: this used to be a
+  // no-op on any graph under 100 nodes and said "done" all the same, which is
+  // indistinguishable from success and is exactly how the bug stayed hidden.
   const handleAutoSettings = useCallback(() => {
-    setPhysics(p => ({ ...p, ...gephiAutoSettings(activeNodes.length) }))
-    toast(i18n.graph.params.autoSettings)
-  }, [activeNodes.length, toast, i18n.graph.params.autoSettings])
+    const next = autoPhysicsSettings(activeNodes.length)
+    // Diffed against the live state, not inside the updater: a functional
+    // setState runs in the render phase, so its result is not available to the
+    // toast on this tick.
+    const changed = countAutoChanges(physics, next)
+    if (changed > 0) setPhysics(p => ({ ...p, ...next }))
+    toast(changed === 0
+      ? i18n.graph.params.autoSettingsNoChange
+      : i18n.graph.params.autoSettingsApplied.replace('{n}', String(changed)))
+  }, [
+    activeNodes.length, physics, toast,
+    i18n.graph.params.autoSettingsApplied, i18n.graph.params.autoSettingsNoChange,
+  ])
 
   // ── Export ──────────────────────────────────────────────────────────────────
   const clusterMap = useMemo(() => {
@@ -352,10 +367,7 @@ export default function GraphPage() {
 
   // ── Fit view ────────────────────────────────────────────────────────────────
   const graphContainerRef = useRef<HTMLDivElement>(null)
-  const handleFit = () => {
-    // @ts-expect-error custom method
-    if (svgRef.current?.__fitView) (svgRef.current as SVGSVGElement & { __fitView: () => void }).__fitView()
-  }
+  const handleFit = () => graphHandleRef.current?.fitView()
 
   // ── CRUD handlers ───────────────────────────────────────────────────────────
   const handleUpdatePersona = async (uid: string, data: Record<string, unknown>) => {
@@ -637,6 +649,8 @@ export default function GraphPage() {
             onSelectPair={handleSelectPair}
             onSizeChange={setContainerSize}
             svgRef={svgRef}
+            handleRef={graphHandleRef}
+            layoutVersion={layoutVersion}
           />
 
           {/* Bottom toolbar overlay */}

@@ -231,6 +231,7 @@ def _event_to_dict(event: Event, participant_names: dict[str, str] | None = None
         "status": event.status or "active",
         "is_locked": bool(event.is_locked),
         "bot_persona_name": event.bot_persona_name,
+        "participant_style": getattr(event, "participant_style", None) or {},
     }
 
 

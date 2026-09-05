@@ -319,6 +319,12 @@ def _row_to_event(row: aiosqlite.Row) -> Event:
     summary = row["summary"] if "summary" in keys else ""
     bot_persona_name = row["bot_persona_name"] if "bot_persona_name" in keys else None
     event_type = row["event_type"] if "event_type" in keys else EventType.EPISODE
+    try:
+        participant_style = json.loads(row["participant_style"]) if "participant_style" in keys else {}
+    except (ValueError, TypeError):
+        participant_style = {}
+    if not isinstance(participant_style, dict):
+        participant_style = {}
     return Event(
         event_id=row["event_id"],
         group_id=row["group_id"],
@@ -338,6 +344,7 @@ def _row_to_event(row: aiosqlite.Row) -> Event:
         is_locked=is_locked,
         bot_persona_name=bot_persona_name,
         event_type=event_type,
+        participant_style=participant_style,
     )
 
 
@@ -676,15 +683,20 @@ class SQLitePersonaGroupRepository(PersonaGroupRepository):
 _EVENT_COLS = (
     "event_id, group_id, start_time, end_time, participants, "
     "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
-    "inherit_from, last_accessed_at, access_count, status, is_locked, bot_persona_name, event_type"
+    "inherit_from, last_accessed_at, access_count, status, is_locked, bot_persona_name, event_type, "
+    "participant_style"
 )
 
-# Search hot-path columns: interaction_flow excluded to reduce I/O;
+# Search hot-path columns: interaction_flow excluded to reduce I/O; bot_persona_name
+# and participant_style are stubbed rather than read. Events loaded through this
+# path are therefore INCOMPLETE — read-only for ranking and display. Never feed
+# one back into upsert(), which would blank both columns.
 # use _EVENT_SELECT (full) when callers need the message log.
 _EVENT_SEARCH_COLS = (
     "e.event_id, e.group_id, e.start_time, e.end_time, e.participants, "
     "'[]' AS interaction_flow, e.topic, e.summary, e.chat_content_tags, e.salience, e.confidence, "
-    "e.inherit_from, e.last_accessed_at, e.access_count, e.status, e.is_locked, e.event_type"
+    "e.inherit_from, e.last_accessed_at, e.access_count, e.status, e.is_locked, e.event_type, "
+    "'{}' AS participant_style"
 )
 
 # Legacy alias kept for any non-search callers that still import this name.
@@ -884,8 +896,9 @@ class SQLiteEventRepository(EventRepository):
             await self._db.execute(
                 "INSERT INTO events(event_id, group_id, start_time, end_time, participants, "
                 "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
-                "inherit_from, last_accessed_at, access_count, status, is_locked, bot_persona_name, event_type) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                "inherit_from, last_accessed_at, access_count, status, is_locked, bot_persona_name, event_type, "
+                "participant_style) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(event_id) DO UPDATE SET "
                 "group_id=excluded.group_id, "
                 "start_time=excluded.start_time, "
@@ -903,7 +916,8 @@ class SQLiteEventRepository(EventRepository):
                 "status=excluded.status, "
                 "is_locked=excluded.is_locked, "
                 "bot_persona_name=excluded.bot_persona_name, "
-                "event_type=excluded.event_type",
+                "event_type=excluded.event_type, "
+                "participant_style=excluded.participant_style",
                 (
                     event.event_id,
                     event.group_id,
@@ -923,6 +937,7 @@ class SQLiteEventRepository(EventRepository):
                     int(event.is_locked),
                     event.bot_persona_name,
                     event.event_type,
+                    _j(event.participant_style or {}),
                 ),
             )
 

@@ -21,7 +21,9 @@ Controls:
 
 Configurations:
     Default:   EVENT_MODE="llm" to validate the LLM extractor path first.
-    1. LMStudio: API_URL="http://localhost:1234/v1", API_KEY="lm-studio", MODEL="any"
+    1. LMStudio: API_URL="http://localhost:1234/v1" (override via LMSTUDIO_API_URL
+       in run_config.py, e.g. FreeToken's "http://localhost:1919/v1"),
+       API_KEY="lm-studio", MODEL="any"
     2. DeepSeek:  API_URL="https://api.deepseek.com", API_KEY="your_key", MODEL="deepseek-chat"
 """
 
@@ -107,6 +109,7 @@ try:
     _TIMEOUT         = _rc.TIMEOUT
     _MODEL_TYPE      = _rc.MODEL_TYPE
     _LMSTUDIO_MODEL  = _rc.LMSTUDIO_MODEL
+    _LMSTUDIO_API_URL = getattr(_rc, "LMSTUDIO_API_URL", "http://localhost:1234/v1")
     _DEEPSEEK_MODEL  = _rc.DEEPSEEK_MODEL
     _DEEPSEEK_KEY    = _rc.DEEPSEEK_API_KEY
     _RETRIEVAL_ENCODER_ENABLED = getattr(_rc, "RETRIEVAL_ENCODER_ENABLED", True)
@@ -123,6 +126,7 @@ except Exception as _cfg_err:
     _TIMEOUT         = 330.0
     _MODEL_TYPE      = "lmstudio"
     _LMSTUDIO_MODEL  = "gemma-4-26b-a4b-it-ultra-uncensored-heretic"
+    _LMSTUDIO_API_URL = "http://localhost:1234/v1"
     _DEEPSEEK_MODEL  = "deepseek-v4-flash"
     _DEEPSEEK_KEY    = "your_deepseek_api_key_here"
     _RETRIEVAL_ENCODER_ENABLED = True
@@ -135,7 +139,7 @@ except Exception as _cfg_err:
 
 def _get_model_info(model_type: str):
     if model_type == "lmstudio":
-        llm_api_url = "http://localhost:1234/v1"
+        llm_api_url = _LMSTUDIO_API_URL
         llm_api_key = "lm-studio"
         llm_model = _LMSTUDIO_MODEL
     elif model_type == "deepseek":

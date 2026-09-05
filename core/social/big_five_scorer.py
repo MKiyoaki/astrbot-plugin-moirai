@@ -169,6 +169,25 @@ class BigFiveBuffer(BoundedKeysMixin):
         if len(buf) > self._max_texts:
             del buf[: len(buf) - self._max_texts]
 
+    def prime(self, uid: str, vector: BigFiveVector, evidence: str | None = None) -> None:
+        """Seed a uid's score from an analysis that already happened elsewhere.
+
+        Unified extraction scores every speaker as part of the event-extraction
+        call, so a second `big_five_score` round-trip for the same messages is
+        pure waste. Priming therefore also clears the counter and the text buffer
+        — the accumulated messages are what produced `vector`, so they are spent.
+        Without that reset `maybe_score` fires anyway and overwrites `vector`.
+
+        Call this AFTER the `add_message` loop for the window; priming first would
+        let those messages push the counter straight back over the threshold.
+        """
+        self._touch(uid)  # register / refresh LRU order
+        self._cache[uid] = vector
+        if evidence:
+            self._evidence[uid] = evidence
+        self._counters[uid] = 0
+        self._texts[uid] = []
+
     def get_cached(self, uid: str) -> BigFiveVector:
         return self._cache.get(uid, _ZERO_VECTOR)
 

@@ -61,8 +61,38 @@ async def _synthesize_one_persona(
     top_tags = [tag for tag, _ in tag_counter.most_common(5)]
 
     event_summaries = "\n".join(f"- {event.topic}" for event in events)
+
+    # Gather per-event speaking-style observations for THIS persona. The extractor
+    # keys participant_style by display name; match on primary_name, tolerating a
+    # "#2" disambiguation suffix.
+    style_lines: list[str] = []
+    for event in events:
+        ps = getattr(event, "participant_style", None) or {}
+        entry = ps.get(persona.primary_name)
+        if entry is None:
+            for k, v in ps.items():
+                if k.split("#", 1)[0] == persona.primary_name:
+                    entry = v
+                    break
+        if isinstance(entry, dict):  # tolerate legacy {note, quotes} shape
+            note = str(entry.get("note", "")).strip()
+            quotes = [str(q).strip() for q in (entry.get("quotes") or []) if str(q).strip()]
+            entry = (note + ("，" + "、".join(f"「{q}」" for q in quotes) if quotes else "")) or None
+        if not isinstance(entry, str) or not entry.strip():
+            continue
+        style_lines.append(f"- {entry.strip()}")
+
+    style_block = ""
+    if style_lines:
+        style_block = (
+            "\n该用户在这些事件中的说话风格观察：\n"
+            + "\n".join(style_lines[:12])
+            + "\n"
+        )
+
     prompt = (
         f"User {persona.primary_name}, recent events:\n{event_summaries}\n"
+        f"{style_block}"
         f"Current attributes: {json.dumps(persona.persona_attrs, ensure_ascii=False)}.\n"
         "Update the persona attributes as JSON."
     )
@@ -127,6 +157,17 @@ async def _synthesize_one_persona(
                 changed = True
             elif isinstance(evidence, str) and evidence.strip():
                 new_attrs["big_five_evidence"] = str(evidence)[:120]
+                changed = True
+
+        style = parsed.get("speaking_style")
+        if isinstance(style, str) and style.strip():
+            new_attrs["speaking_style"] = style.strip()[:200]
+            changed = True
+        quotes = parsed.get("style_quotes")
+        if isinstance(quotes, list):
+            clean_quotes = [str(q).strip()[:120] for q in quotes[:3] if str(q).strip()]
+            if clean_quotes:
+                new_attrs["style_quotes"] = clean_quotes
                 changed = True
 
         if not changed:
