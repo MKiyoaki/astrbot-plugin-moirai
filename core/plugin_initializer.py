@@ -308,6 +308,8 @@ class PluginInitializer:
             raw_message_writer=self.raw_message_writer,
         )
 
+        self.extractor = extractor
+
         async def on_event_close(window: MessageWindow) -> None:
             asyncio.create_task(extractor(window))
 
@@ -669,6 +671,11 @@ class PluginInitializer:
             await self.embedding_manager.stop()
         if self.router is not None:
             await self.router.flush_all()
+        if getattr(self, "extractor", None) is not None:
+            try:
+                await self.extractor.drain_evals()
+            except Exception:
+                pass
         if self.raw_message_writer is not None:
             await self.raw_message_writer.stop()
         if self._exit_stack is not None:

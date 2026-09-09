@@ -193,11 +193,14 @@ class InMemoryEventRepository(EventRepository):
         self, query: str, limit: int = 20, active_only: bool = True,
         group_id: str | None = None, event_type: str | None = None,
         scope_mode: str = "all",
+        bot_persona_name: str | None = None,
     ) -> list[Event]:
         """Naive term-in-string match over topic + tags. FTS5 replaces this in production."""
         terms = query.lower().split()
         results: list[Event] = []
         for event in self._store.values():
+            if bot_persona_name is not None and event.bot_persona_name != bot_persona_name:
+                continue
             if active_only and event.status != "active":
                 continue
             if scope_mode == "group" and event.group_id != group_id:
@@ -216,6 +219,7 @@ class InMemoryEventRepository(EventRepository):
         self, embedding: list[float], limit: int = 20, active_only: bool = True,
         group_id: str | None = None, event_type: str | None = None,
         scope_mode: str = "all",
+        bot_persona_name: str | None = None,
     ) -> list[Event]:
         """Stub — no vector index in memory. Production uses sqlite-vec."""
         return []

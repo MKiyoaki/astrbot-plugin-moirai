@@ -1,5 +1,46 @@
 # CHANGELOG
 
+## [v1.0.17.sub] — 2026-09-06
+
+### 事件抽取与 Bot 人格彻底解耦：[Eval] 移到延后批量的第二趟
+
+- `core/extractor/extractor.py` 的 `_extract_batch` / `_distill` 去掉 `bot_persona_desc` 入参，系统提示恒取 `select_event_system_prompt(..., has_bot_persona=False)`，`build_user_prompt` / `build_distillation_prompt` 不再拼 `[Bot 视角人格]`，解析恒用 `has_bot_persona=False`。开关 Y/N 对 `topic` / `chat_content_tags` / `salience` / 事实 `summary` 逐字节一致，人格不再牵动打标和话题切分。
+- `[Eval]` 改为**延后、成批**的独立第二趟，不再内联在 `__call__` 里：`_process_window` 落库后把 `(event_id, persona_desc)` 丢进内部队列；后台 worker 仅在 `self._active_extractions == 0`（无抽取在跑）时醒来，一次 LLM 调用（`task_name="eval"`）处理最多 `_eval_batch_size`（10）个事件，回写各自 `summary` 的 `[Eval]`。这样抽取调用背靠背、共享暖前缀缓存（`LLM_CONCURRENCY=1` 下每次抽取从 ~130s 回到 15-20s），eval 调用数量降一个数量级、且批间共享 `system + 人格` 前缀。
+- 新增 `core/extractor/eval_pass.py::annotate_events_evals`（批量，`{label: [旁白...]}`），`annotate_event_evals` 保留为单事件包装供 `reextract` 用。任何失败 / 超时 / 无 provider 一律回填「未生成评价」，不抛出、不改已抽好的事实。
+- `EventExtractor` 新增 `drain_evals()`：排空队列并停 worker。`plugin_initializer.teardown` 在 `router.flush_all()` 后调用，`run_realtime_dev.py` 在 Phase 2 抽取全部完成后调用。硬崩仍会丢弃队列里未处理的 `[Eval]`（可手动重新提取补回）。
+- `core/config.py` 的 `EVAL_ONLY_PROMPT_PREAMBLE` 改为批量对象输出；`core/extractor/prompts.py::build_eval_prompt` 改为按 `(label, topic, subtopics)` 列表拼多事件；`core/extractor/parser.py` 以 `parse_eval_map` 取代 `parse_evals`（容错解析 `{label: list}`）；`core/extractor/summary.py` 的 `split_subtopics` / `apply_evals` / `strip_evals` 不变，均复用 `normalize_summary`。未新增配置项，两趟共用同一系统提示词。
+- `core/tasks/reextract.py` 同步：第一趟人格无感，第二趟按 `persona_influenced_summary` 内联补 `[Eval]`（单事件、用户触发，保持即时）；失败只回填「未生成评价」，不影响「抽取失败则原事件不动」的既有契约。
+- `_batch_index_vectors` / `_index_vector` 与 `reextract.py` 的向量文本改用 `strip_evals(summary)`，人格旁白不进入检索嵌入；FTS 仅索引 `topic` / `chat_content_tags`，不受影响。worker 补 `[Eval]` 时只 upsert `summary`，不重建向量。
+- `run_realtime_dev.py` 的模拟 persona 只植入一句话 `description`（对齐生产 synthesis 的短摘要语义），不再把整份 `mock_persona.md` 塞进 `persona_attrs`。
+- 版本仅更新 Moirai 至 `v1.0.17.sub`，未发布。workspace `scripts/verify-event-runtime.py` 同步旧版本常量断言并新增一项「开关 Y/N 不移动 tag/salience」的联调用例（带 `drain_evals`）。
+- 验证：`tests/test_event_summary.py` 19 项 Python 离线回归通过（改写 `ExtractionTests`，新增 Eval 批量、第二趟失败降级、`split_subtopics` / `apply_evals` 用例）；`run_realtime_dev.py --self-test` 19 项通过；workspace `scripts/verify-event-runtime.py` 12 项通过；`tests/event-summary-ui.cjs` 7 项通过。未做真实模型运行。
+
+## [v1.0.16.sub] — 2026-09-05
+
+### 事件详情：事实提取、人格评价隔离与旧摘要展示
+
+- `core/config.py` 统一构建抽取／蒸馏、有评价／无评价四个默认 prompt：每个话题保留人物、具体事实、回应和未决事项，区分提问、提议、观点与已发生的事实；保留数字、条件、否定和人物互动，不猜缩写、业务所指或图片内容。
+- `core/extractor/prompts.py` 为源消息附 UTC 时间参照；`extractor.py` 按实际人格与 `persona_influenced_summary` 选择范本，单对象输出与 JSON 修复保持一致，自定义 system prompt 保持原样。
+- `core/extractor/summary.py` 和 `parser.py` 按话题处理 `[Eval]`：关闭时移除本次返回的评价，开启但缺失时仅在对应话题补「未生成评价」，不再因缺少主观评价扣减事实置信度；清理旧格式的外层加粗、转义下划线和 HTML 空白实体。
+- `core/tasks/reextract.py`、`persona_context.py` 重新提取时查找事件原所属 Bot 人格，保留原事件人格桶；不会改用近期活跃的其他 Bot 或同名人类档案。
+- WebUI 的 `lib/utils.ts`、事件流与数据库详情兼容缺少 `[How]` 的摘要，保留普通方括号和正文竖线；无评价时隐藏评价行，避免显示成「信息不足」。不批量重写历史数据库。
+- `run_realtime_dev.py` 的 Y/N 显式控制抽取与 WebUI 重新提取，随测试会话保存／恢复；增加 `--self-test` 离线入口。测试使用模拟 provider，不访问运行数据库或付费模型。
+- `docs/event-summary.md` 记录最终提取契约、SimpleMem／AnchorMem 的参考边界和验证方式；本次不修改检索排序、数据库结构或 Core 协议。版本仅更新 Moirai 至 `v1.0.16.sub`，未发布。
+- 验证：14 项 Python 离线回归、7 项前端解析／组件渲染、8 项定向内存联调通过；类型检查和使用仓库现有字体的离线静态构建通过，已同步本地 WebUI。完整工作区联调仍有旧版本常量断言且 SQLite 检查未完成；详见 `docs/verification_v1.0.16.sub.md`，不宣称真实模型检索指标提升。
+
+## [v1.0.15.sub] — 2026-09-05
+
+### Core 共享事件入口与显式人格作用域
+
+- 版本从 `v1.0.14` bump 到 `v1.0.15.sub`；`.sub` 标识工作分支，保留此前版本历史，未发布。`core/utils/version.py` 保留完整后缀。
+- `main.py` 移除重复消息钩子，`core/adapters/core_events.py` 通过 Event Protocol v1 接收 Core 的事件与人格快照；Core 缺失时暂停事件消费，不回退到本地适配。
+- `core/event_handler.py` 仅协调 Moirai 业务；人格切换与迟到回复通过 `MessageRouter.prepare_persona` 结算旧窗口，生成请求的调试记录按关联 ID 隔离。
+- `_conf_schema.json` 增加显式 scope 到旧人格数据桶映射；旧人格覆盖停止改变事件归属，迁移到 Core 全局覆盖。数据库与旧会话键不迁移。
+- 记忆召回及父子事件展开限定在已绑定人格，注入改为命名空间内的声明式贡献；Core 负责宿主兼容与写回。
+- `SQLiteEventRepository.search_fts/search_vector` 在候选数量截取之前应用人格、频道与状态过滤，避免其他作用域占满候选名额而漏掉当前人格的匹配记忆。
+- 删除已转入 Core 且无调用方的 `message_normalizer.py` 和 `injection_compat.py`；关闭人格风格摘要时仍按 Core 绑定持久化事件归属，历史覆盖不再生效。
+- workspace `scripts/verify-event-runtime.py` 使用真实 provider、内存仓库、临时 SQLite/sqlite-vec 仓库及无模型抽取回退验证 11 项通过；未访问运行数据库或付费模型。真实 AstrBot 部署仍需宿主联调。
+
 ## [v1.0.14] — 2026-09-04
 
 ### 关系图：「一键最佳参数」修复、自动适配视野、渲染性能

@@ -1,13 +1,15 @@
 """EventHandler: AstrBot event dispatch layer.
 
-Receives AstrBot events and delegates to the appropriate subsystem.
+Receives Core Event Protocol v1 values and delegates to Moirai services.
 Keeps main.py free of business logic; all routing decisions live here.
 """
 from __future__ import annotations
 
-import logging
+import asyncio
+import json
+import time
+from collections import OrderedDict
 import re as _re
-from typing import TYPE_CHECKING
 
 _EM_BLOCK_RE = _re.compile(
     r"<!-- EM:MEMORY:START -->.*?<!-- EM:MEMORY:END -->",
@@ -19,137 +21,6 @@ _AVAILABLE_SKILLS_HEADING_RE = _re.compile(r"^###\s+Available skills\s*$", _re.I
 _ANY_HEADING_RE = _re.compile(r"^#{1,6}\s+")
 _TOP_LEVEL_HEADING_RE = _re.compile(r"^#{1,2}\s+")
 _SKILL_LINE_RE = _re.compile(r"^\s*-\s*([A-Za-z0-9._-]+)(?=\s*:|\s|$)")
-
-
-def _safe_call(obj: object, name: str) -> object | None:
-    method = getattr(obj, name, None)
-    if not callable(method):
-        return None
-    try:
-        return method()
-    except Exception:
-        return None
-
-
-def _clean_scope_value(value: object | None) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _message_obj_attr(event: object, *names: str) -> str | None:
-    msg = getattr(event, "message_obj", None)
-    if msg is None:
-        return None
-    for name in names:
-        value = _clean_scope_value(getattr(msg, name, None))
-        if value:
-            return value
-    return None
-
-
-def _looks_private_stream(event: object, stream_id: str | None) -> bool:
-    sender_id = _clean_scope_value(_safe_call(event, "get_sender_id"))
-    if stream_id and sender_id and stream_id == sender_id:
-        return True
-
-    msg = getattr(event, "message_obj", None)
-    values = [
-        _clean_scope_value(_safe_call(event, "get_message_type")),
-        _clean_scope_value(getattr(event, "message_type", None)),
-    ]
-    if msg is not None:
-        values.extend(
-            _clean_scope_value(getattr(msg, name, None))
-            for name in ("message_type", "type", "message_scene", "scene")
-        )
-    markers = ("private", "friend", "direct", "dm")
-    return any(
-        any(marker in value.lower() for marker in markers)
-        for value in values
-        if value
-    )
-
-
-def _resolve_stream_scope(event: object) -> tuple[str | None, str | None]:
-    """Return (session_id_override, stream_group_id) for the memory stream.
-
-    QQ/OneBot group messages expose get_group_id(), so the existing group flow
-    remains unchanged.  Discord-style adapters can have no group_id while still
-    exposing a stable channel/session through AstrBot's unified_msg_origin or
-    message_obj.session_id.  In that case we persist that channel/session as the
-    Event.group_id so WebUI, summaries, and recall keep each text channel as its
-    own complete event stream.
-    """
-    platform = _clean_scope_value(_safe_call(event, "get_platform_name")) or "unknown"
-    group_id = _clean_scope_value(_safe_call(event, "get_group_id"))
-    if group_id:
-        return f"{platform}:{group_id}", group_id
-
-    stream_id = (
-        _message_obj_attr(event, "session_id", "channel_id", "channel", "room_id")
-        or _clean_scope_value(getattr(event, "unified_msg_origin", None))
-    )
-    if stream_id:
-        stream_group_id = None if _looks_private_stream(event, stream_id) else stream_id
-        return f"{platform}:{stream_id}", stream_group_id
-
-    return None, None
-
-
-def _check_is_admin(event) -> bool:
-    try:
-        role = getattr(event, "role", None)
-        if role is not None:
-            return str(role).lower() in ("admin", "superadmin", "operator", "owner")
-    except Exception:
-        pass
-    return False
-
-
-def _prepend_to_result(result, text: str) -> None:
-    """Prepend text to a CommandResult (MessageEventResult inherits MessageChain = list)."""
-    from astrbot.api.message_components import Plain
-    segment = Plain(text)
-    chain = getattr(result, "chain", None)
-    if isinstance(chain, list):
-        chain.insert(0, segment)
-        return
-
-    insert = getattr(result, "insert", None)
-    if callable(insert):
-        insert(0, segment)
-        return
-
-    logger.warning("[%s] cannot prepend debug prefix to result type %s", _PLUGIN_NAME, type(result))
-
-
-def _response_text(resp: object) -> str:
-    """Return response text across AstrBot/provider response versions."""
-    for attr in ("completion_text", "text"):
-        value = getattr(resp, attr, None)
-        if value is None or callable(value):
-            continue
-        if isinstance(value, str):
-            if value:
-                return value
-            continue
-        text = str(value)
-        if text:
-            return text
-    return ""
-
-
-def _normalize_persona_name(value: object | None) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    if text == "[%None]":
-        return "无"
-    return text
 
 
 def _extract_skill_names(lines: list[str]) -> list[str]:
@@ -238,28 +109,6 @@ def _format_system_prompt_for_debug(
     )
 
 
-def _result_content_type_name(result: object) -> str:
-    content_type = getattr(result, "result_content_type", None)
-    name = getattr(content_type, "name", None)
-    if name:
-        return str(name)
-    return str(content_type or "")
-
-
-def _is_llm_like_result(result: object) -> bool:
-    is_llm_result = getattr(result, "is_llm_result", None)
-    if callable(is_llm_result):
-        try:
-            if is_llm_result():
-                return True
-        except Exception:
-            pass
-
-    # AstrBot v4.24.x reports stream completion as STREAMING_FINISH. It is still
-    # an LLM response and needs the same debug decoration path.
-    return _result_content_type_name(result) in {"LLM_RESULT", "STREAMING_FINISH"}
-
-
 def _format_injection_debug_for_display(debug: dict) -> str:
     """Render sanitized Moirai injection debug data without exposing internal prompts."""
     lines = [
@@ -342,412 +191,114 @@ def _format_injection_debug_for_display(debug: dict) -> str:
     lines.append("─" * 20)
     return "\n".join(lines)
 
-from astrbot.api import logger as astrbot_logger
-
-if TYPE_CHECKING:
-    from astrbot.api.event import AstrMessageEvent
-    from astrbot.api.provider import ProviderRequest, ProviderResponse
-    from astrbot.api.model import CommandResult
-    from .plugin_initializer import PluginInitializer
-
-_PLUGIN_NAME = "EnhancedMemory"
-logger = logging.getLogger(__name__)
-
-
 class EventHandler:
-    """Delegates AstrBot event callbacks to subsystems via PluginInitializer."""
+    """Apply scoped Core events to Moirai services and produce owned contributions."""
 
-    def __init__(self, initializer: PluginInitializer) -> None:
+    def __init__(self, initializer) -> None:
         self._init = initializer
-        self._pre_inject_sys_prompt: dict[str, str] = {}
-        self._pre_inject_persona_name: dict[str, str | None] = {}
-        self._pre_inject_skill_names: dict[str, list[str]] = {}
-        # Persona that was active on this session's most recent completed LLM
-        # request. Compared against the freshly-resolved persona at the start of
-        # each new request to detect mid-session persona switches.
-        self._last_active_persona: dict[str, str] = {}
+        self._locks = {}
+        self._turns = OrderedDict()
 
-    async def _resolve_persona_name(self, event: AstrMessageEvent, req: ProviderRequest) -> str | None:
-        # SSOT short-circuit candidate: an explicit bucket override pins every
-        # reply (and therefore every Event / Impression) to one persona name
-        # regardless of platform or AstrBot session config.
-        try:
-            override = self._init.cfg.bot_persona_name_override
-        except Exception:
-            override = ""
-
-        # Collect EVERY candidate source up front so the resolution is fully
-        # diagnosable from a single log line (see [persona-resolve] below).
-        session_cfg_name: str | None = None
-        try:
-            from astrbot.core import sp
-
-            session_cfg = await sp.get_async(
-                scope="umo",
-                scope_id=event.unified_msg_origin,
-                key="session_service_config",
-                default={},
-            )
-            session_cfg_name = _normalize_persona_name(session_cfg.get("persona_id"))
-        except Exception:
-            pass
-
-        conversation = getattr(req, "conversation", None)
-        conv_name = _normalize_persona_name(getattr(conversation, "persona_id", None))
-
-        default_name: str | None = None
-        try:
-            context = getattr(self._init, "_context", None)
-            get_config = getattr(context, "get_config", None)
-            if callable(get_config):
-                try:
-                    cfg = get_config(umo=event.unified_msg_origin)
-                except TypeError:
-                    cfg = get_config()
-                if isinstance(cfg, dict):
-                    provider_settings = cfg.get("provider_settings", cfg)
-                    if isinstance(provider_settings, dict):
-                        default_name = _normalize_persona_name(
-                            provider_settings.get("default_personality")
-                        )
-        except Exception:
-            pass
-
-        # Resolve by priority: explicit override > AstrBot session-service force
-        # rule > conversation persona > global default. This mirrors AstrBot's
-        # own precedence — a session_service_config persona shadows /persona
-        # switches (AstrBot's /persona command only writes conversation.persona_id).
-        if override:
-            resolved, source = override, "override"
-        elif session_cfg_name:
-            resolved, source = session_cfg_name, "session_service_config"
-        elif conv_name:
-            resolved, source = conv_name, "conversation"
-        elif default_name:
-            resolved, source = default_name, "default_personality"
-        else:
-            resolved, source = None, "none"
-
-        astrbot_logger.info(
-            "[%s] [persona-resolve] override=%r session_cfg=%r conv=%r default=%r -> %r (source=%s)",
-            _PLUGIN_NAME, override or "", session_cfg_name, conv_name, default_name,
-            resolved, source,
+    async def handle_core_event(self, event: dict, persona_name: str) -> list[dict]:
+        message = event["payload"]["message"]
+        session = message["stream_id"] or (
+            f"{message['platform']}:private:{message['sender_id']}"
         )
+        entry = self._locks.setdefault(session, [asyncio.Lock(), 0])
+        entry[1] += 1
+        try:
+            async with entry[0]:
+                return await self._handle(event, persona_name, session)
+        finally:
+            entry[1] -= 1
+            if entry[1] == 0:
+                self._locks.pop(session, None)
+            now = time.monotonic()
+            for key, (_, created) in tuple(self._turns.items()):
+                if now - created > 900:
+                    self._turns.pop(key, None)
+            while len(self._turns) > 1024:
+                self._turns.popitem(last=False)
 
-        # Mismatch warning: AstrBot's session-level force rule silently overrides
-        # a /persona switch. If the two disagree the user almost certainly
-        # switched via /persona but a stale force rule keeps pinning the old
-        # persona — which is exactly why new memory events keep landing under
-        # the old name.
-        if (
-            not override
-            and session_cfg_name
-            and conv_name
-            and session_cfg_name != conv_name
-            and session_cfg_name != "无" and conv_name != "无"
-        ):
-            astrbot_logger.warning(
-                "[%s] [persona-resolve] AstrBot 会话级强制人格规则 "
-                "(session_service_config.persona_id=%r) 正在覆盖对话人格 (%r)，"
-                "事件将持续归入 %r。如需让 /persona 切换生效，请在 AstrBot 面板 → "
-                "会话管理 中清除该会话的人格『自定义规则』。",
-                _PLUGIN_NAME, session_cfg_name, conv_name, session_cfg_name,
+    async def _handle(self, event: dict, persona: str, session: str) -> list[dict]:
+        from .adapters.core_events import InjectionDraft
+
+        payload = event["payload"]
+        message = payload["message"]
+        stage, correlation = event["stage"], event["correlation_id"]
+        router = self._init.router
+        group = message["stream_group_id"]
+        state_key = json.dumps([event["source_instance"],
+                               event["persona"]["scope"]["runtime_persona_id"], session])
+        if stage in {"message", "after_generation"} and router is not None:
+            text = message["text"] if stage == "message" else payload["response_text"]
+            if not text:
+                return []
+            await router.prepare_persona(session, persona)
+            await router.process(
+                platform=message["platform"] if stage == "message" else "internal",
+                physical_id=message["sender_id"] if stage == "message" else f"bot:{persona}",
+                display_name=message["sender_name"] if stage == "message" else persona,
+                text=text, raw_group_id=message["raw_group_id"],
+                now=event["timestamp"] if stage == "message" else None,
+                session_platform=message["platform"], session_id_override=session,
+                stream_group_id=group, bot_persona_name=persona,
             )
-
-        return resolved
-
-    async def handle_llm_request(
-        self, event: AstrMessageEvent, req: ProviderRequest
-    ) -> None:
-        """Inject relevant memory context into the request before LLM generation."""
+            return []
         recall = self._init.recall
         if recall is None:
-            return
-
-        # Use the raw message text as the query to avoid injecting stale memory
-        # as part of the query (req.prompt may already contain injected content).
-        query = event.message_str
-        if not query:
-            query = req.prompt or ""
-        if not query:
-            return
-
-        icfg = None
-        session_id = event.unified_msg_origin
-        try:
-            session_id_override, group_id = _resolve_stream_scope(event)
-            if session_id_override:
-                session_id = session_id_override
-            recall_scope_mode = "group" if group_id is not None else "private"
-
-            icfg = self._init.cfg.get_injection_config()
-            astrbot_logger.debug(
-                "[%s] debug config on request: show_thinking_process=%s, show_system_prompt=%s, show_injection_summary=%s",
-                _PLUGIN_NAME,
-                icfg.show_thinking_process,
-                icfg.show_system_prompt,
-                icfg.show_injection_summary,
+            return []
+        if stage == "before_generation":
+            if router is not None:
+                await router.prepare_persona(session, persona)
+            snapshot = payload["request"]
+            if snapshot is None:
+                return []
+            query = message["text"] or snapshot["prompt"]
+            if not query:
+                return []
+            cfg = self._init.cfg.get_injection_config()
+            draft = InjectionDraft(snapshot)
+            sender_uid = None
+            if self._init.resolver is not None:
+                sender_uid = await self._init.resolver.get_or_create_uid(
+                    platform=message["platform"], physical_id=message["sender_id"],
+                    display_name=message["sender_name"],
+                )
+            count = await recall.recall_and_inject(
+                query=query, req=draft, session_id=state_key, group_id=group,
+                sender_uid=sender_uid, store_debug=cfg.show_thinking_process,
+                store_injection_debug=cfg.show_injection_summary,
+                scope_mode="group" if group is not None else "private", bot_persona_name=persona,
             )
-
-            # Always capture the active persona so handle_llm_response can
-            # attribute the bot reply under the correct persona name.
-            new_persona = await self._resolve_persona_name(event, req)
-            self._pre_inject_persona_name[session_id] = new_persona
-
-            # Persona-switch detection: if this session's previous request
-            # used a different persona, flush the prior window (minus the
-            # current trigger message) as an Event under the OLD persona so
-            # the streams don't get mixed.
-            old_persona = self._last_active_persona.get(session_id)
-            router = self._init.router
-            if (
-                old_persona and new_persona
-                and old_persona != new_persona
-                and old_persona != "无" and new_persona != "无"
-                and router is not None
-            ):
-                try:
-                    await router.flush_window_split_tail(
-                        session_id, tail=1, new_persona=new_persona,
-                    )
-                except Exception as exc:
-                    astrbot_logger.warning(
-                        "[%s] persona-switch flush failed: %s", _PLUGIN_NAME, exc,
-                    )
-
-            # Stamp the active persona on the current window so 0-bot
-            # Events can still be attributed when extracted.
-            if router is not None and new_persona and new_persona != "无":
-                try:
-                    router.note_session_persona(session_id, new_persona)
-                except Exception:
-                    pass
-
-            if new_persona and new_persona != "无":
-                self._last_active_persona[session_id] = new_persona
-
-            # Capture system_prompt before injection for show_system_prompt feature.
-            if icfg.show_system_prompt:
-                raw_system_prompt = getattr(req, "system_prompt", "") or ""
-                self._pre_inject_sys_prompt[session_id] = raw_system_prompt
-                self._pre_inject_skill_names[session_id] = _extract_system_prompt_skill_names(
-                    raw_system_prompt
-                )
-
-            # Resolve sender uid for OCEAN persona injection (best-effort).
-            sender_uid: str | None = None
-            resolver = self._init.resolver
-            if resolver is not None:
-                try:
-                    sender_uid = await resolver.get_or_create_uid(
-                        platform=event.get_platform_name(),
-                        physical_id=event.get_sender_id(),
-                        display_name=event.get_sender_name(),
-                    )
-                except Exception:
-                    pass
-
-            if icfg.show_injection_summary:
-                try:
-                    recall._last_injection_debug[session_id] = {
-                        "injected": False,
-                        "position": "unknown",
-                        "memory": {"injected": False, "count": 0, "events": []},
-                        "persona": None,
-                        "soul": None,
-                        "hidden": [],
-                        "_error": "recall_and_inject 未生成注入摘要",
-                    }
-                except Exception:
-                    pass
-
-            injected_count = await recall.recall_and_inject(
-                query=query,
-                req=req,
-                session_id=session_id,
-                group_id=group_id,
-                sender_uid=sender_uid,
-                store_debug=icfg.show_thinking_process,
-                store_injection_debug=icfg.show_injection_summary,
-                scope_mode=recall_scope_mode,
-                bot_persona_name=new_persona if new_persona and new_persona != "无" else None,
-            )
-
-            # Sync VCM state with hit rate feedback
-            cm = self._init.context_manager
-            if cm is not None:
-                cm.update_state(session_id, recall_hit=(injected_count > 0))
-
-        except Exception as exc:
-            astrbot_logger.warning("[%s] recall hook failed: %s", _PLUGIN_NAME, exc)
-            if icfg is not None and icfg.show_injection_summary:
-                try:
-                    recall._last_injection_debug[session_id] = {
-                        "injected": False, "position": "unknown",
-                        "memory": {"injected": False, "count": 0, "events": []},
-                        "persona": None, "soul": None,
-                        "hidden": [], "_error": str(exc),
-                    }
-                except Exception:
-                    pass
-
-    async def handle_message(self, event: AstrMessageEvent) -> None:
-        """Route incoming messages through the event boundary detector."""
-        router = self._init.router
-        if router is None:
-            return
-        from .adapters.message_normalizer import normalize_message_text, normalize_display_name
-        session_id_override, stream_group_id = _resolve_stream_scope(event)
-        await router.process(
-            platform=event.get_platform_name(),
-            physical_id=event.get_sender_id(),
-            display_name=normalize_display_name(event.get_sender_name()),
-            text=normalize_message_text(event.message_str),
-            raw_group_id=event.get_group_id() or None,
-            now=event.created_at,
-            session_id_override=session_id_override,
-            stream_group_id=stream_group_id,
-        )
-
-    async def handle_llm_response(
-        self, event: AstrMessageEvent, resp: ProviderResponse
-    ) -> None:
-        """Record the bot's own response into the memory stream."""
-        from .domain.models import INTERNAL_PLATFORM
-        router = self._init.router
-        text = _response_text(resp)
-        if router is None or not text:
-            return
-
-        from .adapters.message_normalizer import normalize_message_text
-        session_id_override, stream_group_id = _resolve_stream_scope(event)
-
-        # Resolve the persona that produced this reply so we can:
-        #   1. Show its name instead of the literal "Bot" in event participant lists.
-        #   2. Give each persona an independent UID (internal:bot:<persona>) so the
-        #      IdentityResolver keeps memory/impression scopes separated per persona.
-        session_key = session_id_override or event.unified_msg_origin
-        persona_name = self._pre_inject_persona_name.get(session_key)
-        if not persona_name:
-            # Fallback path: handle_llm_request didn't run (e.g. proactive reply)
-            # or persona wasn't cached. Try resolving without a ProviderRequest.
-            try:
-                persona_name = await self._resolve_persona_name(event, resp)
-            except Exception:
-                persona_name = None
-        persona_name = persona_name or None
-
-        if persona_name and persona_name != "无":
-            display_name = persona_name
-            physical_id = f"bot:{persona_name}"
-        else:
-            display_name = "Bot"
-            physical_id = "bot"
-
-        await router.process(
-            platform=INTERNAL_PLATFORM,
-            physical_id=physical_id,
-            display_name=display_name,
-            text=normalize_message_text(text),
-            raw_group_id=event.get_group_id() or None,
-            session_platform=event.get_platform_name(),
-            session_id_override=session_id_override,
-            stream_group_id=stream_group_id,
-            bot_persona_name=persona_name if persona_name and persona_name != "无" else None,
-        )
-
-    async def handle_using_llm_tool(
-        self, event: AstrMessageEvent, tool_name: str, arguments: dict
-    ) -> None:
-        """Monitor tool usage as a potential salience signal."""
-        # For now, we just log it. Future: inject 'meta' messages into the window
-        # or increase the salience of the current event window.
-        logger.debug("[%s] Tool used: %s with args %s", _PLUGIN_NAME, tool_name, arguments)
-
-    async def handle_decorating_result(
-        self, event: AstrMessageEvent, result: CommandResult
-    ) -> None:
-        """Prepend memory-retrieval debug info and/or system prompt to the reply."""
-        # Only decorate actual LLM responses; tool call results (GENERAL_RESULT) must
-        # not receive the prefix — they would corrupt conversation history and cause
-        # the LLM to loop on core_memory_recall calls.
-        result_content_type = getattr(result, "result_content_type", None)
-        if not _is_llm_like_result(result):
-            astrbot_logger.debug(
-                "[%s] skip debug decoration: result_content_type=%s",
-                _PLUGIN_NAME,
-                result_content_type,
-            )
-            return
-
-        recall = self._init.recall
-        if recall is None:
-            return
-        icfg = self._init.cfg.get_injection_config()
-        astrbot_logger.debug(
-            "[%s] debug config on decoration: show_thinking_process=%s, show_system_prompt=%s, show_injection_summary=%s, result_content_type=%s",
-            _PLUGIN_NAME,
-            icfg.show_thinking_process,
-            icfg.show_system_prompt,
-            icfg.show_injection_summary,
-            result_content_type,
-        )
-        if (
-            not icfg.show_thinking_process
-            and not icfg.show_system_prompt
-            and not icfg.show_injection_summary
-        ):
-            return
-
-        session_id = _resolve_stream_scope(event)[0] or event.unified_msg_origin
-        prefix_parts: list[str] = []
-
-        if icfg.show_thinking_process:
-            debug = recall.pop_recall_debug(session_id)
-            if debug:
-                lines = [
-                    "[Moirai 记忆检索]",
-                    f"查询词：\"{debug['query']}\"",
-                    f"召回数量：{debug['total']} 条",
-                ]
-                for ev in debug["events"]:
-                    lines.append(f"  ▸ [情节] {ev['topic']}")
-                lines.append(f"注入位置：{debug['position']}")
-                lines.append("─" * 20)
-                prefix_parts.append("\n".join(lines))
-
-        if icfg.show_injection_summary:
-            pop_injection_debug = getattr(recall, "pop_injection_debug", None)
-            debug = pop_injection_debug(session_id) if callable(pop_injection_debug) else None
-            if debug:
-                prefix_parts.append(_format_injection_debug_for_display(debug))
-            else:
-                astrbot_logger.warning(
-                    "[%s] show_injection_summary=True but no debug for session %s",
-                    _PLUGIN_NAME, session_id,
-                )
-                prefix_parts.append(
-                    "[Moirai 实际注入摘要]\n注入摘要不可用（recall_and_inject 未完成或发生异常）\n" + "─" * 20
-                )
-
-        if icfg.show_system_prompt:
-            raw_sp = self._pre_inject_sys_prompt.pop(session_id, None)
-            persona_name = self._pre_inject_persona_name.pop(session_id, None)
-            skill_names = self._pre_inject_skill_names.pop(session_id, None)
-            cleaned = _EM_BLOCK_RE.sub("", raw_sp or "").strip()
-            display = _format_system_prompt_for_debug(cleaned, persona_name, skill_names)
-            if display:
-                prefix_parts.append(
-                    f"[System Prompt（摘要，记忆注入块已过滤）]\n{display}\n{'─' * 20}"
-                )
-
-        if not prefix_parts:
-            astrbot_logger.debug("[%s] no debug prefix parts produced", _PLUGIN_NAME)
-            return
-        _prepend_to_result(result, "[系统测试消息]\n\n" + "\n\n".join(prefix_parts) + "\n\n")
-        astrbot_logger.debug(
-            "[%s] prepended debug prefix: parts=%d, chain_len=%s",
-            _PLUGIN_NAME,
-            len(prefix_parts),
-            len(getattr(result, "chain", [])),
-        )
+            if self._init.context_manager is not None:
+                self._init.context_manager.update_state(session, recall_hit=count > 0)
+            info = {"persona": persona, "system_prompt": snapshot["system_prompt"],
+                    "recall": recall.pop_recall_debug(state_key) if cfg.show_thinking_process else None,
+                    "injection": recall.pop_injection_debug(state_key) if cfg.show_injection_summary else None}
+            self._turns[correlation] = (info, time.monotonic())
+            return draft.contributions
+        if stage == "decorate" and payload["llm_like"]:
+            saved = self._turns.pop(correlation, None)
+            if saved is None:
+                return []
+            info, _ = saved
+            cfg = self._init.cfg.get_injection_config()
+            parts = []
+            if cfg.show_thinking_process and info["recall"]:
+                debug = info["recall"]
+                lines = ["[Moirai 记忆检索]", f"查询词：{debug['query']}", f"召回数量：{debug['total']} 条"]
+                lines.extend(f"  ▸ [情节] {item['topic']}" for item in debug["events"])
+                lines.extend([f"注入位置：{debug['position']}", "─" * 20])
+                parts.append("\n".join(lines))
+            if cfg.show_injection_summary:
+                parts.append(_format_injection_debug_for_display(info["injection"]) if info["injection"]
+                             else "[Moirai 实际注入摘要]\n注入摘要不可用。")
+            if cfg.show_system_prompt:
+                cleaned = _EM_BLOCK_RE.sub("", info["system_prompt"]).strip()
+                display = _format_system_prompt_for_debug(cleaned, info["persona"],
+                                                          _extract_system_prompt_skill_names(cleaned))
+                if display:
+                    parts.append(f"[System Prompt（摘要，记忆注入块已过滤）]\n{display}\n{'─' * 20}")
+            return [{"kind": "reply_prefix", "text": "[系统测试消息]\n\n" + "\n\n".join(parts) + "\n\n"}] if parts else []
+        return []

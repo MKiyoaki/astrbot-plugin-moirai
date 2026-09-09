@@ -222,6 +222,13 @@ class MessageRouter:
                 getattr(window, "session_id", "?"), msg_idx, exc,
             )
 
+    async def prepare_persona(self, session_id: str, persona_name: str) -> None:
+        """Close a different persona's window before consuming the next scoped event."""
+        window = self._context_manager.get_window(session_id)
+        if window is not None and window.last_active_persona and window.last_active_persona != persona_name:
+            await self.flush_window_split_tail(session_id, tail=0, new_persona=persona_name)
+        self.note_session_persona(session_id, persona_name)
+
     def note_session_persona(self, session_id: str, persona_name: str | None) -> None:
         """Record the active persona for a session on its current window.
 

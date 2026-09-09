@@ -5,6 +5,7 @@ Usage:
     python run_realtime_dev.py            # auto: resume if prior session found, else build
     python run_realtime_dev.py --resume   # force resume, skip the prompt
     python run_realtime_dev.py --fresh    # force a full rebuild, skip the prompt
+    python run_realtime_dev.py --self-test # offline regressions, no runtime DB or models
 
 Persistence:
     .dev_data/realtime_test.db and the group summaries it generates are no longer
@@ -28,6 +29,7 @@ Configurations:
 """
 
 import asyncio
+import json
 import shutil
 import sys
 import re
@@ -164,6 +166,7 @@ DATAFLOW_DB = DEV_DATA / "dataflow_test.db"
 # Stash for this script's own group summaries between runs, so a resumed
 # session gets its markdown output back without re-running Phase 4.
 REALTIME_GROUPS_STASH = DEV_DATA / "realtime_groups"
+REALTIME_SETTINGS = DEV_DATA / "realtime_settings.json"
 PORT = 2656
 
 # Tracks where the previous groups/ directory was archived so _cleanup()
@@ -180,6 +183,8 @@ def _resume_requested() -> bool:
     prior realtime_test.db exists there's nothing to resume, so build fresh
     silently; if one does exist, ask (default: resume).
     """
+    if "--resume" in sys.argv and not REALTIME_DB.exists():
+        raise SystemExit("No prior realtime database exists; choose --fresh explicitly.")
     if "--fresh" in sys.argv:
         return False
     if "--resume" in sys.argv:
@@ -191,6 +196,24 @@ def _resume_requested() -> bool:
         "是否恢复上次会话进度，跳过重新构建？(Y/n): "
     ).strip().lower()
     return ans not in ("n", "no")
+
+
+def _load_eval_setting() -> bool:
+    if not REALTIME_SETTINGS.exists():
+        print("[Dev] 旧会话没有评价开关记录；保留历史事件，本次重新提取默认关闭评价。")
+        return False
+    try:
+        settings = json.loads(REALTIME_SETTINGS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        print("[Dev] 评价开关记录无法读取；本次重新提取默认关闭评价。")
+        return False
+    return isinstance(settings, dict) and settings.get("persona_influenced_summary") is True
+
+
+def _save_eval_setting(enabled: bool) -> None:
+    REALTIME_SETTINGS.write_text(
+        json.dumps({"persona_influenced_summary": enabled}), encoding="utf-8",
+    )
 
 
 # ── Archive step ──────────────────────────────────────────────────────────────
@@ -618,6 +641,8 @@ async def main() -> None:
         from core.managers.llm_manager import LLMTaskManager
         llm_manager = LLMTaskManager(concurrency=cfg.llm_concurrency)
 
+        use_mock_persona = _load_eval_setting() if resume else False
+
         if not resume:
             # ── 模拟 Persona 选项 ──────────────────────────────────────────
             use_mock_persona = input(
@@ -634,11 +659,19 @@ async def main() -> None:
                         _persona_name = _line.removeprefix(
                             "# Mock Persona:").strip()
                         break
+                # Production stores a short synthesised blurb here, not the whole
+                # profile. Mirror that: the extractor feeds `description` into the
+                # [Eval] prompt, and an 8 KB file per call wrecks the prefix cache.
+                _persona_desc = next(
+                    (ln.strip() for ln in _persona_text.splitlines()
+                     if ln.strip() and not ln.lstrip().startswith("#")),
+                    _persona_name,
+                )[:200]
                 _mock_persona = _Persona(
                     uid="bot_internal_gariton",
                     bound_identities=[("internal", "gariton")],
                     primary_name=_persona_name,
-                    persona_attrs={"description": _persona_text},
+                    persona_attrs={"description": _persona_desc},
                     confidence=0.9,
                     created_at=_time.time(),
                     last_active_at=_time.time(),
@@ -646,9 +679,9 @@ async def main() -> None:
                 await persona_repo.upsert(_mock_persona)
                 print("[Dev] persona 已植入。")
 
+            _save_eval_setting(use_mock_persona)
             extractor_cfg = cfg.get_extractor_config()
-            if use_mock_persona:
-                extractor_cfg.persona_influenced_summary = True
+            extractor_cfg.persona_influenced_summary = use_mock_persona
 
             extractor = EventExtractor(
                 event_repo=event_repo,
@@ -715,6 +748,8 @@ async def main() -> None:
                         except Exception as exc:
                             print(f"\n  [Warning] Extraction task raised: {exc}")
                         bar.update(1)
+                print("[Phase 2] Annotating [Eval] asides (batched, after extraction) ...")
+                await extractor.drain_evals()
             else:
                 print("\n[Phase 2] No extraction tasks queued.")
 
@@ -889,6 +924,7 @@ async def main() -> None:
             print(f"[Task] unknown task: {name}")
             return False
 
+        session_config = {"persona_influenced_summary": use_mock_persona}
         srv = WebuiServer(
             persona_repo=persona_repo,
             event_repo=event_repo,
@@ -896,6 +932,7 @@ async def main() -> None:
             data_dir=DEV_DATA,
             port=PORT,
             auth_enabled=False,
+            initial_config=session_config,
             plugin_version=get_plugin_version(),
             provider_getter=lambda: mock_provider,
             all_providers_getter=lambda: [type(
@@ -958,6 +995,7 @@ async def main() -> None:
             pass
         finally:
             print("\n[Shutdown] Stopping WebUI server ...")
+            _save_eval_setting(session_config["persona_influenced_summary"] is True)
             await srv.stop()
             await raw_message_writer.stop()
             if _EVENT_MODE == "encoder":
@@ -971,6 +1009,13 @@ if __name__ == "__main__":
     _root_str = str(Path(__file__).parent)
     if _root_str not in sys.path:
         sys.path.insert(0, _root_str)
+    if "--self-test" in sys.argv:
+        import unittest
+        suite = unittest.defaultTestLoader.discover(str(_ROOT / "tests"), pattern="test_event_summary.py")
+        if not suite.countTestCases():
+            raise SystemExit("No event-summary regression tests found.")
+        result = unittest.TextTestRunner(verbosity=2).run(suite)
+        raise SystemExit(0 if result.wasSuccessful() else 1)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

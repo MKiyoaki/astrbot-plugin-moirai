@@ -9,7 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { TableCell, TableRow } from '@/components/ui/table'
 import { useI18n } from '@/lib/store'
 import type { ApiEvent } from '@/lib/api'
-import { cn, parseSummaryTopics } from '@/lib/utils'
+import { cn, cleanSummaryText, parseSummaryTopics } from '@/lib/utils'
 import { getThreadColor } from '@/lib/colors'
 
 interface EventRowProps {
@@ -159,8 +159,8 @@ function EventDetailPanel({
                 [i18n.events.summaryWhat, tp.what],
                 [i18n.events.summaryWho, tp.who],
                 [i18n.events.summaryHow, tp.how],
-                [i18n.events.summaryEval, tp.eval ?? i18n.events.summaryEvalNone],
-              ] as [string, string][]).map(([label, val]) => (
+                [i18n.events.summaryEval, tp.eval ?? ''],
+              ] as [string, string][]).filter(([, val]) => val.trim()).map(([label, val]) => (
                 <div key={label} className="flex gap-2 leading-snug">
                   <span className="text-[9px] uppercase font-mono tracking-wider text-accent-foreground/60 w-12 shrink-0 pt-0.5">{label}</span>
                   <span className="text-foreground/80">{val}</span>
@@ -168,7 +168,7 @@ function EventDetailPanel({
               ))}
             </div>
           )) : (
-            <p className="text-xs text-muted-foreground">{ev.summary}</p>
+            <p className="text-xs text-muted-foreground">{cleanSummaryText(ev.summary)}</p>
           )}
         </div>
       )}

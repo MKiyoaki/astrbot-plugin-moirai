@@ -22,11 +22,14 @@ def _is_internal_bound(persona) -> bool:
 async def resolve_bot_persona_context(
     persona_repo: PersonaRepository | None,
     enabled: bool,
+    persona_name: str | None = None,
 ) -> tuple[str | None, str | None]:
     """Return (primary_name, prompt_description) for the internal bot persona.
 
     This is a *prompt-description* helper only — it must not be used as the
-    source of an Event's ``bot_persona_name`` bucket key. When several internal
+    source of an Event's ``bot_persona_name`` bucket key. An explicit name
+    selects that event's persona without falling back to a different persona.
+    When several internal
     bot personas exist the choice is made deterministically (most recently
     active) instead of picking an arbitrary first match, and the ambiguity is
     logged so stray personas can be merged.
@@ -35,6 +38,18 @@ async def resolve_bot_persona_context(
         return None, None
 
     personas = await persona_repo.list_all()
+    if persona_name:
+        matches = [
+            p for p in personas
+            if _is_internal_bound(p) and (p.primary_name or "").strip() == persona_name
+        ]
+        if not matches:
+            return persona_name, persona_name
+        matches.sort(key=lambda p: getattr(p, "last_active_at", 0.0) or 0.0, reverse=True)
+        bot = matches[0]
+        attrs = bot.persona_attrs if isinstance(bot.persona_attrs, dict) else {}
+        return persona_name, str(attrs.get("description") or "").strip() or persona_name
+
     internal = [p for p in personas if _is_internal_bound(p)]
     if not internal:
         return None, None

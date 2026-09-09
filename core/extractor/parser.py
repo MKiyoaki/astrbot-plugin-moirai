@@ -5,6 +5,8 @@ import json
 import re
 from typing import TYPE_CHECKING
 
+from .summary import normalize_summary
+
 if TYPE_CHECKING:
     from ..boundary.window import MessageWindow
 
@@ -23,10 +25,6 @@ _DECODER = json.JSONDecoder(strict=False)
 # Minimum span (number of messages) for a stand-alone event. Single-message
 # events are merged into the nearest neighbor unless that is the only event.
 _MIN_EVENT_SPAN = 2
-
-_EVAL_MISSING_PLACEHOLDER = "[Eval] 信息不足"
-_EVAL_TOKEN_RE = re.compile(r"\[Eval\]", re.IGNORECASE)
-_EVAL_CONFIDENCE_PENALTY = 0.7
 
 # Fallback tag pollution filters
 _TAG_MAX_LEN = 12
@@ -293,29 +291,6 @@ def _extract_json_objects(text: str) -> list[dict]:
     return whole if len(whole) >= len(salvaged) else salvaged
 
 
-def _ensure_eval_field(item: dict) -> None:
-    """If summary lacks any [Eval] segment, append a placeholder and discount confidence.
-
-    Mutates item in place. Only call this when a bot persona was supplied to the LLM
-    (i.e. the [Eval] field is required by the prompt). Each [What]/[Who]/[How] triple
-    is separated by " | "; we add the placeholder per-triple where it is missing.
-    """
-    summary = str(item.get("summary", ""))
-    if not summary:
-        return
-    if _EVAL_TOKEN_RE.search(summary):
-        # At least one [Eval] present — accept; LLM may still skip some, but we
-        # avoid aggressive per-triple rewriting to preserve readability.
-        return
-    # Whole summary missing [Eval] — append a single placeholder at the end.
-    sep = "" if summary.endswith((" ", "。", "!", "?", "！", "？", ".")) else " "
-    item["summary"] = f"{summary}{sep}{_EVAL_MISSING_PLACEHOLDER}"
-    try:
-        item["confidence"] = _clamp(float(item.get("confidence", 0.5)) * _EVAL_CONFIDENCE_PENALTY)
-    except (TypeError, ValueError):
-        item["confidence"] = 0.35
-
-
 def _merge_into(target: dict, source: dict) -> dict:
     """Merge source event-dict into target (in-place on target, returns target)."""
     target["start_idx"] = min(int(target["start_idx"]), int(source["start_idx"]))
@@ -452,7 +427,7 @@ def parse_llm_output(
             "start_idx": start_idx,
             "end_idx": end_idx,
             "topic": str(item["topic"])[:60],
-            "summary": str(item["summary"]),
+            "summary": normalize_summary(str(item["summary"]), has_bot_persona),
             "chat_content_tags": _parse_tags(item.get("chat_content_tags")),
             "salience": _clamp(item.get("salience", 0.5)),
             "confidence": _clamp(item.get("confidence", 0.5)),
@@ -460,8 +435,6 @@ def parse_llm_output(
             "participants_personality": _parse_personality(item.get("participants_personality")),
             "participant_style": _parse_participant_style(item.get("participant_style")),
         }
-        if has_bot_persona:
-            _ensure_eval_field(parsed)
         results.append(parsed)
 
     if not results:
@@ -486,7 +459,7 @@ def parse_single_item(text: str, has_bot_persona: bool = False) -> dict | None:
 
     parsed = {
         "topic": str(data["topic"])[:60],
-        "summary": str(data["summary"]),
+        "summary": normalize_summary(str(data["summary"]), has_bot_persona),
         "chat_content_tags": _parse_tags(data.get("chat_content_tags")),
         "salience": _clamp(data.get("salience", 0.5)),
         "confidence": _clamp(data.get("confidence", 0.5)),
@@ -494,9 +467,44 @@ def parse_single_item(text: str, has_bot_persona: bool = False) -> dict | None:
         "participants_personality": _parse_personality(data.get("participants_personality")),
         "participant_style": _parse_participant_style(data.get("participant_style")),
     }
-    if has_bot_persona:
-        _ensure_eval_field(parsed)
     return parsed
+
+
+def parse_eval_map(text: str, expected: dict[str, int]) -> dict[str, list[str]]:
+    """Parse the batched second-pass output into ``{label: [aside, ...]}``.
+
+    Expects a JSON object keyed by event label -> list of asides. Each list is
+    padded with "" / truncated to ``expected[label]``; missing labels yield an
+    all-"" list (the caller backfills 「未生成评价」). Never raises.
+    """
+    result: dict[str, list[str]] = {label: [""] * n for label, n in expected.items()}
+    if not text:
+        return result
+    fence = _FENCE_RE.search(text)
+    if fence:
+        text = fence.group(1)
+    text = text.strip()
+
+    obj: dict | None = None
+    for i, ch in enumerate(text):
+        if ch != "{":
+            continue
+        decoded = _decode_at(text, i)
+        if decoded is not None and isinstance(decoded[0], dict):
+            obj = decoded[0]
+            break
+    if obj is None:
+        return result
+
+    for label, n in expected.items():
+        raw = obj.get(label)
+        if isinstance(raw, str):
+            raw = [raw]
+        if not isinstance(raw, list):
+            continue
+        vals = [str(v).strip() for v in raw if not isinstance(v, (dict, list))]
+        result[label] = (vals + [""] * n)[:n]
+    return result
 
 
 def fallback_extraction(window: MessageWindow) -> list[dict]:

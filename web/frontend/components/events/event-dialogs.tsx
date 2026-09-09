@@ -19,7 +19,7 @@ import { FieldGroup, Field, FieldLabel, FieldContent, FieldDescription } from '@
 import { TagSelector } from '@/components/shared/tag-selector'
 import { type ApiEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
-import { cn, parseSummaryTopics } from '@/lib/utils'
+import { cn, cleanSummaryText, parseSummaryTopics } from '@/lib/utils'
 import { getTagColor } from '@/lib/colors'
 
 export interface EventFormData {
@@ -906,8 +906,8 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
                       [i18n.events.summaryWhat, tp.what],
                       [i18n.events.summaryWho,  tp.who],
                       [i18n.events.summaryHow,  tp.how],
-                      [i18n.events.summaryEval, tp.eval ?? i18n.events.summaryEvalNone],
-                    ] as [string, string][]).map(([label, val]) => (
+                      [i18n.events.summaryEval, tp.eval ?? ''],
+                    ] as [string, string][]).filter(([, val]) => val.trim()).map(([label, val]) => (
                       <div key={label} className="flex gap-2 text-sm leading-snug min-w-0">
                         <span className="text-[10px] uppercase font-bold text-primary/60 tracking-tight w-14 shrink-0 pt-0.5">{label}</span>
                         <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-foreground/90 font-medium">{val}</span>
@@ -918,7 +918,7 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
               </div>
             ) : (
               <div className="text-sm text-foreground/90 leading-relaxed font-medium whitespace-pre-wrap break-words">
-                {event.summary}
+                {cleanSummaryText(event.summary)}
               </div>
             )}
           </div>

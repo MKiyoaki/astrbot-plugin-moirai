@@ -15,7 +15,7 @@ def get_plugin_version() -> str:
     try:
         content = metadata_path.read_text(encoding="utf-8")
         # Matches 'version: v0.7.30' or 'version: 0.7.30'
-        match = re.search(r"version:\s*v?([\d\.]+)", content)
+        match = re.search(r"version:\s*v?(\d+\.\d+\.\d+(?:\.sub)?)", content)
         if match:
             return match.group(1)
     except Exception:

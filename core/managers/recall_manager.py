@@ -34,13 +34,14 @@ from ..utils.formatter import (
 from ..retrieval.rrf import rrf_scores
 from ..tags import derive_tag_categories
 from .base import BaseRecallManager
-from ..utils.injection_compat import resolve_injection_position
 from ..social.soul_state import SoulState, format_soul_for_prompt, from_config, update_from_signals
 
 if TYPE_CHECKING:
     from ..config import InjectionConfig, RetrievalConfig, SoulConfig
     from ..retrieval.hybrid import HybridRetriever
     from ..repository.base import ImpressionRepository, PersonaRepository, RawMessageRepository
+
+logger = logging.getLogger(__name__)
 
 _LOG2 = log(2)
 _RAW_DETAIL_PER_EVENT = 8
@@ -506,6 +507,7 @@ class RecallManager(BaseRecallManager):
         group_id: str | None = None,
         limit: int | None = None,
         scope_mode: str = "all",
+        bot_persona_name: str | None = None,
     ) -> list[Event]:
         """Return re-ranked events for injection."""
         from ..utils.perf import performance_timer
@@ -523,7 +525,8 @@ class RecallManager(BaseRecallManager):
             bm25_limit = self._retriever._bm25_limit
             vec_limit = self._retriever._vec_limit
             common = dict(
-                active_only=cfg.active_only, group_id=group_id, scope_mode=scope_mode
+                active_only=cfg.active_only, group_id=group_id, scope_mode=scope_mode,
+                bot_persona_name=bot_persona_name,
             )
 
             # Fast pre-flight: skip encode + vector when the DB has no active events.
@@ -636,6 +639,12 @@ class RecallManager(BaseRecallManager):
             seen_ids: set[str] = set()
 
             def _add_event_sync(ev: Event) -> None:
+                if bot_persona_name is not None and ev.bot_persona_name != bot_persona_name:
+                    return
+                if scope_mode == "group" and ev.group_id != group_id:
+                    return
+                if scope_mode == "private" and ev.group_id is not None:
+                    return
                 if ev.event_id not in seen_ids:
                     result_list.append(ev)
                     seen_ids.add(ev.event_id)
@@ -687,7 +696,10 @@ class RecallManager(BaseRecallManager):
         from ..utils.perf import performance_timer, tracker
         async with performance_timer("recall"):
             if self._icfg.auto_clear:
-                self.clear_previous_injection(req)
+                if hasattr(req, "clear_namespace"):
+                    req.clear_namespace()
+                else:
+                    self.clear_previous_injection(req)
 
             if self._rcfg.final_limit <= 0:
                 return 0
@@ -695,9 +707,10 @@ class RecallManager(BaseRecallManager):
             # Resolve position up-front (pure CPU) so we know whether to pre-fetch
             # persona / relation before recall finishes.
             model_name = getattr(req, "model", None)
-            position, compat_reason = resolve_injection_position(
-                model_name, self._icfg.position
-            )
+            position, compat_reason = self._icfg.position, ""
+            fallback = getattr(req, "synthetic_tool_fallback", None)
+            if position == "fake_tool_call" and fallback:
+                position, compat_reason = fallback, "Core host compatibility fallback"
             if compat_reason:
                 logger.debug(
                     "injection_compat: downgraded fake_tool_call → %s for model=%r (%s)",
@@ -719,7 +732,8 @@ class RecallManager(BaseRecallManager):
                     return None
 
             events, persona_obj_pre, relation_result = await asyncio.gather(
-                self.recall(query, group_id=group_id, scope_mode=scope_mode),
+                self.recall(query, group_id=group_id, scope_mode=scope_mode,
+                            bot_persona_name=bot_persona_name),
                 _prefetch_persona(),
                 self._build_relation_segment(
                     sender_uid=sender_uid,
@@ -782,7 +796,10 @@ class RecallManager(BaseRecallManager):
                         contexts = getattr(req, "contexts", None)
                         if contexts is None:
                             return 0
-                        contexts.extend(messages)
+                        if hasattr(req, "add_tool_messages"):
+                            req.add_tool_messages(messages)
+                        else:
+                            contexts.extend(messages)
                     self._last_injected_ids[session_id] = [e.event_id for e in events]
                     return len(events) if messages else 0
 
@@ -862,7 +879,12 @@ class RecallManager(BaseRecallManager):
                         + "\n"
                         + MEMORY_INJECTION_FOOTER
                     )
-                    if position == "system_prompt":
+                    if hasattr(req, "add_block"):
+                        req.add_block("memory", "prompt" if position in {
+                            "user_message_before", "user_message_after"} else "system_prompt",
+                            "before" if position == "user_message_before" else "after",
+                            "\n\n".join(mem_segments))
+                    elif position == "system_prompt":
                         sep = "\n\n" if getattr(req, "system_prompt", "") else ""
                         req.system_prompt = getattr(req, "system_prompt", "") + sep + memory_wrapped
                     elif position == "user_message_before":
@@ -884,7 +906,10 @@ class RecallManager(BaseRecallManager):
                         + SOUL_INJECTION_FOOTER
                     )
                     sep = "\n\n" if getattr(req, "system_prompt", "") else ""
-                    req.system_prompt = getattr(req, "system_prompt", "") + sep + soul_wrapped
+                    if hasattr(req, "add_block"):
+                        req.add_block("soul", "system_prompt", "after", soul_segment)
+                    else:
+                        req.system_prompt = getattr(req, "system_prompt", "") + sep + soul_wrapped
 
                 if store_injection_debug:
                     self._last_injection_debug[session_id] = _build_injection_debug(

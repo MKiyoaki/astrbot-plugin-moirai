@@ -504,7 +504,7 @@
             "persona_influenced_summary": {
                 "description": "🟢 根据当前性格记忆事件",
                 "type": "bool",
-                "hint": "开启后在提取事件摘要时注入 Bot 人格描述，使摘要带有 Bot 当前性格的视角",
+                "hint": "开启后为新提取或重新提取的事件添加独立的「我的评价」；事实摘要保持客观。关闭后不生成评价，不改变事件人格归属，也不自动修改历史记忆。",
                 "default": true,
                 "level": "basic"
             },
@@ -900,6 +900,19 @@
                 "type": "int",
                 "hint": "超过该天数的旧备份将被自动删除",
                 "default": 7,
+                "level": "advanced"
+            }
+        }
+    },
+    "core_integration": {
+        "description": "Core 事件接入",
+        "type": "object",
+        "items": {
+            "scope_mappings": {
+                "description": "显式人格数据桶映射",
+                "type": "string",
+                "default": "{}",
+                "hint": "JSON 对象：Core scope ID 到 Moirai 旧人格数据桶名称。例如 {\"memory-alice\":\"Alice\"}。随后在 Core Settings 绑定；不自动按名称关联。",
                 "level": "advanced"
             }
         }

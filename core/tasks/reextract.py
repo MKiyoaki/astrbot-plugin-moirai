@@ -8,10 +8,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..boundary.window import MessageWindow
-from ..config import ExtractorConfig
+from ..config import ExtractorConfig, select_event_system_prompt
+from ..extractor.eval_pass import annotate_event_evals
 from ..extractor.parser import parse_llm_output
 from ..extractor.persona_context import resolve_bot_persona_context
 from ..extractor.prompts import build_user_prompt
+from ..extractor.summary import strip_evals
 
 if TYPE_CHECKING:
     from ..embedding.encoder import Encoder
@@ -160,9 +162,10 @@ async def reextract_event(
 
     cfg = extractor_config or ExtractorConfig()
     window = await _build_window_from_event(event, persona_repo, raw_message_repo)
-    bot_name, bot_desc = await resolve_bot_persona_context(
+    _, bot_desc = await resolve_bot_persona_context(
         persona_repo,
         cfg.persona_influenced_summary,
+        persona_name=event.bot_persona_name,
     )
 
     provider = provider_getter() if callable(provider_getter) else None
@@ -172,20 +175,20 @@ async def reextract_event(
     prompt = build_user_prompt(
         window,
         cfg.max_context_messages,
-        bot_persona_desc=bot_desc,
     )
 
+    system_prompt = select_event_system_prompt(cfg.system_prompt, has_bot_persona=False)
     try:
         if llm_manager:
             resp = await llm_manager.run(
                 asyncio.wait_for,
-                provider.text_chat(prompt=prompt, system_prompt=cfg.system_prompt),
+                provider.text_chat(prompt=prompt, system_prompt=system_prompt),
                 timeout=cfg.llm_timeout,
                 task_name="extraction",
             )
         else:
             resp = await asyncio.wait_for(
-                provider.text_chat(prompt=prompt, system_prompt=cfg.system_prompt),
+                provider.text_chat(prompt=prompt, system_prompt=system_prompt),
                 timeout=cfg.llm_timeout,
             )
     except asyncio.TimeoutError as exc:
@@ -193,19 +196,46 @@ async def reextract_event(
     except Exception as exc:
         raise ReextractError("exception", f"重新提取失败：{exc}") from exc
 
-    parsed = parse_llm_output(_response_text(resp), window.message_count - 1, merge_to_single=True)
+    parsed = parse_llm_output(
+        _response_text(resp), window.message_count - 1,
+        has_bot_persona=False, merge_to_single=True,
+    )
     if not parsed:
         raise ReextractError("parse_error", "重新提取失败：LLM 输出无法解析。")
 
     primary = parsed[0]
+    summary_text = primary.get("summary", "")
+    if cfg.persona_influenced_summary and bot_desc:
+        async def _eval_call(user_prompt: str, system_prompt: str) -> str:
+            if llm_manager:
+                resp_eval = await llm_manager.run(
+                    asyncio.wait_for,
+                    provider.text_chat(prompt=user_prompt, system_prompt=system_prompt),
+                    timeout=cfg.llm_timeout,
+                    task_name="eval",
+                )
+            else:
+                resp_eval = await asyncio.wait_for(
+                    provider.text_chat(prompt=user_prompt, system_prompt=system_prompt),
+                    timeout=cfg.llm_timeout,
+                )
+            return _response_text(resp_eval)
+
+        summary_text = await annotate_event_evals(
+            call=_eval_call,
+            topic=primary["topic"],
+            summary=summary_text,
+            bot_persona_desc=bot_desc,
+            system_prompt=select_event_system_prompt(cfg.system_prompt, has_bot_persona=False),
+        )
+
     updated = dataclasses.replace(
         event,
         topic=primary["topic"],
-        summary=primary.get("summary", ""),
+        summary=summary_text,
         chat_content_tags=primary.get("chat_content_tags", []),
         salience=primary["salience"],
         confidence=primary["confidence"],
-        bot_persona_name=bot_name if cfg.persona_influenced_summary and bot_name else event.bot_persona_name,
         last_accessed_at=time.time(),
     )
     await event_repo.upsert(updated)
@@ -214,7 +244,7 @@ async def reextract_event(
         text = " ".join(
             part for part in [
                 updated.topic,
-                updated.summary,
+                strip_evals(updated.summary),
                 " ".join(updated.chat_content_tags or []),
             ]
             if part

@@ -156,7 +156,8 @@ class BaseRecallManager(BaseManager, ABC):
 
     @abstractmethod
     async def recall(
-        self, query: str, group_id: str | None = None, scope_mode: str = "all"
+        self, query: str, group_id: str | None = None, scope_mode: str = "all",
+        bot_persona_name: str | None = None
     ) -> list[Event]:
         """Retrieve relevant events for the given query.
 

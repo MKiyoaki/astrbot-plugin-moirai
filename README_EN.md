@@ -312,3 +312,11 @@ All entities use a stable internal `uid`. The mapping `(platform, physical_id) �
 - [Memorix](https://github.com/exynos967/astrbot_plugin_memorix) — scope routing, lifecycle states, graph visualization
 - [Scriptor](https://github.com/ysf7762-dev/astrbot_plugin_scriptor) — identity unification, file-as-memory, sleep consolidation
 - MaiBot — chat_stream as first-class concept
+
+## Oedipus-Sub shared events
+
+Branch version `v1.0.15.sub` requires Core Event Protocol v1 for automatic event consumption and injection. Configure Moirai `core_integration.scope_mappings` with explicit scope-to-legacy-bucket pairs, then create a persona/binding and host mapping or deliberate global override in Core Settings. No database migration or automatic global override occurs. Missing Core or missing mappings pause shared-event processing; existing data and independent management remain available. The old `bot_persona_name_override` is deprecated.
+
+### Event summary extraction
+
+Event summaries keep factual topic segments separate from optional bot-persona commentary. The persona switch applies to extraction and manual re-extraction without changing event ownership. See [the summary contract and verification workflow](docs/event-summary.md).

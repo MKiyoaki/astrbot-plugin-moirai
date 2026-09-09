@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone
 
 from typing import TYPE_CHECKING
+
+from ..config import EVAL_ONLY_PROMPT_PREAMBLE
 
 if TYPE_CHECKING:
     from ..boundary.window import MessageWindow, RawMessage
@@ -64,7 +67,8 @@ def build_user_prompt(
     ]
     for i, m in enumerate(messages):
         label = uid_label[m.uid]
-        lines.append(f"[{i}] {label}: {m.text}")
+        stamp = datetime.fromtimestamp(m.timestamp, timezone.utc).isoformat(timespec="seconds")
+        lines.append(f"[{i}] [消息时间 {stamp}] {label}: {m.text}")
 
     return "\n".join(lines)
 
@@ -98,7 +102,33 @@ def build_distillation_prompt(
     ]
     uid_label = _assign_unique_labels(messages)
     for i, m in enumerate(messages):
-        lines.append(f"[{i}] {uid_label.get(m.uid, m.display_name or m.uid)}: {m.text}")
+        stamp = datetime.fromtimestamp(m.timestamp, timezone.utc).isoformat(timespec="seconds")
+        lines.append(f"[{i}] [消息时间 {stamp}] {uid_label.get(m.uid, m.display_name or m.uid)}: {m.text}")
 
     lines.append("\n请按 system 指令为这段对话输出单个 JSON 对象。")
+    return "\n".join(lines)
+
+
+def build_eval_prompt(
+    bot_persona_desc: str,
+    entries: list[tuple[str, str, list[str]]],
+) -> str:
+    """Build the thin second-pass prompt for a batch of already-finalised events.
+
+    ``entries`` is a list of ``(label, topic, subtopics)``. The conversation is
+    not resent — extraction is done. Only the finalised topic segments and the
+    persona description are per-call input, so consecutive batches for the same
+    persona share a long cacheable prefix.
+    """
+    lines = [
+        EVAL_ONLY_PROMPT_PREAMBLE,
+        f"[Bot 视角人格] {bot_persona_desc}",
+        "",
+        f"共 {len(entries)} 个事件：",
+    ]
+    for label, topic, subtopics in entries:
+        lines.append("")
+        lines.append(f"事件 {label}（主题：{topic or '（未命名）'}，{len(subtopics)} 个小话题）：")
+        for i, sub in enumerate(subtopics):
+            lines.append(f"  [{i}] {sub}")
     return "\n".join(lines)

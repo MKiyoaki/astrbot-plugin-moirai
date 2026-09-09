@@ -44,8 +44,10 @@ from core.utils.formatter import format_events_for_prompt_safe
 from core.utils.version import get_plugin_version
 from core.plugin_initializer import PluginInitializer
 from core.event_handler import EventHandler
+from core.adapters.core_events import MoiraiCoreProvider
 from core.domain.models import Event
 from core.config import PluginConfig
+from astrbot.api import logger
 from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.api.event import filter, AstrMessageEvent
 from typing import TYPE_CHECKING
@@ -73,6 +75,12 @@ class MoiraiPlugin(Star):
         self.config = config or {}
         self._initializer: PluginInitializer | None = None
         self._handler: EventHandler | None = None
+        self.oedipus_core_extension_v1 = MoiraiCoreProvider(
+            lambda: self._handler,
+            lambda: self.config.get("core_integration", {}).get("scope_mappings", "{}"),
+            _PLUGIN_VERSION,
+            self._core_available,
+        )
 
     @property
     def webui_registry(self):
@@ -94,35 +102,17 @@ class MoiraiPlugin(Star):
         self._initializer = initializer
         await self._initializer.initialize()
         self._handler = EventHandler(self._initializer)
+        if not self._core_available():
+            logger.warning("[Moirai] 事件处理暂停：需要启用 Core Event Protocol v1。")
+        if cfg.bot_persona_name_override:
+            logger.warning("[Moirai] bot_persona_name_override 已停用，请在 Core 设置显式绑定和全局人格覆盖。")
 
-    # ── Message hooks ─────────────────────────────────────────────────────────
-
-    @filter.on_llm_request()
-    async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest) -> None:
-        if self._handler:
-            await self._handler.handle_llm_request(event, req)
-
-    @filter.on_llm_response()
-    async def on_llm_response(self, event: AstrMessageEvent, resp: ProviderResponse) -> None:
-        if self._handler:
-            await self._handler.handle_llm_response(event, resp)
-
-    @filter.on_decorating_result()
-    async def on_decorating_result(self, event: AstrMessageEvent) -> None:
-        if self._handler:
-            result = event.get_result()
-            if result is not None:
-                await self._handler.handle_decorating_result(event, result)
-
-    @filter.on_using_llm_tool()
-    async def on_using_llm_tool(self, event: AstrMessageEvent, tool_name: str, arguments: dict) -> None:
-        if self._handler:
-            await self._handler.handle_using_llm_tool(event, tool_name, arguments)
-
-    @filter.event_message_type(filter.EventMessageType.ALL)
-    async def on_message(self, event: AstrMessageEvent) -> None:
-        if self._handler:
-            await self._handler.handle_message(event)
+    def _core_available(self) -> bool:
+        return any(
+            getattr(item, "activated", False)
+            and getattr(getattr(item, "star_cls", None), "oedipus_core_event_protocol_v1", False)
+            for item in self.context.get_all_stars()
+        )
 
     # ── LLM Tools ────────────────────────────────────────────────────────────
 

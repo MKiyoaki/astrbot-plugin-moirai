@@ -6,7 +6,7 @@
 
 **AstrBot 三轴长期记忆与数据可视化插件**
 
-[![version](https://img.shields.io/badge/版本-v1.0.9-blueviolet)](metadata.yaml)
+[![version](https://img.shields.io/badge/版本-v1.0.15.sub-blueviolet)](metadata.yaml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![license](https://img.shields.io/badge/license-APGL-green)](LICENSE)
 [![en](https://img.shields.io/badge/English-README__EN.md-blue)](README_EN.md)
@@ -18,6 +18,16 @@ Made with ♥ by MKiyoaki & Gariton
 </div>
 
 ---
+
+## Oedipus-Sub 分支：Core 事件接入
+
+此工作分支版本为 `v1.0.15.sub`。五阶段自动事件消费与注入需要启用支持 Event Protocol v1 的 Core（本轮 `v0.6.0`）；缺失、停用或不兼容时暂停自动处理，保留数据库和独立管理功能。
+
+1. 在 Moirai 配置 `core_integration.scope_mappings` 填入 JSON，例如 `{"memory-alice":"Alice"}`，显式指定 scope 对应的旧人格数据桶。
+2. 在 Core Settings 创建人格与绑定，选择 Moirai 提供的 scope。
+3. 配置 AstrBot 平台实例 ID 与人格引用的映射，或主动启用 Core 全局覆盖。侧栏选择不改变机器人运行人格。
+
+旧 `bot_persona_name_override` 不再决定事件归属，也不会自动迁移为全局覆盖。已有数据桶和记忆会话键保持原样；缺失映射不会退化成所有人格查询。FTS 与向量检索在截取候选前应用人格及会话范围过滤，候选名额仅用于当前作用域。宿主事件对象兼容、文本规范化及 synthetic tool-call 降级移入 Core，Moirai 保留窗口结算、检索、抽取、存储与调试内容生成。
 
 ## 这是什么
 
@@ -315,3 +325,7 @@ Big Five 评分（O/C/E/A/N）通过以下公式映射至 IPC 坐标：
 - [Memorix](https://github.com/exynos967/astrbot_plugin_memorix) — 范围路由、生命周期状态、图谱可视化
 - [Scriptor](https://github.com/ysf7762-dev/astrbot_plugin_scriptor) — 身份统一、文件即记忆、睡眠整合
 - MaiBot — chat_stream 作为一等公民概念
+
+### Event summary extraction
+
+Event summaries keep factual topic segments separate from optional bot-persona commentary. The persona switch applies to extraction and manual re-extraction without changing event ownership. See [the summary contract and verification workflow](docs/event-summary.md).

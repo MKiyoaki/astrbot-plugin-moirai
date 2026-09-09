@@ -161,6 +161,7 @@ class EventRepository(ABC):
         self, query: str, limit: int = 20, active_only: bool = True,
         group_id: str | None = None,
         scope_mode: str = "all",
+        bot_persona_name: str | None = None,
     ) -> list[Event]:
         """Keyword search over topic and chat_content_tags.
 
@@ -174,6 +175,7 @@ class EventRepository(ABC):
         self, embedding: list[float], limit: int = 20, active_only: bool = True,
         group_id: str | None = None,
         scope_mode: str = "all",
+        bot_persona_name: str | None = None,
     ) -> list[Event]:
         """Semantic search via embedding similarity.
 

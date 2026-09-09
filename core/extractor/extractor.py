@@ -22,9 +22,12 @@ import time as _time
 
 from typing import Awaitable, Callable, TYPE_CHECKING
 from ..embedding.encoder import NullEncoder
+from ..config import select_event_system_prompt
+from .eval_pass import annotate_events_evals
 from .parser import fallback_extraction, fallback_single_extraction, parse_llm_output, parse_single_item
 from .persona_context import resolve_bot_persona_context
 from .prompts import build_user_prompt, build_distillation_prompt
+from .summary import strip_evals
 from .partitioner import LlmPartitioner, SemanticPartitioner, Partition
 
 _NO_PROVIDER_WARN_INTERVAL = 60.0
@@ -187,12 +190,6 @@ class EventExtractor:
         self._llm_timeout_growth = max(1.0, float(getattr(cfg, "llm_timeout_growth", 1.5)))
         self._strategy = cfg.strategy
         self._persona_influenced_summary = cfg.persona_influenced_summary
-        # Explicit bot_persona_name bucket. When set, every Event is filed under
-        # this exact name regardless of which persona the window's bot messages
-        # carry — the deterministic cross-platform "pin" for one persona.
-        self._bot_persona_override = (
-            getattr(cfg, "bot_persona_name_override", "") or ""
-        ).strip()
         self._tag_normalization_threshold = cfg.tag_normalization_threshold
         self._tag_promotion_min_df = cfg.tag_promotion_min_df
         self._tag_seeds = cfg.tag_seeds
@@ -204,6 +201,16 @@ class EventExtractor:
         # EventExtractor outside an async context (e.g., during import-time tests)
         # does not raise RuntimeError: no running event loop.
         self._seeds_initialized: bool = False
+
+        # Deferred [Eval] annotation. Extraction runs persona-free and back to
+        # back (keeping the LLM prefix cache warm); the persona asides are added
+        # afterwards by a single background worker that batches events and only
+        # runs while no extraction is in flight.
+        self._active_extractions: int = 0
+        self._eval_queue: asyncio.Queue[tuple[str, str]] | None = None
+        self._eval_worker: asyncio.Task | None = None
+        self._eval_batch_size: int = 10
+        self._eval_queue_max: int = 500
 
         from ..utils.cache import TTLCache
         self._frequent_tags_cache: TTLCache[list[str]] = TTLCache(ttl=60.0)
@@ -237,7 +244,16 @@ class EventExtractor:
                 logger.debug("[EventExtractor] tag seed upsert failed for %s: %s", tag, exc)
 
     async def __call__(self, window: MessageWindow) -> None:
-        """on_event_close callback: partition, distill/extract, persist, then index vector.
+        """on_event_close callback: extract the window, then queue its [Eval] pass."""
+        self._active_extractions += 1
+        try:
+            await self._process_window(window)
+        finally:
+            self._active_extractions -= 1
+            self._kick_eval_worker()
+
+    async def _process_window(self, window: MessageWindow) -> None:
+        """Partition, distill/extract, persist, then index vector.
 
         Both strategies share the same post-partition pipeline:
           - "llm":      LlmPartitioner returns the whole window as one partition;
@@ -285,7 +301,7 @@ class EventExtractor:
         if self._strategy == "llm":
             # One batch call: LLM handles both splitting and field extraction.
             async with performance_timer("extraction"):
-                batch_results = await self._extract_batch(window, existing_tags=steering_tags, bot_persona_desc=bot_desc)
+                batch_results = await self._extract_batch(window, existing_tags=steering_tags)
                 if len(batch_results) == 1 and window.messages:
                     batch_results[0]["start_idx"] = 0
                     batch_results[0]["end_idx"] = len(window.messages) - 1
@@ -304,7 +320,6 @@ class EventExtractor:
                     res = await self._distill(
                         sub_messages,
                         existing_tags=steering_tags,
-                        bot_persona_desc=bot_desc,
                     )
                 return (part.indices, res)
 
@@ -338,11 +353,13 @@ class EventExtractor:
             # Handle inherit_from logic
             inherit_from = []
             if res.get("inherit") and window.group_id:
-                last_events = await self._event_repo.list_by_group(window.group_id, limit=1)
+                last_events = await self._event_repo.list_by_group(window.group_id, limit=1,
+                    bot_persona_name=window.last_active_persona, include_legacy=False)
                 if last_events:
                     inherit_from.append(last_events[0].event_id)
             elif res.get("inherit") and not window.group_id:
-                last_events = await self._event_repo.list_by_group(None, limit=1)
+                last_events = await self._event_repo.list_by_group(None, limit=1,
+                    bot_persona_name=window.last_active_persona, include_legacy=False)
                 if last_events:
                     if sub_messages[0].uid in last_events[0].participants:
                         inherit_from.append(last_events[0].event_id)
@@ -398,20 +415,9 @@ class EventExtractor:
                 participant_style=res.get("participant_style") or {},
             )
 
-            if self._bot_persona_override:
-                # Explicit override wins unconditionally: every Event lands in
-                # the configured bucket, even windows with no bot message.
-                event = dataclasses.replace(
-                    event, bot_persona_name=self._bot_persona_override
-                )
-            elif self._persona_influenced_summary:
-                # Prefer the persona of the most RECENT bot message in this
-                # event's own sub_messages (recency, not frequency); fall back
-                # to the window-level winner so events with no bot message
-                # still get tagged.
-                event_persona = _latest_persona_name(sub_messages) or bot_name
-                if event_persona:
-                    event = dataclasses.replace(event, bot_persona_name=event_persona)
+            event_persona = window.last_active_persona or _latest_persona_name(sub_messages) or bot_name
+            if event_persona:
+                event = dataclasses.replace(event, bot_persona_name=event_persona)
 
             await self._event_repo.upsert(event)
             await self._link_raw_messages(event.event_id, sub_messages)
@@ -427,6 +433,12 @@ class EventExtractor:
                 )
 
         await self._batch_index_vectors(persisted_events)
+
+        # Queue the persona [Eval] pass. It runs later, in batches, once no
+        # extraction is in flight — never interleaved with extraction calls.
+        if self._persona_influenced_summary and bot_desc and persisted_events:
+            if self._provider_getter() is not None:
+                self._enqueue_evals(bot_desc, persisted_events)
 
         if ipc_tasks:
             await asyncio.gather(*ipc_tasks)
@@ -449,6 +461,119 @@ class EventExtractor:
             _time.perf_counter() - _diag_t0,
             [event.event_id[:8] for event in persisted_events],
         )
+
+    # ── Deferred [Eval] annotation ────────────────────────────────────────────
+
+    def _enqueue_evals(self, bot_persona_desc: str, events: list) -> None:
+        if self._eval_queue is None:
+            self._eval_queue = asyncio.Queue()
+        for event in events:
+            if self._eval_queue.qsize() >= self._eval_queue_max:
+                logger.warning(
+                    "[EventExtractor] eval queue full (%d); skipping [Eval] for %s",
+                    self._eval_queue_max, event.event_id[:8],
+                )
+                continue
+            self._eval_queue.put_nowait((event.event_id, bot_persona_desc))
+        self._ensure_eval_worker()
+
+    def _ensure_eval_worker(self) -> None:
+        if self._eval_queue is None:
+            return
+        if self._eval_worker is None or self._eval_worker.done():
+            self._eval_worker = asyncio.create_task(self._eval_worker_loop())
+
+    def _kick_eval_worker(self) -> None:
+        if self._eval_queue is not None and not self._eval_queue.empty():
+            self._ensure_eval_worker()
+
+    async def _eval_worker_loop(self) -> None:
+        queue = self._eval_queue
+        assert queue is not None
+        while True:
+            first = await queue.get()
+            # Do not interleave with extraction: an eval call carrying the
+            # persona text would evict the extraction prefix cache. Wait for a
+            # lull, unless the backlog is approaching the cap (then drain rather
+            # than drop).
+            while self._active_extractions > 0 and queue.qsize() < self._eval_queue_max // 2:
+                await asyncio.sleep(0.5)
+            batch = [first]
+            while len(batch) < self._eval_batch_size:
+                try:
+                    batch.append(queue.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
+            try:
+                await self._run_eval_batch(batch)
+            except Exception as exc:
+                logger.warning("[EventExtractor] eval batch failed: %s", exc)
+            finally:
+                for _ in batch:
+                    queue.task_done()
+            if queue.empty():
+                return
+
+    async def _run_eval_batch(self, batch: list[tuple[str, str]]) -> None:
+        provider = self._provider_getter()
+        if provider is None:
+            return
+        eval_system_prompt = select_event_system_prompt(self._system_prompt, has_bot_persona=False)
+
+        async def _eval_call(user_prompt: str, system_prompt: str) -> str:
+            resp, _ = await self._call_llm_with_retry(
+                lambda: provider.text_chat(prompt=user_prompt, system_prompt=system_prompt),
+                task_name="eval",
+            )
+            return _response_text(resp)
+
+        by_persona: dict[str, list[str]] = {}
+        for event_id, bot_desc in batch:
+            by_persona.setdefault(bot_desc, []).append(event_id)
+
+        for bot_desc, event_ids in by_persona.items():
+            items: list[tuple[str, str, str]] = []
+            id_by_label: dict[str, str] = {}
+            for label, event_id in enumerate(event_ids):
+                event = await self._event_repo.get(event_id)
+                if event is None:
+                    continue
+                items.append((str(label), event.topic or "", event.summary or ""))
+                id_by_label[str(label)] = event_id
+            if not items:
+                continue
+            annotated = await annotate_events_evals(
+                call=_eval_call,
+                items=items,
+                bot_persona_desc=bot_desc,
+                system_prompt=eval_system_prompt,
+            )
+            for label, new_summary in annotated.items():
+                event_id = id_by_label.get(label)
+                if event_id is None:
+                    continue
+                event = await self._event_repo.get(event_id)
+                if event is None or event.summary == new_summary:
+                    continue
+                await self._event_repo.upsert(dataclasses.replace(event, summary=new_summary))
+
+    async def drain_evals(self) -> None:
+        """Process every queued [Eval] annotation and stop the worker.
+
+        Safe to call when nothing is queued. Called on graceful shutdown and by
+        tests; an unclean crash still drops whatever is queued.
+        """
+        if self._eval_queue is None:
+            return
+        self._ensure_eval_worker()
+        await self._eval_queue.join()
+        if self._eval_worker is not None:
+            self._eval_worker.cancel()
+            try:
+                await self._eval_worker
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._eval_worker = None
 
     async def _batch_align_tags(self, raw_tags: list[str]) -> dict[str, str]:
         """Normalize a large list of tags in a single batch operation.
@@ -619,7 +744,7 @@ class EventExtractor:
         assert last_exc is not None
         raise last_exc
 
-    async def _extract_batch(self, window: MessageWindow, existing_tags: list[str] | None = None, bot_persona_desc: str | None = None) -> list[dict]:
+    async def _extract_batch(self, window: MessageWindow, existing_tags: list[str] | None = None) -> list[dict]:
         provider = self._provider_getter()
         if provider is None:
             _warn_no_provider()
@@ -630,23 +755,23 @@ class EventExtractor:
             )
             return fallback_extraction(window)
 
+        system_prompt = select_event_system_prompt(self._system_prompt, has_bot_persona=False)
         prompt = build_user_prompt(
             window,
             self._max_context_messages,
-            bot_persona_desc=bot_persona_desc,
-            existing_tags=existing_tags
+            existing_tags=existing_tags,
         )
         fallback_reason = "parse_error"
         retries_used = 0
         try:
             resp, retries_used = await self._call_llm_with_retry(
-                lambda: provider.text_chat(prompt=prompt, system_prompt=self._system_prompt),
+                lambda: provider.text_chat(prompt=prompt, system_prompt=system_prompt),
                 task_name="extraction",
             )
             result = parse_llm_output(
                 _response_text(resp),
                 len(window.messages) - 1,
-                has_bot_persona=bool(bot_persona_desc),
+                has_bot_persona=False,
                 merge_to_single=True,
             )
             if result is not None:
@@ -660,8 +785,8 @@ class EventExtractor:
                 raw_text[:240],
             )
             repair_prompt = (
-                "请把下面内容修复为严格 JSON Array。只输出 JSON Array，不要解释，不要 markdown。"
-                "每个对象必须包含 start_idx、end_idx、topic、summary、chat_content_tags、salience、confidence。\n\n"
+                "请把下面内容修复为单个严格 JSON 对象。只修复格式，不改事实，不要 markdown。"
+                "必须包含 topic、summary、chat_content_tags、salience、confidence。\n\n"
                 f"{raw_text[:2500]}"
             )
             repair_resp, _ = await self._call_llm_with_retry(
@@ -671,7 +796,7 @@ class EventExtractor:
             result = parse_llm_output(
                 _response_text(repair_resp),
                 len(window.messages) - 1,
-                has_bot_persona=bool(bot_persona_desc),
+                has_bot_persona=False,
                 merge_to_single=True,
             )
             if result is not None:
@@ -702,23 +827,23 @@ class EventExtractor:
         )
         return fallback_extraction(window)
 
-    async def _distill(self, messages: list, existing_tags: list[str] | None = None, bot_persona_desc: str | None = None) -> dict:
+    async def _distill(self, messages: list, existing_tags: list[str] | None = None) -> dict:
         """Call LLM to summarize a specific cluster of messages."""
         provider = self._provider_getter()
         if provider is None:
             return fallback_single_extraction(messages)
 
+        system_prompt = select_event_system_prompt(self._distillation_system_prompt, has_bot_persona=False)
         prompt = build_distillation_prompt(
-            messages, 
-            bot_persona_desc=bot_persona_desc,
-            existing_tags=existing_tags
+            messages,
+            existing_tags=existing_tags,
         )
         try:
             resp, _ = await self._call_llm_with_retry(
-                lambda: provider.text_chat(prompt=prompt, system_prompt=self._distillation_system_prompt),
+                lambda: provider.text_chat(prompt=prompt, system_prompt=system_prompt),
                 task_name="distillation",
             )
-            result = parse_single_item(_response_text(resp), has_bot_persona=bool(bot_persona_desc))
+            result = parse_single_item(_response_text(resp), has_bot_persona=False)
             if result is not None:
                 return result
         except Exception as exc:
@@ -803,8 +928,9 @@ class EventExtractor:
         texts = []
         for event in events:
             text = event.topic
-            if event.summary:
-                text += " " + event.summary
+            summary_text = strip_evals(event.summary) if event.summary else ""
+            if summary_text:
+                text += " " + summary_text
             if event.chat_content_tags:
                 text += " " + " ".join(event.chat_content_tags)
             texts.append(text.strip())
@@ -824,8 +950,9 @@ class EventExtractor:
         if self._encoder.dim == 0:
             return
         text = event.topic
-        if event.summary:
-            text += " " + event.summary
+        summary_text = strip_evals(event.summary) if event.summary else ""
+        if summary_text:
+            text += " " + summary_text
         if event.chat_content_tags:
             text += " " + " ".join(event.chat_content_tags)
         if not text.strip():
