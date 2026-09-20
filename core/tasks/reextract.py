@@ -147,12 +147,16 @@ async def reextract_event(
     llm_manager: LLMTaskManager | None = None,
     encoder: Encoder | None = None,
     raw_message_repo: RawMessageRepository | None = None,
+    category_classifier=None,
 ) -> ReextractResult:
     """Re-run LLM extraction for one existing event.
 
     This function intentionally does not use EventExtractor._extract_batch(),
     because that method falls back to rule extraction.  A manual re-extract must
     either produce valid LLM JSON or leave the existing event untouched.
+
+    When a category_classifier is given, stale interaction output is cleared and
+    both axes are classified again in the background after re-extraction.
     """
     event = await event_repo.get(event_id)
     if event is None:
@@ -252,5 +256,8 @@ async def reextract_event(
         if text.strip():
             embedding = await encoder.encode(text)
             await event_repo.upsert_vector(updated.event_id, embedding)
+
+    if category_classifier is not None:
+        await category_classifier.schedule_reclassify(updated)
 
     return ReextractResult(event=updated, source_count=window.message_count)

@@ -225,6 +225,9 @@ def _event_to_dict(event: Event, participant_names: dict[str, str] | None = None
         "confidence": round(event.confidence, 3) if event.confidence is not None else 0.8,
         "tags": event.chat_content_tags if event.chat_content_tags is not None else [],
         "tag_categories": derive_tag_categories(event.chat_content_tags),
+        "interaction_classification": getattr(
+            event, "interaction_classification", {}
+        ) or {},
         "inherit_from": event.inherit_from if event.inherit_from is not None else [],
         "participants": participants,
         "participant_names": {uid: names.get(uid, uid) for uid in participants},
@@ -301,12 +304,14 @@ class PluginRoutes:
         raw_message_repo: RawMessageRepository | None = None,
         persona_group_repo: Any = None,
         account_link_manager: Any = None,
+        category_classifier: Any = None,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
         self._impression_repo = impression_repo
         self._persona_group_repo = persona_group_repo
         self._account_link_manager = account_link_manager
+        self._category_classifier = category_classifier
         self._data_dir = data_dir
         self._task_runner = task_runner
         self._plugin_version = plugin_version
@@ -791,6 +796,8 @@ class PluginRoutes:
         except (ValueError, TypeError) as exc:
             return _json({"error": str(exc)}, status=400)
         await self._event_repo.upsert(event)
+        if self._category_classifier is not None:
+            self._category_classifier.schedule([event])
         return _json({"ok": True, "event": _event_to_dict(event)}, status=201)
 
     async def _handle_update_event(self, request: web.Request) -> web.Response:
@@ -821,6 +828,8 @@ class PluginRoutes:
         except (ValueError, TypeError) as exc:
             return _json({"error": str(exc)}, status=400)
         await self._event_repo.upsert(updated)
+        if self._category_classifier is not None:
+            await self._category_classifier.schedule_reclassify(updated)
         from core.tasks.summary_links import refresh_summary_files_for_event
         await refresh_summary_files_for_event(self._data_dir, self._event_repo, updated.event_id)
         return _json({"ok": True, "event": _event_to_dict(updated)})
@@ -840,6 +849,7 @@ class PluginRoutes:
                 llm_manager=self._llm_manager,
                 encoder=self._encoder,
                 raw_message_repo=self._raw_message_repo,
+                category_classifier=self._category_classifier,
             )
         except ReextractError as exc:
             status = 404 if exc.code == "not_found" else 400

@@ -51,15 +51,6 @@ def build_user_prompt(
         # call. Only the persona text itself is per-call information.
         header_parts.append(f"[Bot 视角人格] {bot_persona_desc}")
 
-    if existing_tags:
-        tags_str = ", ".join(existing_tags)
-        # Likewise: how to build a tag is a system-prompt rule. What is carried
-        # here is the vocabulary, plus the one instruction that depends on it.
-        header_parts.append(
-            f"[现有标签体系] {tags_str}\n"
-            f"chat_content_tags 应优先复用上述标签，只有当对话确实不属于其中任何一个话题域时才新建。"
-        )
-
     persona_line = "\n\n".join(header_parts) + ("\n\n" if header_parts else "")
     lines = [
         f"{persona_line}对话记录（共{len(messages)}条消息，时间跨度约{duration_min}分钟）：",
@@ -85,15 +76,6 @@ def build_distillation_prompt(
         # prefix; repeating them here re-prefills the same instruction on every
         # call. Only the persona text itself is per-call information.
         header_parts.append(f"[Bot 视角人格] {bot_persona_desc}")
-
-    if existing_tags:
-        tags_str = ", ".join(existing_tags)
-        # Likewise: how to build a tag is a system-prompt rule. What is carried
-        # here is the vocabulary, plus the one instruction that depends on it.
-        header_parts.append(
-            f"[现有标签体系] {tags_str}\n"
-            f"chat_content_tags 应优先复用上述标签，只有当对话确实不属于其中任何一个话题域时才新建。"
-        )
 
     persona_line = "\n\n".join(header_parts) + ("\n\n" if header_parts else "")
     lines = [

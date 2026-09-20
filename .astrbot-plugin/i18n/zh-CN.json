@@ -729,6 +729,90 @@
     "backup_retention_days": {
       "description": "备份保留天数",
       "hint": "超过该天数的旧备份将被自动删除"
+    },
+    "typesafe": {
+      "description": "Typesafe 分类",
+      "hint": "用 TypeSafe API（Jev 模型）为 tag 判断话题母类，并为 event 的各摘要段判断一个或多个交互类型。默认关闭；开启后会把 event 的话题、标签和摘要发送到 api.typesafe.ai，请先阅读其数据处理协议。"
+    },
+    "typesafe.typesafe_enabled": {
+      "description": "启用 Typesafe 分类",
+      "hint": "总开关。开启并配置密钥后，按两个子开关分类；关闭时不发送任何内容。"
+    },
+    "typesafe_enabled": {
+      "description": "启用 Typesafe 分类",
+      "hint": "总开关。开启并配置密钥后，按两个子开关分类；关闭时不发送任何内容。"
+    },
+    "typesafe.typesafe_topic_enabled": {
+      "description": "分类 tag 话题",
+      "hint": "把每个具体 tag 映射到 11 个话题母类；失败时使用关键词兜底。"
+    },
+    "typesafe_topic_enabled": {
+      "description": "分类 tag 话题",
+      "hint": "把每个具体 tag 映射到 11 个话题母类；失败时使用关键词兜底。"
+    },
+    "typesafe.typesafe_event_enabled": {
+      "description": "分类 event 交互类型",
+      "hint": "按摘要中的每个话题段判断一个或多个交互类型。"
+    },
+    "typesafe_event_enabled": {
+      "description": "分类 event 交互类型",
+      "hint": "按摘要中的每个话题段判断一个或多个交互类型。"
+    },
+    "typesafe.typesafe_api_key": {
+      "description": "Typesafe API 密钥",
+      "hint": "留空则读取环境变量 TYPESAFE_API_KEY。密钥在 https://console.typesafe.ai/keys 获取。"
+    },
+    "typesafe_api_key": {
+      "description": "Typesafe API 密钥",
+      "hint": "留空则读取环境变量 TYPESAFE_API_KEY。密钥在 https://console.typesafe.ai/keys 获取。"
+    },
+    "typesafe.typesafe_base_url": {
+      "description": "Typesafe API 地址",
+      "hint": "默认 https://api.typesafe.ai。"
+    },
+    "typesafe_base_url": {
+      "description": "Typesafe API 地址",
+      "hint": "默认 https://api.typesafe.ai。"
+    },
+    "typesafe.typesafe_model": {
+      "description": "Typesafe 模型",
+      "hint": "默认 jev-latest。"
+    },
+    "typesafe_model": {
+      "description": "Typesafe 模型",
+      "hint": "默认 jev-latest。"
+    },
+    "typesafe.typesafe_timeout_seconds": {
+      "description": "Typesafe 请求超时 (秒)",
+      "hint": "单次 HTTP 请求的超时时间。默认 10 秒。"
+    },
+    "typesafe_timeout_seconds": {
+      "description": "Typesafe 请求超时 (秒)",
+      "hint": "单次 HTTP 请求的超时时间。默认 10 秒。"
+    },
+    "typesafe.typesafe_min_confidence": {
+      "description": "Typesafe 最低置信度",
+      "hint": "tag、event 子类型和 event 大组都使用该阈值；低分结果只记录不采用。默认 0.5，尚未校准。"
+    },
+    "typesafe_min_confidence": {
+      "description": "Typesafe 最低置信度",
+      "hint": "tag、event 子类型和 event 大组都使用该阈值；低分结果只记录不采用。默认 0.5，尚未校准。"
+    },
+    "typesafe.typesafe_topic_backfill": {
+      "description": "启动时回填旧 tag",
+      "hint": "仅在启用 Typesafe 分类时生效：启动后在后台为尚未分类的已有 tag 补做一次分类（每次启动有请求数上限，旧 event 行不会被改写）。"
+    },
+    "typesafe_topic_backfill": {
+      "description": "启动时回填旧 tag",
+      "hint": "仅在启用 Typesafe 分类时生效：启动后在后台为尚未分类的已有 tag 补做一次分类（每次启动有请求数上限，旧 event 行不会被改写）。"
+    },
+    "typesafe.typesafe_event_backfill": {
+      "description": "启动时回填旧 event",
+      "hint": "为尚无交互分类的旧 event 补做分类，每次启动最多处理 100 条；默认关闭。"
+    },
+    "typesafe_event_backfill": {
+      "description": "启动时回填旧 event",
+      "hint": "为尚无交互分类的旧 event 补做分类，每次启动最多处理 100 条；默认关闭。"
     }
   }
 }

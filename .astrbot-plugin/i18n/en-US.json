@@ -729,6 +729,90 @@
     "backup_retention_days": {
       "description": "Backup Retention Days",
       "hint": "Old backups exceeding this number of days will be automatically deleted."
+    },
+    "typesafe": {
+      "description": "Typesafe Classification",
+      "hint": "Use the TypeSafe API (Jev model) to map tags to broad topics and classify one or more interaction types for each event summary segment. Off by default; when enabled, event topics, tags and summaries are sent to api.typesafe.ai, so read its data processing terms first."
+    },
+    "typesafe_enabled": {
+      "description": "Enable Typesafe Classification",
+      "hint": "Master switch. With a key configured, classification follows the two axis switches below; when off, nothing is sent."
+    },
+    "typesafe.typesafe_enabled": {
+      "description": "Enable Typesafe Classification",
+      "hint": "Master switch. With a key configured, classification follows the two axis switches below; when off, nothing is sent."
+    },
+    "typesafe_topic_enabled": {
+      "description": "Classify Tag Topics",
+      "hint": "Map each concrete tag to one of eleven broad topic categories; fall back to keywords on failure."
+    },
+    "typesafe.typesafe_topic_enabled": {
+      "description": "Classify Tag Topics",
+      "hint": "Map each concrete tag to one of eleven broad topic categories; fall back to keywords on failure."
+    },
+    "typesafe_event_enabled": {
+      "description": "Classify Event Interactions",
+      "hint": "Classify one or more interaction types for every event summary segment."
+    },
+    "typesafe.typesafe_event_enabled": {
+      "description": "Classify Event Interactions",
+      "hint": "Classify one or more interaction types for every event summary segment."
+    },
+    "typesafe_api_key": {
+      "description": "Typesafe API Key",
+      "hint": "Leave empty to read the TYPESAFE_API_KEY environment variable. Get a key at https://console.typesafe.ai/keys."
+    },
+    "typesafe.typesafe_api_key": {
+      "description": "Typesafe API Key",
+      "hint": "Leave empty to read the TYPESAFE_API_KEY environment variable. Get a key at https://console.typesafe.ai/keys."
+    },
+    "typesafe_base_url": {
+      "description": "Typesafe API URL",
+      "hint": "Default: https://api.typesafe.ai."
+    },
+    "typesafe.typesafe_base_url": {
+      "description": "Typesafe API URL",
+      "hint": "Default: https://api.typesafe.ai."
+    },
+    "typesafe_model": {
+      "description": "Typesafe Model",
+      "hint": "Default: jev-latest."
+    },
+    "typesafe.typesafe_model": {
+      "description": "Typesafe Model",
+      "hint": "Default: jev-latest."
+    },
+    "typesafe_timeout_seconds": {
+      "description": "Typesafe Request Timeout (s)",
+      "hint": "Timeout of a single HTTP request. Default: 10 seconds."
+    },
+    "typesafe.typesafe_timeout_seconds": {
+      "description": "Typesafe Request Timeout (s)",
+      "hint": "Timeout of a single HTTP request. Default: 10 seconds."
+    },
+    "typesafe_min_confidence": {
+      "description": "Typesafe Minimum Confidence",
+      "hint": "This threshold applies to tags, event subtypes, and event-group Noul scores. Lower results are recorded but not adopted. Default: 0.5; not calibrated."
+    },
+    "typesafe.typesafe_min_confidence": {
+      "description": "Typesafe Minimum Confidence",
+      "hint": "This threshold applies to tags, event subtypes, and event-group Noul scores. Lower results are recorded but not adopted. Default: 0.5; not calibrated."
+    },
+    "typesafe_topic_backfill": {
+      "description": "Backfill Existing Tags on Start",
+      "hint": "Only effective when Typesafe classification is enabled: in the background after start, classify existing tags that were never asked (capped requests per start; existing event rows are not rewritten)."
+    },
+    "typesafe.typesafe_topic_backfill": {
+      "description": "Backfill Existing Tags on Start",
+      "hint": "Only effective when Typesafe classification is enabled: in the background after start, classify existing tags that were never asked (capped requests per start; existing event rows are not rewritten)."
+    },
+    "typesafe_event_backfill": {
+      "description": "Backfill Existing Events on Start",
+      "hint": "Classify stored events without interaction output, up to 100 events per start. Usually two requests per event; off by default."
+    },
+    "typesafe.typesafe_event_backfill": {
+      "description": "Backfill Existing Events on Start",
+      "hint": "Classify stored events without interaction output, up to 100 events per start. Usually two requests per event; off by default."
     }
   }
 }

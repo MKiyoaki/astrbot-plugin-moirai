@@ -325,6 +325,16 @@ def _row_to_event(row: aiosqlite.Row) -> Event:
         participant_style = {}
     if not isinstance(participant_style, dict):
         participant_style = {}
+    try:
+        interaction_classification = (
+            json.loads(row["interaction_classification"])
+            if "interaction_classification" in keys and row["interaction_classification"]
+            else {}
+        )
+    except (ValueError, TypeError):
+        interaction_classification = {}
+    if not isinstance(interaction_classification, dict):
+        interaction_classification = {}
     return Event(
         event_id=row["event_id"],
         group_id=row["group_id"],
@@ -345,6 +355,7 @@ def _row_to_event(row: aiosqlite.Row) -> Event:
         bot_persona_name=bot_persona_name,
         event_type=event_type,
         participant_style=participant_style,
+        interaction_classification=interaction_classification,
     )
 
 
@@ -684,7 +695,7 @@ _EVENT_COLS = (
     "event_id, group_id, start_time, end_time, participants, "
     "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
     "inherit_from, last_accessed_at, access_count, status, is_locked, bot_persona_name, event_type, "
-    "participant_style"
+    "participant_style, interaction_classification"
 )
 
 # Search hot-path columns: interaction_flow and participant_style are stubbed.
@@ -696,7 +707,7 @@ _EVENT_SEARCH_COLS = (
     "e.event_id, e.group_id, e.start_time, e.end_time, e.participants, "
     "'[]' AS interaction_flow, e.topic, e.summary, e.chat_content_tags, e.salience, e.confidence, "
     "e.inherit_from, e.last_accessed_at, e.access_count, e.status, e.is_locked, e.bot_persona_name, e.event_type, "
-    "'{}' AS participant_style"
+    "'{}' AS participant_style, e.interaction_classification"
 )
 
 # Legacy alias kept for any non-search callers that still import this name.
@@ -908,8 +919,8 @@ class SQLiteEventRepository(EventRepository):
                 "INSERT INTO events(event_id, group_id, start_time, end_time, participants, "
                 "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
                 "inherit_from, last_accessed_at, access_count, status, is_locked, bot_persona_name, event_type, "
-                "participant_style) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                "participant_style, interaction_classification) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(event_id) DO UPDATE SET "
                 "group_id=excluded.group_id, "
                 "start_time=excluded.start_time, "
@@ -949,6 +960,7 @@ class SQLiteEventRepository(EventRepository):
                     event.bot_persona_name,
                     event.event_type,
                     _j(event.participant_style or {}),
+                    _j(event.interaction_classification) if event.interaction_classification else "",
                 ),
             )
 
@@ -1459,6 +1471,47 @@ class SQLiteEventRepository(EventRepository):
                 f"DELETE FROM canonical_tags WHERE id IN ({placeholders})", tuple(ids)
             )
             return int(cursor.rowcount or 0)
+
+    async def set_interaction_classification(
+        self, event_id: str, classification: dict,
+    ) -> None:
+        async with _txn(self._db, self._lock):
+            await self._db.execute(
+                "UPDATE events SET interaction_classification = ? WHERE event_id = ?",
+                (_j(classification) if classification else "", event_id),
+            )
+
+    async def set_chat_content_tags(self, event_id: str, tags: list[str]) -> None:
+        async with _txn(self._db, self._lock):
+            await self._db.execute(
+                "UPDATE events SET chat_content_tags = ? WHERE event_id = ?",
+                (_j(list(tags)), event_id),
+            )
+
+    async def get_tag_categories(self) -> dict[str, tuple[str, float]]:
+        async with self._db.execute(
+            "SELECT tag_text, category, confidence FROM tag_categories"
+        ) as cur:
+            rows = await cur.fetchall()
+        return {row[0]: (row[1], float(row[2])) for row in rows}
+
+    async def upsert_tag_categories(
+        self, rows: dict[str, tuple[str, float]],
+    ) -> None:
+        if not rows:
+            return
+        import time
+        now = time.time()
+        async with _txn(self._db, self._lock):
+            await self._db.executemany(
+                "INSERT INTO tag_categories(tag_text, category, confidence, updated_at) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(tag_text) DO UPDATE SET "
+                "category=excluded.category, confidence=excluded.confidence, "
+                "updated_at=excluded.updated_at",
+                [(tag, category, float(confidence), now)
+                 for tag, (category, confidence) in rows.items()],
+            )
 
 
 # ---------------------------------------------------------------------------

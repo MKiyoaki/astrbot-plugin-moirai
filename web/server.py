@@ -92,6 +92,9 @@ def event_to_dict(event: Event, participant_names: dict[str, str] | None = None)
         "confidence": round(event.confidence, 3) if event.confidence is not None else 0.8,
         "tags": event.chat_content_tags if event.chat_content_tags is not None else [],
         "tag_categories": derive_tag_categories(event.chat_content_tags),
+        "interaction_classification": getattr(
+            event, "interaction_classification", {}
+        ) or {},
         "inherit_from": event.inherit_from if event.inherit_from is not None else [],
         "participants": participants,
         "participant_names": {uid: names.get(uid, uid) for uid in participants},
@@ -174,12 +177,14 @@ class WebuiServer:
         raw_message_repo: RawMessageRepository | None = None,
         persona_group_repo: Any = None,
         account_link_manager: Any = None,
+        category_classifier: Any = None,
     ) -> None:
         self._persona_repo = persona_repo
         self._event_repo = event_repo
         self._impression_repo = impression_repo
         self._persona_group_repo = persona_group_repo
         self._account_link_manager = account_link_manager
+        self._category_classifier = category_classifier
         self._recall_manager = recall_manager
         self._data_dir = data_dir
         self._port = port
@@ -833,6 +838,8 @@ class WebuiServer:
         now = time.time()
         event = Event(event_id=body.get("event_id") or str(uuid.uuid4()), group_id=body.get("group_id"), start_time=float(body.get("start_time", now)), end_time=float(body.get("end_time", now)), participants=body.get("participants", []), interaction_flow=[], topic=body.get("topic", ""), summary=body.get("summary", ""), chat_content_tags=body.get("chat_content_tags", []), salience=float(body.get("salience", 0.5)), confidence=float(body.get("confidence", 0.8)), inherit_from=body.get("inherit_from", []), last_accessed_at=now, is_locked=bool(body.get("is_locked", False)), status=body.get("status", "active"))
         await self._event_repo.upsert(event)
+        if self._category_classifier is not None:
+            self._category_classifier.schedule([event])
         return _json({"ok": True, "event": event_to_dict(event)}, status=201)
 
     async def _handle_update_event(self, request: web.Request) -> web.Response:
@@ -841,6 +848,8 @@ class WebuiServer:
         body = await request.json()
         updated = Event(event_id=existing.event_id, group_id=body.get("group_id", existing.group_id), start_time=float(body.get("start_time", existing.start_time)), end_time=float(body.get("end_time", existing.end_time)), participants=body.get("participants", existing.participants), interaction_flow=existing.interaction_flow, topic=body.get("topic", existing.topic), summary=body.get("summary", existing.summary), chat_content_tags=body.get("chat_content_tags", existing.chat_content_tags), salience=float(body.get("salience", existing.salience)), confidence=float(body.get("confidence", existing.confidence)), inherit_from=body.get("inherit_from", existing.inherit_from), last_accessed_at=time.time(), is_locked=bool(body.get("is_locked", existing.is_locked)), status=body.get("status", existing.status))
         await self._event_repo.upsert(updated)
+        if self._category_classifier is not None:
+            await self._category_classifier.schedule_reclassify(updated)
         from core.tasks.summary_links import refresh_summary_files_for_event
         await refresh_summary_files_for_event(self._data_dir, self._event_repo, updated.event_id)
         return _json({"ok": True, "event": event_to_dict(updated)})
@@ -860,6 +869,7 @@ class WebuiServer:
                 llm_manager=self._llm_manager,
                 encoder=self._encoder,
                 raw_message_repo=self._raw_message_repo,
+                category_classifier=self._category_classifier,
             )
         except ReextractError as exc:
             status = 404 if exc.code == "not_found" else 400

@@ -10,8 +10,9 @@ from .summary import normalize_summary
 if TYPE_CHECKING:
     from ..boundary.window import MessageWindow
 
-# Keys we require in a valid extraction result
-_REQUIRED = {"topic", "summary", "chat_content_tags", "salience", "confidence"}
+# Keys we require in a valid extraction result. Tags are no longer among them:
+# they are derived from the accepted interaction-taxonomy leaves after extraction.
+_REQUIRED = {"topic", "summary", "salience", "confidence"}
 _BATCH_REQUIRED = _REQUIRED | {"start_idx", "end_idx"}
 
 # Strip markdown code fences if the model wraps output in ```json ... ```
@@ -528,7 +529,7 @@ def fallback_extraction(window: MessageWindow) -> list[dict]:
         "end_idx": window.message_count - 1,
         "topic": topic,
         "summary": summary,
-        "chat_content_tags": tags,
+        "chat_content_tags": [],
         "salience": round(salience, 3),
         "confidence": 0.2,
         "inherit": False,
@@ -547,7 +548,7 @@ def fallback_single_extraction(messages: list) -> dict:
     return {
         "topic": topic,
         "summary": summary,
-        "chat_content_tags": tags,
+        "chat_content_tags": [],
         "salience": round(salience, 3),
         "confidence": 0.2,
         "inherit": False,
@@ -599,26 +600,13 @@ def _parse_personality(raw: object) -> dict[str, dict] | None:
 
 
 def _parse_tags(raw: object) -> list[str]:
-    """Coerce the tag field to a short list of strings.
+    """Drop whatever the model volunteered for the tag field.
 
-    A model that answers with a bare string instead of a list used to be sliced
-    character-by-character into five one-character "tags".
+    Tags are derived from the accepted interaction leaves after extraction, so
+    the extractor no longer asks for them and anything a model emits anyway is
+    outside the closed vocabulary the rest of the pipeline relies on.
     """
-    if isinstance(raw, str):
-        raw = [raw]
-    if not isinstance(raw, list):
-        return []
-    tags: list[str] = []
-    for t in raw:
-        if isinstance(t, (dict, list)):
-            continue
-        text = str(t).strip()[:30]
-        if text:
-            tags.append(text)
-        if len(tags) >= 5:
-            break
-    return tags
-
+    return []
 
 def _parse_participant_style(raw: object) -> dict[str, str]:
     """Validate {display_name: "one-line speaking-style description"} observations.

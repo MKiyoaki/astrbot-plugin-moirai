@@ -49,6 +49,7 @@ def event_to_dict(event: Event) -> dict[str, Any]:
         "confidence": round(event.confidence, 3),
         "tags": event.chat_content_tags,
         "tag_categories": derive_tag_categories(event.chat_content_tags),
+        "interaction_classification": event.interaction_classification or {},
         "inherit_from": event.inherit_from,
         "participants": participants,
         "participant_names": {uid: uid for uid in participants},

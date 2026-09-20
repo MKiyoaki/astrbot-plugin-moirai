@@ -29,6 +29,7 @@ from .boundary.detector import EventBoundaryDetector
 from .config import PluginConfig
 from .domain.models import Event
 from .embedding.encoder import NullEncoder, SentenceTransformerEncoder, ApiEncoder, Encoder
+from .extractor.category_pass import build_category_classifier
 from .extractor.extractor import EventExtractor
 from .managers import MemoryManager, RecallManager
 from .managers.context_manager import ContextManager
@@ -134,6 +135,7 @@ class PluginInitializer:
         self._periodic_flush_task: asyncio.Task | None = None
         self.plugin_routes = None
         self.webui_error: str | None = None
+        self.category_classifier = None
 
     @property
     def cfg(self) -> PluginConfig:
@@ -293,6 +295,24 @@ class PluginInitializer:
             if persona_synthesis_trigger is not None:
                 await persona_synthesis_trigger.handle_events(events)
 
+        typesafe_cfg = cfg.get_typesafe_config()
+        if typesafe_cfg.enabled and not typesafe_cfg.api_key:
+            astrbot_logger.warning(
+                "[%s] typesafe_enabled is on but no API key is configured "
+                "(typesafe_api_key / TYPESAFE_API_KEY); category classification stays off",
+                _PLUGIN_NAME)
+        self.category_classifier = build_category_classifier(
+            typesafe_cfg, event_repo, provider_getter=provider_getter,
+        )
+        if self.category_classifier is not None:
+            await self.category_classifier.load()
+            astrbot_logger.info(
+                "[%s] TypeSafe classification enabled "
+                "(model=%s, topic=%s, event=%s, topic_backfill=%s, event_backfill=%s)",
+                _PLUGIN_NAME, typesafe_cfg.model, typesafe_cfg.topic_enabled,
+                typesafe_cfg.event_enabled, typesafe_cfg.topic_backfill,
+                typesafe_cfg.event_backfill)
+
         extractor = EventExtractor(
             event_repo=event_repo,
             provider_getter=provider_getter,
@@ -306,9 +326,12 @@ class PluginInitializer:
             events_persisted_callback=_handle_persisted_events,
             raw_message_repo=raw_message_repo,
             raw_message_writer=self.raw_message_writer,
+            category_classifier=self.category_classifier,
         )
 
         self.extractor = extractor
+        if self.category_classifier is not None:
+            self.category_classifier.start_backfill()
 
         async def on_event_close(window: MessageWindow) -> None:
             asyncio.create_task(extractor(window))
@@ -526,6 +549,7 @@ class PluginInitializer:
             raw_message_repo=raw_message_repo,
             persona_group_repo=persona_group_repo,
             account_link_manager=self.account_link_manager,
+            category_classifier=self.category_classifier,
         )
         if cfg.webui_enabled:
             self._ensure_pages_built()
@@ -561,6 +585,7 @@ class PluginInitializer:
                 context_manager=self.context_manager,
                 summary_trigger_rounds=cfg.get_boundary_config().summary_trigger_rounds,
                 raw_message_repo=raw_message_repo,
+                category_classifier=self.category_classifier,
             )
         except Exception as e:
             self.webui_error = str(e) or repr(e) or "unknown error"
@@ -674,6 +699,15 @@ class PluginInitializer:
         if getattr(self, "extractor", None) is not None:
             try:
                 await self.extractor.drain_evals()
+            except Exception:
+                pass
+            try:
+                await self.extractor.drain_categories()
+            except Exception:
+                pass
+        if self.category_classifier is not None:
+            try:
+                await self.category_classifier.close()
             except Exception:
                 pass
         if self.raw_message_writer is not None:

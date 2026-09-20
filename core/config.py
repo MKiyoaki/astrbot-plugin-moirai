@@ -8,6 +8,7 @@ it can be unit-tested against.
 from __future__ import annotations
 
 import json
+import os
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,9 +76,6 @@ EVAL_ONLY_PROMPT_PREAMBLE = (
 )
 
 _FIELDS_TAIL = (
-    "- chat_content_tags：2~5 个名词或名词短语，禁止句子、原文片段、动词短语、人名。"
-    "应是【可复用的话题域标签】，同类对话下次能复用同一个；鼓励具体名词（作品名、游戏名、技术名词、机制名），"
-    "但不要把只属于这次对话的情节细节写成标签（如「上周三那次失误」）。\n"
     "- salience：这段记忆日后值得被回忆起来的程度，取【事实价值】与【人物价值】的较高者，0.0~1.0："
     "0.1–0.2 既无信息也无人物色彩（纯表情刷屏、单纯复读；夹带少量有内容文字的不算此档）；"
     "0.3–0.4 有一点具体信息，或有一点性格、关系的流露；"
@@ -115,7 +113,6 @@ def _build_system_prompt(preamble: str, with_eval: bool) -> str:
     example = {
         "topic": "青禾餐厅价格与周六聚餐时间",
         "summary": " | ".join(topics),
-        "chat_content_tags": ["餐厅推荐", "聚餐"],
         "salience": 0.6, "confidence": 0.8, "inherit": False,
         "participant_style": {"Alice": "表达直接，用价格和环境说明偏好"},
     }
@@ -362,6 +359,52 @@ class ExtractorConfig:
     )
     language: str = LANG_ZH
     llm_provider: str | None = None
+
+
+@dataclass
+class TypeSafeConfig:
+    """External topic and interaction classification through the TypeSafe API.
+
+    Off by default: with ``enabled`` false or no key, nothing is sent anywhere.
+    """
+    enabled: bool = False
+    topic_enabled: bool = True
+    event_enabled: bool = True
+    api_key: str = ""
+    base_url: str = "https://api.typesafe.ai"
+    model: str = "jev-latest"
+    timeout: float = 10.0
+    # Low Choice answers are stored but not adopted; the same threshold selects
+    # active Noul interaction groups. Not calibrated against real data yet.
+    min_confidence: float = 0.5
+    topic_backfill: bool = True
+    event_backfill: bool = False
+    llm_fallback: bool = True
+
+    @property
+    def active(self) -> bool:
+        return (
+            self.enabled
+            and bool(self.api_key)
+            and (self.topic_enabled or self.event_enabled)
+        )
+
+    @property
+    def interaction_via_typesafe(self) -> bool:
+        return self.event_enabled and self.active
+
+    @property
+    def interaction_via_llm(self) -> bool:
+        """The interaction axis runs on the extraction LLM instead.
+
+        Independent of ``enabled``: turning TypeSafe off is exactly when the
+        fallback is wanted, because the event tags are derived from this axis.
+        """
+        return (
+            self.event_enabled
+            and self.llm_fallback
+            and not self.interaction_via_typesafe
+        )
 
 
 @dataclass
@@ -667,6 +710,27 @@ class PluginConfig:
             tag_candidate_ttl_days=self._int("tag_candidate_ttl_days", 30),
             tag_seeds=tag_seeds,
             llm_provider=self.llm_provider,
+        )
+
+    def get_typesafe_config(self) -> TypeSafeConfig:
+        return TypeSafeConfig(
+            enabled=self._bool("typesafe_enabled", False),
+            topic_enabled=self._bool("typesafe_topic_enabled", True),
+            event_enabled=self._bool("typesafe_event_enabled", True),
+            api_key=(
+                self._str("typesafe_api_key", "").strip()
+                or os.environ.get("TYPESAFE_API_KEY", "").strip()
+            ),
+            base_url=(
+                self._str("typesafe_base_url", "").strip()
+                or "https://api.typesafe.ai"
+            ),
+            model=self._str("typesafe_model", "").strip() or "jev-latest",
+            timeout=self._float("typesafe_timeout_seconds", 10.0),
+            min_confidence=self._float("typesafe_min_confidence", 0.5),
+            topic_backfill=self._bool("typesafe_topic_backfill", True),
+            event_backfill=self._bool("typesafe_event_backfill", False),
+            llm_fallback=self._bool("typesafe_llm_fallback", True),
         )
 
     def get_context_config(self) -> ContextConfig:

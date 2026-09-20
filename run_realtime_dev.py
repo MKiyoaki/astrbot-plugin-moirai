@@ -26,6 +26,10 @@ Configurations:
        in run_config.py, e.g. FreeToken's "http://localhost:1919/v1"),
        API_KEY="lm-studio", MODEL="any"
     2. DeepSeek:  API_URL="https://api.deepseek.com", API_KEY="your_key", MODEL="deepseek-chat"
+    3. KCL AI Hub: MODEL_TYPE="kcl", API_URL="https://ai.create.kcl.ac.uk/api/v1"
+       (note /api/v1, not /v1), API_KEY from the ai.create.kcl.ac.uk dashboard,
+       MODEL from `curl -H "Authorization: Bearer <key>" <API_URL>/models`.
+       Token-metered — a --fresh run costs real credits.
 """
 
 import asyncio
@@ -120,6 +124,21 @@ try:
     _RETRIEVAL_ENCODER_REQUEST_INTERVAL_MS = getattr(_rc, "RETRIEVAL_ENCODER_REQUEST_INTERVAL_MS", 0)
     _LLM_CONCURRENCY = getattr(_rc, "LLM_CONCURRENCY", 2)
     _RECALL_BENCHMARK_ENABLED = getattr(_rc, "RECALL_BENCHMARK_ENABLED", True)
+    _TYPESAFE_ENABLED = getattr(_rc, "TYPESAFE_ENABLED", False)
+    _TYPESAFE_KEY = getattr(_rc, "TYPESAFE_API_KEY", "")
+    # Empty base_url/model fall through to PluginConfig's own defaults
+    # (https://api.typesafe.ai, jev-latest), so leaving them unset changes nothing.
+    _TYPESAFE_BASE_URL = getattr(_rc, "TYPESAFE_BASE_URL", "")
+    _TYPESAFE_MODEL = getattr(_rc, "TYPESAFE_MODEL", "")
+    _TYPESAFE_TIMEOUT = getattr(_rc, "TYPESAFE_TIMEOUT", 10.0)
+    _TYPESAFE_MIN_CONFIDENCE = getattr(_rc, "TYPESAFE_MIN_CONFIDENCE", 0.5)
+    _TYPESAFE_TOPIC_ENABLED = getattr(_rc, "TYPESAFE_TOPIC_ENABLED", True)
+    _TYPESAFE_EVENT_ENABLED = getattr(_rc, "TYPESAFE_EVENT_ENABLED", True)
+    _TYPESAFE_TOPIC_BACKFILL = getattr(_rc, "TYPESAFE_TOPIC_BACKFILL", True)
+    _TYPESAFE_EVENT_BACKFILL = getattr(_rc, "TYPESAFE_EVENT_BACKFILL", False)
+    _KCL_API_URL = getattr(_rc, "KCL_API_URL", "https://ai.create.kcl.ac.uk/api/v1")
+    _KCL_KEY = getattr(_rc, "KCL_API_KEY", "")
+    _KCL_MODEL = getattr(_rc, "KCL_MODEL", "")
     print(f"[Config] Loaded run_config.py  (model_type={_MODEL_TYPE})")
 except Exception as _cfg_err:
     print(f"[Config] WARNING: run_config.py not loaded ({_cfg_err!r}), using built-in defaults.")
@@ -137,6 +156,19 @@ except Exception as _cfg_err:
     _RETRIEVAL_ENCODER_REQUEST_INTERVAL_MS = 0
     _LLM_CONCURRENCY = 2
     _RECALL_BENCHMARK_ENABLED = True
+    _TYPESAFE_ENABLED = False
+    _TYPESAFE_KEY = ""
+    _TYPESAFE_BASE_URL = ""
+    _TYPESAFE_MODEL = ""
+    _TYPESAFE_TIMEOUT = 10.0
+    _TYPESAFE_MIN_CONFIDENCE = 0.5
+    _TYPESAFE_TOPIC_ENABLED = True
+    _TYPESAFE_EVENT_ENABLED = True
+    _TYPESAFE_TOPIC_BACKFILL = True
+    _TYPESAFE_EVENT_BACKFILL = False
+    _KCL_API_URL = "https://ai.create.kcl.ac.uk/api/v1"
+    _KCL_KEY = ""
+    _KCL_MODEL = ""
 
 
 def _get_model_info(model_type: str):
@@ -148,6 +180,22 @@ def _get_model_info(model_type: str):
         llm_api_url = "https://api.deepseek.com"
         llm_api_key = _DEEPSEEK_KEY
         llm_model = _DEEPSEEK_MODEL
+    elif model_type == "kcl":
+        # KCL AI Hub — OpenAI-compatible gateway, Bearer auth, token-metered.
+        # Unlike the lmstudio branch, both the URL and the key come from
+        # run_config.py, so no placeholder key is ever sent to a remote host.
+        if not _KCL_KEY:
+            raise ValueError(
+                "KCL_API_KEY is empty. Set it in run_config.py "
+                "(generate one at https://ai.create.kcl.ac.uk).")
+        if not _KCL_MODEL:
+            raise ValueError(
+                "KCL_MODEL is empty. List available ids with "
+                "`curl -H \"Authorization: Bearer <key>\" "
+                "https://ai.create.kcl.ac.uk/api/v1/models`.")
+        llm_api_url = _KCL_API_URL
+        llm_api_key = _KCL_KEY
+        llm_model = _KCL_MODEL
     else:
         raise ValueError("Not supported model type! ")
     return llm_api_url, llm_api_key, llm_model
@@ -581,6 +629,16 @@ async def main() -> None:
             "embedding_model": _RETRIEVAL_ENCODER_MODEL,
             "embedding_batch_interval_ms": _RETRIEVAL_ENCODER_BATCH_INTERVAL_MS,
             "embedding_request_interval_ms": _RETRIEVAL_ENCODER_REQUEST_INTERVAL_MS,
+            "typesafe_enabled": bool(_TYPESAFE_ENABLED),
+            "typesafe_api_key": _TYPESAFE_KEY,
+            "typesafe_base_url": _TYPESAFE_BASE_URL,
+            "typesafe_model": _TYPESAFE_MODEL,
+            "typesafe_timeout_seconds": _TYPESAFE_TIMEOUT,
+            "typesafe_min_confidence": _TYPESAFE_MIN_CONFIDENCE,
+            "typesafe_topic_enabled": bool(_TYPESAFE_TOPIC_ENABLED),
+            "typesafe_event_enabled": bool(_TYPESAFE_EVENT_ENABLED),
+            "typesafe_topic_backfill": bool(_TYPESAFE_TOPIC_BACKFILL),
+            "typesafe_event_backfill": bool(_TYPESAFE_EVENT_BACKFILL),
         }
         if mode == "encoder":
             raw.update({
@@ -641,6 +699,37 @@ async def main() -> None:
         from core.managers.llm_manager import LLMTaskManager
         llm_manager = LLMTaskManager(concurrency=cfg.llm_concurrency)
 
+        from core.extractor.category_pass import build_category_classifier
+        _ts_cfg = cfg.get_typesafe_config()
+        category_classifier = build_category_classifier(
+            _ts_cfg, event_repo, provider_getter=lambda: mock_provider,
+        )
+        if category_classifier is not None:
+            await category_classifier.load()
+            # plugin_initializer starts this in production; the dev runner never
+            # did, so a --resume session built the classifier and then sat idle.
+            category_classifier.start_backfill()
+            if _ts_cfg.interaction_via_typesafe:
+                print(
+                    f"[Dev] 互动轴 → TypeSafe {_ts_cfg.base_url} "
+                    f"(model={_ts_cfg.model}, min_conf={_ts_cfg.min_confidence}) "
+                    "· tag 取全部达标叶子")
+            else:
+                print(
+                    f"[Dev] 互动轴 → LLM 兜底 ({LLM_MODEL}, "
+                    f"min_conf={_ts_cfg.min_confidence}) · tag 取前 3")
+            print(
+                f"[Dev] 轴: tag={_ts_cfg.topic_enabled} "
+                f"interaction={_ts_cfg.event_enabled}")
+            print(
+                f"[Dev] 回填: topic={_ts_cfg.topic_backfill} "
+                f"event={_ts_cfg.event_backfill}")
+        elif _TYPESAFE_ENABLED:
+            # enabled but inactive: PluginConfig requires a non-empty key and at
+            # least one axis, even when base_url points at a local server.
+            print("[Dev] TypeSafe 已开启但未激活 —— 检查 TYPESAFE_API_KEY "
+                  "以及 TYPESAFE_TOPIC_ENABLED / TYPESAFE_EVENT_ENABLED。")
+
         use_mock_persona = _load_eval_setting() if resume else False
 
         if not resume:
@@ -699,6 +788,7 @@ async def main() -> None:
                 llm_manager=llm_manager,
                 raw_message_repo=raw_message_repo,
                 raw_message_writer=raw_message_writer,
+                category_classifier=category_classifier,
             )
 
             extraction_futures: list[asyncio.Task] = []
@@ -750,6 +840,7 @@ async def main() -> None:
                         bar.update(1)
                 print("[Phase 2] Annotating [Eval] asides (batched, after extraction) ...")
                 await extractor.drain_evals()
+                await extractor.drain_categories()
             else:
                 print("\n[Phase 2] No extraction tasks queued.")
 
@@ -948,6 +1039,7 @@ async def main() -> None:
             raw_message_repo=raw_message_repo,
             persona_group_repo=persona_group_repo,
             account_link_manager=account_link_manager,
+            category_classifier=category_classifier,
         )
         await srv.start()
         print(f"\n  WebUI ready  →  http://localhost:{PORT}")
@@ -997,6 +1089,8 @@ async def main() -> None:
             print("\n[Shutdown] Stopping WebUI server ...")
             _save_eval_setting(session_config["persona_influenced_summary"] is True)
             await srv.stop()
+            if category_classifier is not None:
+                await category_classifier.close()
             await raw_message_writer.stop()
             if _EVENT_MODE == "encoder":
                 await encoder.stop()

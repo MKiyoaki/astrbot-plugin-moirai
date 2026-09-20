@@ -4,7 +4,7 @@
 EVENT_MODE = "llm"           # "encoder" | "llm"; controls extraction strategy only
 MOOD_SOURCE = "llm"          # "impression_db" | "llm"
 TIMEOUT = 330.0              # httpx timeout in seconds
-MODEL_TYPE = "lmstudio"      # "lmstudio" | "deepseek"
+MODEL_TYPE = "lmstudio"      # "lmstudio" | "deepseek" | "kcl"
 LLM_CONCURRENCY = 2          # shared background LLM concurrency for extraction/tasks
 RECALL_BENCHMARK_ENABLED = True  # run retrieval-only benchmark queries after the RAG smoke test
 
@@ -26,3 +26,39 @@ LMSTUDIO_MODEL = "gemma-4-26b-a4b-it-ultra-uncensored-heretic"
 # DeepSeek
 DEEPSEEK_MODEL = "deepseek-v4-flash"
 DEEPSEEK_API_KEY = "your_deepseek_api_key_here"
+
+# KCL AI Hub (MODEL_TYPE = "kcl"). OpenAI-compatible; note the base path is
+# /api/v1, not /v1. Generate a key at https://ai.create.kcl.ac.uk and list the
+# model ids with:
+#   curl -H "Authorization: Bearer <key>" https://ai.create.kcl.ac.uk/api/v1/models
+# Usage is token-metered, so a --fresh run spends real credits.
+KCL_API_URL = "https://ai.create.kcl.ac.uk/api/v1"
+KCL_API_KEY = ""
+KCL_MODEL = ""
+
+# TypeSafe tag-topic and event-interaction classification (off by default).
+# Off means build_category_classifier returns None and nothing is sent anywhere.
+TYPESAFE_ENABLED = False
+
+# A non-empty key is required for the classifier to become active, even when
+# BASE_URL points at a local server; use a placeholder there. Empty falls back
+# to the TYPESAFE_API_KEY environment variable.
+TYPESAFE_API_KEY = ""
+
+# Local or self-hosted endpoint. Empty = the official https://api.typesafe.ai.
+# The client POSTs to {BASE_URL}/v1/systemone.
+TYPESAFE_BASE_URL = ""       # e.g. "http://localhost:8099"
+TYPESAFE_MODEL = ""          # empty = jev-latest
+TYPESAFE_TIMEOUT = 10.0
+
+# Per-axis switches: topic = tag topic classification, event = event interaction.
+TYPESAFE_TOPIC_ENABLED = True
+TYPESAFE_EVENT_ENABLED = True
+
+# Backfill existing rows on startup. Event backfill is off by default because
+# it fans out one request per stored event.
+TYPESAFE_TOPIC_BACKFILL = True
+TYPESAFE_EVENT_BACKFILL = False
+
+# Answers below this confidence are stored but not adopted.
+TYPESAFE_MIN_CONFIDENCE = 0.5

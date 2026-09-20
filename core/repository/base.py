@@ -430,6 +430,44 @@ class EventRepository(ABC):
         """
         ...
 
+    @abstractmethod
+    async def set_interaction_classification(
+        self, event_id: str, classification: dict,
+    ) -> None:
+        """Set one event's interaction result without a general event upsert.
+
+        An empty dictionary means the event has not been classified.
+        """
+        ...
+
+    @abstractmethod
+    async def set_chat_content_tags(self, event_id: str, tags: list[str]) -> None:
+        """Replace one event's tags without a general event upsert.
+
+        Tags are derived from the accepted interaction leaves, so they are written
+        back after classification rather than produced by the extractor.
+        """
+        ...
+
+    @abstractmethod
+    async def get_tag_categories(self) -> dict[str, tuple[str, float]]:
+        """Return {tag_text: (category, confidence)} for every tag already asked.
+
+        category == "" records an abstention; callers decide how to treat it.
+        """
+        ...
+
+    @abstractmethod
+    async def upsert_tag_categories(
+        self, rows: dict[str, tuple[str, float]],
+    ) -> None:
+        """Store {tag_text: (category, confidence)}, replacing existing rows.
+
+        Keyed by tag text and independent of canonical_tags, whose candidate
+        rows are pruned while events keep the tag.
+        """
+        ...
+
 
 class RawMessageRepository(ABC):
     @abstractmethod

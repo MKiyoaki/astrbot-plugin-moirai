@@ -1,5 +1,32 @@
 # CHANGELOG
 
+## [v1.1.0.sub] — 2026-09-20
+
+### event 标签改由交互分类树派生，抽取不再自由生成 tag
+
+- `chat_content_tags` 不再由抽取 LLM 产生。`core/config.py` 的 `_FIELDS_TAIL` 与示例删去该字段，`core/extractor/prompts.py` 两处 `[现有标签体系]` 注入一并移除，`core/extractor/parser.py` 的 `_REQUIRED` 去掉 `chat_content_tags` 且 `_parse_tags()` 恒返回空列表——模型仍然吐出该字段时不再落库。原先 prompt 已写明「禁止句子、原文片段、动词短语、人名」，实测仍出现 `打信号让队友集火针对一下`、`syj0212（‿ᾥ‿)`、`[表情178]`；指令约束不住，改为结构性约束。
+- tag 改为 `core/extractor/interaction_taxonomy.py` 第二层叶子的直接派生。`derive_tags()` 按 `score × confidence` 对已采纳叶子排序去重：TypeSafe 路径不设上限（`min_confidence` 已是校准阈值），LLM 兜底路径取前 3（其 confidence 未经同一尺度校准）。全部弃权的 event 记 `uncategorised`。词表因此封闭为 33 个叶子，跨运行、跨模型稳定；历史上同一份语料两次抽取只有 7 个 tag 重合。
+- `infer_tag_category()` 优先查 `leaf_group()`，叶子的一级大类即其类别，`tag_category` 不再靠关键词猜测。旧的 `_learned` 缓存与 `_CATEGORY_KEYWORDS` 降级为历史自由 tag 的兜底。召回三级漏斗（topic 1.0 / tag 0.9 / tag_category 0.7）因此在第二、三级都拿到封闭词表。
+- 新增 `core/extractor/interaction_pass_llm.py`：无可用 TypeSafe key 时，交互轴改由抽取所用的 chat provider 完成，system prompt 由同一份 taxonomy 渲染以防判据漂移，一次调用覆盖全部 segment，每段最多 4 个标签，越界或编造的 group / subtype 在解析时丢弃。`TypeSafeConfig` 新增 `interaction_via_typesafe` / `interaction_via_llm`，`build_category_classifier()` 接受 `provider_getter`，落库 payload 加 `backend` 字段，结构与 TypeSafe 路径完全一致，下游无法区分。
+- 新增 `EventRepository.set_chat_content_tags()`（SQLite / 内存两实现）：分类完成后定向改写 tag，不走会清空 search-col 缺列的 `upsert()`。
+- 验证：51 项 Python 离线回归通过，`run_realtime_dev.py --self-test --quiet` 19 项通过；在开发库完整副本上用 95 个真实 event 的交互分类派生 tag，平均 5.2 个 / event（限 3 时 2.7 个），去重 32 个叶子，2 个 event 落 `uncategorised`。`tests/test_event_summary.py` 两处 tag 断言随之改为空列表。
+- 不变：`topic` 仍由抽取自由生成并保持召回权重 1.0；event 边界、summary、salience、confidence、persona 合成与 Core 协议未动。版本更新至 `v1.1.0.sub`，未发布。
+
+## [v1.0.18.sub] — 2026-09-20
+
+### 接入 TypeSafe API，拆分 tag 话题轴与 event 交互轴（默认关闭）
+
+- 新增 `core/utils/typesafe.py`：httpx 直连 `POST https://api.typesafe.ai/v1/systemone`，同一 `state` 支持 Choice 与 Noul 混合问题并分别校验响应。401 立即停用；422 不重试；429 / 529 / 5xx / 超时 / 连接错误指数退避重试至多 2 次；不记录密钥与请求正文。
+- `core/tags/taxonomy.py` 负责 **topic 轴**：具体 tag 经 Choice 映射到 游戏、社交、情感、技术、知识、工作、创作、日常、资讯、艺术、娱乐 11 个母类，答案缓存到 `tag_categories`；达到阈值的答案优先于关键词规则，弃权与低置信度仍落库但不采用。关键词兜底同步加入 娱乐，召回热路径保持同步且不联网。
+- 新增 `core/extractor/interaction_taxonomy.py` 负责 **event 交互轴**：保留 Describing / Sharing 等原 8 组 31 个叶子，补 `Question / Request` 组的 `Information Seeking` 与 `Action Request`；两个 Recount 使用不同内部 id 和判定边界，Opinion / Evaluation、Advice / Suggestion、Planning / Decision-oriented Discussion 等相邻项也写明排除条件。
+- `core/extractor/category_pass.py` 按 fact-only summary 的每个话题段分类（最多 12 段）：第一轮对 9 个大组分别发 Noul，允许一段同时命中抱怨、调侃、提问等多个类型，并在同一请求里携带未问过的 tag Choice；第二轮只为命中的大组选择叶子。叶子低置信度或 `other` 时保留父组，第二轮失败时保存 `complete: false` 的父组结果；第一轮不完整则不把 event 标成已分类。
+- 新增迁移 `migrations/018_typesafe_classification.sql`：`events.interaction_classification` 保存带 schema version、输入 hash、大组分数、叶子答案与采用状态的 JSON；`tag_categories` 独立保存 tag 话题答案。普通 event `upsert()` 不覆盖交互 JSON，统一通过 `set_interaction_classification()` 定向更新，避免延后 `[Eval]` 回写产生竞态。
+- 新 event 在抽取落库后后台分类；WebUI 手工创建同样调度，手工编辑与 LLM 重新提取会先清空旧交互结果再调度。关闭插件时排空分类任务并释放 HTTP 客户端，失败不影响抽取出的 topic / tags / salience / summary。
+- 配置增加 topic / event 独立子开关与独立回填开关：总开关默认关；两个分类轴默认开但只在总开关生效；旧 tag 回填默认开（每次启动最多 200 请求、连续 5 次失败停止、扫描最新 5000 event）；旧 event 回填默认关（显式开启后每次启动最多 100 条）。`typesafe_min_confidence` 同时作为 tag / 叶子 Choice 阈值与 event 大组 Noul 阈值，默认 0.5，尚未用真实数据校准。
+- API 输出保留 `tag_categories`，新增独立的 `interaction_classification`；不再用一个 `event_category` 混装话题与交互语义。更新 `_conf_schema.json`、中英文配置文案、开发运行器示例与 `docs/event-category.md`。外发内容仍严格限定为 event topic、tags、去掉 `[Eval]` 的 summary，不发送原始消息、内部 id、人格文本或运行数据库内容。
+- 验证：51 项 Python 离线回归通过（`httpx.MockTransport`、内存仓库与临时 SQLite，含旧版未提交 018 迁移名兼容），`run_realtime_dev.py --self-test --quiet` 19 项通过；在带 WAL 的开发库完整副本上迁移后用桩传输分类最新 5 个 event，17 个摘要段全部落库，发出 10 个桩请求且未访问网络。workspace 联调 12 项中 11 项通过，唯一失败仍是等待 Core 联动登记更新的 Moirai `1.0.17.sub` 版本常量断言。
+- 不变：抽取 prompt、`tag_seeds`、检索排序、event 边界与 Core 协议。版本仅更新 Moirai 至 `v1.0.18.sub`，未发布；未做任何真实 TypeSafe 调用。
+
 ## [v1.0.17.sub] — 2026-09-06
 
 ### 事件抽取与 Bot 人格彻底解耦：[Eval] 移到延后批量的第二趟

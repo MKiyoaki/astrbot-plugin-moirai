@@ -124,6 +124,7 @@ class InMemoryEventRepository(EventRepository):
         # mirrored so behaviour matches the SQLite repo.
         self._canonical_df: dict[str, int] = {}
         self._canonical_created_at: dict[str, float] = {}
+        self._tag_categories: dict[str, tuple[str, float]] = {}
 
     async def get(self, event_id: str) -> Event | None:
         event = self._store.get(event_id)
@@ -232,7 +233,13 @@ class InMemoryEventRepository(EventRepository):
         ]
 
     async def upsert(self, event: Event) -> None:
-        self._store[event.event_id] = deepcopy(event)
+        stored = deepcopy(event)
+        existing = self._store.get(event.event_id)
+        if existing is not None:
+            stored.interaction_classification = deepcopy(
+                existing.interaction_classification
+            )
+        self._store[event.event_id] = stored
 
     async def delete(self, event_id: str) -> bool:
         if event_id not in self._store:
@@ -494,6 +501,27 @@ class InMemoryEventRepository(EventRepository):
             self._canonical_df.pop(tag, None)
             self._canonical_created_at.pop(tag, None)
         return len(stale)
+
+    async def set_interaction_classification(
+        self, event_id: str, classification: dict,
+    ) -> None:
+        event = self._store.get(event_id)
+        if event is not None:
+            event.interaction_classification = deepcopy(classification or {})
+
+    async def set_chat_content_tags(self, event_id: str, tags: list[str]) -> None:
+        event = self._store.get(event_id)
+        if event is not None:
+            event.chat_content_tags = list(tags)
+
+    async def get_tag_categories(self) -> dict[str, tuple[str, float]]:
+        return dict(self._tag_categories)
+
+    async def upsert_tag_categories(
+        self, rows: dict[str, tuple[str, float]],
+    ) -> None:
+        for tag, (category, confidence) in rows.items():
+            self._tag_categories[tag] = (category, float(confidence))
 
 
 class InMemoryRawMessageRepository(RawMessageRepository):

@@ -137,6 +137,7 @@ if TYPE_CHECKING:
     from ..managers.llm_manager import LLMTaskManager
     from ..managers.raw_message_writer import RawMessageWriter
     from ..repository.base import RawMessageRepository
+    from .category_pass import EventCategoryClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,9 @@ class EventExtractor:
     ipc_enabled: master switch for IPC analysis (default True when both optional
                  components are provided).
     llm_manager: optional LLMTaskManager for concurrency control.
+    category_classifier: optional EventCategoryClassifier; when given, tag
+                         topics and event interactions are classified in the
+                         background after extraction.
     """
 
     def __init__(
@@ -171,10 +175,12 @@ class EventExtractor:
         events_persisted_callback: Callable[[list], Awaitable[None]] | None = None,
         raw_message_repo: RawMessageRepository | None = None,
         raw_message_writer: RawMessageWriter | None = None,
+        category_classifier: EventCategoryClassifier | None = None,
     ) -> None:
         from ..config import ExtractorConfig as _EC
         cfg = extractor_config or _EC()
         self._event_repo = event_repo
+        self._category_classifier = category_classifier
         self._persona_repo = persona_repo
         self._provider_getter = provider_getter
         self._encoder: Encoder = encoder or NullEncoder()
@@ -434,6 +440,12 @@ class EventExtractor:
 
         await self._batch_index_vectors(persisted_events)
 
+        # TypeSafe classification is a background pass of its own: it needs no
+        # extraction lull (a different service, no LLM prefix cache to evict)
+        # and a failure never disturbs the extracted facts.
+        if self._category_classifier is not None and persisted_events:
+            self._category_classifier.schedule(persisted_events)
+
         # Queue the persona [Eval] pass. It runs later, in batches, once no
         # extraction is in flight — never interleaved with extraction calls.
         if self._persona_influenced_summary and bot_desc and persisted_events:
@@ -574,6 +586,15 @@ class EventExtractor:
             except (asyncio.CancelledError, Exception):
                 pass
             self._eval_worker = None
+
+    async def drain_categories(self) -> None:
+        """Wait for every scheduled TypeSafe classification to finish.
+
+        Safe to call when no classifier is configured. Called on graceful
+        shutdown and by tests; an unclean crash still drops in-flight requests.
+        """
+        if self._category_classifier is not None:
+            await self._category_classifier.drain()
 
     async def _batch_align_tags(self, raw_tags: list[str]) -> dict[str, str]:
         """Normalize a large list of tags in a single batch operation.

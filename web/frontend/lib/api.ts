@@ -131,6 +131,7 @@ export interface ApiEvent {
   confidence: number
   tags: string[]
   tag_categories?: Record<string, string>
+  interaction_classification?: Record<string, unknown>
   inherit_from: string[]
   participants: string[]
   participant_names?: Record<string, string>
