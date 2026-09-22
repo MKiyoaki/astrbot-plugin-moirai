@@ -798,6 +798,14 @@
       "description": "Typesafe Minimum Confidence",
       "hint": "This threshold applies to tags, event subtypes, and event-group Noul scores. Lower results are recorded but not adopted. Default: 0.5; not calibrated."
     },
+    "typesafe_custom_tag_min_score": {
+      "description": "Custom Tag Judge Threshold",
+      "hint": "A candidate tag for an uncategorised event is adopted only when its TypeSafe Noul score reaches this value. Default: 0.7."
+    },
+    "typesafe.typesafe_custom_tag_min_score": {
+      "description": "Custom Tag Judge Threshold",
+      "hint": "A candidate tag for an uncategorised event is adopted only when its TypeSafe Noul score reaches this value. Default: 0.7."
+    },
     "typesafe_topic_backfill": {
       "description": "Backfill Existing Tags on Start",
       "hint": "Only effective when Typesafe classification is enabled: in the background after start, classify existing tags that were never asked (capped requests per start; existing event rows are not rewritten)."

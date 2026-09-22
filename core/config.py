@@ -58,9 +58,9 @@ _EVAL_RULE = (
     "无充分依据写「暂无评价」。事实、他人的观点和待办全部留在前三项。\n"
 )
 
-# Second-pass ("eval only") user-prompt preamble. The extraction call itself is
+# Second-pass ("eval only") system prompt. The extraction call itself is
 # always run persona-free so tags / salience / facts do not shift with the
-# active persona; when persona_influenced_summary is on, this thin prompt runs
+# active persona; when persona_influenced_summary is on, this dedicated prompt runs
 # afterwards (deferred, in batches) against the already-finalised topic segments
 # and only asks for the [Eval] asides. The aside semantics reuse _EVAL_RULE.
 _EVAL_ONLY_INSTRUCTION = (
@@ -68,7 +68,7 @@ _EVAL_ONLY_INSTRUCTION = (
     "只按 [Bot 视角人格] 为每个事件的每个小话题补一句第一人称主观旁白。\n"
 )
 
-EVAL_ONLY_PROMPT_PREAMBLE = (
+EVAL_ONLY_SYSTEM_PROMPT = (
     _EVAL_ONLY_INSTRUCTION
     + _EVAL_RULE
     + "输出一个 JSON 对象：键是事件编号（字符串），值是该事件各小话题旁白组成的字符串数组，"
@@ -377,6 +377,7 @@ class TypeSafeConfig:
     # Low Choice answers are stored but not adopted; the same threshold selects
     # active Noul interaction groups. Not calibrated against real data yet.
     min_confidence: float = 0.5
+    custom_tag_min_score: float = 0.7
     topic_backfill: bool = True
     event_backfill: bool = False
     llm_fallback: bool = True
@@ -728,6 +729,9 @@ class PluginConfig:
             model=self._str("typesafe_model", "").strip() or "jev-latest",
             timeout=self._float("typesafe_timeout_seconds", 10.0),
             min_confidence=self._float("typesafe_min_confidence", 0.5),
+            custom_tag_min_score=self._float(
+                "typesafe_custom_tag_min_score", 0.7
+            ),
             topic_backfill=self._bool("typesafe_topic_backfill", True),
             event_backfill=self._bool("typesafe_event_backfill", False),
             llm_fallback=self._bool("typesafe_llm_fallback", True),

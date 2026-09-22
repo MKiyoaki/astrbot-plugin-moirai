@@ -375,6 +375,7 @@ export default function EventsPage() {
         onTagsChange={setActiveTags}
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
+        persona={personaFilter}
       />
 
       {/* ── Main area ── */}

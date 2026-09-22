@@ -798,6 +798,14 @@
       "description": "Typesafe 最低置信度",
       "hint": "tag、event 子类型和 event 大组都使用该阈值；低分结果只记录不采用。默认 0.5，尚未校准。"
     },
+    "typesafe.typesafe_custom_tag_min_score": {
+      "description": "自定义 tag Judge 阈值",
+      "hint": "未分类 event 的候选 tag 只有在 TypeSafe Noul 分数达到该值时才采用。默认 0.7。"
+    },
+    "typesafe_custom_tag_min_score": {
+      "description": "自定义 tag Judge 阈值",
+      "hint": "未分类 event 的候选 tag 只有在 TypeSafe Noul 分数达到该值时才采用。默认 0.7。"
+    },
     "typesafe.typesafe_topic_backfill": {
       "description": "启动时回填旧 tag",
       "hint": "仅在启用 Typesafe 分类时生效：启动后在后台为尚未分类的已有 tag 补做一次分类（每次启动有请求数上限，旧 event 行不会被改写）。"

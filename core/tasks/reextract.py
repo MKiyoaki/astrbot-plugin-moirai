@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..boundary.window import MessageWindow
-from ..config import ExtractorConfig, select_event_system_prompt
+from ..config import EVAL_ONLY_SYSTEM_PROMPT, ExtractorConfig, select_event_system_prompt
 from ..extractor.eval_pass import annotate_event_evals
 from ..extractor.parser import parse_llm_output
 from ..extractor.persona_context import resolve_bot_persona_context
@@ -230,7 +230,7 @@ async def reextract_event(
             topic=primary["topic"],
             summary=summary_text,
             bot_persona_desc=bot_desc,
-            system_prompt=select_event_system_prompt(cfg.system_prompt, has_bot_persona=False),
+            system_prompt=EVAL_ONLY_SYSTEM_PROMPT,
         )
 
     updated = dataclasses.replace(

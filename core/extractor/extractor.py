@@ -22,10 +22,14 @@ import time as _time
 
 from typing import Awaitable, Callable, TYPE_CHECKING
 from ..embedding.encoder import NullEncoder
-from ..config import select_event_system_prompt
+from ..config import EVAL_ONLY_SYSTEM_PROMPT, select_event_system_prompt
 from .eval_pass import annotate_events_evals
 from .parser import fallback_extraction, fallback_single_extraction, parse_llm_output, parse_single_item
-from .persona_context import resolve_bot_persona_context
+from .persona_context import (
+    is_internal_bot_persona,
+    render_persona_prompt_context,
+    resolve_bot_persona_context,
+)
 from .prompts import build_user_prompt, build_distillation_prompt
 from .summary import strip_evals
 from .partitioner import LlmPartitioner, SemanticPartitioner, Partition
@@ -196,6 +200,7 @@ class EventExtractor:
         self._llm_timeout_growth = max(1.0, float(getattr(cfg, "llm_timeout_growth", 1.5)))
         self._strategy = cfg.strategy
         self._persona_influenced_summary = cfg.persona_influenced_summary
+        self._persona_prompt_contexts: dict[str, str] = {}
         self._tag_normalization_threshold = cfg.tag_normalization_threshold
         self._tag_promotion_min_df = cfg.tag_promotion_min_df
         self._tag_seeds = cfg.tag_seeds
@@ -530,7 +535,7 @@ class EventExtractor:
         provider = self._provider_getter()
         if provider is None:
             return
-        eval_system_prompt = select_event_system_prompt(self._system_prompt, has_bot_persona=False)
+        eval_system_prompt = EVAL_ONLY_SYSTEM_PROMPT
 
         async def _eval_call(user_prompt: str, system_prompt: str) -> str:
             resp, _ = await self._call_llm_with_retry(
@@ -687,6 +692,9 @@ class EventExtractor:
 
     async def _lookup_persona_description(self, persona_name: str) -> str | None:
         """Best-effort lookup of a persona description by primary name."""
+        prompt_context = self._persona_prompt_contexts.get(persona_name)
+        if prompt_context:
+            return prompt_context
         if self._persona_repo is None:
             return None
         try:
@@ -698,11 +706,23 @@ class EventExtractor:
             logger.debug("[EventExtractor] persona list_all failed: %s", exc)
             return None
         for p in personas:
-            if (p.primary_name or "").strip() == persona_name:
-                attrs = p.persona_attrs if isinstance(p.persona_attrs, dict) else {}
-                desc = str(attrs.get("description") or "").strip()
-                return desc or None
+            if (
+                is_internal_bot_persona(p)
+                and (p.primary_name or "").strip() == persona_name
+            ):
+                return render_persona_prompt_context(p) or None
         return None
+
+    def note_persona_prompt_context(self, persona_name: str, prompt_context: str) -> None:
+        """Keep the current host persona instructions for deferred Eval calls."""
+        name = persona_name.strip()
+        context = prompt_context.strip()
+        if not name or not context:
+            return
+        self._persona_prompt_contexts.pop(name, None)
+        self._persona_prompt_contexts[name] = context
+        while len(self._persona_prompt_contexts) > 64:
+            self._persona_prompt_contexts.pop(next(iter(self._persona_prompt_contexts)))
 
     async def _get_bot_persona(self) -> tuple[str | None, str | None]:
         """Return (primary_name, description) for the bot persona.

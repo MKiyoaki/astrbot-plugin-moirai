@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## [v1.2.1.sub] — 2026-09-22
+
+### 修复 Eval 未读取人格与提示冲突
+
+- `core/config.py`、`extractor.py` 与 `tasks/reextract.py` 为延后批量 Eval 和手工重新提取改用独立的 `EVAL_ONLY_SYSTEM_PROMPT`，不再复用明确禁止输出 `[Eval]` 的事实抽取 system prompt；`persona_influenced_summary` 仍是开发运行器与正式数据流的唯一开关，关闭时不发起 Eval 调用。
+- `core/event_handler.py` 从正式 Core `before_generation` 请求快照中读取 AstrBot 的 `# Persona Instructions` 段，排除后续 Skills 与 Moirai 记忆块后交给抽取器的有界内存缓存；延后 Eval 因而能使用当前真实回复所用的人格规则，且不持久化宿主 prompt。`core/extractor/persona_context.py` 的数据库降级路径统一自动抽取、显式人格查找与手工重新提取的人格上下文，除 `description` 外加入 `speaking_style` 和最多三条 `style_quotes`，并排除同名人类档案。
+- `run_realtime_dev.py` 正确解析 `# Persona prompt — Gariton` 与权威的 `A. 人物设定` 段，Y 模式将测试事件显式绑定到 Gariton；不再把 HTML 注释起始符误存为 `MockPersona` 的描述。`tests/test_event_summary.py` 覆盖正式自动抽取 Y/N、手工重新提取、同名档案隔离及 mock persona 规则读取。
+- `docs/event-summary.md` 补充开关、专用提示和人格字段契约。版本更新至 `v1.2.1.sub`，未发布。
+
+## [v1.2.0.sub] — 2026-09-22
+
+### 未分类 event 增加动态自定义交互 tag 闭环
+
+- `core/extractor/category_pass.py`、`custom_tag_pass.py` 与 `interaction_pass_llm.py` 增加第十个运行时母类 `custom / 自定义`：完整且非空的 event 仅得到 `未分类` 时，最多两轮由 LLM 生成或复用 2–8 个中文字符的交互行为 tag，再由 TypeSafe Noul Judge 按独立阈值审核；通过后区分复用静态 tag、复用已有自定义 tag 和新增自定义 tag，两轮失败或 Judge 故障则维持 `未分类`。无 TypeSafe 时 LLM 兜底只能复用已审核词表，不能创建。
+- `migrations/020_custom_interaction_tags.sql` 与三套 repository 接口增加按 `bot_persona_name` 隔离的动态词表；空人格名进入独立 legacy scope，事务内原子去重并限制每个人格 50 项。人格合并同步移动词表，重名时保留目标项。初始化始终载入名称缓存，使 API、WebUI 与召回把动态 tag 归入 `自定义`。
+- `interaction_classification` 升级到 schema version 2，保存每轮候选、Judge 分数/结果、最终 tag 和 `static` / `custom_existing` / `custom_new` 来源，不保存 prompt、模型原文或生成解释。动态调用只发送 topic、去除 `[Eval]` 的摘要段、已有 tag 名称与本轮拒绝候选。
+- `web/server.py`、`web/plugin_routes.py` 与 WebUI 增加只读 `/api/tags/tree`：Events 和 Library 两处标签筛选行的左侧图标改为主题色按钮，弹窗显示 9 个静态母类、33 个中文叶子和当前人格范围内已审核的 `自定义` 叶子；全人格视图展示去重并集，不提供编辑入口。
+- TypeSafe 配置、Schema、中英文文案、`run_config.py.example` 和开发运行器增加 `typesafe_custom_tag_min_score`（默认 `0.7`）；`docs/event-category.md` 记录调用成本、两轮上限、容量、隔离与隐私边界。版本更新至 `v1.2.0.sub`，未发布。
+- `run_realtime_dev.py --self-test --quiet` 改为一次发现 event summary 与 event category 的全部离线回归；前端 typecheck/build 后同步静态输出到 `pages/moirai/_app`，本地 realtime runner 可直接检查本次后端与两个页面入口。
+
+## [v1.1.1.sub] — 2026-09-22
+
+### event 交互分类 tag 中文化
+
+- `core/extractor/interaction_taxonomy.py` 为 9 个一级类别和 33 个二级叶子增加唯一中文名称；TypeSafe 与 LLM 分类 payload 继续使用稳定英文 id，最终 `chat_content_tags` 改写为中文叶子名称，全部弃权时由 `uncategorised` 改为 `未分类`。
+- `infer_tag_category()` 对新中文 tag 与历史英文叶子 id 都返回中文一级类别，避免召回漏斗的 `tag_category` 继续暴露内部英文 id。TypeSafe 路径仍保留全部过阈值叶子，LLM 兜底仍只取 `score × confidence` 最高的 3 个，排序逻辑不变。
+- 新增 `migrations/019_localize_interaction_tags.sql`，把已有 event 的英文分类叶子和 `uncategorised` 原位转换为中文并去重，保留不属于分类树的历史自由 tag；`interaction_classification` 内部结构不迁移。
+- `docs/event-category.md` 增加 9 个一级类别、33 个二级叶子的中英对照与内部 id 表；`tests/test_event_category.py` 覆盖中文派生、一级类别兼容、弃权结果和旧数据迁移。版本更新至 `v1.1.1.sub`，未发布。
+
 ## [v1.1.0.sub] — 2026-09-20
 
 ### event 标签改由交互分类树派生，抽取不再自由生成 tag

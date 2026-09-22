@@ -23,6 +23,21 @@ _TOP_LEVEL_HEADING_RE = _re.compile(r"^#{1,2}\s+")
 _SKILL_LINE_RE = _re.compile(r"^\s*-\s*([A-Za-z0-9._-]+)(?=\s*:|\s|$)")
 
 
+def _extract_persona_prompt_context(system_prompt: str) -> str:
+    """Extract AstrBot's active persona block without the following skills block."""
+    lines = _EM_BLOCK_RE.sub("", system_prompt).splitlines()
+    for index, line in enumerate(lines):
+        if not _PERSONA_INSTRUCTIONS_HEADING_RE.match(line.strip()):
+            continue
+        body: list[str] = []
+        for candidate in lines[index + 1:]:
+            if _SKILLS_HEADING_RE.match(candidate.strip()):
+                break
+            body.append(candidate)
+        return "\n".join(body).strip()
+    return ""
+
+
 def _extract_skill_names(lines: list[str]) -> list[str]:
     names: list[str] = []
     seen: set[str] = set()
@@ -228,6 +243,13 @@ class EventHandler:
         stage, correlation = event["stage"], event["correlation_id"]
         router = self._init.router
         group = message["stream_group_id"]
+        snapshot = payload["request"]
+        if stage == "before_generation" and snapshot is not None:
+            extractor = getattr(self._init, "extractor", None)
+            if extractor is not None:
+                persona_context = _extract_persona_prompt_context(snapshot["system_prompt"])
+                if persona_context:
+                    extractor.note_persona_prompt_context(persona, persona_context)
         state_key = json.dumps([event["source_instance"],
                                event["persona"]["scope"]["runtime_persona_id"], session])
         if stage in {"message", "after_generation"} and router is not None:
@@ -251,7 +273,6 @@ class EventHandler:
         if stage == "before_generation":
             if router is not None:
                 await router.prepare_persona(session, persona)
-            snapshot = payload["request"]
             if snapshot is None:
                 return []
             query = message["text"] or snapshot["prompt"]

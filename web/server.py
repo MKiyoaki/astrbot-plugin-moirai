@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 from core.domain.models import Event, Impression, Persona, MessageRef
+from core.extractor.interaction_taxonomy import interaction_tag_tree
 from core.tags import derive_tag_categories
 from .auth import AuthManager, AuthState, PermLevel
 from .config_schema import (
@@ -302,6 +303,7 @@ class WebuiServer:
         app.router.add_post("/api/impressions/bulk-delete", self._wrap("sudo", self._handle_bulk_delete_impressions_guarded))
         app.router.add_post("/api/impressions/reanalyze", self._wrap("sudo", self._handle_reanalyze_impressions_guarded))
         app.router.add_get("/api/tags", self._wrap("auth", self._handle_tags))
+        app.router.add_get("/api/tags/tree", self._wrap("auth", self._handle_tag_tree))
         app.router.add_get("/api/config", self._wrap("auth", self._handle_get_config))
         app.router.add_put("/api/config", self._wrap("sudo", self._handle_update_config))
         app.router.add_get("/api/config/schema", self._wrap("auth", self._handle_get_config_schema))
@@ -1151,6 +1153,14 @@ class WebuiServer:
     async def _handle_tags(self, _: web.Request) -> web.Response:
         counts = await self._event_repo.count_tags()
         return _json({"tags": [{"name": k, "count": v} for k, v in counts.items()]})
+
+    async def _handle_tag_tree(self, request: web.Request) -> web.Response:
+        persona = _persona_query(request)
+        if persona is None:
+            custom_tags = await self._event_repo.list_all_custom_interaction_tags()
+        else:
+            custom_tags = await self._event_repo.list_custom_interaction_tags(persona)
+        return _json(interaction_tag_tree(custom_tags))
 
     async def _handle_get_config(self, _: web.Request) -> web.Response:
         raw = json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {}

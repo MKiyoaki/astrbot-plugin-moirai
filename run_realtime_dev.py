@@ -132,6 +132,9 @@ try:
     _TYPESAFE_MODEL = getattr(_rc, "TYPESAFE_MODEL", "")
     _TYPESAFE_TIMEOUT = getattr(_rc, "TYPESAFE_TIMEOUT", 10.0)
     _TYPESAFE_MIN_CONFIDENCE = getattr(_rc, "TYPESAFE_MIN_CONFIDENCE", 0.5)
+    _TYPESAFE_CUSTOM_TAG_MIN_SCORE = getattr(
+        _rc, "TYPESAFE_CUSTOM_TAG_MIN_SCORE", 0.7
+    )
     _TYPESAFE_TOPIC_ENABLED = getattr(_rc, "TYPESAFE_TOPIC_ENABLED", True)
     _TYPESAFE_EVENT_ENABLED = getattr(_rc, "TYPESAFE_EVENT_ENABLED", True)
     _TYPESAFE_TOPIC_BACKFILL = getattr(_rc, "TYPESAFE_TOPIC_BACKFILL", True)
@@ -162,6 +165,7 @@ except Exception as _cfg_err:
     _TYPESAFE_MODEL = ""
     _TYPESAFE_TIMEOUT = 10.0
     _TYPESAFE_MIN_CONFIDENCE = 0.5
+    _TYPESAFE_CUSTOM_TAG_MIN_SCORE = 0.7
     _TYPESAFE_TOPIC_ENABLED = True
     _TYPESAFE_EVENT_ENABLED = True
     _TYPESAFE_TOPIC_BACKFILL = True
@@ -262,6 +266,37 @@ def _save_eval_setting(enabled: bool) -> None:
     REALTIME_SETTINGS.write_text(
         json.dumps({"persona_influenced_summary": enabled}), encoding="utf-8",
     )
+
+
+def _load_mock_persona(path: Path) -> tuple[str, str]:
+    text = path.read_text(encoding="utf-8")
+    name = "MockPersona"
+    for line in text.splitlines():
+        legacy = re.match(r"^#\s+Mock Persona:\s*(.+?)\s*$", line)
+        titled = re.match(r"^#\s+Persona prompt\s*[—:-]\s*(.+?)\s*$", line)
+        match = legacy or titled
+        if match:
+            name = match.group(1).strip()
+            break
+
+    section = re.search(
+        r"^##\s+A\.\s+[^\n]*\n(?P<body>.*?)(?=^##\s+B\.|\Z)",
+        text,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if section:
+        description = section.group("body").strip()
+    else:
+        without_comments = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+        description = next(
+            (
+                line.strip()
+                for line in without_comments.splitlines()
+                if line.strip() and not line.lstrip().startswith("#")
+            ),
+            name,
+        )
+    return name, description
 
 
 # ── Archive step ──────────────────────────────────────────────────────────────
@@ -635,6 +670,7 @@ async def main() -> None:
             "typesafe_model": _TYPESAFE_MODEL,
             "typesafe_timeout_seconds": _TYPESAFE_TIMEOUT,
             "typesafe_min_confidence": _TYPESAFE_MIN_CONFIDENCE,
+            "typesafe_custom_tag_min_score": _TYPESAFE_CUSTOM_TAG_MIN_SCORE,
             "typesafe_topic_enabled": bool(_TYPESAFE_TOPIC_ENABLED),
             "typesafe_event_enabled": bool(_TYPESAFE_EVENT_ENABLED),
             "typesafe_topic_backfill": bool(_TYPESAFE_TOPIC_BACKFILL),
@@ -741,21 +777,7 @@ async def main() -> None:
             if use_mock_persona:
                 import time as _time
                 from core.domain.models import Persona as _Persona
-                _persona_text = MOCK_PERSONA_PATH.read_text(encoding="utf-8")
-                _persona_name = "MockPersona"
-                for _line in _persona_text.splitlines():
-                    if _line.startswith("# Mock Persona:"):
-                        _persona_name = _line.removeprefix(
-                            "# Mock Persona:").strip()
-                        break
-                # Production stores a short synthesised blurb here, not the whole
-                # profile. Mirror that: the extractor feeds `description` into the
-                # [Eval] prompt, and an 8 KB file per call wrecks the prefix cache.
-                _persona_desc = next(
-                    (ln.strip() for ln in _persona_text.splitlines()
-                     if ln.strip() and not ln.lstrip().startswith("#")),
-                    _persona_name,
-                )[:200]
+                _persona_name, _persona_desc = _load_mock_persona(MOCK_PERSONA_PATH)
                 _mock_persona = _Persona(
                     uid="bot_internal_gariton",
                     bound_identities=[("internal", "gariton")],
@@ -811,13 +833,19 @@ async def main() -> None:
             print(f"\n[Phase 1] Ingesting {len(messages)} messages ...")
             with _tqdm(total=len(messages), desc="  Ingesting", unit="msg") as bar:
                 for msg in messages:
+                    # platform="internal" 的消息走 moirai 的 bot 身份路径
+                    # （is_bot=True、role=assistant）；session_platform 让 bot
+                    # 回复仍落进同一个 discord 群窗口。
+                    platform = msg.get("platform", "discord")
                     await router.process(
-                        platform="discord",
+                        platform=platform,
+                        session_platform="discord" if platform == "internal" else None,
                         physical_id=msg["user_id"],
                         display_name=msg["nickname"],
                         text=msg["content"],
                         raw_group_id=msg["group_id"],
                         now=msg["timestamp"],
+                        bot_persona_name=_persona_name if use_mock_persona else None,
                     )
                     bar.update(1)
 
@@ -1105,9 +1133,11 @@ if __name__ == "__main__":
         sys.path.insert(0, _root_str)
     if "--self-test" in sys.argv:
         import unittest
-        suite = unittest.defaultTestLoader.discover(str(_ROOT / "tests"), pattern="test_event_summary.py")
+        suite = unittest.defaultTestLoader.discover(
+            str(_ROOT / "tests"), pattern="test_*.py"
+        )
         if not suite.countTestCases():
-            raise SystemExit("No event-summary regression tests found.")
+            raise SystemExit("No realtime regression tests found.")
         result = unittest.TextTestRunner(verbosity=2).run(suite)
         raise SystemExit(0 if result.wasSuccessful() else 1)
     try:

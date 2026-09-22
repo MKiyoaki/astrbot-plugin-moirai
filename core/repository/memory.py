@@ -6,6 +6,7 @@ the store. All write methods store deep copies for the same reason.
 
 from __future__ import annotations
 
+import asyncio
 import math
 import time
 from collections.abc import Sequence
@@ -125,6 +126,8 @@ class InMemoryEventRepository(EventRepository):
         self._canonical_df: dict[str, int] = {}
         self._canonical_created_at: dict[str, float] = {}
         self._tag_categories: dict[str, tuple[str, float]] = {}
+        self._custom_interaction_tags: dict[str, set[str]] = {}
+        self._custom_tag_lock = asyncio.Lock()
 
     async def get(self, event_id: str) -> Event | None:
         event = self._store.get(event_id)
@@ -522,6 +525,30 @@ class InMemoryEventRepository(EventRepository):
     ) -> None:
         for tag, (category, confidence) in rows.items():
             self._tag_categories[tag] = (category, float(confidence))
+
+    async def list_custom_interaction_tags(
+        self, bot_persona_name: str | None,
+    ) -> list[str]:
+        scope = str(bot_persona_name or "")
+        return sorted(self._custom_interaction_tags.get(scope, set()))
+
+    async def list_all_custom_interaction_tags(self) -> list[str]:
+        return sorted({
+            tag for tags in self._custom_interaction_tags.values() for tag in tags
+        })
+
+    async def register_custom_interaction_tag(
+        self, bot_persona_name: str | None, tag_text: str, *, limit: int,
+    ) -> str:
+        scope = str(bot_persona_name or "")
+        async with self._custom_tag_lock:
+            tags = self._custom_interaction_tags.setdefault(scope, set())
+            if tag_text in tags:
+                return "existing"
+            if len(tags) >= limit:
+                return "full"
+            tags.add(tag_text)
+            return "created"
 
 
 class InMemoryRawMessageRepository(RawMessageRepository):

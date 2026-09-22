@@ -468,6 +468,25 @@ class EventRepository(ABC):
         """
         ...
 
+    @abstractmethod
+    async def list_custom_interaction_tags(
+        self, bot_persona_name: str | None,
+    ) -> list[str]:
+        """Return the custom interaction tags owned by one Bot persona scope."""
+        ...
+
+    @abstractmethod
+    async def list_all_custom_interaction_tags(self) -> list[str]:
+        """Return every distinct custom interaction tag across persona scopes."""
+        ...
+
+    @abstractmethod
+    async def register_custom_interaction_tag(
+        self, bot_persona_name: str | None, tag_text: str, *, limit: int,
+    ) -> str:
+        """Atomically return ``created``, ``existing`` or ``full`` for one tag."""
+        ...
+
 
 class RawMessageRepository(ABC):
     @abstractmethod

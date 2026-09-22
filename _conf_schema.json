@@ -978,6 +978,13 @@
                 "default": 0.5,
                 "level": "advanced"
             },
+            "typesafe_custom_tag_min_score": {
+                "description": "自定义 tag Judge 阈值",
+                "type": "float",
+                "hint": "未分类 event 的候选 tag 只有在 TypeSafe Noul 分数达到该值时才采用。默认 0.7。",
+                "default": 0.7,
+                "level": "advanced"
+            },
             "typesafe_topic_backfill": {
                 "description": "启动时回填旧 tag",
                 "type": "bool",

@@ -4,9 +4,12 @@ from __future__ import annotations
 from typing import Any
 
 
-INTERACTION_SCHEMA_VERSION = 1
+INTERACTION_SCHEMA_VERSION = 2
 INTERACTION_ABSTAIN_OPTION = "other"
-UNCATEGORISED_TAG = "uncategorised"
+UNCATEGORISED_TAG = "未分类"
+_LEGACY_UNCATEGORISED_TAG = "uncategorised"
+CUSTOM_INTERACTION_GROUP_ID = "custom"
+CUSTOM_INTERACTION_GROUP_TAG = "自定义"
 
 
 def _criterion(
@@ -63,6 +66,18 @@ INTERACTION_GROUPS: dict[str, dict[str, str]] = {
         "what": "The segment asks for information or asks a person or bot to perform an action.",
         "not_for": "Providing an explanation, jointly exploring a question, or instructing someone for their own guidance.",
     },
+}
+
+INTERACTION_GROUP_TAGS: dict[str, str] = {
+    "describing_sharing": "描述与分享",
+    "personal_stance_evaluation": "个人立场与评价",
+    "social_casual_interaction": "社交与闲聊",
+    "storytelling": "叙事",
+    "playful_interaction": "玩笑互动",
+    "figuring_things_out": "探索与解决",
+    "advice_guidance": "建议与指导",
+    "conflict_disagreement": "冲突与分歧",
+    "question_request": "提问与请求",
 }
 
 
@@ -252,6 +267,42 @@ INTERACTION_LEAF_CRITERIA: dict[str, dict[str, Any]] = {
     },
 }
 
+INTERACTION_LEAF_TAGS: dict[str, str] = {
+    "past_event_recount": "过去事件简述",
+    "present_situation_commentary": "现状描述",
+    "general_information_explanation": "信息解释",
+    "future_event_intention": "未来意图",
+    "opinion": "观点",
+    "evaluation": "评价",
+    "feeling_emotion": "情绪表达",
+    "observation_comment": "观察评论",
+    "complaint_grievance": "抱怨",
+    "chat_small_talk": "闲聊",
+    "gossip": "八卦",
+    "catching_up": "叙旧",
+    "relationship_oriented_talk": "关系交流",
+    "narrative": "完整叙事",
+    "anecdote": "轶事",
+    "storytelling_recount": "过程复述",
+    "exemplum": "例证故事",
+    "joking": "玩笑",
+    "banter_teasing": "调侃",
+    "friendly_ridicule": "善意嘲弄",
+    "exploring_understanding": "探索理解",
+    "problem_solving": "问题解决",
+    "considering_options": "方案比较",
+    "planning": "规划",
+    "decision_oriented_discussion": "决策讨论",
+    "advice": "建议",
+    "suggestion": "提议",
+    "instruction": "操作指导",
+    "difference_of_opinion": "意见分歧",
+    "debate": "辩论",
+    "interpersonal_conflict": "人际冲突",
+    "information_seeking": "信息询问",
+    "action_request": "行动请求",
+}
+
 for _criteria in INTERACTION_LEAF_CRITERIA.values():
     _criteria[INTERACTION_ABSTAIN_OPTION] = _criterion(
         "No leaf in this group fits the segment clearly.",
@@ -265,18 +316,99 @@ _LEAF_TO_GROUP: dict[str, str] = {
     for leaf in leaves
     if leaf != INTERACTION_ABSTAIN_OPTION
 }
+_TAG_TO_LEAF: dict[str, str] = {
+    tag: leaf for leaf, tag in INTERACTION_LEAF_TAGS.items()
+}
+_custom_interaction_tags: set[str] = set()
+
+
+def set_custom_interaction_tags(tags: list[str] | set[str]) -> None:
+    """Replace the process-wide names recognised as custom interaction tags."""
+    global _custom_interaction_tags
+    _custom_interaction_tags = {
+        str(tag).strip() for tag in tags if str(tag).strip()
+    }
+
+
+def add_custom_interaction_tag(tag: str) -> None:
+    """Make one persisted custom interaction tag visible to synchronous readers."""
+    global _custom_interaction_tags
+    text = str(tag or "").strip()
+    if text:
+        _custom_interaction_tags = {*_custom_interaction_tags, text}
+
+
+def tag_for_leaf(leaf_id: str) -> str:
+    """Return the Chinese persisted tag for an internal leaf id."""
+    return INTERACTION_LEAF_TAGS.get(str(leaf_id or "").strip(), "")
+
+
+def interaction_tag_tree(custom_tags: list[str] | set[str] = ()) -> dict[str, Any]:
+    """Return the current static taxonomy plus approved custom leaves."""
+    groups = [
+        {
+            "id": group_id,
+            "label": INTERACTION_GROUP_TAGS[group_id],
+            "label_en": group["label"],
+            "dynamic": False,
+            "leaves": [
+                {"id": leaf_id, "tag": INTERACTION_LEAF_TAGS[leaf_id]}
+                for leaf_id in INTERACTION_LEAF_CRITERIA[group_id]
+                if leaf_id != INTERACTION_ABSTAIN_OPTION
+            ],
+        }
+        for group_id, group in INTERACTION_GROUPS.items()
+    ]
+    approved = sorted({
+        str(tag).strip() for tag in custom_tags if str(tag).strip()
+    })
+    groups.append({
+        "id": CUSTOM_INTERACTION_GROUP_ID,
+        "label": CUSTOM_INTERACTION_GROUP_TAG,
+        "label_en": "Custom",
+        "dynamic": True,
+        "leaves": [{"id": tag, "tag": tag} for tag in approved],
+    })
+    return {
+        "version": INTERACTION_SCHEMA_VERSION,
+        "static_leaf_count": len(INTERACTION_LEAF_TAGS),
+        "custom_leaf_count": len(approved),
+        "groups": groups,
+    }
 
 
 def leaf_group(leaf_id: str) -> str:
-    """Return the first-layer group of a leaf, or '' when it is not one.
+    """Return the Chinese first-layer tag category, or '' for an unknown tag.
 
     The placeholder tag for an event whose segments all abstained is its own
     category, so it never falls through to a keyword guess.
     """
     text = str(leaf_id or "").strip()
-    if text == UNCATEGORISED_TAG:
+    if text in {UNCATEGORISED_TAG, _LEGACY_UNCATEGORISED_TAG}:
         return UNCATEGORISED_TAG
-    return _LEAF_TO_GROUP.get(text, "")
+    internal_id = text if text in _LEAF_TO_GROUP else _TAG_TO_LEAF.get(text, "")
+    group_id = _LEAF_TO_GROUP.get(internal_id, "")
+    if group_id:
+        return INTERACTION_GROUP_TAGS.get(group_id, "")
+    if text in _custom_interaction_tags:
+        return CUSTOM_INTERACTION_GROUP_TAG
+    return ""
+
+
+def custom_group_question(segment_index: int, tags: list[str]) -> str:
+    names = ", ".join(tags)
+    return (
+        f"To what extent does [Segment {segment_index}] perform one of these "
+        f"custom interaction functions: {names}? Score only the interaction "
+        "function, not the topic, named entities, or one-off event details."
+    )
+
+
+def custom_leaf_question(segment_index: int) -> str:
+    return (
+        f"Which declared custom interaction tag best describes [Segment {segment_index}]? "
+        "Choose 'other' if none fits clearly."
+    )
 
 
 def group_question(segment_index: int, group_id: str) -> str:

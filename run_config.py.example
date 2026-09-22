@@ -62,3 +62,6 @@ TYPESAFE_EVENT_BACKFILL = False
 
 # Answers below this confidence are stored but not adopted.
 TYPESAFE_MIN_CONFIDENCE = 0.5
+
+# A generated custom interaction tag must reach this TypeSafe judge score.
+TYPESAFE_CUSTOM_TAG_MIN_SCORE = 0.7

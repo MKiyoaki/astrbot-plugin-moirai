@@ -11,12 +11,14 @@ import json
 import logging
 from typing import TYPE_CHECKING, Sequence
 
-from .parser import _extract_json_objects
 from .interaction_taxonomy import (
+    CUSTOM_INTERACTION_GROUP_ID,
+    CUSTOM_INTERACTION_GROUP_TAG,
     INTERACTION_ABSTAIN_OPTION,
     INTERACTION_GROUPS,
     INTERACTION_LEAF_CRITERIA,
 )
+from .parser import _extract_json_objects
 
 if TYPE_CHECKING:
     from ..domain.models import Event
@@ -37,7 +39,7 @@ def _response_text(resp: object) -> str:
     return ""
 
 
-def build_system_prompt() -> str:
+def build_system_prompt(custom_tags: Sequence[str] = ()) -> str:
     """Render the taxonomy into a single instruction block.
 
     Generated rather than written out so the prompt cannot drift from the
@@ -68,6 +70,20 @@ def build_system_prompt() -> str:
                 f"    * {leaf}: {criterion['what']} "
                 f"Not for: {criterion['not_for']}"
             )
+    if custom_tags:
+        lines.append(
+            f"- {CUSTOM_INTERACTION_GROUP_ID} ({CUSTOM_INTERACTION_GROUP_TAG})"
+        )
+        lines.append(
+            "    counts: One of the declared Bot-persona-scoped custom interaction "
+            "functions genuinely describes the segment."
+        )
+        lines.append(
+            "    does not count: Topics, named entities, one-off details, or a custom "
+            "tag that does not clearly fit."
+        )
+        for tag in custom_tags:
+            lines.append(f"    * {tag}: The interaction function is '{tag}'.")
     lines += [
         "",
         "Output one JSON object and nothing else:",
@@ -78,7 +94,9 @@ def build_system_prompt() -> str:
     return "\n".join(lines)
 
 
-def _parse(text: str, segment_count: int) -> dict[int, list[dict]] | None:
+def _parse(
+    text: str, segment_count: int, custom_tags: Sequence[str] = (),
+) -> dict[int, list[dict]] | None:
     """Map the completion onto {segment_index: [{group, subtype, confidence}]}."""
     candidates = [obj for obj in _extract_json_objects(text) if "segments" in obj]
     if not candidates:
@@ -105,9 +123,16 @@ def _parse(text: str, segment_count: int) -> dict[int, list[dict]] | None:
                 continue
             group_id = str(label.get("group") or "").strip()
             subtype = str(label.get("subtype") or "").strip()
-            if group_id not in INTERACTION_GROUPS or group_id in seen:
+            valid_group = group_id in INTERACTION_GROUPS or (
+                group_id == CUSTOM_INTERACTION_GROUP_ID and bool(custom_tags)
+            )
+            if not valid_group or group_id in seen:
                 continue
-            if subtype == INTERACTION_ABSTAIN_OPTION or subtype not in INTERACTION_LEAF_CRITERIA[group_id]:
+            if group_id == CUSTOM_INTERACTION_GROUP_ID:
+                valid_subtype = subtype in custom_tags
+            else:
+                valid_subtype = subtype in INTERACTION_LEAF_CRITERIA[group_id]
+            if subtype == INTERACTION_ABSTAIN_OPTION or not valid_subtype:
                 continue
             try:
                 confidence = float(label.get("confidence"))
@@ -128,18 +153,19 @@ async def classify_segments(
     provider: object,
     state: str,
     segments: Sequence[str],
+    custom_tags: Sequence[str] = (),
 ) -> dict[int, list[dict]] | None:
     """Return per-segment interaction labels, or None when the call is unusable."""
     if provider is None or not segments:
         return None
     try:
         response = await provider.text_chat(
-            prompt=state, system_prompt=build_system_prompt(),
+            prompt=state, system_prompt=build_system_prompt(custom_tags),
         )
     except Exception as exc:
         logger.warning("[InteractionPassLLM] request failed: %s", exc)
         return None
-    parsed = _parse(_response_text(response), len(segments))
+    parsed = _parse(_response_text(response), len(segments), custom_tags)
     if parsed is None:
         logger.warning("[InteractionPassLLM] could not parse interaction labels")
     return parsed

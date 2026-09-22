@@ -6,8 +6,6 @@ from datetime import datetime, timezone
 
 from typing import TYPE_CHECKING
 
-from ..config import EVAL_ONLY_PROMPT_PREAMBLE
-
 if TYPE_CHECKING:
     from ..boundary.window import MessageWindow, RawMessage
 
@@ -103,7 +101,6 @@ def build_eval_prompt(
     persona share a long cacheable prefix.
     """
     lines = [
-        EVAL_ONLY_PROMPT_PREAMBLE,
         f"[Bot 视角人格] {bot_persona_desc}",
         "",
         f"共 {len(entries)} 个事件：",

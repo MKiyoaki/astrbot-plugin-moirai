@@ -322,8 +322,30 @@ export const admin = {
 }
 
 // ── Tags ─────────────────────────────────────────────────────────────────
+export interface InteractionTagLeaf {
+  id: string
+  tag: string
+}
+
+export interface InteractionTagGroup {
+  id: string
+  label: string
+  label_en: string
+  dynamic: boolean
+  leaves: InteractionTagLeaf[]
+}
+
+export interface InteractionTagTree {
+  version: number
+  static_leaf_count: number
+  custom_leaf_count: number
+  groups: InteractionTagGroup[]
+}
+
 export const tags = {
   list: () => request<{ tags: { name: string; count: number }[] }>('/api/tags').catch(() => ({ tags: [] })),
+  tree: (persona?: string | null) =>
+    request<InteractionTagTree>(withPersona('/api/tags/tree', persona)),
 }
 
 // ── Plugin Config ─────────────────────────────────────────────────────────

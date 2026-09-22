@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from quart import Response, request as quart_request
 
 from core.domain.models import Event, Impression, Persona, MessageRef
+from core.extractor.interaction_taxonomy import interaction_tag_tree
 from core.tags import derive_tag_categories
 from .config_schema import (
     apply_config_update_to_mapping,
@@ -371,6 +372,7 @@ class PluginRoutes:
             (f"/api/recall",                   self._handle_recall,                  ["GET"],         "Memory recall"),
             # Tags
             (f"/api/tags",                     self._handle_tags,                    ["GET"],         "List tags"),
+            (f"/api/tags/tree",                self._handle_tag_tree,               ["GET"],         "Show interaction tag tree"),
             # Personas
             (f"/api/personas/bots",            self._handle_bot_personas_list,       ["GET"],         "List bot personas"),
             (f"/api/personas/merge",           self._handle_persona_merge,           ["POST"],        "Merge bot persona src→target"),
@@ -1160,6 +1162,14 @@ class PluginRoutes:
         counts = await self._event_repo.count_tags()
         tags = [{"name": k, "count": v} for k, v in counts.items()]
         return _json({"tags": tags})
+
+    async def _handle_tag_tree(self, request: web.Request) -> web.Response:
+        persona = _persona_query(request)
+        if persona is None:
+            custom_tags = await self._event_repo.list_all_custom_interaction_tags()
+        else:
+            custom_tags = await self._event_repo.list_custom_interaction_tags(persona)
+        return _json(interaction_tag_tree(custom_tags))
 
     # ------------------------------------------------------------------
     # Handlers: personas

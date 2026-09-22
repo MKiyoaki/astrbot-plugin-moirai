@@ -12,11 +12,33 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _is_internal_bound(persona) -> bool:
+def is_internal_bot_persona(persona) -> bool:
     return any(
         (bi[0] if isinstance(bi, tuple) else getattr(bi, "platform", None)) == INTERNAL_PLATFORM
         for bi in (persona.bound_identities or [])
     )
+
+
+def render_persona_prompt_context(persona) -> str:
+    """Render the persona fields that can affect first-person wording."""
+    attrs = persona.persona_attrs if isinstance(persona.persona_attrs, dict) else {}
+    parts: list[str] = []
+
+    description = str(attrs.get("description") or "").strip()
+    if description:
+        parts.append(description)
+
+    speaking_style = str(attrs.get("speaking_style") or "").strip()
+    if speaking_style and speaking_style not in description:
+        parts.append(f"说话风格：{speaking_style}")
+
+    raw_quotes = attrs.get("style_quotes")
+    if isinstance(raw_quotes, (list, tuple)):
+        quotes = [str(value).strip() for value in raw_quotes if str(value).strip()]
+        if quotes:
+            parts.append("代表性原话：" + "；".join(quotes[:3]))
+
+    return "\n".join(parts)
 
 
 async def resolve_bot_persona_context(
@@ -41,16 +63,15 @@ async def resolve_bot_persona_context(
     if persona_name:
         matches = [
             p for p in personas
-            if _is_internal_bound(p) and (p.primary_name or "").strip() == persona_name
+            if is_internal_bot_persona(p) and (p.primary_name or "").strip() == persona_name
         ]
         if not matches:
             return persona_name, persona_name
         matches.sort(key=lambda p: getattr(p, "last_active_at", 0.0) or 0.0, reverse=True)
         bot = matches[0]
-        attrs = bot.persona_attrs if isinstance(bot.persona_attrs, dict) else {}
-        return persona_name, str(attrs.get("description") or "").strip() or persona_name
+        return persona_name, render_persona_prompt_context(bot) or persona_name
 
-    internal = [p for p in personas if _is_internal_bound(p)]
+    internal = [p for p in personas if is_internal_bot_persona(p)]
     if not internal:
         return None, None
 
@@ -71,8 +92,5 @@ async def resolve_bot_persona_context(
         )
 
     bot = internal[0]
-    desc = ""
-    if isinstance(bot.persona_attrs, dict):
-        desc = str(bot.persona_attrs.get("description") or "").strip()
     name = (bot.primary_name or "").strip() or None
-    return name, desc or name
+    return name, render_persona_prompt_context(bot) or name

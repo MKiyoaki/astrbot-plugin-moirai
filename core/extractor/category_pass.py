@@ -1,10 +1,9 @@
 """Deferred classification of event interactions, and the tags derived from them.
 
 Interaction labels are derived per fact-only summary segment; multiple groups
-may apply to one segment. The accepted leaves become the event's tags, so the
-tag vocabulary is closed by the taxonomy rather than invented per extraction.
-TypeSafe is the calibrated fast path; an LLM pass covers the same taxonomy when
-no key is configured.
+may apply to one segment. The accepted leaves become the event's tags. TypeSafe
+is the calibrated fast path; an LLM pass covers the same static and previously
+approved custom taxonomy when no key is configured.
 """
 from __future__ import annotations
 
@@ -20,17 +19,25 @@ from ..tags import (
     set_learned_categories,
 )
 from ..utils.typesafe import TypeSafeClient
+from .custom_tag_pass import generate_custom_tag
 from .interaction_taxonomy import (
+    CUSTOM_INTERACTION_GROUP_ID,
     INTERACTION_ABSTAIN_OPTION,
     UNCATEGORISED_TAG,
     INTERACTION_GROUPS,
     INTERACTION_LEAF_CRITERIA,
+    INTERACTION_LEAF_TAGS,
     INTERACTION_SCHEMA_VERSION,
+    add_custom_interaction_tag,
+    custom_group_question,
+    custom_leaf_question,
     group_question,
     leaf_question,
+    set_custom_interaction_tags,
+    tag_for_leaf,
 )
-from .summary import split_subtopics, strip_evals
 from .interaction_pass_llm import classify_segments as llm_classify_segments
+from .summary import split_subtopics, strip_evals
 
 if TYPE_CHECKING:
     from ..config import TypeSafeConfig
@@ -48,6 +55,9 @@ _BACKFILL_MAX_REQUESTS = 200
 _EVENT_BACKFILL_MAX_EVENTS = 100
 _BACKFILL_SCAN_EVENTS = 5000
 _BACKFILL_MAX_CONSECUTIVE_FAILURES = 5
+_CUSTOM_TAG_LIMIT = 50
+_CUSTOM_TAG_ATTEMPTS = 2
+_CUSTOM_TAG_JUDGE_KEY = "custom_tag_judge"
 
 
 def _tag_key(index: int) -> str:
@@ -90,13 +100,23 @@ def build_state(event: "Event") -> str:
     return f"Topic: {topic}\nTags: {tags}\nSummary:\n{summary}"
 
 
+def build_custom_tag_state(event: "Event") -> str:
+    """Build the narrower topic-and-summary state allowed for custom tagging."""
+    topic = (event.topic or "").strip()
+    summary = "\n".join(
+        f"[Segment {index}] {segment}"
+        for index, segment in enumerate(build_segments(event))
+    )
+    return f"Topic: {topic}\nSummary:\n{summary}"
+
+
 def event_source_hash(event: "Event") -> str:
     """Identify the privacy-bounded input so stale classifications are detectable."""
     return hashlib.sha256(build_state(event).encode("utf-8")).hexdigest()
 
 
 def derive_tags(payload: dict, *, limit: int | None = None) -> list[str]:
-    """Rank the accepted interaction leaves of one payload into event tags.
+    """Rank accepted interaction leaves into their Chinese event tags.
 
     The TypeSafe pass already gates on a calibrated threshold, so every accepted
     leaf is kept. The LLM pass passes a limit because its confidence is not
@@ -107,16 +127,31 @@ def derive_tags(payload: dict, *, limit: int | None = None) -> list[str]:
         for label in segment.get("labels") or []:
             if not label.get("accepted"):
                 continue
-            leaf = str(label.get("subtype") or "")
-            if not leaf:
+            subtype = str(label.get("subtype") or "").strip()
+            if not subtype:
                 continue
-            weight = float(label.get("score") or 0.0) * float(label.get("confidence") or 0.0)
-            if weight > best.get(leaf, -1.0):
-                best[leaf] = weight
-    ranked = sorted(best, key=lambda leaf: (-best[leaf], leaf))
+            if label.get("group") == CUSTOM_INTERACTION_GROUP_ID:
+                tag = subtype
+            else:
+                tag = tag_for_leaf(subtype)
+            if not tag:
+                continue
+            weight = float(label.get("score") or 0.0) * float(
+                label.get("confidence") or 0.0
+            )
+            if weight > best.get(tag, -1.0):
+                best[tag] = weight
+    ranked = sorted(best, key=lambda tag: (-best[tag], tag))
     if limit is not None:
         ranked = ranked[:limit]
-    return ranked or [UNCATEGORISED_TAG]
+    if ranked:
+        return ranked
+    resolution = payload.get("custom_resolution") or {}
+    if resolution.get("status") == "accepted":
+        selected = str(resolution.get("selected_tag") or "").strip()
+        if selected:
+            return [selected]
+    return [UNCATEGORISED_TAG]
 
 
 class EventCategoryClassifier:
@@ -129,6 +164,7 @@ class EventCategoryClassifier:
         *,
         provider_getter=None,
         min_confidence: float = 0.5,
+        custom_tag_min_score: float = 0.7,
         concurrency: int = _CONCURRENCY,
         topic_enabled: bool = True,
         event_enabled: bool = True,
@@ -139,6 +175,9 @@ class EventCategoryClassifier:
         self._provider_getter = provider_getter
         self._event_repo = event_repo
         self._min_confidence = min(max(float(min_confidence), 0.0), 1.0)
+        self._custom_tag_min_score = min(
+            max(float(custom_tag_min_score), 0.0), 1.0
+        )
         self._topic_enabled = topic_enabled
         self._event_enabled = event_enabled
         self._topic_backfill = topic_backfill
@@ -169,6 +208,8 @@ class EventCategoryClassifier:
 
     async def load(self) -> None:
         """Load stored topic answers and activate the confident tag mappings."""
+        custom_tags = await self._event_repo.list_all_custom_interaction_tags()
+        set_custom_interaction_tags(custom_tags)
         if not self._typesafe_usable:
             return
         rows = await self._event_repo.get_tag_categories()
@@ -234,8 +275,11 @@ class EventCategoryClassifier:
         """Classify unseen tags and, when requested, the event summary segments."""
         if not self.active:
             return False
+        custom_tags = await self._event_repo.list_custom_interaction_tags(
+            event.bot_persona_name
+        )
         if self._interaction_via_llm:
-            return await self._classify_interaction_llm(event)
+            return await self._classify_interaction_llm(event, custom_tags)
         pending = self._claim(event.chat_content_tags if tags is None else tags)
         want_event = (
             self._event_enabled
@@ -252,6 +296,12 @@ class EventCategoryClassifier:
             for segment_index in range(len(segments))
             for group_id in INTERACTION_GROUPS
         }
+        if custom_tags:
+            nouls.update({
+                _group_key(segment_index, CUSTOM_INTERACTION_GROUP_ID):
+                    custom_group_question(segment_index, custom_tags)
+                for segment_index in range(len(segments))
+            })
         wrote = False
         try:
             if not choices and not nouls:
@@ -293,7 +343,10 @@ class EventCategoryClassifier:
                         _group_key(segment_index, group_id)
                     ].value
                     for segment_index in range(len(segments))
-                    for group_id in INTERACTION_GROUPS
+                    for group_id in (
+                        *INTERACTION_GROUPS,
+                        *([CUSTOM_INTERACTION_GROUP_ID] if custom_tags else []),
+                    )
                 }
                 active = [
                     (segment_index, group_id)
@@ -305,8 +358,16 @@ class EventCategoryClassifier:
                 if active:
                     leaf_choices = {
                         _leaf_key(segment_index, group_id): (
-                            leaf_question(segment_index, group_id),
-                            INTERACTION_LEAF_CRITERIA[group_id],
+                            (
+                                custom_leaf_question(segment_index)
+                                if group_id == CUSTOM_INTERACTION_GROUP_ID
+                                else leaf_question(segment_index, group_id)
+                            ),
+                            (
+                                self._custom_leaf_criteria(custom_tags)
+                                if group_id == CUSTOM_INTERACTION_GROUP_ID
+                                else INTERACTION_LEAF_CRITERIA[group_id]
+                            ),
                         )
                         for segment_index, group_id in active
                     }
@@ -324,6 +385,9 @@ class EventCategoryClassifier:
                         )
                 payload = self._interaction_payload(
                     event, segments, group_scores, leaf_answers, complete=complete,
+                )
+                payload = await self._resolve_uncategorised(
+                    event, payload, segments, custom_tags
                 )
                 await self._event_repo.set_interaction_classification(event.event_id, payload)
                 event.interaction_classification = payload
@@ -356,9 +420,12 @@ class EventCategoryClassifier:
     ) -> dict:
         output_segments = []
         for segment_index, _ in enumerate(segments):
+            group_ids = [*INTERACTION_GROUPS]
+            if (segment_index, CUSTOM_INTERACTION_GROUP_ID) in group_scores:
+                group_ids.append(CUSTOM_INTERACTION_GROUP_ID)
             scores = {
                 group_id: group_scores[(segment_index, group_id)]
-                for group_id in INTERACTION_GROUPS
+                for group_id in group_ids
                 if (segment_index, group_id) in group_scores
             }
             labels = []
@@ -394,7 +461,183 @@ class EventCategoryClassifier:
             "segments": output_segments,
         }
 
-    async def _classify_interaction_llm(self, event: "Event") -> bool:
+    @staticmethod
+    def _custom_leaf_criteria(tags: Sequence[str]) -> dict[str, dict]:
+        criteria = {
+            tag: {
+                "what": f"The segment's interaction function is '{tag}'.",
+                "not_for": "A topic, named entity, one-off detail, or a different interaction.",
+                "examples": [],
+            }
+            for tag in tags
+        }
+        criteria[INTERACTION_ABSTAIN_OPTION] = {
+            "what": "None of the declared custom interaction tags fits clearly.",
+            "not_for": "Any segment that clearly performs one declared custom interaction.",
+            "examples": [],
+        }
+        return criteria
+
+    async def _resolve_uncategorised(
+        self,
+        event: "Event",
+        payload: dict,
+        segments: Sequence[str],
+        custom_tags: Sequence[str],
+    ) -> dict:
+        if (
+            not payload.get("complete")
+            or not segments
+            or derive_tags(payload) != [UNCATEGORISED_TAG]
+        ):
+            return payload
+        resolution = {
+            "status": "unavailable",
+            "attempts": [],
+            "selected_tag": "",
+            "source": "",
+        }
+        payload["custom_resolution"] = resolution
+        try:
+            provider = (
+                self._provider_getter()
+                if self._provider_getter is not None
+                else None
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CategoryPass] custom tag provider unavailable for %s: %s",
+                event.event_id[:8],
+                exc,
+            )
+            return payload
+        if not self._typesafe_usable or provider is None:
+            return payload
+
+        existing = list(custom_tags)
+        existing_set = set(existing)
+        static_tags = set(INTERACTION_LEAF_TAGS.values())
+        rejected: list[str] = []
+        custom_state = build_custom_tag_state(event)
+        resolution["status"] = "exhausted"
+        for _ in range(_CUSTOM_TAG_ATTEMPTS):
+            allow_new = len(existing_set) < _CUSTOM_TAG_LIMIT
+            candidate = await generate_custom_tag(
+                provider,
+                custom_state,
+                existing,
+                rejected,
+                allow_new=allow_new,
+            )
+            if (
+                not candidate
+                or candidate == UNCATEGORISED_TAG
+                or candidate in rejected
+            ):
+                resolution["attempts"].append({
+                    "tag": candidate,
+                    "score": None,
+                    "result": "invalid",
+                    "source": "",
+                })
+                if candidate and candidate not in rejected:
+                    rejected.append(candidate)
+                continue
+            if candidate in static_tags:
+                source = "static"
+            elif candidate in existing_set:
+                source = "custom_existing"
+            else:
+                source = "custom_new"
+            if source == "custom_new" and not allow_new:
+                resolution["attempts"].append({
+                    "tag": candidate,
+                    "score": None,
+                    "result": "capacity",
+                    "source": source,
+                })
+                rejected.append(candidate)
+                continue
+
+            judge_state = (
+                f"{custom_state}\nProposed reusable interaction tag: {candidate}"
+            )
+            judge_question = (
+                f"To what extent does the proposed tag '{candidate}' accurately and "
+                "reusably describe the central interaction function in this event? "
+                "Score low for topics, named entities, one-off details, or labels that "
+                "are too vague to distinguish an interaction."
+            )
+            attempt = {
+                "tag": candidate,
+                "score": None,
+                "result": "judge_error",
+                "source": source,
+            }
+            try:
+                answers = await self._client.ask(
+                    judge_state,
+                    nouls={_CUSTOM_TAG_JUDGE_KEY: judge_question},
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[CategoryPass] custom tag judge failed for %s: %s",
+                    event.event_id[:8],
+                    exc,
+                )
+                resolution["attempts"].append(attempt)
+                resolution["status"] = "error"
+                return payload
+            answer = answers.nouls.get(_CUSTOM_TAG_JUDGE_KEY)
+            if answer is None:
+                resolution["attempts"].append(attempt)
+                resolution["status"] = "error"
+                return payload
+            score = answer.value
+            accepted = score >= self._custom_tag_min_score
+            attempt["score"] = score
+            attempt["result"] = "accepted" if accepted else "rejected"
+            resolution["attempts"].append(attempt)
+            if not accepted:
+                rejected.append(candidate)
+                continue
+
+            if source == "custom_new":
+                try:
+                    registered = await self._event_repo.register_custom_interaction_tag(
+                        event.bot_persona_name,
+                        candidate,
+                        limit=_CUSTOM_TAG_LIMIT,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[CategoryPass] custom tag registration failed for %s: %s",
+                        event.event_id[:8],
+                        exc,
+                    )
+                    attempt["result"] = "error"
+                    resolution["status"] = "error"
+                    return payload
+                if registered == "full":
+                    attempt["result"] = "capacity"
+                    rejected.append(candidate)
+                    continue
+                if registered == "existing":
+                    source = "custom_existing"
+                    attempt["source"] = source
+            if source in {"custom_existing", "custom_new"}:
+                add_custom_interaction_tag(candidate)
+            resolution.update({
+                "status": "accepted",
+                "selected_tag": candidate,
+                "source": source,
+            })
+            return payload
+        return payload
+
+    async def _classify_interaction_llm(
+        self, event: "Event", custom_tags: Sequence[str],
+    ) -> bool:
         """Fill the interaction payload from one chat completion instead of TypeSafe."""
         if event.interaction_classification:
             return False
@@ -406,7 +649,7 @@ class EventCategoryClassifier:
             await self._apply_derived_tags(event, payload, limit=_LLM_TAG_LIMIT)
             return True
         labels = await llm_classify_segments(
-            self._provider_getter(), build_state(event), segments,
+            self._provider_getter(), build_state(event), segments, custom_tags,
         )
         if labels is None:
             return False
@@ -437,6 +680,9 @@ class EventCategoryClassifier:
             "backend": "llm",
             "segments": output_segments,
         }
+        payload = await self._resolve_uncategorised(
+            event, payload, segments, custom_tags
+        )
         try:
             await self._event_repo.set_interaction_classification(event.event_id, payload)
         except Exception as exc:
@@ -591,6 +837,7 @@ def build_category_classifier(
         event_repo,
         provider_getter=provider_getter,
         min_confidence=cfg.min_confidence,
+        custom_tag_min_score=cfg.custom_tag_min_score,
         topic_enabled=cfg.topic_enabled,
         event_enabled=cfg.event_enabled,
         topic_backfill=cfg.topic_backfill,

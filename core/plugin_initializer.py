@@ -31,6 +31,7 @@ from .domain.models import Event
 from .embedding.encoder import NullEncoder, SentenceTransformerEncoder, ApiEncoder, Encoder
 from .extractor.category_pass import build_category_classifier
 from .extractor.extractor import EventExtractor
+from .extractor.interaction_taxonomy import set_custom_interaction_tags
 from .managers import MemoryManager, RecallManager
 from .managers.context_manager import ContextManager
 from .managers.embedding_manager import EmbeddingManager
@@ -295,6 +296,9 @@ class PluginInitializer:
             if persona_synthesis_trigger is not None:
                 await persona_synthesis_trigger.handle_events(events)
 
+        set_custom_interaction_tags(
+            await event_repo.list_all_custom_interaction_tags()
+        )
         typesafe_cfg = cfg.get_typesafe_config()
         if typesafe_cfg.enabled and not typesafe_cfg.api_key:
             astrbot_logger.warning(

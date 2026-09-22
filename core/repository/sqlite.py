@@ -125,6 +125,8 @@ async def preview_bot_persona_merge(
     src_imps_where, src_imps_params = _bot_persona_match_sql("bot_persona_name", src)
     src_alias_where, src_alias_params = _bot_persona_match_sql("s.bot_persona_name", src)
     src_personas_where, src_personas_params = _bot_persona_match_sql("bot_persona_name", src)
+    src_custom_scope = str(src or "")
+    target_custom_scope = str(target or "")
 
     async with db.execute(
         f"SELECT COUNT(*) FROM events WHERE {src_events_where}", tuple(src_events_params)
@@ -148,11 +150,30 @@ async def preview_bot_persona_merge(
         f"SELECT COUNT(*) FROM personas WHERE {src_personas_where}", tuple(src_personas_params)
     ) as cur:
         personas_n = (await cur.fetchone())[0]
+    if src_custom_scope == target_custom_scope:
+        custom_total = 0
+        custom_conflicts = 0
+    else:
+        async with db.execute(
+            "SELECT COUNT(*) FROM custom_interaction_tags WHERE bot_persona_name = ?",
+            (src_custom_scope,),
+        ) as cur:
+            custom_total = (await cur.fetchone())[0]
+        async with db.execute(
+            "SELECT COUNT(*) FROM custom_interaction_tags s "
+            "WHERE s.bot_persona_name = ? AND EXISTS ("
+            "SELECT 1 FROM custom_interaction_tags t "
+            "WHERE t.bot_persona_name = ? AND t.tag_text = s.tag_text)",
+            (src_custom_scope, target_custom_scope),
+        ) as cur:
+            custom_conflicts = (await cur.fetchone())[0]
     return {
         "events_moved": events_n if mode == "all" else 0,
         "impressions_moved": imps_total - imps_conflicts,
         "impressions_dropped": imps_conflicts,
         "personas_moved": personas_n if mode == "all" else 0,
+        "custom_tags_moved": custom_total - custom_conflicts if mode == "all" else 0,
+        "custom_tags_dropped": custom_conflicts if mode == "all" else 0,
     }
 
 
@@ -172,6 +193,8 @@ async def merge_bot_persona(
     src_imps_where, src_imps_params = _bot_persona_match_sql("bot_persona_name", src)
     src_events_where, src_events_params = _bot_persona_match_sql("bot_persona_name", src)
     src_personas_where, src_personas_params = _bot_persona_match_sql("bot_persona_name", src)
+    src_custom_scope = str(src or "")
+    target_custom_scope = str(target or "")
     lock = _get_db_lock(db)
     async with _txn(db, lock):
         # 1. Drop src impressions that conflict with target on (obs, subj, scope)
@@ -200,6 +223,19 @@ async def merge_bot_persona(
                 f"UPDATE personas SET bot_persona_name = ? WHERE {src_personas_where}",
                 tuple([target] + src_personas_params),
             )
+            if src_custom_scope != target_custom_scope:
+                await db.execute(
+                    "DELETE FROM custom_interaction_tags "
+                    "WHERE bot_persona_name = ? AND tag_text IN ("
+                    "SELECT tag_text FROM custom_interaction_tags "
+                    "WHERE bot_persona_name = ?)",
+                    (src_custom_scope, target_custom_scope),
+                )
+                await db.execute(
+                    "UPDATE custom_interaction_tags SET bot_persona_name = ? "
+                    "WHERE bot_persona_name = ?",
+                    (target_custom_scope, src_custom_scope),
+                )
     return counts
 
 
@@ -1512,6 +1548,53 @@ class SQLiteEventRepository(EventRepository):
                 [(tag, category, float(confidence), now)
                  for tag, (category, confidence) in rows.items()],
             )
+
+    async def list_custom_interaction_tags(
+        self, bot_persona_name: str | None,
+    ) -> list[str]:
+        async with self._db.execute(
+            "SELECT tag_text FROM custom_interaction_tags "
+            "WHERE bot_persona_name = ? ORDER BY created_at, tag_text",
+            (str(bot_persona_name or ""),),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [str(row[0]) for row in rows]
+
+    async def list_all_custom_interaction_tags(self) -> list[str]:
+        async with self._db.execute(
+            "SELECT DISTINCT tag_text FROM custom_interaction_tags ORDER BY tag_text"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [str(row[0]) for row in rows]
+
+    async def register_custom_interaction_tag(
+        self, bot_persona_name: str | None, tag_text: str, *, limit: int,
+    ) -> str:
+        scope = str(bot_persona_name or "")
+        lock = _get_db_lock(self._db)
+        async with _txn(self._db, lock):
+            async with self._db.execute(
+                "SELECT 1 FROM custom_interaction_tags "
+                "WHERE bot_persona_name = ? AND tag_text = ?",
+                (scope, tag_text),
+            ) as cur:
+                if await cur.fetchone() is not None:
+                    return "existing"
+            async with self._db.execute(
+                "SELECT COUNT(*) FROM custom_interaction_tags "
+                "WHERE bot_persona_name = ?",
+                (scope,),
+            ) as cur:
+                count = int((await cur.fetchone())[0])
+            if count >= limit:
+                return "full"
+            import time
+            await self._db.execute(
+                "INSERT INTO custom_interaction_tags"
+                "(bot_persona_name, tag_text, created_at) VALUES (?, ?, ?)",
+                (scope, tag_text, time.time()),
+            )
+            return "created"
 
 
 # ---------------------------------------------------------------------------

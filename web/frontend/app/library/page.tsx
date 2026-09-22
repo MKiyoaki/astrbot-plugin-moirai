@@ -593,6 +593,7 @@ function LibraryContent() {
         onTagsChange={setActiveTags}
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
+        persona={personaFilter}
       />
 
       <div className="flex flex-1 flex-col overflow-hidden p-6 pt-2">

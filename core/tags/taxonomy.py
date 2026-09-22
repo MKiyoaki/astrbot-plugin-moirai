@@ -152,9 +152,10 @@ def clear_learned_categories() -> None:
 def infer_tag_category(tag: str) -> str:
     """Resolve a tag to its broad category, preferring the interaction taxonomy.
 
-    Derived tags are leaf ids whose parent group is their category, so the
-    answer is exact. The learned cache and keyword table below only serve tags
-    left over from free-form extraction.
+    Derived tags are Chinese labels backed by stable internal leaf ids. Their
+    Chinese parent group is therefore exact. Legacy English leaf ids remain
+    readable; the learned cache and keyword table only serve older free-form
+    tags.
     """
     text = str(tag or "").strip()
     if not text:
