@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## [v1.2.4.sub] — 2026-09-23
+
+### canon 抽取：本地替换字面"博士"，基准改按精确引用评分
+
+- `core/canon/extract.py` 的 `normalize_output()` 在校验前把 topic、summary、in_world_note、beats、实体名、视角 note、episode、认知的 target 和 stance 里的字面"博士"换成 `{DOCTOR}`，participants 里的换成 `@doctor`；`prune_auxiliary()` 丢掉名字正好是博士的实体。v3 prompt 用 arc:nano 真实接口跑完 20 个场景（20/20 成功，19 个首次通过，唯一的重试来自 KCL 网关超时），但输出里有 61 处字面"博士"（v1 基线 12 处），注入时这些位置不会换成用户的称呼。story_pack 里没有别的人物被称作"某某博士"，替换没有歧义；"他"是否指博士判断不了，不做替换，仍由质量检查提示。
+- 新增 `text_length()`：校验的长度上限和 `audit.py` 的"超过建议长度"都按显示长度计字，`{DOCTOR}` 算 2 个字，替换不会让文本超过上限；"实体名不在原文"检查先把 `{DOCTOR}` 还原成"博士"再对照原文。
+- 基准不再被整段的事件证据带偏：arc:nano 把事件证据写成整段情节的行区间，多数场景 95–100% 的行都在某个事件的证据里，探针覆盖和"她的台词被引用的比例"因此几乎自动满分，和基线的逐事件对齐又因 Jaccard 过低而配不上。`audit.py` 新增 `cited_lines()`：事件有 beats 时取 beats 与视角证据，没有时取事件证据与视角证据，台词被引用比例改按它统计；`probes.py` 的覆盖探针按它判断命中，事件证据只用来判断"被合并"，锚点只落在事件范围里而没被精确引用时记为新的"范围内未引用"；`compare.py` 的 `align()` 改用重合系数（交集除以较小的集合，阈值 0.5，并列时先配 Jaccard 高的），渠道变化记录的 `jaccard` 字段改名 `overlap`。v1 基线没有 beats，重新计算后分数完全不变；这次 arc:nano 运行的台词被引用比例从 0.975 变为 0.848，与基线配上的事件从 59 个变为 89 个，事件 F1 从 0.534 变为 0.805，探针结果不变（精确引用同样命中）。
+- 用这次 arc:nano 运行的结果零成本回放验证：字面"博士"从 61 处降到 0，其余质量检查项不变。`tests/test_canon.py` 现有 79 项测试，`run_realtime_dev.py --self-test --quiet` 现有 149 项离线回归通过。`docs/canon.md` 记录了这两项修正，规格 B4 记录了"博士"替换。版本更新至 `v1.2.4.sub`，未发布。
+
+## [v1.2.3.sub] — 2026-09-23
+
+### 新增原作剧情记忆 canon（M1：抽取、导入与抽取基准）
+
+- `core/canon/` 新增独立于聊天记忆的剧情记忆库：`schema.sql` 与 `store.py` 建立单独的 `canon.sqlite`（trigram 全文检索，不可用时降级为 bigram；向量表随 encoder 维度创建，encoder 变化时清空重编码）；`prompt.py` 提供 `canon-extract-v2` system prompt 与确定性 user prompt；`extract.py` 执行 8 条校验、带问题清单的重试（共 3 次）和超过 2 万字场景的分块；`importer.py` 按 `scene_hash` 与 `PROMPT_VERSION` 增量导入，命中抽取缓存不再调用接口，支持中断后续跑，并删除包里已没有的场景。M1 只有命令行入口 `python -m core.canon.cli import / status / dump`；检索、注入和 `/mrm canon` 指令属于 M2，尚未接入，运行时不读取 canon。
+- `_conf_schema.json` 与中英文 i18n 新增 `canon` 配置分组，默认关闭；`core/config.py` 增加 `get_canon_config()`，`canon_persona_map` 格式错误时对所有人格都不生效。`core/utils/llm.py` 的 `SimpleLLMClient` 增加可选的 `timeout` 与 `temperature`（默认仍为 60 秒和 0.1），并把接口返回的 `usage` 带回，用于统计 token。
+- 抽取基准：`bench.py`、`probes.py`、`audit.py`、`compare.py`、`judge.py` 与 `cli bench / compare / judge` 支持估算、回放和真实接口三种模式，提供金标准探针（覆盖组与边界组的仿 KBF 调和分）、只做机械判断的质量检查、按证据行对齐的逐事件对比与 Cohen's κ 重测信度，以及默认不运行的 LLM 裁判（ALCE 引证召回率 / 精确率）。运行目录按 `api/`、`replay/`、`repeats/` 分类放在 `.dev_data/canon/bench/`。本地开发工具 `run_canon_dev.py` 沿用 `run_config.py` 的模型配置手动跑基准、裁判与对比，实时显示每次调用、进行中的请求和累计 token，调用真实接口前要求确认；`run_config.py.example` 增加 `CANON_*` 设置。
+- 修复真实接口试跑中模型在 JSON 字符串里用未转义的英文双引号引用原话、导致每次输出都解析失败并反复重试计费的问题：`extract.py` 的 `parse_json()` 在直接解析失败时用 `repair_quotes()` 修复字符串内部的引号再解析一次，合法 JSON 不做修改，修复后照常经过 8 条校验；`normalize_output()` 在校验前把能确定对应到行号的证据（整数、`"L8"`、`"L8、L9"`、区间 `"L8-L10"`）统一成 L 行号数组，并规范枚举值的大小写、字符串形式的布尔值和数字、字符串形式的 participants；`prune_auxiliary()` 丢掉不合格的单条实体、beat、认知和边，并把没有视角证据的在场渠道降为 `unstated`，不再为这些问题整次重试；校验的长度上限比 prompt 的建议值留出余量（topic 30、summary 400、beat 40、episode 300、stance 60），实体名允许单字（如 W）；JSON 解析失败的重试问题清单附带引号写法提示；调用超时写明超时秒数。`core/utils/llm.py` 在接口返回错误状态时把响应体前 300 字带进 `HTTPStatusError`，异常类型不变。基准把失败的调用分为接口失败、JSON 格式错和校验不通过，并统计引号修复、格式规范和丢弃或降级条目的次数，质量检查增加"超过建议长度"；`run_canon_dev.py` 的进度行同样区分三类。
+- 抽取 prompt 升到 `canon-extract-v3`，改进事件粒度：v2 在真实接口上把一段交火拆成多个只有一行视角证据的碎片。v3 规定一个事件是一段连贯的情节，只在场景或地点转换、一段对话或一轮交锋结束、话题转折、她的参与方式改变时切开；summary 放宽到 300 字并改用缩写写法；每个事件新增 0–5 条 `beats`，只作为检索键。`schema.sql` 升到 schema_version 2，新增 `event_beats` 表和 trigram 的 `beats_fts`（bigram 降级模式下并入 `events_fts_bigram`）；`scene_dump` 和审阅页显示 beats。`audit.py` 增加"事件超过 8 条""事件只覆盖不到 3 行""beat 证据不在事件证据里"三条提示，报告统计 beats 数。做法依据 SeCom、ReadAgent、LongMemEval、ES-Mem、MemGAS 等 arXiv 研究，出处记在 `docs/canon.md` 的"事件粒度"一节和规格附录 A。
+- `docs/canon.md` 记录实现状态、评测框架与出处，以及与规格 v1.3 的差异。story_pack、canon.sqlite、审阅页、基准输出和探针都含剧情原文，只留在本机；`tests/test_canon.py` 的 75 项测试只用自编文本。`run_realtime_dev.py --self-test --quiet` 现有 145 项离线回归通过；v3 prompt 尚未用真实接口完整试跑。版本更新至 `v1.2.3.sub`，未发布。
+
+## [v1.2.2.sub] — 2026-09-22
+
+### 对外提供可选的结构化记忆上下文读取
+
+- `core/adapters/core_events.py` 在原有 Core provider 上增加仅面向聊天事件的只读 `moirai.chat_memory.recall` 能力。调用者须具备 `moirai.chat_memory.read` 权限并提供明确的运行人格、Moirai scope 与私聊/群聊范围；scope 必须有显式旧人格桶映射，缺失时不退化为全人格查询。原有事件注入与独立运行保持不变。
+- `core/managers/recall_manager.py` 复用现有混合召回和人格/会话过滤，按 `conversation-context.v1` 返回事件 ID、主题、时间与去掉 `[Eval]` 的非空事实摘要；不返回数据库对象、原始消息或 Oedipus 的情境评分，也不发起额外 LLM 调用。`main.py` 只在初始化完成后提供召回服务。
+- `docs/core-memory-context.md` 记录接口与降级边界。本地以真实 Core broker、内存事件库验证了事实摘要、人设隔离、权限与无映射拒绝；正式 AstrBot 中的跨扩展回合编排、同轮召回复用仍需单独验证。`run_realtime_dev.py --self-test --quiet` 现有 70 项离线回归通过。版本更新至 `v1.2.2.sub`，未发布。
+
 ## [v1.2.1.sub] — 2026-09-22
 
 ### 修复 Eval 未读取人格与提示冲突

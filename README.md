@@ -6,7 +6,7 @@
 
 **AstrBot 三轴长期记忆与数据可视化插件**
 
-[![version](https://img.shields.io/badge/版本-v1.0.15.sub-blueviolet)](metadata.yaml)
+[![version](https://img.shields.io/badge/版本-v1.2.4.sub-blueviolet)](metadata.yaml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![license](https://img.shields.io/badge/license-APGL-green)](LICENSE)
 [![en](https://img.shields.io/badge/English-README__EN.md-blue)](README_EN.md)
@@ -21,11 +21,15 @@ Made with ♥ by MKiyoaki & Gariton
 
 ## Oedipus-Sub 分支：Core 事件接入
 
-此工作分支版本为 `v1.0.15.sub`。五阶段自动事件消费与注入需要启用支持 Event Protocol v1 的 Core（本轮 `v0.6.0`）；缺失、停用或不兼容时暂停自动处理，保留数据库和独立管理功能。
+此工作分支版本为 `v1.2.4.sub`。五阶段自动事件消费与注入需要启用支持 Event Protocol v1 的 Core（本轮 `v0.6.0`）；缺失、停用或不兼容时暂停自动处理，保留数据库和独立管理功能。
 
 1. 在 Moirai 配置 `core_integration.scope_mappings` 填入 JSON，例如 `{"memory-alice":"Alice"}`，显式指定 scope 对应的旧人格数据桶。
 2. 在 Core Settings 创建人格与绑定，选择 Moirai 提供的 scope。
 3. 配置 AstrBot 平台实例 ID 与人格引用的映射，或主动启用 Core 全局覆盖。侧栏选择不改变机器人运行人格。
+
+Core 的可选只读 `moirai.chat_memory.recall` 能力可按已绑定人格与私聊/群聊范围提供现有聊天事件的历史事实，不依赖 Oedipus；其权限和数据形状见 [Core 记忆上下文读取](docs/core-memory-context.md)。
+
+原作剧情记忆 canon 默认关闭，目前完成了 M1：用命令行把 Arknights-Texts 导出的 story_pack 抽取成独立的 `canon.sqlite`，并提供抽取基准；检索和注入对话尚未接入。说明见 [canon：原作剧情记忆](docs/canon.md)。
 
 旧 `bot_persona_name_override` 不再决定事件归属，也不会自动迁移为全局覆盖。已有数据桶和记忆会话键保持原样；缺失映射不会退化成所有人格查询。FTS 与向量检索在截取候选前应用人格及会话范围过滤，候选名额仅用于当前作用域。宿主事件对象兼容、文本规范化及 synthetic tool-call 降级移入 Core，Moirai 保留窗口结算、检索、抽取、存储与调试内容生成。
 

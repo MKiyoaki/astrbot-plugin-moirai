@@ -625,6 +625,25 @@ class PluginConfig:
                 "retrieval_sampling_temperature", 1.0),
         )
 
+    def get_canon_config(self):
+        """原作剧情记忆的配置。canon_persona_map 格式错误时 persona_map 为空并带上错误说明。"""
+        from .canon.config import CanonConfig, parse_persona_map
+
+        persona_map, error = parse_persona_map(self._raw.get("canon_persona_map", "{}"))
+        return CanonConfig(
+            enabled=self._bool("canon_enabled", False),
+            db_path=self._str("canon_db_path", "").strip(),
+            pack_path=self._str("canon_pack_path", "").strip(),
+            persona_map=persona_map,
+            persona_map_error=error,
+            top_k=max(1, self._int("canon_top_k", 5)),
+            token_budget=max(0, self._int("canon_token_budget", 600)),
+            evidence_lines=max(0, self._int("canon_evidence_lines", 3)),
+            time_filter=self._bool("canon_time_filter", False),
+            extract_concurrency=max(1, self._int("canon_extract_concurrency", 2)),
+            extract_timeout=max(1, self._int("canon_extract_timeout", 300)),
+        )
+
     def get_injection_config(self) -> InjectionConfig:
         pos = self._str("injection_position", "user_message_before").strip()
         valid = {"system_prompt", "user_message_before",

@@ -80,6 +80,7 @@ class MoiraiPlugin(Star):
             lambda: self.config.get("core_integration", {}).get("scope_mappings", "{}"),
             _PLUGIN_VERSION,
             self._core_available,
+            recall=lambda: self._initializer.recall if self._initializer else None,
         )
 
     @property

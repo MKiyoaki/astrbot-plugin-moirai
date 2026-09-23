@@ -34,9 +34,11 @@ class InjectionDraft:
 
 class MoiraiCoreProvider:
     def __init__(self, handler: Callable, scopes: Callable, version: str,
-                 core_available: Callable = lambda: True) -> None:
+                 core_available: Callable = lambda: True,
+                 *, recall: Callable = lambda: None) -> None:
         self._handler, self._scopes = handler, scopes
         self.version, self._core_available = version, core_available
+        self._recall = recall
 
     def _mapping(self) -> dict[str, str]:
         raw = self._scopes()
@@ -53,6 +55,8 @@ class MoiraiCoreProvider:
         return {"extension_id": "moirai", "display_name": "Moirai", "protocol_version": "1",
                 "extension_version": self.version, "capabilities": [
                     {"operation": "moirai.scopes.list", "kind": "query", "required_scopes": []},
+                    {"operation": "moirai.chat_memory.recall", "kind": "query",
+                     "required_scopes": ["runtime_persona", "extension"]},
                 ]}
 
     def events_v1(self) -> dict:
@@ -76,9 +80,15 @@ class MoiraiCoreProvider:
         return {"state": "ready", "message": "Core 事件入口已就绪。"}
 
     async def invoke_v1(self, request: dict, context: dict) -> dict:
-        if context.get("principal", {}).get("authenticated") is not True:
-            return self._error("permission_denied", "需要已认证的管理身份。")
-        if request.get("operation") != "moirai.scopes.list" or request.get("kind") != "query":
+        principal = context.get("principal", {})
+        if principal.get("authenticated") is not True:
+            return self._error("permission_denied", "需要已认证的身份。")
+        operation = request.get("operation")
+        if request.get("kind") != "query":
+            return self._error("capability_unsupported", "不支持的操作。")
+        if operation == "moirai.chat_memory.recall":
+            return await self._recall_context(request, context)
+        if operation != "moirai.scopes.list":
             return self._error("capability_unsupported", "不支持的操作。")
         try:
             mappings = self._mapping()
@@ -88,6 +98,46 @@ class MoiraiCoreProvider:
                 "operation": "moirai.scopes.list", "resolved_scope": request["scope"],
                 "data": {"items": [{"id": key, "label": value, "status": "ready"}
                                    for key, value in sorted(mappings.items())]}}
+
+    async def _recall_context(self, request: dict, context: dict) -> dict:
+        permissions = context["principal"].get("permissions", [])
+        if not isinstance(permissions, (list, tuple, set, frozenset)) or "moirai.chat_memory.read" not in permissions:
+            return self._error("permission_denied", "缺少记忆上下文读取权限。")
+        if not self._core_available():
+            return self._error("extension_unavailable", "Core 事件入口不可用。")
+        manager = self._recall()
+        if manager is None:
+            return self._error("extension_unavailable", "记忆召回尚未就绪。")
+        scope = request.get("scope")
+        if not isinstance(scope, dict) or not scope.get("runtime_persona_id"):
+            return self._error("scope_invalid", "需要明确的运行人格。")
+        extension_scopes = scope.get("extension_scopes")
+        if not isinstance(extension_scopes, dict):
+            return self._error("scope_invalid", "需要 Moirai 人格作用域。")
+        try:
+            bucket = self._mapping().get(extension_scopes.get("moirai"))
+        except (TypeError, ValueError):
+            return self._error("scope_invalid", "Core 人格映射配置无效。")
+        if bucket is None:
+            return self._error("scope_invalid", "Moirai 人格作用域没有显式映射。")
+        payload = request.get("payload")
+        if not isinstance(payload, dict) or set(payload) != {"query", "scope_mode", "group_id"}:
+            return self._error("payload_invalid", "记忆查询字段无效。")
+        query, mode, group = payload["query"], payload["scope_mode"], payload["group_id"]
+        if not isinstance(query, str) or not query.strip():
+            return self._error("payload_invalid", "记忆查询文本不能为空。")
+        if not isinstance(mode, str) or mode not in {"private", "group"} or (mode == "private" and group is not None) or (mode == "group" and (not isinstance(group, str) or not group.strip())):
+            return self._error("payload_invalid", "会话作用域无效。")
+        try:
+            events = await manager.recall_context(
+                query.strip(), group_id=group, scope_mode=mode, bot_persona_name=bucket,
+            )
+        except Exception:
+            return self._error("extension_failure", "记忆召回失败。")
+        return {"request_id": context["request_id"], "extension_id": "moirai",
+                "operation": "moirai.chat_memory.recall", "resolved_scope": scope,
+                "data": {"schema_version": "conversation-context.v1",
+                         "source_kind": "conversation", "events": events}}
 
     async def on_event_v1(self, event: dict) -> dict:
         handler = self._handler()

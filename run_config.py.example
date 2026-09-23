@@ -65,3 +65,21 @@ TYPESAFE_MIN_CONFIDENCE = 0.5
 
 # A generated custom interaction tag must reach this TypeSafe judge score.
 TYPESAFE_CUSTOM_TAG_MIN_SCORE = 0.7
+
+# canon extraction benchmark (run_canon_dev.py). Every setting is optional.
+# The extractor uses MODEL_TYPE above unless CANON_MODEL_TYPE overrides it; the
+# LLM judge uses CANON_JUDGE_MODEL_TYPE, falling back to the extractor's type.
+CANON_MODEL_TYPE = ""        # "" = MODEL_TYPE; or "lmstudio" | "deepseek" | "kcl"
+CANON_JUDGE_MODEL_TYPE = ""  # "" = CANON_MODEL_TYPE
+# Paths are relative to the plugin root. The story_pack, probes and every run
+# directory contain story text and must stay on this machine.
+CANON_PACK = "../Arknights-Texts/exports/story_pack"
+CANON_PROBES = "../Arknights-Texts/eval/canon_extract_probes.jsonl"
+CANON_SCENES = "pilot.txt"   # scene list inside the story_pack, or a path
+CANON_CHARACTER = "amiya"
+CANON_CONCURRENCY = 2
+CANON_TIMEOUT = None         # seconds per call; None = TIMEOUT
+CANON_BASELINE = ""          # run to compare against, e.g. "20260923-005355-baseline-luna-v1"
+# Prices per million tokens for cost estimates; None when unknown.
+CANON_PRICE_IN = None
+CANON_PRICE_OUT = None

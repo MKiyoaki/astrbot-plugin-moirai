@@ -1000,5 +1000,82 @@
                 "level": "advanced"
             }
         }
+    },
+    "canon": {
+        "description": "原作剧情记忆（canon）",
+        "hint": "从 Arknights-Texts 导出的 story_pack 构建独立的剧情记忆库，扮演时按对话取回角色在原作中经历或得知的事，并单独注入。默认关闭。",
+        "type": "object",
+        "items": {
+            "canon_enabled": {
+                "description": "启用原作剧情记忆",
+                "type": "bool",
+                "hint": "总开关。关闭时不打开 canon 数据库，也不注入原作剧情。",
+                "default": false,
+                "level": "basic"
+            },
+            "canon_db_path": {
+                "description": "canon 数据库路径",
+                "type": "string",
+                "hint": "留空则用插件数据目录下的 canon/canon.sqlite。",
+                "default": "",
+                "level": "advanced"
+            },
+            "canon_pack_path": {
+                "description": "story_pack 目录",
+                "type": "string",
+                "hint": "留空则用插件数据目录下的 canon/story_pack。story_pack 含剧情原文，只放在本机。",
+                "default": "",
+                "level": "advanced"
+            },
+            "canon_persona_map": {
+                "description": "人格映射（JSON）",
+                "type": "text",
+                "hint": "键是 Core 映射到的人格桶名，例如 {\"Amiya\": {\"character\": \"amiya\", \"user_is_doctor\": \"off\", \"doctor_uids\": [], \"time_point\": \"latest\"}}。格式错误时 canon 对所有人格都不生效，不影响其他功能。",
+                "default": "{}",
+                "level": "basic"
+            },
+            "canon_top_k": {
+                "description": "注入事件数",
+                "type": "int",
+                "hint": "每轮最多注入的原作事件数。",
+                "default": 5,
+                "level": "advanced"
+            },
+            "canon_token_budget": {
+                "description": "canon 块 token 上限",
+                "type": "int",
+                "hint": "原作剧情块单独计算的 token 预算，不占用聊天记忆的预算。",
+                "default": 600,
+                "level": "advanced"
+            },
+            "canon_evidence_lines": {
+                "description": "每个事件的证据行数",
+                "type": "int",
+                "hint": "每个事件附带的原文行数上限。",
+                "default": 3,
+                "level": "advanced"
+            },
+            "canon_time_filter": {
+                "description": "按扮演时间点过滤",
+                "type": "bool",
+                "hint": "开启后只注入扮演时间点及以前的剧情。默认关闭。",
+                "default": false,
+                "level": "advanced"
+            },
+            "canon_extract_concurrency": {
+                "description": "导入并发数",
+                "type": "int",
+                "hint": "导入时同时进行的抽取调用数，与聊天记忆的 LLM 并发互不占用。",
+                "default": 2,
+                "level": "expert"
+            },
+            "canon_extract_timeout": {
+                "description": "单次抽取超时（秒）",
+                "type": "int",
+                "hint": "导入时单次抽取调用的超时。",
+                "default": 300,
+                "level": "expert"
+            }
+        }
     }
 }

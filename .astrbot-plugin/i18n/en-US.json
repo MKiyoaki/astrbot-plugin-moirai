@@ -821,6 +821,90 @@
     "typesafe.typesafe_event_backfill": {
       "description": "Backfill Existing Events on Start",
       "hint": "Classify stored events without interaction output, up to 100 events per start. Usually two requests per event; off by default."
+    },
+    "canon": {
+      "description": "Canon story memory",
+      "hint": "Builds a separate story memory from the Arknights-Texts story_pack and injects what the character lived through or learned in the original story. Off by default."
+    },
+    "canon.canon_enabled": {
+      "description": "Enable canon story memory",
+      "hint": "Master switch. When off, the canon database is not opened and no story memory is injected."
+    },
+    "canon_enabled": {
+      "description": "Enable canon story memory",
+      "hint": "Master switch. When off, the canon database is not opened and no story memory is injected."
+    },
+    "canon.canon_db_path": {
+      "description": "Canon database path",
+      "hint": "Empty uses canon/canon.sqlite under the plugin data directory."
+    },
+    "canon_db_path": {
+      "description": "Canon database path",
+      "hint": "Empty uses canon/canon.sqlite under the plugin data directory."
+    },
+    "canon.canon_pack_path": {
+      "description": "story_pack directory",
+      "hint": "Empty uses canon/story_pack under the plugin data directory. The pack contains story text; keep it local."
+    },
+    "canon_pack_path": {
+      "description": "story_pack directory",
+      "hint": "Empty uses canon/story_pack under the plugin data directory. The pack contains story text; keep it local."
+    },
+    "canon.canon_persona_map": {
+      "description": "Persona map (JSON)",
+      "hint": "Keys are the persona buckets Core maps to. A malformed map disables canon for every persona without affecting other features."
+    },
+    "canon_persona_map": {
+      "description": "Persona map (JSON)",
+      "hint": "Keys are the persona buckets Core maps to. A malformed map disables canon for every persona without affecting other features."
+    },
+    "canon.canon_top_k": {
+      "description": "Injected events",
+      "hint": "Maximum canon events injected per turn."
+    },
+    "canon_top_k": {
+      "description": "Injected events",
+      "hint": "Maximum canon events injected per turn."
+    },
+    "canon.canon_token_budget": {
+      "description": "Canon block token budget",
+      "hint": "Separate token budget for the canon block; it does not share the chat memory budget."
+    },
+    "canon_token_budget": {
+      "description": "Canon block token budget",
+      "hint": "Separate token budget for the canon block; it does not share the chat memory budget."
+    },
+    "canon.canon_evidence_lines": {
+      "description": "Evidence lines per event",
+      "hint": "Maximum source lines attached to each event."
+    },
+    "canon_evidence_lines": {
+      "description": "Evidence lines per event",
+      "hint": "Maximum source lines attached to each event."
+    },
+    "canon.canon_time_filter": {
+      "description": "Filter by role-play time point",
+      "hint": "When on, only story up to the configured time point is injected. Off by default."
+    },
+    "canon_time_filter": {
+      "description": "Filter by role-play time point",
+      "hint": "When on, only story up to the configured time point is injected. Off by default."
+    },
+    "canon.canon_extract_concurrency": {
+      "description": "Import concurrency",
+      "hint": "Concurrent extraction calls during import; separate from the chat memory LLM concurrency."
+    },
+    "canon_extract_concurrency": {
+      "description": "Import concurrency",
+      "hint": "Concurrent extraction calls during import; separate from the chat memory LLM concurrency."
+    },
+    "canon.canon_extract_timeout": {
+      "description": "Extraction timeout (s)",
+      "hint": "Timeout for one extraction call during import."
+    },
+    "canon_extract_timeout": {
+      "description": "Extraction timeout (s)",
+      "hint": "Timeout for one extraction call during import."
     }
   }
 }

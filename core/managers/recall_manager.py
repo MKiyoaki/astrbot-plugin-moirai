@@ -680,6 +680,37 @@ class RecallManager(BaseRecallManager):
 
         return result_list
 
+    async def recall_context(
+        self,
+        query: str,
+        *,
+        group_id: str | None,
+        scope_mode: str,
+        bot_persona_name: str,
+    ) -> list[dict]:
+        """Project scoped recalled events as factual context for any consumer."""
+        from ..extractor.summary import strip_evals
+
+        events = await self.recall(
+            query,
+            group_id=group_id,
+            scope_mode=scope_mode,
+            bot_persona_name=bot_persona_name,
+        )
+        facts = []
+        for event in events[:self._rcfg.final_limit]:
+            summary = strip_evals(event.summary).strip()
+            if not summary:
+                continue
+            facts.append({
+                "event_id": event.event_id,
+                "topic": event.topic,
+                "factual_summary": summary,
+                "start_time": event.start_time,
+                "end_time": event.end_time,
+            })
+        return facts
+
     async def recall_and_inject(
         self,
         query: str,
