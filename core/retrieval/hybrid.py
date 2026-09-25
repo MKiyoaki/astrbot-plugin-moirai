@@ -34,6 +34,7 @@ class HybridRetriever:
         rrf_k: int = 60,
         weighted_random: bool = False,
         sampling_temperature: float = 1.0,
+        reranker=None,
     ) -> None:
         self._event_repo = event_repo
         self._encoder: Encoder = encoder or NullEncoder()
@@ -42,6 +43,23 @@ class HybridRetriever:
         self._rrf_k = rrf_k
         self._weighted_random = weighted_random
         self._sampling_temperature = sampling_temperature
+        self.reranker = reranker
+        self.rerank_error: str | None = None
+
+    async def rerank_candidates(self, query: str, candidates: list[Event]) -> list[Event]:
+        self.rerank_error = None
+        if self.reranker is None or not candidates:
+            return candidates
+        pool = candidates[:self.reranker.max_candidates]
+        texts = ["\n".join((e.topic or "", e.summary or "", " ".join(e.chat_content_tags or [])))
+                 for e in pool]
+        try:
+            scores = await self.reranker.rerank(query, texts)
+        except Exception as exc:
+            self.rerank_error = str(exc)
+            logger.warning("[HybridRetriever] model rerank unavailable: %s", exc)
+            return candidates
+        return [pool[index] for index, _ in scores] + candidates[len(pool):]
 
     async def search_raw(
         self, query: str, active_only: bool = True, group_id: str | None = None,
@@ -105,6 +123,9 @@ class HybridRetriever:
 
         if not candidates:
             return []
+
+        if self.reranker is not None:
+            return (await self.rerank_candidates(query, candidates))[:limit]
 
         if not self._weighted_random or len(candidates) <= 1:
             return candidates[:limit]

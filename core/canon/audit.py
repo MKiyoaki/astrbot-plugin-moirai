@@ -8,7 +8,8 @@ from __future__ import annotations
 import collections
 import re
 
-from .extract import CHANNELS, DOCTOR, DOCTOR_LITERAL, TEXT_LIMITS, doctor_literals, text_length
+from .extract import (CHANNELS, DOCTOR, DOCTOR_LITERAL, TEXT_LIMITS, doctor_literals, event_lines, format_runs,
+                      line_runs, shared_lines, text_length, uncovered_runs)
 
 SPEAKING_KINDS = ("dialogue", "inner_voice")
 NARRATION_KINDS = ("narration", "subtitle", "caption")
@@ -23,6 +24,7 @@ _GENERIC = re.compile(r"的|们|[？?]|^[“\"「]|[\u4e00-\u9fff][A-Za-z0-9]$"
 MAX_EVENTS_HINT = 8
 FRAGMENT_SPAN = 3
 FRAGMENT_SCENE_LINES = 20
+LOW_COVERAGE = 0.9
 
 def person_lexicon(seeds: list[dict], character: dict) -> dict[str, str]:
     """外部知识检查用的人名词典：别名 → 实体名。
@@ -177,6 +179,13 @@ def audit_scene(scene: dict, result: dict, character: dict, *, lexicon: dict[str
             issue("超过建议长度", field, f"{text_length(text)} 字，prompt 建议不超过 {TEXT_LIMITS[limit][0]} 字")
     if episode and not target and not narrated:
         issue("她未出场却写了 episode", "episode", "本场景她没有台词，旁白也没写到她")
+    owned = event_lines(result["events"])
+    gaps = uncovered_runs(owned, 1, len(lines))
+    if gaps:
+        issue("有连续行不在任何事件里", "events", format_runs(gaps))
+    for a, b, common in shared_lines(owned):
+        issue("事件范围重叠", f"{a}/{b}", format_runs(line_runs(common)))
+    covered = set().union(*(ls for _, ls in owned)) & set(range(1, len(lines) + 1))
     ta = sum(len(_TA.findall(text)) for _, text in output_texts(result))
     return {
         "events": len(result["events"]),
@@ -193,6 +202,8 @@ def audit_scene(scene: dict, result: dict, character: dict, *, lexicon: dict[str
         "target_lines_cited": len(target & cited),
         "evidence_mean": round(sum(evidence_sizes) / len(evidence_sizes), 1) if evidence_sizes else 0,
         "evidence_max": max(evidence_sizes, default=0),
+        "scene_lines": len(lines),
+        "covered_lines": len(covered),
         "issues": issues,
     }
 
@@ -215,6 +226,7 @@ def summarize_audits(audits: list[dict]) -> dict:
         bins[label][2] += a["target_lines_cited"]
     target = sum(a["target_lines"] for a in audits)
     events = sum(a["events"] for a in audits)
+    scene_lines = sum(a.get("scene_lines", 0) for a in audits)
     return {
         "scenes": len(audits),
         "events": events,
@@ -230,6 +242,9 @@ def summarize_audits(audits: list[dict]) -> dict:
         "ta": sum(a["ta"] for a in audits),
         "target_line_coverage": round(sum(a["target_lines_cited"] for a in audits) / target, 3) if target else None,
         "evidence_max": max((a["evidence_max"] for a in audits), default=0),
+        "scene_coverage": round(sum(a.get("covered_lines", 0) for a in audits) / scene_lines, 3) if scene_lines else None,
+        "low_coverage_scenes": sum(1 for a in audits if a.get("scene_lines")
+                                   and a["covered_lines"] / a["scene_lines"] < LOW_COVERAGE),
         "coverage_by_density": {label: {"scenes": n, "target_lines": t,
                                         "coverage": round(c / t, 3) if t else None}
                                 for label, (n, t, c) in bins.items() if n},

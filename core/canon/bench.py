@@ -27,12 +27,18 @@ from .store import CanonStore
 
 RETRY_MARK = "\n\n[上次输出的问题]"
 TOKENS_PER_CHAR = (0.7, 1.3)
-BENCH_ROOT = Path(".dev_data/canon/bench")
+CANON_ROOT = Path(".dev_data/canon")
 
 
-def bench_dir(mode: str, repeats: int = 1, root: Path | str = BENCH_ROOT) -> Path:
-    """运行目录按类别存放：真实接口在 api/，回放在 replay/，同一配置的多次运行在 repeats/。"""
-    return Path(root) / ("repeats" if repeats > 1 else mode)
+def version_tag(prompt_version: str) -> str:
+    """canon-extract-v7 → v7。"""
+    return "v" + prompt_version.rpartition("-v")[2] if "-v" in prompt_version else prompt_version
+
+
+def bench_dir(mode: str, repeats: int = 1, root: Path | str = CANON_ROOT, *,
+              version: str | None = None, sample: str = "custom") -> Path:
+    """运行目录按抽取 prompt 版本、样本和运行方式分层，例如 v7/100/api/；同一配置的多次运行在 repeats/。"""
+    return Path(root) / (version or version_tag(PROMPT_VERSION)) / sample / ("repeats" if repeats > 1 else mode)
 
 
 def slug(text: str) -> str:
@@ -282,6 +288,23 @@ def write_summary(run_dir: Path, summary: dict, rows: list[dict] | None = None) 
     (run_dir / "report.md").write_text(render_report(summary, rows), encoding="utf-8")
 
 
+def write_fact_summary(run_dir: Path, report: dict | None, out: Path | None = None,
+                       *, reason: str = "") -> None:
+    """Keep fact-stage status visible in the benchmark summary and report."""
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    if report is None:
+        summary["facts"] = {"status": "not_run", "reason": reason}
+    else:
+        summary["facts"] = {
+            **report,
+            "status": "complete" if report["failed"] == 0 and not report["skipped"] else "partial",
+            "candidates_file": out.name,
+            "review_file": out.with_suffix(".review.json").name,
+            "report_file": out.with_suffix(".report.json").name,
+        }
+    write_summary(run_dir, summary)
+
+
 def project_full(pack_dir: Path | str, keys: list[str], character_id: str, tokens: dict,
                  prices: tuple[float, float] | None) -> dict:
     """按这次运行每个输入字的 token 用量（含重试），外推全量导入整个 story_pack 的 token 和费用。"""
@@ -385,6 +408,8 @@ def _metrics(s: dict) -> list[tuple[str, object]]:
         ("用 ta 指代博士的次数", q["ta"]),
         ("她的台词被引用的比例", q["target_line_coverage"]),
         ("单个事件最多证据行", q["evidence_max"]),
+        ("事件覆盖的场景行比例", q.get("scene_coverage")),
+        ("事件覆盖不到 90% 的场景", q.get("low_coverage_scenes") if "scene_coverage" in q else None),
     ]
 
 
@@ -412,6 +437,23 @@ def render_report(summary: dict, rows: list[dict]) -> str:
         out += ["", "最常见的问题（数字已归一为 N）：", ""] + [f"- {m} ×{n}" for m, n in s["top_error_messages"]]
     else:
         out.append("没有失败的调用。")
+    facts = s.get("facts")
+    if facts:
+        out += ["", "## 时间事实候选阶段", ""]
+        if facts["status"] == "not_run":
+            out.append("未运行：" + facts.get("reason", "未配置事实抽取"))
+        else:
+            out += [f"- 状态：{facts['status']}；场景完成 {facts['complete']}/{facts['selected']}，"
+                    f"失败 {facts['failed']}，跳过 {len(facts['skipped'])}",
+                    f"- 候选 {facts['candidates']} 条（其中 {facts['scenes_with_candidates']} 个场景有候选）；"
+                    f"审阅分组 {facts['review_groups']} 组；分块 {facts['chunks']} 个",
+                    f"- 模型调用 {facts['model_calls']} 次；耗时 {facts['wall_seconds']} 秒；"
+                    f"token 入/出 {facts['prompt_tokens']}/{facts['completion_tokens']}",
+                    f"- 候选：`{facts['candidates_file']}`；待审阅包：`{facts['review_file']}`；"
+                    f"阶段报告：`{facts['report_file']}`",
+                    "- 候选尚未经人工核实，不进入已审阅事实查询或当前状态判断。"]
+            out += [f"- 失败 `{key}`：{error}" for key, error in facts["errors"].items()]
+            out += [f"- 跳过 `{key}`：{error}" for key, error in facts["skipped"].items()]
     out += _probe_section(s.get("probes"))
     if s.get("baseline_compare"):
         out += ["", "## 与基线逐事件对比", ""]

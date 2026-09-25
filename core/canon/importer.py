@@ -21,6 +21,7 @@ from .store import CanonStore, now_iso
 logger = logging.getLogger(__name__)
 
 PACK_FORMAT = 1
+ARCHIVE_PACK_FORMAT = 1
 VECTOR_BATCH = 64
 
 
@@ -73,14 +74,44 @@ def load_pack(pack_dir: Path | str) -> tuple[dict, dict[str, dict], list[dict], 
     return manifest, scenes, characters, seeds
 
 
+def load_archive_pack(pack_dir: Path | str) -> tuple[dict, list[dict]]:
+    pack = Path(pack_dir)
+    manifest = json.loads((pack / "manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("pack_format") != ARCHIVE_PACK_FORMAT:
+        raise ValueError(f"不支持的 archive_pack 格式：{manifest.get('pack_format')!r}，需要 {ARCHIVE_PACK_FORMAT}")
+    with open(pack / "archives.jsonl", encoding="utf-8") as fh:
+        records = [json.loads(line) for line in fh if line.strip()]
+    if {r["archive_id"] for r in records} != set(manifest["archives"]):
+        raise ValueError("archive_pack 不完整：manifest 与 archives.jsonl 的档案不一致")
+    return manifest, records
+
+
+async def import_archives(store: CanonStore, archive_pack: Path | str, *,
+                          story_pack: Path | str | None = None) -> dict[str, int]:
+    """档案是结构化原文，不调用模型；按 archive_hash 增量替换，可选按 story_pack 的实体种子刷新档案链接。"""
+    manifest, records = load_archive_pack(archive_pack)
+    counts = await store.replace_archives(records, manifest["archives"])
+    if story_pack is not None:
+        seeds = json.loads((Path(story_pack) / "entities_seed.json").read_text(encoding="utf-8"))
+        counts.update({f"seed_{k}": v for k, v in (await store.seed_entities(seeds)).items()})
+    await store.set_meta(archive_data_version=str(manifest.get("data_version", "")))
+    return counts
+
+
 def encoder_identity(encoder) -> tuple[int, str]:
-    """返回 (维度, encoder_id)。encoder 不可用或维度为 0 时返回 (0, "")。"""
+    """返回 (维度, encoder_id)。encoder 不可用或维度为 0 时返回 (0, "")。
+
+    共享 provider 用它自己的模型身份（地址、模型、维度），和普通记忆的向量库记法一致。
+    """
     if encoder is None:
         return 0, ""
     dim = getattr(encoder, "dim", 0)
     dim = dim() if callable(dim) else dim
     if not dim:
         return 0, ""
+    identity = getattr(encoder, "identity", None)
+    if isinstance(identity, dict):
+        return int(dim), json.dumps({**identity, "dimension": int(dim)}, ensure_ascii=False, sort_keys=True)
     inner = getattr(encoder, "_encoder", encoder)
     name = getattr(inner, "_model_name", "") or getattr(inner, "model_name", "")
     return int(dim), f"{type(inner).__name__}:{name}:{int(dim)}"

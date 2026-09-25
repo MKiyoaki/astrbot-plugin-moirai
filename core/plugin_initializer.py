@@ -28,7 +28,7 @@ from .adapters.identity import IdentityResolver
 from .boundary.detector import EventBoundaryDetector
 from .config import PluginConfig
 from .domain.models import Event
-from .embedding.encoder import NullEncoder, SentenceTransformerEncoder, ApiEncoder, Encoder
+from .retrieval.providers import build_retrieval_providers
 from .extractor.category_pass import build_category_classifier
 from .extractor.extractor import EventExtractor
 from .extractor.interaction_taxonomy import set_custom_interaction_tags
@@ -119,6 +119,7 @@ class PluginInitializer:
         # Subsystem attributes — set during initialize()
         self.context_manager: ContextManager | None = None
         self.embedding_manager: EmbeddingManager | None = None
+        self.retrieval_providers = None
         self.memory: MemoryManager | None = None
         self.recall: RecallManager | None = None
         self.router: MessageRouter | None = None
@@ -181,10 +182,22 @@ class PluginInitializer:
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._exit_stack = AsyncExitStack()
-        db = await self._exit_stack.enter_async_context(
-            db_open(db_path, vec_dim=_VEC_DIM,
-                    migration_auto_backup=cfg.migration_auto_backup)
-        )
+        self.retrieval_providers = build_retrieval_providers(cfg)
+        self.embedding_manager = self.retrieval_providers.encoder
+        self._exit_stack.push_async_callback(self.retrieval_providers.close)
+        try:
+            await self.retrieval_providers.start()
+            dimension = await self.embedding_manager.prepare(_VEC_DIM)
+            db = await self._exit_stack.enter_async_context(
+                db_open(db_path, vec_dim=dimension,
+                        vec_identity=(self.embedding_manager.identity if dimension and
+                                      cfg.get_embedding_config().provider == "api" else None),
+                        on_vector_problem=self.embedding_manager.disable,
+                        migration_auto_backup=cfg.migration_auto_backup)
+            )
+        except BaseException:
+            await self._exit_stack.aclose()
+            raise
 
         persona_repo = SQLitePersonaRepository(db)
         persona_group_repo = SQLitePersonaGroupRepository(db)
@@ -202,22 +215,6 @@ class PluginInitializer:
             lang=cfg.language,
         )
 
-        # Encoder: try local/API model. Local model will load lazily on first use.
-        embed_cfg = cfg.get_embedding_config()
-        if cfg.embedding_enabled:
-            if embed_cfg.provider == "api":
-                encoder: Encoder = ApiEncoder(
-                    model_name=embed_cfg.model,
-                    api_url=embed_cfg.api_url,
-                    api_key=embed_cfg.api_key
-                )
-            else:
-                encoder = SentenceTransformerEncoder(embed_cfg.model)
-        else:
-            encoder = NullEncoder()
-
-        self.embedding_manager = EmbeddingManager(encoder, embed_cfg)
-
         self.llm_manager = LLMTaskManager(concurrency=cfg.llm_concurrency)
 
         self.context_manager = ContextManager(
@@ -234,6 +231,7 @@ class PluginInitializer:
             rrf_k=retrieval_cfg.rrf_k,
             weighted_random=retrieval_cfg.weighted_random,
             sampling_temperature=retrieval_cfg.sampling_temperature,
+            reranker=self.retrieval_providers.reranker,
         )
 
         self.memory = MemoryManager(

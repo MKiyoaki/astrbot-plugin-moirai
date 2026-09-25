@@ -239,11 +239,28 @@ async def merge_bot_persona(
     return counts
 
 
+_VEC_TABLES = ("events_vec", "tags_vec")
+
+
+async def _vec_table_dim(db: aiosqlite.Connection, table: str) -> int | None:
+    import re
+    async with db.execute("SELECT sql FROM sqlite_master WHERE name=?", (table,)) as cur:
+        row = await cur.fetchone()
+    match = re.search(r"float\[(\d+)\]", row[0], re.I) if row else None
+    return int(match.group(1)) if match else None
+
+
+async def _vec_count(db: aiosqlite.Connection, table: str) -> int:
+    async with db.execute(f"SELECT count(*) FROM {table}") as cur:
+        return (await cur.fetchone())[0]
+
+
 async def _try_load_sqlite_vec(db: aiosqlite.Connection, dim: int = 512) -> bool:
     """Load the sqlite-vec extension and create virtual tables.
 
-    Returns True on success, False if the extension is not installed.
-    Safe to call on every startup — uses IF NOT EXISTS.
+    Returns True on success, False if the extension is not installed or dim is 0
+    (vectors disabled for this session). An empty table with another dimension is
+    rebuilt; a non-empty one is kept untouched and reported by db_open.
     """
     try:
         import sqlite_vec  # noqa: PLC0415
@@ -251,12 +268,16 @@ async def _try_load_sqlite_vec(db: aiosqlite.Connection, dim: int = 512) -> bool
         await db.enable_load_extension(True)
         await db.load_extension(sqlite_vec.loadable_path())
         await db.enable_load_extension(False)  # re-disable for safety
-        await db.execute(
-            f"CREATE VIRTUAL TABLE IF NOT EXISTS events_vec USING vec0(embedding float[{dim}])"
-        )
-        await db.execute(
-            f"CREATE VIRTUAL TABLE IF NOT EXISTS tags_vec USING vec0(embedding float[{dim}])"
-        )
+        if dim <= 0:
+            return False
+        for table in _VEC_TABLES:
+            existing = await _vec_table_dim(db, table)
+            if existing is not None and existing != dim and await _vec_count(db, table) == 0:
+                await db.execute(f"DROP TABLE {table}")
+                logger.info("[db_open] rebuilt empty %s: %d → %d dims", table, existing, dim)
+            await db.execute(
+                f"CREATE VIRTUAL TABLE IF NOT EXISTS {table} USING vec0(embedding float[{dim}])"
+            )
         await db.commit()
         return True
     except Exception as exc:
@@ -264,9 +285,40 @@ async def _try_load_sqlite_vec(db: aiosqlite.Connection, dim: int = 512) -> bool
         return False
 
 
+async def _vector_index_problem(
+    db: aiosqlite.Connection, dim: int, identity: dict | None,
+) -> str | None:
+    """Explain why stored vectors cannot serve this encoder; never deletes vectors."""
+    stored = False
+    for table in _VEC_TABLES:
+        existing = await _vec_table_dim(db, table)
+        if existing is not None and existing != dim:
+            return f"{table} stores {existing}-dimensional vectors but the encoder returns {dim}"
+        stored = stored or await _vec_count(db, table) > 0
+    if identity is None:
+        return None
+    encoded = json.dumps({**identity, "dimension": dim}, sort_keys=True)
+    await db.execute("CREATE TABLE IF NOT EXISTS embedding_index_meta "
+                     "(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
+    async with db.execute("SELECT value FROM embedding_index_meta WHERE key='identity'") as cur:
+        row = await cur.fetchone()
+    if row and row[0] != encoded and stored:
+        return (f"stored vectors come from another embedding model ({row[0]}); "
+                "restore that model or rebuild the vectors")
+    if row is None and stored:
+        logger.warning("[db_open] adopting existing %d-dimensional vectors as %s; "
+                       "rebuild them if they came from another model", dim, identity.get("model"))
+    if row is None or row[0] != encoded:
+        await db.execute("INSERT OR REPLACE INTO embedding_index_meta VALUES ('identity',?)",
+                         (encoded,))
+        await db.commit()
+    return None
+
+
 @asynccontextmanager
 async def db_open(
     path: Path | str, vec_dim: int = 512, migration_auto_backup: bool = True,
+    vec_identity: dict | None = None, on_vector_problem=None,
 ) -> AsyncIterator[aiosqlite.Connection]:
     """Open a tuned SQLite connection, run migrations, and load sqlite-vec.
 
@@ -277,8 +329,12 @@ async def db_open(
             ...
 
     vec_dim: embedding dimension for the events_vec virtual table.
-    Must match the dimension of the Encoder used in production.
+    Must match the dimension of the Encoder used in production; 0 skips vector tables.
     migration_auto_backup: if True, copy the DB to <name>.db.bak before applying migrations.
+    vec_identity: remote embedding identity recorded beside the vectors, so vectors
+    from another model are never mixed in silently.
+    on_vector_problem: called with the reason when stored vectors do not match the
+    encoder. The database still opens; the caller disables vector recall.
     """
     from migrations.runner import run_migrations  # avoid circular import at module level
 
@@ -296,7 +352,12 @@ async def db_open(
             await db.execute(pragma)
         await db.commit()
         await run_migrations(db)
-        await _try_load_sqlite_vec(db, vec_dim)
+        if await _try_load_sqlite_vec(db, vec_dim):
+            problem = await _vector_index_problem(db, vec_dim, vec_identity)
+            if problem and on_vector_problem is not None:
+                on_vector_problem(problem)
+            elif problem:
+                logger.error("[db_open] vector recall unavailable: %s", problem)
         yield db
 
 

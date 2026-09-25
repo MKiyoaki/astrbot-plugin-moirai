@@ -121,7 +121,7 @@
             "embedding_api_url": {
                 "description": "Embedding API 地址",
                 "type": "string",
-                "hint": "仅在提供者为 API 时有效，例如 https://api.openai.com/v1/embeddings",
+                "hint": "仅在提供者为 API 时有效；任意 OpenAI 兼容的 /embeddings 地址（Bearer 鉴权），在线服务或本机服务均可，例如 https://api.openai.com/v1/embeddings、http://localhost:11434/v1/embeddings",
                 "default": "",
                 "level": "advanced"
             },
@@ -187,6 +187,19 @@
                 "hint": "Embedding 批次失败后的指数退避基础等待时间。默认 30000 (30s)。",
                 "default": 30000,
                 "level": "expert"
+            },
+            "embedding_dimensions": {
+                "description": "API 向量维度",
+                "type": "int",
+                "hint": "0 表示启动时发一次请求测量（失败则本次停用向量召回）；与已有向量的维度或模型不一致时停用向量召回，不覆盖已有向量。",
+                "default": 0,
+                "level": "advanced"
+            },
+            "embedding_timeout_seconds": {
+                "description": "Embedding API 超时（秒）",
+                "type": "float",
+                "default": 60.0,
+                "level": "advanced"
             }
         }
     },
@@ -1075,6 +1088,62 @@
                 "hint": "导入时单次抽取调用的超时。",
                 "default": 300,
                 "level": "expert"
+            }
+        }
+    },
+    "rerank": {
+        "description": "模型语义重排（实验）",
+        "hint": "普通记忆与 canon 复用同一服务；默认关闭，启用后会调用远程接口。",
+        "type": "object",
+        "items": {
+            "rerank_enabled": {
+                "description": "启用模型重排",
+                "type": "bool",
+                "default": false,
+                "hint": "在已有范围过滤与候选召回后执行。",
+                "level": "advanced"
+            },
+            "rerank_model": {
+                "description": "Rerank 模型",
+                "type": "string",
+                "default": "arc:rerankvl",
+                "hint": "远程模型 ID。",
+                "level": "advanced"
+            },
+            "rerank_api_url": {
+                "description": "Rerank API 地址",
+                "type": "string",
+                "default": "",
+                "hint": "完整地址；留空使用 Embedding 同一 base URL 的 /rerank。",
+                "level": "advanced"
+            },
+            "rerank_api_key": {
+                "description": "Rerank API 密钥",
+                "type": "string",
+                "default": "",
+                "hint": "留空复用 Embedding API 密钥。",
+                "level": "advanced"
+            },
+            "rerank_max_candidates": {
+                "description": "最大候选数",
+                "type": "int",
+                "default": 40,
+                "hint": "限制每次重排的文本数和远程成本。",
+                "level": "advanced"
+            },
+            "rerank_timeout_seconds": {
+                "description": "Rerank 超时（秒）",
+                "type": "float",
+                "default": 60.0,
+                "hint": "",
+                "level": "advanced"
+            },
+            "rerank_retry_max": {
+                "description": "Rerank 最大重试次数",
+                "type": "int",
+                "default": 1,
+                "hint": "仅通信故障、429 和 5xx 重试。",
+                "level": "advanced"
             }
         }
     }

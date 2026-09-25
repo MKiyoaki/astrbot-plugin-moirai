@@ -123,53 +123,56 @@ class SentenceTransformerEncoder:
 
 
 class ApiEncoder:
-    """Remote embedding via OpenAI-compatible API."""
+    """Shared remote encoder with measured dimensions and complete input preservation."""
 
-    def __init__(self, model_name: str, api_url: str, api_key: str, dim: int = 512) -> None:
+    def __init__(self, model_name: str, api_url: str, api_key: str, dim: int = 0,
+                 timeout: float = 60.0, *, transport=None) -> None:
+        from .remote import RemoteRetrievalClient, RemoteSettings
+        base = api_url.rstrip("/")
+        if base.endswith("/embeddings"):
+            base = base[:-len("/embeddings")]
         self._model_name = model_name
-        self._api_url = api_url
-        self._api_key = api_key
         self._dim = dim
+        self._client = RemoteRetrievalClient(RemoteSettings(
+            base, api_key, embedding_model=model_name, timeout=timeout, retries=0,
+        ), transport=transport)
         self._cache = _LRUCache(maxsize=_ENCODE_CACHE_SIZE)
 
     @property
     def dim(self) -> int:
         return self._dim
 
+    @property
+    def identity(self) -> dict:
+        return self._client.settings.identity
+
+    @property
+    def active(self) -> bool:
+        return True
+
     async def encode(self, text: str) -> List[float]:
-        key = _normalise(text)
-        cached = self._cache.get(key)
+        cached = self._cache.get(text)
         if cached is not None:
-            return cached
-        results = await self.encode_batch([key])
-        result = results[0] if results else []
-        if result:
-            self._cache.put(key, result)
-        return result
+            return list(cached)
+        return (await self.encode_batch([text]))[0]
 
     async def encode_batch(self, texts: List[str]) -> List[List[float]]:
+        import asyncio
+        from .remote import RetrievalError
         if not texts:
             return []
-        
-        import aiohttp
-        headers = {"Authorization": f"Bearer {self._api_key}"}
-        payload = {
-            "model": self._model_name,
-            "input": texts
-        }
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(self._api_url, json=payload, headers=headers) as resp:
-                    if resp.status != 200:
-                        error_text = await resp.text()
-                        raise RuntimeError(f"API request failed ({resp.status}): {error_text}")
-                    
-                    data = await resp.json()
-                    # OpenAI format: data[i].embedding
-                    embeddings = [item["embedding"] for item in data["data"]]
-                    return embeddings
-        except Exception as exc:
-            import logging
-            logging.getLogger(__name__).error("[ApiEncoder] failed: %s", exc)
-            raise
+        vectors = await asyncio.to_thread(self._client.embed, texts)
+        dimension = len(vectors[0])
+        if self._dim and self._dim != dimension:
+            raise RetrievalError("Embedding dimension changed or differs from configured dimensions")
+        self._dim = dimension
+        for text, vector in zip(texts, vectors):
+            self._cache.put(text, vector)
+        return vectors
+
+    def metrics(self) -> dict:
+        return self._client.metrics()
+
+    async def close(self) -> None:
+        import asyncio
+        await asyncio.to_thread(self._client.close)

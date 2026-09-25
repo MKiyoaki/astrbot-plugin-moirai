@@ -16,7 +16,7 @@ import aiosqlite
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "4"
 _SCHEMA = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
 _PRAGMAS = ("PRAGMA foreign_keys=ON", "PRAGMA journal_mode=WAL", "PRAGMA busy_timeout=5000",
             "PRAGMA synchronous=NORMAL")
@@ -90,12 +90,37 @@ class CanonStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.db = await aiosqlite.connect(str(self.path), isolation_level=None)
         self.db.row_factory = aiosqlite.Row
-        for pragma in _PRAGMAS:
-            await self.db.execute(pragma)
-        await self.db.executescript(_SCHEMA)
-        await self._init_fts()
-        await self._init_vec(vec_dim, encoder_id)
-        await self.set_meta(schema_version=SCHEMA_VERSION, fts_mode=self.fts_mode, vec_dim=str(self.vec_dim))
+        try:
+            for pragma in _PRAGMAS:
+                await self.db.execute(pragma)
+            async with self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='meta'"
+            ) as cur:
+                has_meta = await cur.fetchone() is not None
+            if has_meta:
+                version = (await self.get_meta()).get("schema_version")
+                if version not in ("2", "3", SCHEMA_VERSION):
+                    raise ValueError(f"不支持的 canon schema_version：{version!r}")
+            else:
+                async with self.db.execute(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table'"
+                ) as cur:
+                    if (await cur.fetchone())[0]:
+                        raise ValueError("已有数据库没有 canon meta；拒绝覆盖")
+            try:
+                await self.db.executescript(
+                    "BEGIN IMMEDIATE;\n" + _SCHEMA +
+                    f"\nINSERT OR REPLACE INTO meta(key,value) VALUES ('schema_version','{SCHEMA_VERSION}');\nCOMMIT;"
+                )
+            except Exception:
+                await self.db.execute("ROLLBACK")
+                raise
+            await self._init_fts()
+            await self._init_vec(vec_dim, encoder_id)
+            await self.set_meta(fts_mode=self.fts_mode, vec_dim=str(self.vec_dim))
+        except Exception:
+            await self.close()
+            raise
 
     async def close(self) -> None:
         if self.db is not None:
@@ -242,6 +267,11 @@ class CanonStore:
             for ent in ev.get("entities") or []:
                 entity = await self._entity_for(ent["name"].strip(), ent["type"])
                 await self.db.execute("INSERT OR IGNORE INTO event_entities VALUES (?,?)", (eid, entity))
+            for name in parts:
+                async with self.db.execute("SELECT entity_id FROM aliases WHERE alias=?", (name,)) as cur:
+                    known = await cur.fetchone()
+                if known:
+                    await self.db.execute("INSERT OR IGNORE INTO event_entities VALUES (?,?)", (eid, known[0]))
             if self.fts_mode == "bigram":
                 await self.db.execute("INSERT INTO events_fts_bigram(event_id, grams) VALUES (?,?)",
                                       (eid, " ".join(bigrams(" ".join([ev["topic"], ev["summary"],
@@ -285,25 +315,80 @@ class CanonStore:
         return cur.lastrowid
 
     @_serialized
-    async def seed_entities(self, seeds: list[dict]) -> int:
-        """第一次导入时写入实体种子；已经写过就跳过。返回写入的实体数。"""
-        async with self.db.execute("SELECT COUNT(*) FROM entities WHERE source='seed'") as cur:
-            if (await cur.fetchone())[0]:
-                return 0
+    async def seed_entities(self, seeds: list[dict]) -> dict[str, int]:
+        """按实体种子增量刷新：补新实体和别名，更正种子实体的类型，重写种子实体的档案链接。
+
+        抽取出的同名实体保留原类型；已有别名不改指向，所以重复导入同一份种子不会产生变化。
+        """
+        counts = {"added": 0, "retyped": 0, "archive_links": 0}
         await self.db.execute("BEGIN")
         try:
             for seed in seeds:
-                await self.db.execute("INSERT OR IGNORE INTO entities(name, type, source) VALUES (?,?, 'seed')",
-                                      (seed["name"], seed.get("type", "person")))
-                async with self.db.execute("SELECT entity_id FROM entities WHERE name=?", (seed["name"],)) as cur:
-                    entity = (await cur.fetchone())[0]
+                type_ = seed.get("type", "person")
+                async with self.db.execute("SELECT entity_id, type, source FROM entities WHERE name=?",
+                                           (seed["name"],)) as cur:
+                    row = await cur.fetchone()
+                if row is None:
+                    cur = await self.db.execute("INSERT INTO entities(name, type, source) VALUES (?,?, 'seed')",
+                                                (seed["name"], type_))
+                    entity = cur.lastrowid
+                    counts["added"] += 1
+                else:
+                    entity = row["entity_id"]
+                    if row["source"] == "seed" and row["type"] != type_:
+                        await self.db.execute("UPDATE entities SET type=? WHERE entity_id=?", (type_, entity))
+                        counts["retyped"] += 1
                 await self.db.executemany("INSERT OR IGNORE INTO aliases VALUES (?,?)",
                                           [(a, entity) for a in dict.fromkeys([seed["name"], *seed.get("aliases", [])])])
+                if row is None or row["source"] == "seed":
+                    await self.db.execute("DELETE FROM entity_archives WHERE entity_id=?", (entity,))
+                    links = list(dict.fromkeys(seed.get("archive_ids") or []))
+                    await self.db.executemany("INSERT INTO entity_archives VALUES (?,?)",
+                                              [(entity, a) for a in links])
+                    counts["archive_links"] += len(links)
             await self.db.execute("COMMIT")
         except Exception:
             await self.db.execute("ROLLBACK")
             raise
-        return len(seeds)
+        return counts
+
+    # ── 档案 ─────────────────────────────────────────────────────────────────
+
+    async def archive_hashes(self) -> dict[str, str]:
+        async with self.db.execute("SELECT archive_id, archive_hash FROM archives") as cur:
+            return {row["archive_id"]: row["archive_hash"] async for row in cur}
+
+    @_serialized
+    async def replace_archives(self, records: list[dict], hashes: dict[str, str]) -> dict[str, int]:
+        """按 archive_hash 增量替换档案；包里没有的档案删除。整批在一个事务里。"""
+        existing = await self.archive_hashes()
+        counts = {"added": 0, "updated": 0, "deleted": 0, "unchanged": 0}
+        await self.db.execute("BEGIN")
+        try:
+            for archive_id in sorted(set(existing) - set(hashes)):
+                await self.db.execute("DELETE FROM archives WHERE archive_id=?", (archive_id,))
+                counts["deleted"] += 1
+            for record in records:
+                archive_id, digest = record["archive_id"], hashes[record["archive_id"]]
+                if existing.get(archive_id) == digest:
+                    counts["unchanged"] += 1
+                    continue
+                counts["updated" if archive_id in existing else "added"] += 1
+                await self.db.execute("DELETE FROM archives WHERE archive_id=?", (archive_id,))
+                await self.db.execute(
+                    "INSERT INTO archives VALUES (?,?,?,?,?,?)",
+                    (archive_id, record["kind"], record["name"], record.get("appellation") or "",
+                     json.dumps(record.get("subject_ids") or [], ensure_ascii=False), digest))
+                await self.db.executemany(
+                    "INSERT INTO archive_sections VALUES (?,?,?,?,?,?,?,?,?)",
+                    [(archive_id, s["seq"], s["version"], s["title"], s["text"], s["unlock_type"],
+                      s["unlock_param"], json.dumps(s.get("forms") or [], ensure_ascii=False),
+                      int(bool(s.get("hidden")))) for s in record["sections"]])
+            await self.db.execute("COMMIT")
+        except Exception:
+            await self.db.execute("ROLLBACK")
+            raise
+        return counts
 
     # ── 抽取缓存 ─────────────────────────────────────────────────────────────
 
@@ -357,6 +442,9 @@ class CanonStore:
                 ("beats", "SELECT COUNT(*) FROM event_beats"),
                 ("entities", "SELECT COUNT(*) FROM entities"),
                 ("vectors", "SELECT COUNT(*) FROM event_vec_map"),
+                ("fact_candidates", "SELECT COUNT(*) FROM fact_extractions WHERE status='ok'"),
+                ("reviewed_facts", "SELECT COUNT(*) FROM facts WHERE review_status='reviewed'"),
+                ("timeline_points", "SELECT COUNT(*) FROM timeline_points"),
                 ("failed_scenes", "SELECT COUNT(*) FROM scenes s WHERE NOT EXISTS (SELECT 1 FROM extractions x "
                                   "WHERE x.scene_key=s.scene_key AND x.scene_hash=s.scene_hash "
                                   "AND x.prompt_version=? AND x.status='ok')")):
@@ -393,6 +481,17 @@ class CanonStore:
         out["cognitions"] = await rows("SELECT * FROM cognitions WHERE scene_key=? ORDER BY ord", scene_key)
         out["edges"] = await rows(
             "SELECT e.* FROM edges e JOIN events v ON v.event_id = e.src WHERE v.scene_key=?", scene_key)
+        out["facts"] = await rows(
+            "SELECT f.*,p.label AS point_label,p.timeline_id FROM facts f "
+            "JOIN timeline_points p ON p.point_id=f.point_id WHERE p.scene_key=? "
+            "ORDER BY p.point_id,f.fact_id", scene_key)
+        for fact in out["facts"]:
+            fact["evidence"] = await rows(
+                "SELECT event_id,line_key,relation FROM fact_evidence WHERE fact_id=? "
+                "ORDER BY event_id,line_key", fact["fact_id"])
+            fact["transitions"] = await rows(
+                "SELECT earlier_fact_id,relation,evidence_event_id,evidence_line_key "
+                "FROM fact_transitions WHERE later_fact_id=?", fact["fact_id"])
         out["extraction"] = (await rows(
             "SELECT status, error, attempts, model, prompt_version, prompt_tokens, completion_tokens, created_at "
             "FROM extractions WHERE scene_key=? AND scene_hash=? ORDER BY created_at DESC LIMIT 1",

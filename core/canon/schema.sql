@@ -1,4 +1,4 @@
--- canon.sqlite，schema_version 2。event_vec 和全文检索表由 store.py 按 encoder 维度与 FTS 模式创建。
+-- canon.sqlite，schema_version 4。event_vec 和全文检索表由 store.py 按 encoder 维度与 FTS 模式创建。
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
@@ -119,4 +119,105 @@ CREATE TABLE IF NOT EXISTS edges (
 CREATE TABLE IF NOT EXISTS event_vec_map (
   vec_rowid INTEGER PRIMARY KEY,
   event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS timeline_points (
+  point_id TEXT PRIMARY KEY,
+  timeline_id TEXT NOT NULL,
+  scene_key TEXT NOT NULL REFERENCES scenes(scene_key) ON DELETE CASCADE,
+  line_key TEXT REFERENCES lines(line_key) ON DELETE SET NULL,
+  label TEXT NOT NULL,
+  precision TEXT NOT NULL CHECK (precision IN ('scene','line','explicit_date'))
+);
+CREATE INDEX IF NOT EXISTS idx_timeline_points_scene ON timeline_points(scene_key);
+
+CREATE TABLE IF NOT EXISTS timeline_before (
+  earlier TEXT NOT NULL REFERENCES timeline_points(point_id) ON DELETE CASCADE,
+  later TEXT NOT NULL REFERENCES timeline_points(point_id) ON DELETE CASCADE,
+  evidence_event_id TEXT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+  evidence_line_key TEXT NOT NULL REFERENCES lines(line_key) ON DELETE CASCADE,
+  PRIMARY KEY (earlier, later),
+  CHECK (earlier != later)
+);
+
+CREATE TABLE IF NOT EXISTS facts (
+  fact_id TEXT PRIMARY KEY,
+  subject TEXT NOT NULL,
+  predicate TEXT NOT NULL CHECK (predicate IN ('location','custody','affiliation','life_status')),
+  object TEXT NOT NULL,
+  polarity INTEGER NOT NULL CHECK (polarity IN (0,1)),
+  point_id TEXT NOT NULL REFERENCES timeline_points(point_id) ON DELETE CASCADE,
+  end_point_id TEXT REFERENCES timeline_points(point_id) ON DELETE SET NULL,
+  persistence TEXT NOT NULL CHECK (persistence IN ('point','until_changed','explicit_interval')),
+  source_type TEXT NOT NULL CHECK (source_type IN ('explicit','derived','suggested')),
+  review_status TEXT NOT NULL CHECK (review_status IN ('candidate','reviewed','rejected')),
+  CHECK (persistence != 'explicit_interval' OR end_point_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject, predicate);
+
+CREATE TABLE IF NOT EXISTS fact_evidence (
+  fact_id TEXT NOT NULL REFERENCES facts(fact_id) ON DELETE CASCADE,
+  event_id TEXT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+  line_key TEXT NOT NULL REFERENCES lines(line_key) ON DELETE CASCADE,
+  relation TEXT NOT NULL CHECK (relation IN ('supports','refutes','changes')),
+  PRIMARY KEY (fact_id, event_id, line_key, relation)
+);
+
+CREATE TABLE IF NOT EXISTS fact_transitions (
+  earlier_fact_id TEXT NOT NULL REFERENCES facts(fact_id) ON DELETE CASCADE,
+  later_fact_id TEXT NOT NULL REFERENCES facts(fact_id) ON DELETE CASCADE,
+  relation TEXT NOT NULL CHECK (relation IN ('supersedes','contradicts','corroborates')),
+  evidence_event_id TEXT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+  evidence_line_key TEXT NOT NULL REFERENCES lines(line_key) ON DELETE CASCADE,
+  PRIMARY KEY (earlier_fact_id, later_fact_id, relation),
+  CHECK (earlier_fact_id != later_fact_id)
+);
+
+CREATE TABLE IF NOT EXISTS fact_coverage (
+  timeline_id TEXT PRIMARY KEY,
+  scene_scope TEXT NOT NULL CHECK (scene_scope IN ('sparse','continuous')),
+  fact_scope TEXT NOT NULL CHECK (fact_scope IN ('none','partial','reviewed')),
+  current_anchor_id TEXT REFERENCES timeline_points(point_id) ON DELETE SET NULL,
+  note TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS fact_extractions (
+  scene_key TEXT NOT NULL,
+  scene_hash TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  model TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('ok','failed')),
+  raw_json TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (scene_key,scene_hash,prompt_version,model)
+);
+
+CREATE TABLE IF NOT EXISTS archives (
+  archive_id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('operator','npc','enemy')),
+  name TEXT NOT NULL,
+  appellation TEXT NOT NULL DEFAULT '',
+  subject_ids TEXT NOT NULL,
+  archive_hash TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_archives_name ON archives(name);
+
+CREATE TABLE IF NOT EXISTS archive_sections (
+  archive_id TEXT NOT NULL REFERENCES archives(archive_id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL,
+  version INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  text TEXT NOT NULL,
+  unlock_type TEXT NOT NULL,
+  unlock_param TEXT NOT NULL,
+  forms TEXT NOT NULL,
+  hidden INTEGER NOT NULL CHECK (hidden IN (0,1)),
+  PRIMARY KEY (archive_id, seq, version)
+);
+
+CREATE TABLE IF NOT EXISTS entity_archives (
+  entity_id INTEGER NOT NULL REFERENCES entities(entity_id) ON DELETE CASCADE,
+  archive_id TEXT NOT NULL,
+  PRIMARY KEY (entity_id, archive_id)
 );

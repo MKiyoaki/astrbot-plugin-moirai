@@ -683,6 +683,8 @@ async def main() -> None:
             })
         else:
             raw["extraction_strategy"] = "llm"
+        from devtools.retrieval import development_config
+        raw.update(development_config(_rc if "_rc" in globals() else None).as_dict())
         return PluginConfig(raw, data_dir=DEV_DATA)
 
     cfg = _build_config(_EVENT_MODE)
@@ -694,7 +696,23 @@ async def main() -> None:
     # Step 5: Open fresh SQLite DB
     DEV_DATA.mkdir(parents=True, exist_ok=True)
 
-    async with db_open(REALTIME_DB, migration_auto_backup=False) as db:
+    from core.retrieval.providers import build_retrieval_providers
+    from contextlib import AsyncExitStack
+    async with AsyncExitStack() as retrieval_stack:
+        providers = build_retrieval_providers(cfg)
+        retrieval_stack.push_async_callback(providers.close)
+        await providers.start()
+        encoder = providers.encoder
+        dimension = await encoder.prepare(512)
+        db = await retrieval_stack.enter_async_context(db_open(
+            REALTIME_DB, vec_dim=dimension, migration_auto_backup=False,
+            vec_identity=encoder.identity if dimension and cfg.get_embedding_config().provider == "api" else None,
+            on_vector_problem=encoder.disable,
+        ))
+        if encoder.disabled_reason:
+            print(f"[Encoder] Vector recall disabled for this run: {encoder.disabled_reason}")
+        elif not encoder.active:
+            print("[Encoder] Retrieval/indexing encoder disabled; vector recall will be unavailable.")
         event_repo = SQLiteEventRepository(db)
         persona_repo = SQLitePersonaRepository(db)
         impression_repo = SQLiteImpressionRepository(db)
@@ -709,24 +727,8 @@ async def main() -> None:
             synthesis_config=SynthesisConfig(llm_timeout=_TIMEOUT),
         )
 
-        # Encoder. EVENT_MODE controls extraction strategy only; retrieval/indexing can
-        # still use embeddings in LLM mode so Phase 5 validates semantic recall.
-        if cfg.embedding_enabled:
-            from core.embedding.encoder import SentenceTransformerEncoder
-            from core.managers.embedding_manager import EmbeddingManager
-            print(
-                f"[Encoder] Loading {cfg.embedding_model} for retrieval/indexing "
-                "(first run may download ~100 MB) ...")
-            base_encoder = SentenceTransformerEncoder(
-                model_name=cfg.embedding_model)
-            encoder = EmbeddingManager(base_encoder, cfg.get_embedding_config())
-            await encoder.start()
-        else:
-            print("[Encoder] Retrieval/indexing encoder disabled; vector recall will be unavailable.")
-            encoder = NullEncoder()
-
         from core.retrieval.hybrid import HybridRetriever
-        retriever = HybridRetriever(event_repo, encoder)
+        retriever = HybridRetriever(event_repo, encoder, reranker=providers.reranker)
         recall = RecallManager(
             retriever, cfg.get_retrieval_config(), cfg.get_injection_config())
         context_manager = ContextManager(cfg.get_context_config())
@@ -1120,8 +1122,6 @@ async def main() -> None:
             if category_classifier is not None:
                 await category_classifier.close()
             await raw_message_writer.stop()
-            if _EVENT_MODE == "encoder":
-                await encoder.stop()
             _cleanup()
 
 

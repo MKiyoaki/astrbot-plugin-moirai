@@ -1,6 +1,6 @@
 """canon 抽取：调用模型、解析和校验 JSON、失败重试、长场景分块合并。
 
-校验规则见 docs/canon.md。任何一条不满足都算失败并带着问题清单重试，最多 3 次；
+校验规则见 docs/canon.md。任何一条不满足都算失败并带着问题清单重试，最多 4 次；
 另有几项只记为质量指标，不影响成败。证据行数不设上限：canon 是离线构建的，不受实时预算约束。
 """
 from __future__ import annotations
@@ -18,14 +18,16 @@ from .prompt import SYSTEM_PROMPT, build_user_prompt, chunk_ranges, retry_suffix
 
 logger = logging.getLogger(__name__)
 
-MAX_ATTEMPTS = 3
+MAX_ATTEMPTS = 4
 IN_WORLD_TIME = ("present", "past", "unknown")
 CHANNELS = ("experienced", "witnessed", "told", "recalled", "unstated")
 EDGE_TYPES = ("cause", "motivation", "emotion_source", "cognition_update")
 ENTITY_TYPES = ("person", "place", "faction", "object", "concept")
 MAX_REPORTED_ERRORS = 20
 TEXT_LIMITS = {"topic": (20, 30), "summary": (300, 400), "beat": (25, 40), "episode": (200, 300), "stance": (40, 60)}
-MAX_RANGE_SPAN = 200
+MAX_RANGE_SPAN = 1000
+MAX_UNCOVERED_RUN = 5
+MAX_SHARED_LINES = 2
 DOCTOR = "{DOCTOR}"
 DOCTOR_LITERAL = "博士"
 
@@ -152,6 +154,7 @@ def _ref_items(value: Any) -> list[str] | None:
 def normalize_output(obj: Any) -> int:
     """校验前把没有歧义的格式问题规范掉，返回改了几处；认不出的写法原样留给校验。
 
+    - 缺失的事件 id：仅在现有 id 和全部 views 都与事件顺序 e1、e2……一致时补齐。
     - 证据：见 _ref_items，结果去重并保持顺序。
     - 枚举值（in_world_time、channel、边和实体的 type）：去空格、转小写后是合法值就改。
     - 边的 explicit 写成 "true"/"false"、confidence 写成数字字符串时改成布尔值和数字。
@@ -173,7 +176,19 @@ def normalize_output(obj: Any) -> int:
             holder[key] = value.strip().lower()
             fixed += 1
 
-    events = dicts(obj.get("events"))
+    raw_events = obj.get("events")
+    raw_views = obj.get("views")
+    if isinstance(raw_events, list) and raw_events and all(isinstance(ev, dict) for ev in raw_events):
+        expected = [f"e{i}" for i in range(1, len(raw_events) + 1)]
+        if (all(ev.get("id") in (None, eid) for ev, eid in zip(raw_events, expected))
+                and isinstance(raw_views, list) and len(raw_views) == len(expected)
+                and all(isinstance(view, dict) and isinstance(view.get("event"), str) for view in raw_views)
+                and {view["event"] for view in raw_views} == set(expected)):
+            for ev, eid in zip(raw_events, expected):
+                if ev.get("id") is None:
+                    ev["id"] = eid
+                    fixed += 1
+    events = dicts(raw_events)
     beats = [b for ev in events for b in dicts(ev.get("beats"))]
     for holder in events + beats + dicts(obj.get("views")) + dicts(obj.get("cognitions")) + dicts(obj.get("edges")):
         value = holder.get("evidence")
@@ -309,8 +324,66 @@ def _refs(value, lo: int, hi: int, *, allow_empty: bool) -> str | None:
     return None
 
 
+def line_runs(numbers) -> list[tuple[int, int]]:
+    runs: list[list[int]] = []
+    for n in sorted(set(numbers)):
+        if runs and n == runs[-1][1] + 1:
+            runs[-1][1] = n
+        else:
+            runs.append([n, n])
+    return [(a, b) for a, b in runs]
+
+
+def format_runs(runs: list[tuple[int, int]], limit: int = 5) -> str:
+    text = "、".join(f"L{a}" if a == b else f"L{a}–L{b}" for a, b in runs[:limit])
+    return text + (f" 等 {len(runs)} 处" if len(runs) > limit else "")
+
+
+def event_lines(events: list) -> list[tuple[str, set[int]]]:
+    """每个事件的 id 和它占用的行号；认不出的证据忽略，交给格式校验报告。"""
+    out = []
+    for i, ev in enumerate(events):
+        if not isinstance(ev, dict):
+            continue
+        refs = ev.get("evidence") if isinstance(ev.get("evidence"), list) else []
+        found = {int(m.group(1)) for r in refs if isinstance(r, str) and (m := _LREF_RE.match(r))}
+        out.append((ev.get("id") if isinstance(ev.get("id"), str) else f"events[{i}]", found))
+    return out
+
+
+def uncovered_runs(owned: list[tuple[str, set[int]]], lo: int, hi: int) -> list[tuple[int, int]]:
+    """本块里连续超过 MAX_UNCOVERED_RUN 行不属于任何事件的区间。"""
+    covered = set().union(*(lines for _, lines in owned))
+    return [(a, b) for a, b in line_runs(n for n in range(lo, hi + 1) if n not in covered)
+            if b - a + 1 > MAX_UNCOVERED_RUN]
+
+
+def shared_lines(owned: list[tuple[str, set[int]]]) -> list[tuple[str, str, set[int]]]:
+    """共享超过 MAX_SHARED_LINES 行的事件对。"""
+    out = []
+    for i, (a, la) in enumerate(owned):
+        for b, lb in owned[i + 1:]:
+            if len(common := la & lb) > MAX_SHARED_LINES:
+                out.append((a, b, common))
+    return out
+
+
+def coverage_problems(events: list, lo: int, hi: int) -> list[str]:
+    """规则 9、10：事件按顺序铺满本块，每一行只属于一个事件。空出的情节和重复占用的行本地补不回来，只能带着行号重试。"""
+    owned = event_lines(events)
+    errors = []
+    gaps = uncovered_runs(owned, lo, hi)
+    if gaps:
+        errors.append(f"{format_runs(gaps)} 没有落在任何事件的 evidence 里：每一行都要属于一个事件，"
+                      "她不在场的情节也要写成事件（channel 用 unstated）")
+    for a, b, common in shared_lines(owned)[:5]:
+        errors.append(f"事件 {a} 和 {b} 的 evidence 重叠了 {len(common)} 行（{format_runs(line_runs(common))}）："
+                      "每一行只能属于一个事件，单独拆出的往事占用的行要从当下事件里去掉")
+    return errors
+
+
 def validate(obj: Any, lo: int, hi: int, character: dict) -> list[str]:
-    """按规格的 8 条规则校验一块的输出，返回问题清单（空清单即通过）。"""
+    """按规格的 10 条规则校验一块的输出，返回问题清单（空清单即通过）。"""
     errors: list[str] = []
     names = character_names(character)
     if not isinstance(obj, dict):
@@ -373,6 +446,7 @@ def validate(obj: Any, lo: int, hi: int, character: dict) -> list[str]:
         for ent in ents:
             if not isinstance(ent, dict) or not _text(ent.get("name"), 1, 20) or ent.get("type") not in ENTITY_TYPES:
                 errors.append(f"{where}.entities 里的 {ent!r} 不合规：name 1–20 字，type 只能是 {'/'.join(ENTITY_TYPES)}")
+    errors += coverage_problems(events, lo, hi)
     id_set = set(ids)
 
     seen_views: dict[str, int] = {}

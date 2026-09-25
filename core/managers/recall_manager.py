@@ -630,7 +630,10 @@ class RecallManager(BaseRecallManager):
                     + _EVIDENCE_WEIGHT * evidence_scores.get(ev.event_id, 0.0)
                 )
 
-            episode_anchors = sorted(candidates, key=_score, reverse=True)[:final_limit]
+            ordered = sorted(candidates, key=_score, reverse=True)
+            if getattr(self._retriever, "reranker", None) is not None:
+                ordered = await self._retriever.rerank_candidates(query, ordered)
+            episode_anchors = ordered[:final_limit]
 
             if not episode_anchors:
                 return []

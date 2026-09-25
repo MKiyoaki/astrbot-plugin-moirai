@@ -450,6 +450,19 @@ class EmbeddingConfig:
     failure_tolerance_ratio: float = 0.02
     retry_max: int = 3
     retry_delay_ms: int = 30000
+    timeout_seconds: float = 60.0
+    dimensions: int = 0
+
+
+@dataclass
+class RerankConfig:
+    enabled: bool = False
+    model: str = "arc:rerankvl"
+    api_url: str = ""
+    api_key: str = ""
+    max_candidates: int = 40
+    timeout_seconds: float = 60.0
+    retry_max: int = 1
 
 
 class PluginConfig:
@@ -793,6 +806,19 @@ class PluginConfig:
                 "embedding_failure_tolerance_ratio", 0.02),
             retry_max=self._int("embedding_retry_max", 3),
             retry_delay_ms=self._int("embedding_retry_delay_ms", 30000),
+            timeout_seconds=self._float("embedding_timeout_seconds", 60.0),
+            dimensions=self._int("embedding_dimensions", 0),
+        )
+
+    def get_rerank_config(self) -> RerankConfig:
+        return RerankConfig(
+            enabled=self._bool("rerank_enabled", False),
+            model=self._str("rerank_model", "arc:rerankvl"),
+            api_url=self._str("rerank_api_url", ""),
+            api_key=self._str("rerank_api_key", ""),
+            max_candidates=self._int("rerank_max_candidates", 40),
+            timeout_seconds=self._float("rerank_timeout_seconds", 60.0),
+            retry_max=self._int("rerank_retry_max", 1),
         )
 
     # ------------------------------------------------------------------
