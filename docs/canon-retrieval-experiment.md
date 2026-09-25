@@ -283,35 +283,58 @@ This exists because provider rate limits interrupt long runs; the resumed run
 must use identical settings to the initial one.
 
 
-## Broad-question retrieval direction
+## Broad-question overview route (2026-09-25)
 
-The 20 overview questions expose a coverage problem: event-level RRF chooses
-several individually similar moments but does not assemble the causes, turning
-points, and outcomes of one story. A larger top-k alone yielded only 16/60
-representative facets, compared with 14/60 at top five. The marked facets are
-examples rather than exhaustive relevance labels, so this is a diagnosis of
-coverage, not a precise measure of answer completeness.
+The terminal's `canon_overview` tool and deterministic prefetch use the same
+`CanonReader.overview_search` path. This is an internal model tool interface,
+not a standalone MCP server or a Bot runtime feature. The broad-question
+classifier recognizes 20/20 existing overview cases and 0/165 specific cases
+or 0/15 small-talk negatives. This bank was available during implementation;
+an independently written holdout remains necessary.
 
-A suitable next experiment is a two-stage, source-linked overview route:
+One original-query embedding call supplies dense candidates. Local bigram scores
+over event text and scene navigation metadata (anchor, collection, official
+summary, episode) identify candidate collections and up to 160 events. The
+selector keeps at most ten events, favors separate scenes and plot phases, and
+allows at most two events from one scene. An exact collection title in the query
+pins its collection. Event summaries and up to two original lines from separate
+beats form the model-facing evidence; scope metadata is never treated as a
+source for factual claims. `overview_trace` records the scope, selected event
+IDs, and original line keys for audit. The default 900 estimated-token
+`EvidencePack` limit is cumulative across prefetch and later tool calls.
 
-1. Detect overview intent and resolve the named place, event, or arc to candidate
-   collections and scenes. Retrieve at scene or arc level using existing anchors,
-   episode text, event summaries, and entities. Keep these summaries as navigation
-   aids; factual claims still cite original event lines.
-2. Search events within the leading scope for distinct aspects such as setup,
-   key developments, and outcome. Select across different scenes and plot beats
-   under a dedicated evidence budget, instead of filling the first five slots
-   with nearby or repetitive hits. Let the reply state its scope when evidence
-   covers only part of the question.
-3. Order events by explicit relations where available. A scene's export position
-   can order the presentation within a known story sequence but does not prove
-   cross-arc world chronology or anyone's current state. Reviewed temporal facts
-   can constrain status claims after approval; the current unreviewed candidates
-   cannot be used as answer evidence.
-4. Compare against the existing 20 questions, add independently written broad
-   questions and human relevance judgments, and report answer-line coverage,
-   distinct scene coverage, unsupported claims, latency, and small-talk routing.
-   Keep the existing 165 specific questions as a regression check.
+The V10 full-build hybrid comparison uses the same 20 questions and three
+representative source-line facets per question:
 
-This route is proposed, not implemented or scored. It requires a corpus-level
-experiment before changing the default terminal or Bot retrieval path.
+| Method | Final facets | Injected facets | Answer lines injected | At least two final facets |
+|---|---:|---:|---:|---:|
+| Earlier top-five route, 900 tokens | 14/60 | 9/60 | 8/60 | 4/20 |
+| Overview, 900 tokens | 22/60 | 19/60 | 13/60 | 6/20 |
+| Overview, 1,200 tokens | 22/60 | 21/60 | 15/60 | 6/20 |
+
+The complete 200-case regression gives the same specific-question results as
+the immediately preceding route-v2 report: 149/165 final, 140/165 injected,
+128/165 answer lines, and 15/15 small-talk negatives. The 20 broad questions
+all take the overview route. The strict facet score omits other relevant events
+and does not measure generated answer quality; inspect source lines and sample
+answers before treating this as a solution to the broad-question gap.
+
+Of the 60 representative facets, 33 come from events whose channel is
+`unstated`: the source does not establish that Amiya knows them. The terminal
+answer guard therefore cannot turn those into her firsthand experience. In a
+live Chernobog answer smoke test it removed an unsupported claim that she
+escaped with the group; the final grounded answer was shorter than the
+retrieved plot coverage. Facet recall and persona-safe answer completeness
+must be assessed separately.
+
+The 900-token overview evidence averages 886 estimated tokens (maximum 900);
+the 1,200-token variant averages 1,144 (maximum 1,200). The reports are local
+and ignored: `eval-200-v1-hybrid-overview-precompact.json` covers all 200
+cases before the final scene-title trimming; the final evidence-format
+comparison is in `eval-20-general-hybrid-overview-{900,1200}.json` under the
+full build's `canon.retrieval/runs/`. The 1,200-token run is optional, not
+the default. Collection order and `narrative_pos` provide presentation hints within a known story
+scope; they do not establish cross-arc world chronology or anyone's current
+state. Only approved temporal facts may constrain status answers. Next checks
+are independent broad prompts, human relevance judgments, source support in
+generated answers, and real token counts from the provider.

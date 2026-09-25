@@ -13,7 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from core.canon.retrieval import CanonRetrieval
-from core.canon.vector_index import VectorIndex, corpus_fingerprint, index_identity, read_documents
+from core.canon.vector_index import VectorIndex, corpus_fingerprint, digest, index_identity, read_documents
 from core.retrieval.providers import embedding_identity
 from devtools.retrieval import ProviderBridge, development_config
 
@@ -187,7 +187,8 @@ def _write(path: Path, value: dict) -> None:
 
 
 def main(argv=None) -> int:
-    from run_canon_chat import DEFAULT_DB, CanonReader, EvidencePack, fill, plan_turn, route
+    from run_canon_chat import (DEFAULT_DB, CanonReader, EvidencePack, _estimate_tokens,
+                                fill, fill_overview, plan_turn, route)
     parser = argparse.ArgumentParser(description="Canon retrieval experiment; plan is offline")
     parser.add_argument("command", choices=("plan", "build", "probe"))
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
@@ -230,6 +231,7 @@ def main(argv=None) -> int:
                            "doctor": not args.not_doctor, "allow_fallback": args.allow_fallback,
                            "request_batch_size": embed_cfg.request_batch_size,
                            "concurrency": embed_cfg.concurrency}}
+    write_report = True
     with ExitStack() as stack:
         if args.command == "plan":
             missing = documents
@@ -271,20 +273,39 @@ def main(argv=None) -> int:
                     cases.extend(json.loads(line) for line in args.questions.read_text().splitlines() if line.strip())
                 if not cases:
                     raise ValueError("Supply --question or --questions for a retrieval probe")
+                case_digest = digest(json.dumps(cases, ensure_ascii=False, sort_keys=True))
+                report["question_digest"] = case_digest
                 if args.out is not None and out.is_file():
                     try:
                         prior = json.loads(out.read_text())
-                    except (OSError, ValueError):
-                        prior = None
-                    if (isinstance(prior, dict) and prior.get("corpus") == report["corpus"]
-                            and prior.get("identity") == identity
-                            and isinstance(prior.get("question_results"), list)):
-                        kept = [row for row in prior["question_results"] if row.get("id")]
-                        if kept:
-                            answered = {row["id"] for row in kept}
-                            report["question_results"] = kept
-                            cases = [case for case in cases if case.get("id") not in answered]
-                            print(f"[retrieval] resume: {len(answered)} answered kept, {len(cases)} left")
+                    except (OSError, ValueError) as exc:
+                        write_report = False
+                        raise ValueError("--out exists but is not a readable retrieval report") from exc
+                    if not isinstance(prior, dict):
+                        write_report = False
+                        raise ValueError("--out exists but is not a retrieval report")
+                    kept = prior.get("question_results", [])
+                    compatible = (
+                        prior.get("command") == report["command"]
+                        and prior.get("mode") == report["mode"]
+                        and prior.get("corpus") == report["corpus"]
+                        and prior.get("identity") == identity
+                        and prior.get("settings") == report["settings"]
+                        and isinstance(kept, list)
+                        and prior.get("question_digest") == case_digest
+                    )
+                    if not compatible:
+                        write_report = False
+                        raise ValueError("--out exists with a different corpus, question bank or probe settings")
+                    kept = [row for row in kept if isinstance(row, dict) and row.get("id")]
+                    if kept:
+                        answered = {row["id"] for row in kept}
+                        report["question_results"] = kept
+                        cases = [case for case in cases if case.get("id") not in answered]
+                        print(f"[retrieval] resume: {len(answered)} answered kept, {len(cases)} left")
+                        if not cases and prior.get("status") == "complete":
+                            write_report = False
+                            return 0
                 for number, case in enumerate(cases):
                     if number and args.pace > 0 and retrieval is not None:
                         time.sleep(args.pace)
@@ -293,18 +314,27 @@ def main(argv=None) -> int:
                     plan = route(reader, plan_turn(reader, question, None, None), question, doctor)
                     pack = EvidencePack("对方（博士）" if doctor else "博士", doctor)
                     all_hits = []
-                    subjects = plan.subjects if len(plan.subjects) > 1 else (None,)
-                    for subject in subjects:
-                        hits, episode = reader.search(plan.search_query, top_k=args.top_k,
-                                                       evidence_lines=args.evidence_lines, doctor=doctor,
-                                                       focus_person=subject)
-                        all_hits.extend(hits)
-                        if plan.lane != "chat":
-                            fill(pack, hits, episode, args.token_budget // len(subjects),
-                                 total_budget=args.token_budget)
+                    overview_trace = None
+                    if plan.overview:
+                        all_hits, overview_trace = reader.overview_search(
+                            plan.search_query, doctor=doctor,
+                            evidence_lines=min(2, args.evidence_lines))
+                        fill_overview(pack, all_hits, args.token_budget)
+                    else:
+                        subjects = plan.subjects if len(plan.subjects) > 1 else (None,)
+                        for subject in subjects:
+                            hits, episode = reader.search(plan.search_query, top_k=args.top_k,
+                                                           evidence_lines=args.evidence_lines, doctor=doctor,
+                                                           focus_person=subject)
+                            all_hits.extend(hits)
+                            if plan.lane != "chat":
+                                fill(pack, hits, episode, args.token_budget // len(subjects),
+                                     total_budget=args.token_budget)
                     trace = retrieval.last_trace if retrieval else {"mode": "baseline"}
                     row = {**{k: case[k] for k in ("id", "category", "expected_lane") if k in case},
-                           "question": question, "lane": plan.lane,
+                           "question": question, "lane": plan.lane, "overview": plan.overview,
+                           "overview_trace": overview_trace,
+                           "evidence_tokens": _estimate_tokens(pack.render()),
                            "hits": [{"event_id": h.event_id, "score": h.score, "channel": h.channel}
                                     for h in all_hits],
                            "injected_events": [m.event_id for m in pack.items], "trace": trace}
@@ -352,9 +382,10 @@ def main(argv=None) -> int:
                           error=str(exc) if isinstance(exc, (ValueError, RuntimeError)) else type(exc).__name__)
             raise
         finally:
-            report["metrics"] = bridge.metrics() if bridge else {}
-            _write(out, report)
-            print(f"[retrieval] report: {out}")
+            if write_report:
+                report["metrics"] = bridge.metrics() if bridge else {}
+                _write(out, report)
+                print(f"[retrieval] report: {out}")
     return 0
 
 

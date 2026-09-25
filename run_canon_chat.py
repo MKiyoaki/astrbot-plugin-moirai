@@ -22,6 +22,8 @@ import httpx
 
 from core.canon.gateway import PAST_MARKERS, CheckReport, EvidencePack, Memory, check_reply
 from core.canon.lexical import BigramIndex, terms
+from core.canon.overview import (OVERVIEW_MAX_CANDIDATES, OVERVIEW_MAX_SCENES,
+                                 OverviewCandidate, is_overview, select_events, topic_terms)
 from core.canon import retrieval as retrieval_settings
 from core.canon.retrieval import fuse, speaker_view
 from core.canon.temporal import PREDICATES, resolve
@@ -83,13 +85,26 @@ RECALL_TOOL = {
         },
     },
 }
+OVERVIEW_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "canon_overview",
+        "description": "回忆一个地点、篇章或人物历程中多次事件的脉络。用于发生了什么、如何发展、经历哪些冲突等综述问题。",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "需要综述的地点、篇章、事件或人物历程"}},
+            "required": ["query"],
+        },
+    },
+}
 OUTPUT_RULES = (
     "[回复要求]\n"
     "· 用陈述句结束回复。不要向博士提问或反问，不要请博士补充、确认或回忆任何事；拿不准时直接说自己记不清或不知道。\n"
     "· 不要说出原作、剧情、章节、资料、编号、检索、数据库这类词。\n"
     "· 讲到过去的具体经历时，只说[你的记忆]里有的内容，不添加其中没有的动作、神情、情绪、数字或原因；过去的事要说成过去。"
 )
-TOOL_RULE = "\n· 需要具体的过去事件、人物或地点，而[你的记忆]里没有时，先调用 canon_recall。"
+TOOL_RULE = ("\n· 需要具体的过去事件、人物或地点，而[你的记忆]里没有时，先调用 canon_recall。"
+             "要回答跨多次事件的综述问题、现有记忆又不够时，调用 canon_overview。")
 ARCHIVE_RULE = ("\n· 需要某人的出身、种族、生日、履历、体检、病情或作战情报时，调用 operator_archive；"
                 "查到的是罗德岛档案上的记载，要说成“档案上写着”，不能说成自己亲身经历。")
 ARCHIVE_TOOL = {
@@ -192,6 +207,7 @@ class CanonReader:
             "JOIN entities e ON e.entity_id=a.entity_id"
         ).fetchall()
         self._index_events({row["alias"]: row["entity_id"] for row in rows})
+        self._index_scenes()
         rows = [row for row in rows if len(row["alias"]) > 1 or not _CJK.fullmatch(row["alias"])
                 or self.entity_events.get(row["entity_id"])]
         self.aliases = sorted([(row["alias"], row["entity_id"]) for row in rows],
@@ -218,8 +234,10 @@ class CanonReader:
                 "JOIN views v ON v.event_id=ee.event_id WHERE v.character=?", (self.character,)):
             self.entity_events[row["entity_id"]].add(row["event_id"])
         documents, self.position, self.doctor_events = {}, {}, set()
+        self.events_by_scene: dict[str, list[str]] = defaultdict(list)
+        self.event_scene: dict[str, str] = {}
         for row in self.db.execute(
-                "SELECT e.event_id,e.topic,e.summary,e.participants,e.narrative_pos,e.involves_doctor "
+                "SELECT e.event_id,e.scene_key,e.topic,e.summary,e.participants,e.narrative_pos,e.involves_doctor "
                 "FROM events e JOIN views v ON v.event_id=e.event_id WHERE v.character=?", (self.character,)):
             event_id, participants = row["event_id"], json.loads(row["participants"])
             for name in participants:
@@ -230,8 +248,11 @@ class CanonReader:
                 *(text for text, _ in self.beats.get(event_id, ())),
             )).replace("{DOCTOR}", "博士").replace("@doctor", "博士")
             self.position[event_id] = row["narrative_pos"]
+            self.events_by_scene[row["scene_key"]].append(event_id)
+            self.event_scene[event_id] = row["scene_key"]
             if row["involves_doctor"]:
                 self.doctor_events.add(event_id)
+        self.event_documents = documents
         self.lexical = BigramIndex(documents)
         self.event_lines: dict[str, list[tuple[str, str]]] = defaultdict(list)
         for row in self.db.execute(
@@ -242,6 +263,27 @@ class CanonReader:
                     (row["line_key"], f"{row['speaker'] or '旁白'}：{row['text']}"))
         self.line_lexical = BigramIndex({event_id: "\n".join(text for _, text in lines)
                                          for event_id, lines in self.event_lines.items()})
+
+    def _index_scenes(self) -> None:
+        self.scene_meta = {}
+        collections: dict[str, list[tuple[int, str]]] = defaultdict(list)
+        documents = {}
+        for row in self.db.execute(
+                "SELECT s.scene_key,s.narrative_pos,s.anchor,s.collection_id,s.collection_name,"
+                "s.story_name,s.official_summary,p.text episode FROM scenes s "
+                "LEFT JOIN episodes p ON p.scene_key=s.scene_key AND p.character=?",
+                (self.character,)):
+            scene = dict(row)
+            self.scene_meta[row["scene_key"]] = scene
+            collections[row["collection_id"] or row["scene_key"]].append(
+                (row["narrative_pos"], row["scene_key"]))
+            documents[row["scene_key"]] = "\n".join(
+                str(row[key] or "") for key in
+                ("anchor", "collection_name", "story_name", "official_summary", "episode"))
+        self.scene_lexical = BigramIndex(documents)
+        self.collection_scenes = {
+            key: [scene for _, scene in sorted(values)] for key, values in collections.items()
+        }
 
     def close(self) -> None:
         self.db.close()
@@ -466,6 +508,99 @@ class CanonReader:
             episode = row["text"] if row else None
         return selected, episode
 
+    def overview_search(self, query: str, *, doctor: bool, evidence_lines: int = 1) -> tuple[list[Hit], dict]:
+        """Build one dense-backed pool, then select distinct story moments locally."""
+        base, _ = self.search(query, top_k=40, evidence_lines=0, doctor=doctor)
+        original = {hit.event_id: rank for rank, hit in enumerate(base)}
+        query_terms = topic_terms(query, GENERIC_CHARS)
+        event_scores = self.lexical.scores(query_terms)
+        scene_scores = self.scene_lexical.scores(query_terms)
+        named = [(len(info["collection_name"]), info["collection_id"], info["collection_name"])
+                 for info in self.scene_meta.values()
+                 if info["collection_id"] and info["collection_name"]
+                 and len(info["collection_name"]) >= 2 and info["collection_name"] in query]
+        pinned = max(named)[1] if named else None
+        collection_scores: dict[str, list[float]] = defaultdict(list)
+        for event_id, score in event_scores.items():
+            scene = self.event_scene.get(event_id)
+            if scene:
+                collection = self.scene_meta[scene]["collection_id"] or scene
+                collection_scores[collection].append(score)
+        collection_rank = sorted(
+            ((sum(sorted(values, reverse=True)[:8]), key)
+             for key, values in collection_scores.items()), reverse=True)
+        primary = pinned or (collection_rank[0][1] if collection_rank else None)
+        pool = set(original)
+        pool.update(sorted(event_scores, key=lambda eid: -event_scores[eid])[:100])
+        for scene in sorted(scene_scores, key=lambda key: -scene_scores[key])[:OVERVIEW_MAX_SCENES]:
+            pool.update(self.events_by_scene.get(scene, ()))
+        if pinned:
+            for scene in self.collection_scenes.get(pinned, ()):
+                pool.update(self.events_by_scene.get(scene, ()))
+        event_max = max(event_scores.values(), default=1.0) or 1.0
+        scene_max = max(scene_scores.values(), default=1.0) or 1.0
+
+        def relevance(event_id: str) -> float:
+            scene = self.event_scene[event_id]
+            score = 0.35 / (1 + original[event_id] / 8) if event_id in original else 0.0
+            score += 0.45 * event_scores.get(event_id, 0.0) / event_max
+            score += 0.35 * scene_scores.get(scene, 0.0) / scene_max
+            collection = self.scene_meta.get(scene, {}).get("collection_id")
+            if collection == primary:
+                score += 0.52
+            if pinned and collection == pinned:
+                score += 0.25
+            return score
+
+        ranked = sorted((eid for eid in pool if eid in self.event_documents),
+                        key=lambda eid: (-relevance(eid), eid))[:OVERVIEW_MAX_CANDIDATES]
+        if not ranked:
+            return [], {"scope": None, "candidates": 0, "selected": []}
+        marks = ",".join("?" for _ in ranked)
+        rows = self.db.execute(
+            "SELECT e.event_id,e.scene_key,e.topic,e.summary,e.narrative_pos,"
+            "s.anchor,s.collection_id,s.collection_name,v.channel FROM events e "
+            "JOIN scenes s ON s.scene_key=e.scene_key "
+            "JOIN views v ON v.event_id=e.event_id "
+            f"WHERE e.event_id IN ({marks}) AND v.character=?",
+            (*ranked, self.character),
+        ).fetchall()
+        candidates = []
+        by_id = {}
+        for row in rows:
+            scene = row["scene_key"]
+            collection = row["collection_id"] or scene
+            scene_order = self.collection_scenes.get(collection, [scene])
+            phase = min(2, 3 * scene_order.index(scene) // max(1, len(scene_order)))
+            candidates.append(OverviewCandidate(
+                row["event_id"], scene, collection, relevance(row["event_id"]),
+                phase, self.event_documents[row["event_id"]][:300]))
+            by_id[row["event_id"]] = row
+        selected = select_events(candidates, pinned_collection=pinned)
+        hits = []
+        source_lines = {}
+        for event_id in selected:
+            row = by_id[event_id]
+            evidence = self._evidence(event_id, [], evidence_lines)
+            hits.append(Hit(event_id, row["scene_key"], row["anchor"], row["topic"],
+                            row["summary"], row["channel"], relevance(event_id),
+                            row["narrative_pos"], evidence))
+            ords = [line[0] for line in evidence]
+            if ords:
+                marks = ",".join("?" for _ in ords)
+                line_keys = {line["ord"]: line["line_key"] for line in self.db.execute(
+                    "SELECT ord,line_key FROM event_evidence WHERE event_id=? "
+                    f"AND ord IN ({marks})", (event_id, *ords))}
+                source_lines[event_id] = [line_keys[ord_] for ord_ in ords]
+        scope = next((info["collection_name"] for info in self.scene_meta.values()
+                      if info["collection_id"] == primary and info["collection_name"]), None)
+        trace = {"scope": scope, "scope_id": primary, "candidates": len(candidates),
+                 "selected": selected, "source_lines": source_lines,
+                 "remote_queries": 1 if self.retrieval else 0,
+                 "collection_candidates": collection_rank[:5]}
+        self.last_overview_trace = trace
+        return hits, trace
+
 
 def fill(pack: EvidencePack, hits: list[Hit], episode: str | None, budget: int,
          *, total_budget: int | None = None) -> list[Memory]:
@@ -492,6 +627,52 @@ def fill(pack: EvidencePack, hits: list[Hit], episode: str | None, budget: int,
             else:
                 return added
     return added
+
+
+def fill_overview(pack: EvidencePack, hits: list[Hit], budget: int) -> list[Memory]:
+    """Fit short event summaries and original lines inside the shared turn budget."""
+    added: list[Memory] = []
+    for hit in hits:
+        if hit.event_id in pack:
+            continue
+        for summary_limit, line_limit, line_count in ((65, 85, 2), (50, 65, 2),
+                                                       (55, 85, 1), (40, 55, 1)):
+            summary = _clip(hit.summary, summary_limit)
+            lines = tuple((speaker, _clip(text, line_limit))
+                          for _, speaker, text in hit.evidence[:line_count])
+            item = pack.add(hit.event_id, hit.anchor, hit.channel, summary, lines)
+            if _estimate_tokens(pack.render()) <= budget:
+                added.append(item)
+                break
+            pack.pop()
+    return added
+
+
+def overview_tool_result(pack: EvidencePack, added: list[Memory], trace: dict,
+                         budget: int) -> str:
+    """Return bounded, source-linked tool evidence without claiming complete coverage."""
+    while added:
+        entries = []
+        for item in added:
+            keys = trace.get("source_lines", {}).get(item.event_id, ())
+            entries.append({
+                "ref": item.eid, "event_id": item.event_id,
+                "channel": CHANNEL_LABEL.get(item.channel, item.channel),
+                "summary": item.summary,
+                "lines": [{"line_key": key, "speaker": speaker, "text": body}
+                          for key, (speaker, body) in zip(keys, item.lines)],
+            })
+        result = json.dumps({
+            "scope": trace.get("scope"), "coverage": "代表性片段，不能据此断言完整或跨篇章时序",
+            "evidence": entries,
+        }, ensure_ascii=False, separators=(",", ":"))
+        if _estimate_tokens(result) <= budget:
+            return result
+        if pack.items[-1] is not added[-1]:
+            raise RuntimeError("Overview evidence pack changed while rendering a tool result")
+        pack.pop()
+        added.pop()
+    return "没有想起新的相关经历；现有证据可能只覆盖部分情节。"
 
 
 def asks_status(query: str) -> bool:
@@ -523,6 +704,7 @@ class TurnPlan:
     focus: str | None
     search_query: str
     by_retrieval: bool = False
+    overview: bool = False
 
 
 def plan_turn(reader: CanonReader, query: str, focus: str | None, as_of: str | None) -> TurnPlan:
@@ -534,14 +716,16 @@ def plan_turn(reader: CanonReader, query: str, focus: str | None, as_of: str | N
     pointer = any(term in query for term in REFERENCES)
     carry = bool(focus) and not names and (pointer or (past and "我" not in query and "你" not in query))
     subjects = tuple(explicit) or ((focus,) if carry else ())
+    overview = is_overview(query) and not any(term in query for term in ("那次", "那天", "当时"))
     if subjects and (asks_status(query) or as_of):
         lane = "status"
-    elif names or subjects or past:
+        overview = False
+    elif names or subjects or past or overview:
         lane = "canon"
     else:
         lane = "chat"
     search_query = " ".join([query, *(name for name in subjects if name not in query)])
-    return TurnPlan(lane, subjects, focus, search_query)
+    return TurnPlan(lane, subjects, focus, search_query, overview=overview)
 
 
 def route(reader: CanonReader, plan: TurnPlan, query: str, doctor: bool) -> TurnPlan:
@@ -568,7 +752,10 @@ def knowledge(plan: TurnPlan, pack: EvidencePack, fact_block: str, fact_valid: b
               tools: bool) -> str:
     lines = ["[你的记忆]"]
     if pack.items:
-        lines.append("以下是和这句话有关的零散记忆，都是过去的事，不代表现在。编号只供你对照，不要说出来。")
+        if plan.overview:
+            lines.append("以下是不同场景的部分记忆；把能证实的起因、变化和结果串起来，材料不足的环节直说记不清。只按已知的故事顺序叙述，不推断跨篇章世界时间或人物近况；标为不知情的事不要说成自己亲历，也不补没有证据的人物命运。编号只供你对照，不要说出来。")
+        else:
+            lines.append("以下是和这句话有关的零散记忆，都是过去的事，不代表现在。编号只供你对照，不要说出来。")
         lines.append(pack.render())
     else:
         lines.append("本轮没有调出记忆。不要主动讲具体的过去事件或别人的近况"
@@ -730,7 +917,8 @@ def generate(llm: ModelClient, session: Session, system: str, query: str,
 
 def lane_label(plan: TurnPlan) -> str:
     who = "、".join(plan.subjects) or ("检索判定" if plan.by_retrieval else "")
-    return f"路线：{LANE_LABEL[plan.lane]}" + (f"（{who}）" if who else "")
+    route_name = "剧情综述" if plan.overview else LANE_LABEL[plan.lane]
+    return f"路线：{route_name}" + (f"（{who}）" if who else "")
 
 
 def trace_line(session: Session, calls: int) -> str:
@@ -787,7 +975,14 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
                                       doctor=args.doctor, focus_person=focus_person)
         return fill(pack, hits, episode, budget, total_budget=args.token_budget)
 
-    if plan.lane != "chat":
+    def fetch_overview(text: str) -> tuple[list[Memory], dict]:
+        hits, trace = reader.overview_search(text, doctor=args.doctor,
+                                             evidence_lines=min(2, args.evidence_lines))
+        return fill_overview(pack, hits, args.token_budget), trace
+
+    if plan.overview:
+        fetch_overview(plan.search_query)
+    elif plan.lane != "chat":
         share = args.token_budget // max(1, len(plan.subjects))
         for subject in plan.subjects if len(plan.subjects) > 1 else (None,):
             fetch(plan.search_query, subject, share)
@@ -819,6 +1014,14 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
         if added:
             return pack.render(added)
         return "没有想起新的相关的事；只根据上面已有的记忆回答，没有的就说记不清。"
+
+    def overview(arguments: dict) -> str:
+        wanted = str(arguments.get("query", "")).strip()[:100]
+        session.tool_queries.append(f"综述「{wanted or '空'}」")
+        if not wanted:
+            return "没有指定要综述的经历。"
+        added, trace = fetch_overview(wanted)
+        return overview_tool_result(pack, added, trace, args.token_budget)
 
     def add_archive(key: str, source: str, body: str) -> Memory | None:
         if key in pack or not body:
@@ -890,10 +1093,12 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
         return "\n".join(parts)
 
     archives = reader.has_archives
-    tools = [RECALL_TOOL, ARCHIVE_TOOL] if archives else [RECALL_TOOL]
-    handlers = {"canon_recall": recall, "operator_archive": archive}
-    system = build_system(persona, args.doctor, plan, pack, fact_block, fact_valid, session.tools, archives)
-    draft, calls = generate(llm, session, system, query, tools, handlers, args.temperature)
+    tools = [RECALL_TOOL, OVERVIEW_TOOL, ARCHIVE_TOOL] if archives else [RECALL_TOOL, OVERVIEW_TOOL]
+    handlers = {"canon_recall": recall, "canon_overview": overview, "operator_archive": archive}
+    tool_offer = session.tools and _estimate_tokens(pack.render()) + 80 < args.token_budget
+    system = build_system(persona, args.doctor, plan, pack, fact_block, fact_valid, tool_offer, archives)
+    draft, calls = generate(llm, session, system, query, tools if tool_offer else [], handlers,
+                            args.temperature)
     answer, report = check_reply(
         draft, complete=llm.complete, messages=messages, pack=pack,
         find_entities=reader.entities_in, refetch=refetch, sources=sources,
@@ -922,7 +1127,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--token-budget", type=int, default=900, help="每次取证注入的 token 上限")
     parser.add_argument("--evidence-lines", type=int, default=4)
     parser.add_argument("--temperature", type=float, default=0.3)
-    parser.add_argument("--no-tools", action="store_true", help="不向模型提供 canon_recall 和档案查询工具")
+    parser.add_argument("--no-tools", action="store_true", help="不向模型提供 canon_recall、canon_overview 和档案查询工具")
     parser.add_argument("--archive-all", action="store_true",
                         help="档案查询也返回升变档案、其他形态和隐藏段（默认只返回本体形态）")
     parser.add_argument("--show-sources", action="store_true")

@@ -29,7 +29,7 @@ Made with ♥ by MKiyoaki & Gariton
 
 Core 的可选只读 `moirai.chat_memory.recall` 能力可按已绑定人格与私聊/群聊范围提供现有聊天事件的历史事实，不依赖 Oedipus；其权限和数据形状见 [Core 记忆上下文读取](docs/core-memory-context.md)。
 
-原作剧情记忆 canon 默认关闭，目前完成了 M1：用命令行把 Arknights-Texts 导出的 story_pack 抽取成独立的 `canon.sqlite`，并提供抽取基准；检索和注入对话尚未接入。本地 `moirai canon build` 可增量准备完整 story_pack 的事件库与待审阅时间事实候选，并生成并排展示原文、事件和事实候选的 `review.html`；另有临时终端试聊 `moirai canon test`，默认优先使用本机 v10 全量构筑库，有向量索引时自动用 hybrid 检索，以只读试跑库和内存对话预览检索、时间事实判断与回复核验；可用 `--db` 切换库，`--questions` 用现有题库批量评测检索并输出报告，用法见 [canon：原作剧情记忆](docs/canon.md)。
+原作剧情记忆 canon 默认关闭，目前完成了 M1：用命令行把 Arknights-Texts 导出的 story_pack 抽取成独立的 `canon.sqlite`，并提供抽取基准；检索和注入对话尚未接入。本地 `moirai canon build` 可增量准备完整 story_pack 的事件库与待审阅时间事实候选，并生成并排展示原文、事件和事实候选的 `review.html`；另有临时终端试聊 `moirai canon test`，默认优先使用本机 v10 全量构筑库，有向量索引时自动用 hybrid 检索，以只读试跑库和内存对话预览检索、时间事实判断与回复核验；可用 `--db` 切换库，`--questions` 用现有题库批量评测检索并输出报告；跨事件综述问题会走有独立预算和来源追踪的 `canon_overview` 工具路线，用法见 [canon：原作剧情记忆](docs/canon.md)。
 
 旧 `bot_persona_name_override` 不再决定事件归属，也不会自动迁移为全局覆盖。已有数据桶和记忆会话键保持原样；缺失映射不会退化成所有人格查询。FTS 与向量检索在截取候选前应用人格及会话范围过滤，候选名额仅用于当前作用域。宿主事件对象兼容、文本规范化及 synthetic tool-call 降级移入 Core，Moirai 保留窗口结算、检索、抽取、存储与调试内容生成。
 
