@@ -1,4 +1,4 @@
--- canon.sqlite，schema_version 4。event_vec 和全文检索表由 store.py 按 encoder 维度与 FTS 模式创建。
+-- canon.sqlite，schema_version 5。event_vec 和全文检索表由 store.py 按 encoder 维度与 FTS 模式创建。
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
@@ -90,6 +90,17 @@ CREATE TABLE IF NOT EXISTS view_evidence (
   event_id TEXT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
   line_key TEXT NOT NULL,
   PRIMARY KEY (character, event_id, line_key)
+);
+
+CREATE TABLE IF NOT EXISTS view_access (
+  character TEXT NOT NULL,
+  event_id TEXT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+  ord INTEGER NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('direct_report','command_report','record_available','role_candidate')),
+  recipient TEXT NOT NULL,
+  content TEXT NOT NULL,
+  evidence TEXT NOT NULL,
+  PRIMARY KEY (character, event_id, ord)
 );
 
 CREATE TABLE IF NOT EXISTS episodes (

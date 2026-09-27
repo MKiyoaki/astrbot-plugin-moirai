@@ -1,11 +1,12 @@
 """Evidence-backed timeline facts and partial-order resolution for canon."""
 from __future__ import annotations
 
+import os
 import sqlite3
 from dataclasses import dataclass
 
 PREDICATES = frozenset(("location", "custody", "affiliation", "life_status"))
-FACT_PROMPT_VERSION = "canon-facts-v2"
+FACT_PROMPT_VERSION = "canon-facts-v3" if os.environ.get("CANON_PROMPT_VERSION") == "canon-extract-v11" else "canon-facts-v2"
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,8 @@ def apply_reviewed_facts(db: sqlite3.Connection, payload: dict) -> None:
                 raise ValueError("只有明确标记 reviewed 的事实才能导入")
             if item.get("source_type") != "explicit":
                 raise ValueError("第一阶段只接受人工核实的原文明示事实")
+            if item.get("source_mode") == "reported":
+                raise ValueError("仅有汇报或声称的候选不能直接批准为世界事实")
             if type(item.get("polarity", 1)) is not int or item.get("polarity", 1) not in (0, 1):
                 raise ValueError("事实极性必须为 0 或 1")
             if not isinstance(item.get("subject"), str) or not item["subject"].strip():

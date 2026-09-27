@@ -16,7 +16,7 @@ import aiosqlite
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 _SCHEMA = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
 _PRAGMAS = ("PRAGMA foreign_keys=ON", "PRAGMA journal_mode=WAL", "PRAGMA busy_timeout=5000",
             "PRAGMA synchronous=NORMAL")
@@ -99,7 +99,7 @@ class CanonStore:
                 has_meta = await cur.fetchone() is not None
             if has_meta:
                 version = (await self.get_meta()).get("schema_version")
-                if version not in ("2", "3", SCHEMA_VERSION):
+                if version not in ("2", "3", "4", SCHEMA_VERSION):
                     raise ValueError(f"不支持的 canon schema_version：{version!r}")
             else:
                 async with self.db.execute(
@@ -282,6 +282,11 @@ class CanonStore:
                                   (char_id, eid, view["channel"], (view.get("note") or "").strip() or None))
             await self.db.executemany("INSERT OR IGNORE INTO view_evidence VALUES (?,?,?)",
                                       [(char_id, eid, lk(r)) for r in view.get("evidence") or []])
+            await self.db.executemany(
+                "INSERT INTO view_access VALUES (?,?,?,?,?,?,?)",
+                [(char_id, eid, i, access["kind"], access["recipient"], access["content"].strip(),
+                  json.dumps([lk(r) for r in access["evidence"]], ensure_ascii=False))
+                 for i, access in enumerate(view.get("access") or [])])
         if result.get("episode"):
             await self.db.execute("INSERT INTO episodes VALUES (?,?,?)",
                                   (char_id, key, result["episode"]["text"].strip()))
@@ -474,6 +479,11 @@ class CanonStore:
                 view["evidence"] = [r["line_key"] for r in await rows(
                     "SELECT line_key FROM view_evidence WHERE event_id=? AND character=?",
                     ev["event_id"], view["character"])]
+                view["access"] = await rows(
+                    "SELECT kind,recipient,content,evidence FROM view_access "
+                    "WHERE event_id=? AND character=? ORDER BY ord", ev["event_id"], view["character"])
+                for access in view["access"]:
+                    access["evidence"] = json.loads(access["evidence"])
             ev["entities"] = await rows(
                 "SELECT n.name, n.type FROM event_entities x JOIN entities n USING(entity_id) WHERE x.event_id=?",
                 ev["event_id"])

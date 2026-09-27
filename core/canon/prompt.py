@@ -98,7 +98,19 @@ edges：本场景里事件之间的关系，[{from, to, type, explicit, confiden
 
 只输出 JSON。"""
 
-PROMPTS = {"canon-extract-v7": _SYSTEM_PROMPT_V7, "canon-extract-v10": _SYSTEM_PROMPT_V10}
+_V11_ADDITIONS = """
+V11 补充规则：在场关系和后来能否获知是两个维度。views.channel 仍只描述这个事件中她是否亲历、在场、直接听到往事或回忆；不能因为她是罗德岛负责人就把不在场的事件改成 witnessed/told。events.participants 只列文本中实际参与的人；全是旁白、无人说话或行动时写 []，不要虚构参与者。
+每条 views 另加 access 数组，没有合格条目时写 []。每项为 {"kind":"direct_report|command_report|record_available|role_candidate","recipient":"阿米娅|{DOCTOR}|凯尔希|罗德岛","content":"仅被传达或记录的具体信息，不超过120字","evidence":["L编号"]}。
+  direct_report：文本明确把信息告知阿米娅，recipient 必须是阿米娅；只摘她实际听到的部分。
+  command_report：文本明确向{DOCTOR}或凯尔希报告，recipient 写实际收件人；这是指挥端获报，不等于阿米娅亲自收到。只摘报告内容，不把同一事件的私下对话或旁白也塞进 content。
+  record_available：文本明确说信息已归档、写进罗德岛正式报告或进入其内部通讯记录，recipient 写罗德岛；只有打算提交、尚未归档或外部档案不算。
+  role_candidate：文本写到罗德岛的正式行动或处置，却没有表明上述传递已经发生，recipient 写阿米娅；这是按职务可能获知的待审阅线索，绝不是已知事实。私人谈话、敌方密谋、没有罗德岛行动的远景叙事不得标。
+每条 access 的 evidence 必须指向本事件中支持 content 及传递方式的行；role_candidate 则指向具体行动行。没有合适证据就留空数组，不推测消息后来送达。access 是窄信息片段，不能用整个 event.summary 代替。
+"""
+_SYSTEM_PROMPT_V11 = _SYSTEM_PROMPT_V10.replace("只输出 JSON。", _V11_ADDITIONS + "\n只输出 JSON。")
+
+PROMPTS = {"canon-extract-v7": _SYSTEM_PROMPT_V7, "canon-extract-v10": _SYSTEM_PROMPT_V10,
+           "canon-extract-v11": _SYSTEM_PROMPT_V11}
 DEFAULT_PROMPT_VERSION = "canon-extract-v10"
 PROMPT_VERSION = os.environ.get("CANON_PROMPT_VERSION", "").strip() or DEFAULT_PROMPT_VERSION
 if PROMPT_VERSION not in PROMPTS:

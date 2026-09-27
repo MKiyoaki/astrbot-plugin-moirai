@@ -172,7 +172,11 @@ def render_scene(d: dict) -> str:
         views = "".join(
             f'<div class="view"><span class="field-label">角色视角</span> '
             f'{_esc(v["character"])}：{_esc(v["note"] or "无补充说明")}'
-            f'<div class="ref-list">{refs(v["evidence"])}</div></div>' for v in ev["views"])
+            f'<div class="ref-list">{refs(v["evidence"])}</div>'
+            + "".join(
+                f'<div><b>{_esc(a["kind"])}</b> · {_esc(a["recipient"])}：'
+                f'{_esc(a["content"])} <span class="ref-list">{refs(a["evidence"])}</span></div>'
+                for a in v.get("access", [])) + '</div>' for v in ev["views"])
         ents = "、".join(f'{_esc(e["name"])}<small>/{_esc(e["type"])}</small>' for e in ev["entities"])
         lines_attr = " ".join(str(idx[k]) for k in ev["evidence"] if k in idx)
         beats = "".join(f'<li>{_esc(b["text"])} <span class="ref-list">{refs(b["evidence"])}</span></li>'
@@ -199,7 +203,8 @@ def render_scene(d: dict) -> str:
         candidates = d.get("fact_candidates") or []
         items = "".join(
             f'<li><b>{_esc(f["subject"])} · {_esc(f["predicate"])} · {_esc(f["object"])}</b> '
-            f'（{_esc(f["event_id"])}；{_esc("肯定" if f["polarity"] else "否定")}） '
+            f'（{_esc(f["event_id"])}；{_esc("肯定" if f["polarity"] else "否定")}；'
+            f'{_esc(f.get("source_mode", "observed"))}；{_esc(f.get("time_scope", "event"))}） '
             f'{refs([f["line_key"]])}</li>' for f in candidates)
         body = f'<ul>{items}</ul>' if items else '<p>没有抽取到状态事实候选。</p>'
         if d.get("fact_error"):

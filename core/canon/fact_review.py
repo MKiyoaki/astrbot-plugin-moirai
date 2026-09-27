@@ -31,23 +31,32 @@ def build_review_bundle(db, results: list[dict]) -> dict:
             event = events[claim["event_id"]]
             if event["scene_key"] != result["scene_key"]:
                 raise ValueError(f"事实证据不属于声明场景：{claim['event_id']}")
-            point_id = _id("p_", claim["event_id"])
+            time_scope = claim.get("time_scope", "event")
+            modern = "time_scope" in claim
+            point_id = (_id("p_", claim["event_id"], time_scope,
+                            claim["line_key"] if time_scope != "event" else "") if modern
+                        else _id("p_", claim["event_id"]))
             timeline = ("collection:" + event["collection_id"]
-                        if event["in_world_time"] == "present" and event["collection_id"]
-                        else "unanchored:" + claim["event_id"])
+                        if time_scope == "event" and event["in_world_time"] == "present"
+                        and event["collection_id"] else
+                        "unanchored:" + (point_id if modern else claim["event_id"]))
             points[point_id] = {
                 "point_id": point_id, "timeline_id": timeline,
                 "scene_key": event["scene_key"], "line_key": None,
-                "label": event["anchor"] + " · " + event["in_world_time"],
+                "label": event["anchor"] + " · " + event["in_world_time"]
+                         + (" · " + time_scope if modern else ""),
                 "precision": "scene",
             }
-            fact_id = _id("f_", event["scene_key"], claim["event_id"], claim["line_key"],
-                          claim["subject"], claim["predicate"], claim["object"], str(claim["polarity"]))
+            identity = (event["scene_key"], claim["event_id"], claim["line_key"],
+                        claim["subject"], claim["predicate"], claim["object"], str(claim["polarity"]))
+            fact_id = _id("f_", *identity, time_scope, claim["source_mode"]) if modern else _id("f_", *identity)
             facts[fact_id] = {
                 "fact_id": fact_id, "subject": claim["subject"], "predicate": claim["predicate"],
                 "object": claim["object"], "polarity": claim["polarity"],
                 "point_id": point_id, "persistence": "point", "source_type": "suggested",
-                "review_status": "candidate", "evidence": [
+                "review_status": "candidate",
+                **({"source_mode": claim["source_mode"], "time_scope": time_scope} if modern else {}),
+                "evidence": [
                     {"event_id": claim["event_id"], "line_key": claim["line_key"], "relation": "supports"}
                 ],
             }
@@ -64,6 +73,8 @@ def build_review_bundle(db, results: list[dict]) -> dict:
             "review_groups": review_groups,
             "instructions": "逐条核对原文。只有明确证据才改 source_type=explicit、review_status=reviewed；"
                             "跨场景先后与状态变更须另填 before/transitions 及其证据。"
+                            "reported 候选仅证明有人如此声称，不能直接批准为世界事实；"
+                            "须找到独立观察证据并改为 observed 后才能批准。"
                             "未审阅候选不会写入可查询事实；coverage 不会自动标记完整。"}
 
 
@@ -72,6 +83,8 @@ def approved_payload(bundle: dict) -> dict:
     if bundle.get("format") != "canon-fact-review-v1":
         raise ValueError("不是 canon-fact-review-v1 审阅包")
     facts = [f for f in bundle["facts"] if f.get("review_status") == "reviewed"]
+    if any(f.get("source_mode") == "reported" for f in facts):
+        raise ValueError("仅有汇报或声称的候选不能直接批准为世界事实")
     if not facts:
         raise ValueError("没有标记 reviewed 的事实")
     used = {f["point_id"] for f in facts}

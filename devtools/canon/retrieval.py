@@ -1,6 +1,8 @@
 """Local experiment commands for canon indexes backed by shared Moirai model providers."""
 from __future__ import annotations
 
+from core.canon.overview import is_overview
+
 import argparse
 import json
 import math
@@ -123,9 +125,10 @@ def expected_for(case: dict, reader) -> tuple[set[str], list[str]]:
     return events, texts
 
 
-def answer_injected(pack, texts: list[str]) -> bool:
+def answer_injected(pack, texts: list[str], expected: set[str]) -> bool:
     heads = [text.strip()[:30] for text in texts if text.strip()]
-    return any(head and head in text for item in pack.items for _, text in item.lines for head in heads)
+    return any(head and head in text for item in pack.items if item.event_id in expected
+               for _, text in item.lines for head in heads)
 
 
 def summarize(rows: list[dict]) -> dict:
@@ -178,6 +181,12 @@ def summarize(rows: list[dict]) -> dict:
             "lane_accuracy": round(sum(r["lane"] == r.get("expected_lane") for r in eligible) / len(eligible), 3)
                              if eligible else None,
         }
+    known = [r for r in scored if r.get("known_expected_events")]
+    if any("known_expected_events" in r for r in scored):
+        summary["character_known"] = {
+            "questions": len(known), "unconfirmed_questions": len(scored) - len(known),
+            "injected_recall": round(sum(bool(set(r["known_expected_events"]) & set(r["injected_events"]))
+                                         for r in known) / len(known), 3) if known else None}
     return summary
 
 
@@ -188,7 +197,8 @@ def _write(path: Path, value: dict) -> None:
 
 def main(argv=None) -> int:
     from run_canon_chat import (DEFAULT_DB, CanonReader, EvidencePack, _estimate_tokens,
-                                fill, fill_overview, plan_turn, route)
+                                fact_search, fill, fill_fact_adaptive, fill_overview_adaptive, fill_story_adaptive,
+                                needs_motive_rerank, plan_turn, rank_reason_hits, route)
     parser = argparse.ArgumentParser(description="Canon retrieval experiment; plan is offline")
     parser.add_argument("command", choices=("plan", "build", "probe"))
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
@@ -306,6 +316,8 @@ def main(argv=None) -> int:
                         if not cases and prior.get("status") == "complete":
                             write_report = False
                             return 0
+                known_events = {row[0] for row in reader.db.execute(
+                    "SELECT event_id FROM views WHERE character=? AND channel!='unstated'", (reader.character,))}
                 for number, case in enumerate(cases):
                     if number and args.pace > 0 and retrieval is not None:
                         time.sleep(args.pace)
@@ -315,26 +327,41 @@ def main(argv=None) -> int:
                     pack = EvidencePack("对方（博士）" if doctor else "博士", doctor)
                     all_hits = []
                     overview_trace = None
+                    evidence_budget = args.token_budget
                     if plan.overview:
                         all_hits, overview_trace = reader.overview_search(
                             plan.search_query, doctor=doctor,
-                            evidence_lines=min(2, args.evidence_lines))
-                        fill_overview(pack, all_hits, args.token_budget)
+                            evidence_lines=min(4 if is_overview(plan.search_query) and not plan.impression
+                                               else 2, args.evidence_lines), personal=plan.impression,
+                            contextual=not plan.impression and not is_overview(plan.search_query))
+                        packer = (fill_story_adaptive if not plan.impression and is_overview(plan.search_query)
+                                  else fill_overview_adaptive)
+                        _, evidence_budget = packer(pack, all_hits, args.token_budget)
                     else:
-                        subjects = plan.subjects if len(plan.subjects) > 1 else (None,)
+                        subjects = (plan.subjects if plan.lane == "status" and len(plan.subjects) > 1
+                                    else (None,))
                         for subject in subjects:
-                            hits, episode = reader.search(plan.search_query, top_k=args.top_k,
-                                                           evidence_lines=args.evidence_lines, doctor=doctor,
-                                                           focus_person=subject)
+                            motive_rerank = needs_motive_rerank(reader, plan)
+                            hits, episode = fact_search(reader,
+                                plan.search_query, top_k=max(args.top_k, 12) if motive_rerank else args.top_k,
+                                evidence_lines=args.evidence_lines, doctor=doctor, focus_person=subject)
+                            if motive_rerank:
+                                hits = rank_reason_hits(hits, plan.topics)[:args.top_k]
+                                episode = None
                             all_hits.extend(hits)
                             if plan.lane != "chat":
-                                fill(pack, hits, episode, args.token_budget // len(subjects),
-                                     total_budget=args.token_budget)
+                                if len(subjects) == 1 and retrieval is not None:
+                                    _, evidence_budget = fill_fact_adaptive(
+                                        pack, hits, episode, evidence_budget)
+                                else:
+                                    fill(pack, hits, episode, args.token_budget // len(subjects),
+                                         total_budget=args.token_budget)
                     trace = retrieval.last_trace if retrieval else {"mode": "baseline"}
                     row = {**{k: case[k] for k in ("id", "category", "expected_lane") if k in case},
                            "question": question, "lane": plan.lane, "overview": plan.overview,
                            "overview_trace": overview_trace,
                            "evidence_tokens": _estimate_tokens(pack.render()),
+                           "evidence_budget": evidence_budget,
                            "hits": [{"event_id": h.event_id, "score": h.score, "channel": h.channel}
                                     for h in all_hits],
                            "injected_events": [m.event_id for m in pack.items], "trace": trace}
@@ -349,7 +376,7 @@ def main(argv=None) -> int:
                                            "available": bool(expected), "expected_events": sorted(expected),
                                            "final_rank": ranks.get("final"),
                                            "injected_rank": ranks.get("injected"),
-                                           "answer_line_injected": answer_injected(pack, answer_texts)
+                                           "answer_line_injected": answer_injected(pack, answer_texts, expected)
                                            if expected and answer_texts else False})
                         row["facet_results"] = facets
                         row["gold_available"] = bool(facets) and all(f["available"] for f in facets)
@@ -359,11 +386,12 @@ def main(argv=None) -> int:
                             row["gold_available"] = bool(expected)
                         if expected:
                             row["expected_events"] = sorted(expected)
+                            row["known_expected_events"] = sorted(expected & known_events)
                             row["stages"] = stage_ranks(reader.last_channels, trace,
                                                         [h.event_id for h in all_hits],
                                                         row["injected_events"], expected)
                             if answer_texts:
-                                row["answer_line_injected"] = answer_injected(pack, answer_texts)
+                                row["answer_line_injected"] = answer_injected(pack, answer_texts, expected)
                     report["question_results"].append(row)
                     _write(out, report)
                     stages = row.get("stages", {})

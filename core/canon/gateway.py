@@ -8,9 +8,9 @@ from typing import Callable, Iterable
 
 Complete = Callable[[list[dict], float], str]
 
-PAST_MARKERS = ("那次", "那一次", "上次", "当时", "那时", "那天", "那场", "以前", "之前", "曾经", "还记得")
+PAST_MARKERS = ("平时你", "你平时", "刚才", "那次", "那一次", "上次", "当时", "那时", "那天", "那场", "以前", "之前", "曾经", "还记得")
 META_TERMS = ("原作", "剧情", "章节", "数据库", "知识库", "检索", "试跑", "语言模型", "人工智能", "明日方舟")
-CLAIM_TYPES = frozenset(("plot", "profile", "shared", "opinion", "chat"))
+CLAIM_TYPES = frozenset(("plot", "profile", "shared", "opinion", "chat", "conversation", "inference"))
 FREE_TYPES = frozenset(("opinion", "chat"))
 MEMORY_CHANNEL = {
     "experienced": "你亲历",
@@ -20,7 +20,7 @@ MEMORY_CHANNEL = {
     "unstated": "你是否知道此事不明",
     "archive": "罗德岛档案记载，不是你亲历的事",
 }
-_END = re.compile(r"[。！？!?]+[”」』）)\]]*|\n+")
+_END = re.compile(r"[。！？!?；;]+[”」』）)\]]*|\n+")
 _CLOSERS = "”」』）)]…~～ \t\r\n"
 _QUOTES = "”」』）)] \t\r\n"
 _ASKING = ("什么", "怎么", "为什么", "谁", "哪", "几", "多少", "是不是", "要不要", "能不能", "会不会",
@@ -45,7 +45,7 @@ _HEDGES = (
 REVIEW_SYSTEM = (
     "你是剧情事实核验器，逐句检查阿米娅的候选回复。可用的依据只有下面的[资料]、[人设档案]和[对话者本次说过的话]；"
     "模型自带的明日方舟知识、人格设定里的其他描述、候选回复本身都不是依据。"
-    "[资料]是写给阿米娅本人看的记忆：其中的“你”，以及“当时的你”一段里的“我”，都指阿米娅；"
+    "[资料]的记忆标签和“当时的你”里的我指阿米娅；原文对话里的你取决于说话对象，原文旁白里的你通常指博士，必须按上下文区分；"
     "资料里的博士是否就是当前对话者，以[对话者]一段为准。"
     "编号以 A 开头的是罗德岛档案原文，可以作为 plot 和 profile 的依据，但阿米娅只能说成档案上的记载，说成亲身经历算 false。\n"
     "每句先定类型：plot＝关于原作人物、组织、地点、事件、经历或近况的具体说法；"
@@ -59,8 +59,19 @@ REVIEW_SYSTEM = (
     "添加资料里没有的动作、神情、情绪、数字或原因，改变资料原意，把过去说成现在，把听说或不知情说成亲历，都算 false。"
     "profile 在[人设档案]或[资料]里阿米娅自己的档案中有记载才 true，依据来自[资料]时在 evidence 写编号。shared 在[资料]里有记载（当前对话者就是资料里的博士时）"
     "或[对话者本次说过的话]里提到过才 true，依据来自[资料]时在 evidence 写编号。\n"
+    "[本次对话记录]的 C 编号只证明谁在本次聊天说过什么，不证明那些世界事实为真。"
+    "conversation＝回顾本次聊天或解释自己的上一句回答，引用对应 C 编号；即使提到剧情人物或地名，也不自动变成 plot。"
+    "inference＝明确表示推测的判断，必须引用知情资料中的已知前提，不能把猜测当既定计划。"
+    "不知情资料中的内容不能用可能、不确定是否、记不清是否包装后透露；应判 false。"
+    "标为亲历或在场目睹的事件，其原文明示的外部动作可用第一人称回顾，不要求原文再写我记得、我看到。"
+    "这不授予其他角色的内心活动，也不改变具体动作的主体；听说不能改成亲历。"
+    "一句话可以由多条资料共同支持，先检查相关资料的组合，不要求单条资料包含整句；仍不能凭相邻或排列顺序补造因果。"
+    "正常概括和同义表达不要求逐字一致，但不能改变主体、知情渠道、时间或增加心理活动。"
+    "记忆按相关度排列，不代表先后；检查句间后来、再后来、因此所断言的先后或因果，必须有原文依据，不能混合回忆和现实。"
+    "对博士平时习惯的断言是 shared，需要依据；普通寒暄与此刻的主观感受才是 chat。"
+    "向对方询问感受或意图（例如你是在担心吗）是 chat，不是断言，不需要剧情证据；问题若预设具体经历，则核对该经历。"
     "只输出 JSON："
-    '{"sentences":[{"i":1,"type":"plot|profile|shared|opinion|chat","supported":true,"evidence":["E1"],'
+    '{"sentences":[{"i":1,"type":"plot|profile|shared|opinion|chat|conversation|inference","supported":true,"evidence":["E1"],'
     '"problem":"不成立时写明缺了什么"}]}'
 )
 REVISE_NOTE = (
@@ -113,8 +124,10 @@ def _is_meta(piece: str, terms: tuple[str, ...]) -> bool:
             or _GAME.search(piece) is not None)
 
 
-def _removals(pieces: list[str], terms: tuple[str, ...]) -> dict[int, str]:
+def _removals(pieces: list[str], terms: tuple[str, ...], *, allow_questions: bool = False) -> dict[int, str]:
     removed = {i: "meta" for i, piece in enumerate(pieces, 1) if _is_meta(piece, terms)}
+    if allow_questions:
+        return removed
     for i in range(len(pieces), 0, -1):
         if i in removed:
             continue
@@ -124,10 +137,11 @@ def _removals(pieces: list[str], terms: tuple[str, ...]) -> dict[int, str]:
     return removed
 
 
-def tidy(text: str, extra_terms: Iterable[str] = ()) -> tuple[str, int, int]:
-    """Drop out-of-character sentences, then every question at the end of the reply."""
+def tidy(text: str, extra_terms: Iterable[str] = (),
+         *, allow_questions: bool = False) -> tuple[str, int, int]:
+    """Drop out-of-character sentences and optionally terminal questions."""
     pieces = split_sentences(text.strip())
-    removed = _removals(pieces, (*META_TERMS, *extra_terms))
+    removed = _removals(pieces, (*META_TERMS, *extra_terms), allow_questions=allow_questions)
     kept = "".join(piece for i, piece in enumerate(pieces, 1) if i not in removed).strip()
     kinds = list(removed.values())
     return kept, kinds.count("question"), kinds.count("meta")
@@ -153,7 +167,10 @@ class Scan:
 def scan(sentence: str, find_entities: Callable[[str], list[str]]) -> Scan:
     entities = tuple(find_entities(sentence))
     third_party = bool(entities) or "她" in sentence or "他" in sentence
-    current = (third_party and any(term in sentence for term in _NOW)
+    time_text = sentence
+    for phrase in ("现在回想", "现在想来", "现在想起", "如今想来", "现在想想"):
+        time_text = time_text.replace(phrase, "")
+    current = (third_party and any(term in time_text for term in _NOW)
                and not any(term in sentence for term in _HEDGES))
     return Scan(entities, any(term in sentence for term in PAST_MARKERS), current)
 
@@ -208,7 +225,7 @@ class EvidencePack:
         return "\n".join(out)
 
     def mentions(self, name: str) -> bool:
-        return name in self.render()
+        return bool(_norm(name)) and _norm(name) in _norm(self.render())
 
 
 @dataclass(frozen=True)
@@ -220,7 +237,8 @@ class Verdict:
     problem: str
 
 
-def parse_review(raw: str, count: int, evidence_ids: set[str]) -> list[Verdict] | None:
+def parse_review(raw: str, count: int, evidence_ids: set[str],
+                 conversation_ids: set[str] | None = None) -> list[Verdict] | None:
     body = re.sub(r"^\x60\x60\x60(?:json)?\s*|\s*\x60\x60\x60$", "", raw.strip(), flags=re.I)
     start, end = body.find("{"), body.rfind("}")
     if start < 0 or end <= start:
@@ -238,7 +256,7 @@ def parse_review(raw: str, count: int, evidence_ids: set[str]) -> list[Verdict] 
             return None
         index, kind, supported = row.get("i"), row.get("type"), row.get("supported")
         evidence = row.get("evidence") or []
-        if (not isinstance(index, int) or not 1 <= index <= count or kind not in CLAIM_TYPES
+        if (type(index) is not int or index in verdicts or not 1 <= index <= count or kind not in CLAIM_TYPES
                 or not isinstance(supported, bool) or not isinstance(evidence, list)):
             return None
         cited = tuple(str(x) for x in evidence)
@@ -246,7 +264,11 @@ def parse_review(raw: str, count: int, evidence_ids: set[str]) -> list[Verdict] 
         problem = str(row.get("problem") or "")
         if kind in FREE_TYPES:
             supported = True
-        elif kind == "plot" and supported and (not ids or not ids <= evidence_ids):
+        elif kind == "conversation":
+            if supported and (not cited or not set(cited) <= (conversation_ids or set())):
+                supported, problem = False, problem or "没有引用本次对话记录"
+        elif kind in ("plot", "inference") and supported and (
+                not ids or not ids <= evidence_ids or any(c.startswith("C") for c in cited)):
             supported, problem = False, problem or "没有引用有效的记忆编号"
         elif kind in ("shared", "profile") and supported and not ids <= evidence_ids:
             supported, problem = False, problem or "没有引用有效的记忆编号"
@@ -257,23 +279,32 @@ def parse_review(raw: str, count: int, evidence_ids: set[str]) -> list[Verdict] 
 
 
 def review(complete: Complete, sentences: list[str], *, sources: str,
-           evidence_ids: set[str]) -> list[Verdict] | None:
+           evidence_ids: set[str], conversation_ids: set[str] | None = None) -> list[Verdict] | None:
     payload = {"sentences": [{"i": i, "text": s.strip()} for i, s in enumerate(sentences, 1)]}
     raw = complete([
         {"role": "system", "content": REVIEW_SYSTEM + "\n\n" + sources},
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
     ], 0.0)
-    return parse_review(raw, len(sentences), evidence_ids)
+    return parse_review(raw, len(sentences), evidence_ids, conversation_ids)
 
 
 def revise(complete: Complete, messages: list[dict], sentences: list[str],
-           problems: dict[int, str], temperature: float) -> str:
+           problems: dict[int, str], temperature: float, *, coherent: bool = False,
+           allow_questions: bool = False) -> str:
     listing = "\n".join(f"{i}. {s.strip()}" for i, s in enumerate(sentences, 1))
     notes = "\n".join(f"第 {i} 句：{reason}" for i, reason in sorted(problems.items()))
+    note = REVISE_NOTE.format(listing=listing, notes=notes)
+    if coherent:
+        note = (f"（校对意见，不是博士说的话）候选回复：\n{listing}\n问题：\n{notes}\n"
+                "围绕博士这一轮的问题，用已核实的内容重新组织一个连贯的回答。保留重要观点，"
+                "不要逐项汇报材料，也不要因为删了事实就只剩空话。仅用已有记忆与本次对话记录；"
+                "可以表达此刻感受，不能添加新经历。优先保留已经核实的核心冲突和直接回答；若只有人称或时态等局部错误，修正该处，不要舍弃同句里已有依据的冲突对象和行动。先回应核心要点，再用一两件必要的事说明，通常两到四句，不要逐项复述记忆。不知情的具体内容直接省去，不能改成不确定是否来透露。"
+                + ("必要时可以自然追问，但先回答。" if allow_questions else "用陈述句结束。")
+                + "只输出修订后的回复。")
     return complete([
         *messages,
         {"role": "assistant", "content": "".join(sentences).strip()},
-        {"role": "user", "content": REVISE_NOTE.format(listing=listing, notes=notes)},
+        {"role": "user", "content": note},
     ], temperature)
 
 
@@ -283,6 +314,7 @@ class CheckReport:
     meta_removed: int = 0
     refetched: tuple[str, ...] = ()
     reviewed: bool = False
+    rechecked: bool = False
     review_failed: bool = False
     sentences: tuple[str, ...] = ()
     problems: dict[int, str] = field(default_factory=dict)
@@ -290,6 +322,7 @@ class CheckReport:
     rewrote: int = 0
     dropped: int = 0
     calls: int = 0
+    review_retries: int = 0
 
 
 REWRITE_REASON = {
@@ -298,8 +331,9 @@ REWRITE_REASON = {
 }
 
 
-def _tidy_into(report: CheckReport, text: str, extra_terms: tuple[str, ...]) -> str:
-    cleaned, questions, meta = tidy(text, extra_terms)
+def _tidy_into(report: CheckReport, text: str, extra_terms: tuple[str, ...],
+               *, allow_questions: bool = False) -> str:
+    cleaned, questions, meta = tidy(text, extra_terms, allow_questions=allow_questions)
     report.questions_removed += questions
     report.meta_removed += meta
     return cleaned
@@ -318,20 +352,21 @@ def check_reply(
     force_review: bool,
     temperature: float,
     extra_terms: tuple[str, ...] = (),
+    allow_questions: bool = False,
     fallback: str,
+    coherent_revision: bool = False,
+    retry_review: bool = False,
+    conversation_ids: set[str] | None = None,
 ) -> tuple[str, CheckReport]:
-    """Clean, review plot-bearing replies and revise only the flagged sentences; at most two calls.
-
-    Deleting a question or an out-of-character sentence is free, but when that would remove most
-    of the reply the sentences are rewritten once instead, so the answer itself is not lost.
-    """
+    """Review plot claims, revise flagged sentences and check new factual claims once."""
     report = CheckReport()
     pieces = split_sentences(draft.strip())
-    removed = _removals(pieces, (*META_TERMS, *extra_terms))
+    removed = _removals(pieces, (*META_TERMS, *extra_terms), allow_questions=allow_questions)
     text = "".join(piece for i, piece in enumerate(pieces, 1) if i not in removed).strip()
     if removed and len(_norm(text)) * 2 < len(_norm(draft)):
         notes = {i: REWRITE_REASON[kind] for i, kind in removed.items()}
-        text = _tidy_into(report, revise(complete, messages(), pieces, notes, temperature), extra_terms)
+        text = _tidy_into(report, revise(complete, messages(), pieces, notes, temperature),
+                          extra_terms, allow_questions=allow_questions)
         report.calls += 1
         report.revised = True
         report.rewrote = len(removed)
@@ -350,9 +385,18 @@ def check_reply(
         report.refetched = tuple(missing)
     source_text = sources()
     haystack = _norm(source_text)
-    verdicts = review(complete, sentences, sources=source_text,
-                      evidence_ids=pack.ids | (extra_ids or set()))
-    report.calls += 1
+    def checked_review(pieces):
+        result = review(complete, pieces, sources=source_text,
+                        evidence_ids=pack.ids | (extra_ids or set()), conversation_ids=conversation_ids)
+        report.calls += 1
+        if result is None and retry_review and report.review_retries == 0:
+            report.review_retries += 1
+            result = review(complete, pieces, sources=source_text,
+                            evidence_ids=pack.ids | (extra_ids or set()), conversation_ids=conversation_ids)
+            report.calls += 1
+        return result
+
+    verdicts = checked_review(sentences)
     report.reviewed = True
     if verdicts is None:
         report.review_failed = True
@@ -361,7 +405,7 @@ def check_reply(
         problems = {v.index: v.problem or "没有依据" for v in verdicts if not v.supported}
     if not current_ok:
         for i, s in enumerate(scans, 1):
-            if s.current:
+            if s.current and (verdicts is None or verdicts[i - 1].kind not in ("conversation", "opinion", "chat")):
                 problems.setdefault(i, "没有可确认的近况，却说了别人现在的状态")
     for i, sentence in enumerate(sentences, 1):
         if unsupported_quote(sentence, haystack):
@@ -372,11 +416,33 @@ def check_reply(
         return text, report
     kept = "".join(s for i, s in enumerate(sentences, 1) if i not in problems)
     if report.revised:
-        return _tidy_into(report, kept, extra_terms) or fallback, report
-    revised = _tidy_into(report, revise(complete, messages(), sentences, problems, temperature),
-                         extra_terms)
+        return _tidy_into(report, kept, extra_terms, allow_questions=allow_questions) or fallback, report
+    revised = _tidy_into(report, revise(complete, messages(), sentences, problems, temperature,
+                                       coherent=coherent_revision, allow_questions=allow_questions),
+                         extra_terms, allow_questions=allow_questions)
     report.calls += 1
     report.revised = True
+    if coherent_revision:
+        pieces = split_sentences(revised)[:max(4, len(sentences) + 2)]
+        if not pieces:
+            return _tidy_into(report, kept, extra_terms, allow_questions=allow_questions) or fallback, report
+        checked = checked_review(pieces)
+        report.rechecked = True
+        final = []
+        seen = set()
+        for index, piece in enumerate(pieces):
+            key = _norm(piece)
+            result = scan(piece, find_entities)
+            verdict = checked[index] if checked else None
+            valid = verdict is not None and verdict.supported
+            if (not valid or key in seen or unsupported_quote(piece, haystack)
+                    or (result.current and not current_ok and verdict.kind not in ("conversation", "opinion", "chat"))):
+                report.dropped += 1
+                continue
+            seen.add(key)
+            final.append(piece)
+        return (_tidy_into(report, "".join(final), extra_terms, allow_questions=allow_questions)
+                or _tidy_into(report, kept, extra_terms, allow_questions=allow_questions) or fallback), report
     rejected = {_norm(sentences[i - 1]) for i in problems}
     originals = {_norm(s) for s in sentences}
     rewrites = len(problems)
@@ -394,5 +460,17 @@ def check_reply(
         rewrites -= fresh
         seen.add(key)
         final.append(piece)
-    answer = _tidy_into(report, "".join(final), extra_terms)
-    return answer or _tidy_into(report, kept, extra_terms) or fallback, report
+    pending = [(index, piece) for index, piece in enumerate(final)
+               if _norm(piece) not in originals and scan(piece, find_entities).canon]
+    if pending:
+        checked = review(complete, [piece for _, piece in pending], sources=source_text,
+                         evidence_ids=pack.ids | (extra_ids or set()))
+        report.calls += 1
+        report.rechecked = True
+        rejected_positions = {index for rank, (index, _) in enumerate(pending)
+                              if checked is None or not checked[rank].supported}
+        report.dropped += len(rejected_positions)
+        final = [piece for index, piece in enumerate(final) if index not in rejected_positions]
+    answer = _tidy_into(report, "".join(final), extra_terms, allow_questions=allow_questions)
+    return answer or _tidy_into(report, kept, extra_terms,
+                                allow_questions=allow_questions) or fallback, report

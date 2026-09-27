@@ -105,7 +105,7 @@ main{padding:16px 20px 48px;max-width:980px;margin:0 auto}
 #out{width:100%;height:110px;margin-top:10px;display:none;font:11px/1.4 monospace}
 .clashes .claim{color:#8d591a}
 </style></head><body>
-<header><h1>时间事实窄范围审阅</h1><span class="hintline">逐条核对下面的原文行；只勾选「原文明确写明」的事实。带冲突标色的是同一本体有多个互相冲突记录的组，需要格外当心；先后关系和状态变更请另行填写，本页不负责。</span>
+<header><h1>时间事实窄范围审阅</h1><span class="hintline">逐条核对下面的原文行；只勾选「原文明确写明」的事实。reported 候选仅是他人的声称，不能直接勾选为世界事实。带冲突标色的是同一本体有多个互相冲突记录的组，需要格外当心；先后关系和状态变更请另行填写，本页不负责。</span>
 <div class="bar"><button id="export">生成已审阅包</button><button id="copy">复制 JSON</button></div></header>
 <main><!--BODY--><textarea id="out" aria-label="已审阅包 JSON"></textarea></main>
 <script>
@@ -147,7 +147,11 @@ def render_page(bundle: dict, aux: dict) -> str:
                         f' · {len(group)} 条</h3>')
             for fact in group:
                 point = pid_to_point[fact["point_id"]]
-                label = f'{html.escape(point.get("label") or "")} · {html.escape(fact.get("polarity") and "肯定" or "否定")}'
+                label = (f'{html.escape(point.get("label") or "")} · '
+                         f'{html.escape(fact.get("polarity") and "肯定" or "否定")} · '
+                         f'{html.escape(fact.get("source_mode", "observed"))} · '
+                         f'{html.escape(fact.get("time_scope", "event"))}')
+                disabled = ' disabled title="汇报仅是声称，先找独立观察证据"' if fact.get("source_mode") == "reported" else ""
                 evs = []
                 for ev in fact["evidence"]:
                     line = aux["lines"].get(ev["line_key"])
@@ -158,7 +162,7 @@ def render_page(bundle: dict, aux: dict) -> str:
                         evs.append(f'<span class="bad-ref">行 {html.escape(ev["line_key"])} 缺失</span>')
                 rows.append(
                     f'<div class="fact"><input type="checkbox" id="c{html.escape(fact["fact_id"])}" '
-                    f'value="{html.escape(fact["fact_id"])}">'
+                    f'value="{html.escape(fact["fact_id"])}"{disabled}>'
                     f'<div class="claim">{html.escape(fact["object"])}（{label}）</div>'
                     f'<div class="ev">{"；".join(evs)}</div></div>')
             rows.append('</div>')

@@ -19,6 +19,7 @@ OVERVIEW_PATTERNS = (
     "整件事",
 )
 OVERVIEW_MAX_EVENTS = 10
+STORY_MAX_EVENTS = 16
 OVERVIEW_MAX_SCENES = 18
 OVERVIEW_MAX_CANDIDATES = 160
 
@@ -68,9 +69,10 @@ def select_events(candidates: list[OverviewCandidate], *, limit: int = OVERVIEW_
             words = term_sets[item.event_id]
             similarity = max((len(words & term_sets[other.event_id]) / max(1, len(words | term_sets[other.event_id]))
                               for other in chosen), default=0.0)
-            return (item.relevance + novelty - 0.24 * similarity, item.relevance, item.event_id)
+            return (item.relevance + 0.25 * (novelty - 0.24 * similarity),
+                    item.relevance, item.event_id)
 
-        eligible = [item for item in remaining if scenes[item.scene_key] < 2]
+        eligible = [item for item in remaining if scenes[item.scene_key] < 3]
         if not eligible:
             break
         picked = max(eligible, key=score)

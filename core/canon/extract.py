@@ -14,13 +14,16 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
-from .prompt import SYSTEM_PROMPT, build_user_prompt, chunk_ranges, retry_suffix
+from .prompt import PROMPT_VERSION, SYSTEM_PROMPT, build_user_prompt, chunk_ranges, retry_suffix
 
 logger = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 4
 IN_WORLD_TIME = ("present", "past", "unknown")
 CHANNELS = ("experienced", "witnessed", "told", "recalled", "unstated")
+ACCESS_KINDS = ("direct_report", "command_report", "record_available", "role_candidate")
+ACCESS_RECIPIENTS = ("阿米娅", "{DOCTOR}", "凯尔希", "罗德岛")
+V11_ACCESS = PROMPT_VERSION == "canon-extract-v11"
 EDGE_TYPES = ("cause", "motivation", "emotion_source", "cognition_update")
 ENTITY_TYPES = ("person", "place", "faction", "object", "concept")
 MAX_REPORTED_ERRORS = 20
@@ -190,7 +193,9 @@ def normalize_output(obj: Any) -> int:
                     fixed += 1
     events = dicts(raw_events)
     beats = [b for ev in events for b in dicts(ev.get("beats"))]
-    for holder in events + beats + dicts(obj.get("views")) + dicts(obj.get("cognitions")) + dicts(obj.get("edges")):
+    views = dicts(obj.get("views"))
+    accesses = [a for v in views for a in dicts(v.get("access"))] if V11_ACCESS else []
+    for holder in events + beats + views + accesses + dicts(obj.get("cognitions")) + dicts(obj.get("edges")):
         value = holder.get("evidence")
         if value is None:
             continue
@@ -208,8 +213,10 @@ def normalize_output(obj: Any) -> int:
         if isinstance(parts, str) and parts.strip():
             ev["participants"] = [x.strip() for x in re.split(r"[、,，]", parts) if x.strip()]
             fixed += 1
-    for view in dicts(obj.get("views")):
+    for view in views:
         enum(view, "channel", CHANNELS)
+    for access in accesses:
+        enum(access, "kind", ACCESS_KINDS)
     for edge in dicts(obj.get("edges")):
         enum(edge, "type", EDGE_TYPES)
         explicit = edge.get("explicit")
@@ -227,7 +234,8 @@ def normalize_output(obj: Any) -> int:
     texts = [(ev, ("topic", "summary", "in_world_note")) for ev in events]
     texts += [(b, ("text",)) for b in beats]
     texts += [(ent, ("name",)) for ev in events for ent in dicts(ev.get("entities"))]
-    texts += [(view, ("note",)) for view in dicts(obj.get("views"))]
+    texts += [(view, ("note",)) for view in views]
+    texts += [(access, ("recipient", "content")) for access in accesses]
     texts += [(cog, ("target", "stance")) for cog in dicts(obj.get("cognitions"))]
     texts += [(episode, ("text",))] if isinstance(episode, dict) else []
     for holder, keys in texts:
@@ -423,8 +431,9 @@ def validate(obj: Any, lo: int, hi: int, character: dict) -> list[str]:
         if note is not None and not isinstance(note, str):
             errors.append(f"{where}.in_world_note 必须是字符串")
         parts = ev.get("participants")
-        if not isinstance(parts, list) or not parts or not all(isinstance(p, str) and p.strip() for p in parts):
-            errors.append(f"{where}.participants 必须是非空的字符串数组")
+        if (not isinstance(parts, list) or (not parts and not V11_ACCESS)
+                or not all(isinstance(p, str) and p.strip() for p in parts)):
+            errors.append(f"{where}.participants 必须是字符串数组" + ("" if V11_ACCESS else "且非空"))
         problem = _refs(ev.get("evidence"), lo, hi, allow_empty=False)
         if problem:
             errors.append(f"{where}：{problem}")
@@ -470,6 +479,35 @@ def validate(obj: Any, lo: int, hi: int, character: dict) -> list[str]:
         if problem:
             errors.append(f"{where}（事件 {eid}）：{problem}"
                           + ("；只有 channel 为 unstated 时 evidence 才能为空" if "不能为空" in problem else ""))
+        if V11_ACCESS:
+            access_items = view.get("access")
+            if not isinstance(access_items, list):
+                errors.append(f"{where}.access 必须是数组")
+            else:
+                owned = dict(event_lines(events)).get(eid, set())
+                for j, access in enumerate(access_items):
+                    slot = f"{where}.access[{j}]"
+                    if not isinstance(access, dict):
+                        errors.append(f"{slot} 必须是对象")
+                        continue
+                    kind, recipient = access.get("kind"), access.get("recipient")
+                    if kind not in ACCESS_KINDS:
+                        errors.append(f"{slot}.kind 不合法")
+                    if recipient not in ACCESS_RECIPIENTS:
+                        errors.append(f"{slot}.recipient 不合法")
+                    if (kind == "direct_report" and recipient != "阿米娅"
+                            or kind == "command_report" and recipient not in (DOCTOR, "凯尔希")
+                            or kind == "record_available" and recipient != "罗德岛"
+                            or kind == "role_candidate" and recipient != "阿米娅"):
+                        errors.append(f"{slot}.recipient 与 kind 不匹配")
+                    if not _text(access.get("content"), 1, 120):
+                        errors.append(f"{slot}.content 必须是 1–120 字")
+                    refs = access.get("evidence")
+                    problem = _refs(refs, lo, hi, allow_empty=False)
+                    if problem:
+                        errors.append(f"{slot}：{problem}")
+                    elif any(int(ref[1:]) not in owned for ref in refs):
+                        errors.append(f"{slot}.evidence 必须属于对应事件")
     for eid in ids:
         n = seen_views.get(eid, 0)
         if n != 1:

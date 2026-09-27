@@ -13,7 +13,7 @@ MAX_PROMPT_CHARS = 6500
 MAX_ATTEMPTS = 4
 POLARITY_TEXT = {"1": 1, "0": 0, "-1": 0, "true": 1, "false": 0, "yes": 1, "no": 0,
                  "positive": 1, "negative": 0, "肯定": 1, "否定": 0, "是": 1, "否": 0}
-SYSTEM_PROMPT = (
+SYSTEM_PROMPT_V2 = (
     "从给定剧情事件与证据行中提出可核验的状态事实候选。只写明确发生或明确说出的"
     "地点、拘押、组织归属、存活状态。场景可能包含回忆；不要推测世界时间、当前状态、"
     "跨场景先后或有效期终点。每条只陈述一个主体、一个谓词和一个客体。"
@@ -22,6 +22,21 @@ SYSTEM_PROMPT = (
     '"object":"值","polarity":1,"event_id":"原样事件ID","line_key":"原样证据行ID"}]}。'
     "没有可靠状态事实时返回空数组。"
 )
+
+
+SYSTEM_PROMPT_V3 = (
+    "从给定剧情事件和原文行提出地点、拘押、组织归属、存活状态的候选，每条只写一个主体、谓词、客体。"
+    "先分清事实发生时刻与报告时刻：time_scope=event 仅用于这一场景当下确实发生或观察到的状态；"
+    "earlier 用于谈到的往事；unclear 用于时间无法锚定。不要把报告当日当成往事发生当日。"
+    "再分清 source_mode：observed 是旁白、现场行动或现场可验证状态；reported 是角色声称、报告或传闻。"
+    "声称只能当待审阅候选，不能因为有人说过就认定它为真实世界状态。推测、计划、反事实和未实现的将来一律跳过。"
+    "引用必须是给定事件下的原样行 ID，片段不完整时不猜测。只输出 JSON："
+    '{"facts":[{"subject":"人物名","predicate":"location|custody|affiliation|life_status",'
+    '"object":"值","polarity":1,"event_id":"原样事件ID","line_key":"原样证据行ID",'
+    '"source_mode":"observed|reported","time_scope":"event|earlier|unclear"}]}。'
+    "没有可靠候选时返回空数组。"
+)
+SYSTEM_PROMPT = SYSTEM_PROMPT_V3 if FACT_PROMPT_VERSION == "canon-facts-v3" else SYSTEM_PROMPT_V2
 
 
 def normalize_polarity(value: object) -> int | None:
@@ -53,11 +68,18 @@ def validate_candidates(obj: object, allowed: dict[str, set[str]]) -> list[dict]
         polarity = normalize_polarity(item.get("polarity"))
         if polarity is None:
             raise ValueError(f"事实候选极性不合法：{item.get('polarity')!r}")
+        extra = {}
+        if FACT_PROMPT_VERSION == "canon-facts-v3":
+            if item.get("source_mode") not in ("observed", "reported"):
+                raise ValueError("事实候选缺少 observed/reported 来源方式")
+            if item.get("time_scope") not in ("event", "earlier", "unclear"):
+                raise ValueError("事实候选缺少 event/earlier/unclear 时间范围")
+            extra = {"source_mode": item["source_mode"], "time_scope": item["time_scope"]}
         output.append({
             "subject": item["subject"].strip(), "predicate": item["predicate"],
             "object": item["object"].strip(), "polarity": polarity,
             "event_id": event_id, "line_key": line_key,
-            "review_status": "candidate", "prompt_version": FACT_PROMPT_VERSION,
+            "review_status": "candidate", "prompt_version": FACT_PROMPT_VERSION, **extra,
         })
     return output
 
@@ -86,6 +108,8 @@ def plan_chunks(anchor: str, rows: list[dict], limit: int = MAX_PROMPT_CHARS) ->
         head = (f"事件 {event_id}（{row['in_world_time']}）：{row['topic']}；{row['summary']}")
         line_key = row["line_key"]
         source = row["text"]
+        if FACT_PROMPT_VERSION == "canon-facts-v3":
+            source = f"[{row.get('kind') or '文本'} {row.get('speaker') or '旁白'}] {source}"
         while source:
             header = head if current_event != event_id else ""
             overhead = len(header) + len(line_key) + 8
@@ -143,7 +167,7 @@ async def suggest_scene(store, scene_key: str, call, model: str, *, max_attempts
     if cached and cached["status"] == "ok":
         return json.loads(cached["raw_json"])
     async with db.execute(
-        "SELECT e.event_id,e.topic,e.summary,e.in_world_time,l.line_key,l.text FROM events e "
+        "SELECT e.event_id,e.topic,e.summary,e.in_world_time,l.line_key,l.text,l.kind,l.speaker FROM events e "
         "JOIN event_evidence x ON x.event_id=e.event_id "
         "JOIN lines l ON l.line_key=x.line_key WHERE e.scene_key=? "
         "ORDER BY e.ord,x.ord", (scene_key,),
@@ -176,16 +200,18 @@ async def suggest_scene(store, scene_key: str, call, model: str, *, max_attempts
         else:
             await _save(store, scene_key, scene["scene_hash"], model, "failed", state, error[:500])
             raise ValueError(f"{scene_key} {error}")
-    facts = list(dict.fromkeys(
-        (f["subject"], f["predicate"], f["object"], f["polarity"], f["event_id"], f["line_key"])
+    fields = ("subject", "predicate", "object", "polarity", "event_id", "line_key")
+    if FACT_PROMPT_VERSION == "canon-facts-v3":
+        fields += ("source_mode", "time_scope")
+    unique = dict.fromkeys(
+        tuple(f[field] for field in fields)
         for index in range(len(chunks)) for f in completed[str(index)]
-    ))
+    )
     result = {"scene_key": scene_key, "scene_hash": scene["scene_hash"],
               "prompt_version": FACT_PROMPT_VERSION, "chunks": len(chunks), "facts": [
-                  {"subject": sub, "predicate": pred, "object": obj, "polarity": pol,
-                   "event_id": event, "line_key": line, "review_status": "candidate",
+                  {**dict(zip(fields, values)), "review_status": "candidate",
                    "prompt_version": FACT_PROMPT_VERSION}
-                  for sub, pred, obj, pol, event, line in facts]}
+                  for values in unique]}
     await _save(store, scene_key, scene["scene_hash"], model, "ok", result)
     return result
 

@@ -1,7 +1,10 @@
 # Canon retrieval experiment
 
-Status: 100-scene index built and evaluated (v1.2.9.sub); hybrid is the
-default when an index exists. Terminal-only and unreleased.
+Status: 100-scene index built and evaluated (v1.2.9.sub); the V10 full build
+was checked on 2026-09-25 (see below). Hybrid is the default when an index
+exists. Terminal-only and unreleased. This file records dated experiments; the
+terminal's current retrieval behavior is described in
+[canon terminal](canon-terminal.md) (Chinese).
 
 ## Scope and baseline
 

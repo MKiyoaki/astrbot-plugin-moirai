@@ -6,7 +6,7 @@
 
 **AstrBot 三轴长期记忆与数据可视化插件**
 
-[![version](https://img.shields.io/badge/版本-v1.2.11.sub-blueviolet)](metadata.yaml)
+[![version](https://img.shields.io/badge/版本-v1.2.17.sub-blueviolet)](metadata.yaml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![license](https://img.shields.io/badge/license-APGL-green)](LICENSE)
 [![en](https://img.shields.io/badge/English-README__EN.md-blue)](README_EN.md)
@@ -21,7 +21,7 @@ Made with ♥ by MKiyoaki & Gariton
 
 ## Oedipus-Sub 分支：Core 事件接入
 
-此工作分支版本为 `v1.2.11.sub`。五阶段自动事件消费与注入需要启用支持 Event Protocol v1 的 Core（本轮 `v0.6.0`）；缺失、停用或不兼容时暂停自动处理，保留数据库和独立管理功能。
+此工作分支版本为 `v1.2.17.sub`。五阶段自动事件消费与注入需要启用支持 Event Protocol v1 的 Core（本轮 `v0.6.0`）；缺失、停用或不兼容时暂停自动处理，保留数据库和独立管理功能。
 
 1. 在 Moirai 配置 `core_integration.scope_mappings` 填入 JSON，例如 `{"memory-alice":"Alice"}`，显式指定 scope 对应的旧人格数据桶。
 2. 在 Core Settings 创建人格与绑定，选择 Moirai 提供的 scope。
@@ -29,7 +29,7 @@ Made with ♥ by MKiyoaki & Gariton
 
 Core 的可选只读 `moirai.chat_memory.recall` 能力可按已绑定人格与私聊/群聊范围提供现有聊天事件的历史事实，不依赖 Oedipus；其权限和数据形状见 [Core 记忆上下文读取](docs/core-memory-context.md)。
 
-原作剧情记忆 canon 默认关闭，目前完成了 M1：用命令行把 Arknights-Texts 导出的 story_pack 抽取成独立的 `canon.sqlite`，并提供抽取基准；检索和注入对话尚未接入。本地 `moirai canon build` 可增量准备完整 story_pack 的事件库与待审阅时间事实候选，并生成并排展示原文、事件和事实候选的 `review.html`；另有临时终端试聊 `moirai canon test`，默认优先使用本机 v10 全量构筑库，有向量索引时自动用 hybrid 检索，以只读试跑库和内存对话预览检索、时间事实判断与回复核验；可用 `--db` 切换库，`--questions` 用现有题库批量评测检索并输出报告；跨事件综述问题会走有独立预算和来源追踪的 `canon_overview` 工具路线，用法见 [canon：原作剧情记忆](docs/canon.md)。
+原作剧情记忆 canon 默认关闭。目前完成了 M1：用命令行把 Arknights-Texts 导出的 story_pack 抽取成独立的 `canon.sqlite`，并提供抽取基准；本地 `moirai canon build` 可增量构建全库事件与待审阅的时间事实候选。抽取默认用 `canon-extract-v10`，`canon-extract-v11` 是可选试验。检索和注入还没有接入 Bot；临时终端试聊 `moirai canon test` 以只读方式预览检索、时间事实判断与回复核验，不影响普通记忆和 Core 协议。状态、命令和各份文档的分工见 [canon：原作剧情记忆](docs/canon.md)。
 
 旧 `bot_persona_name_override` 不再决定事件归属，也不会自动迁移为全局覆盖。已有数据桶和记忆会话键保持原样；缺失映射不会退化成所有人格查询。FTS 与向量检索在截取候选前应用人格及会话范围过滤，候选名额仅用于当前作用域。宿主事件对象兼容、文本规范化及 synthetic tool-call 降级移入 Core，Moirai 保留窗口结算、检索、抽取、存储与调试内容生成。
 
