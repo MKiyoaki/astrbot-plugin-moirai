@@ -341,3 +341,27 @@ scope; they do not establish cross-arc world chronology or anyone's current
 state. Only approved temporal facts may constrain status answers. Next checks
 are independent broad prompts, human relevance judgments, source support in
 generated answers, and real token counts from the provider.
+
+## Evaluator shares the terminal's evidence assembly (2026-09-27)
+
+Until v1.2.17.sub, `retrieval probe` (and `moirai canon test --questions`, which
+delegates to it) assembled evidence with its own copy of the terminal's dispatch.
+That copy lacked the terminal's context expansion for reason-intent questions, so
+every earlier bank result measured slightly different evidence from what the
+terminal injected. In v1.2.18.sub the terminal, its tools and the evaluator all
+use `core/canon/assembly.py`'s `EvidenceAssembler`.
+
+On a 316-question parity set over the V10 full build, evaluator and terminal
+now agree on route, injected events and evidence length for every question; they
+previously disagreed on 31 questions offline and 34 with hybrid retrieval. The
+evaluator's results changed only on reason-intent questions (30 offline, 34
+hybrid) and on eight impression overviews whose diagnostic trace had carried the
+previous question's expansion record. The terminal's own behavior is unchanged.
+
+Consequences for comparison: bank results recorded before v1.2.18.sub are not
+directly comparable with later ones on reason-intent questions. The local
+question banks also changed on 2026-09-27: `retrieval-200-v3-audited.jsonl`
+keeps the legacy IDs but rewords 13 questions, scores by source line keys only,
+and splits the bank into regression, diagnostic and overview sets, with separate
+premise checks and independent drafts beside it. Report which bank version a
+number comes from; scores on v1 and v3 banks are not interchangeable.

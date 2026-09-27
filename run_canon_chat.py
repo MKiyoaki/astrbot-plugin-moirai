@@ -8,27 +8,23 @@ sys.dont_write_bytecode = True
 
 import argparse
 import json
-import math
 import os
 import re
 import sqlite3
 import time
 from contextlib import ExitStack
-from collections import defaultdict
-from dataclasses import dataclass, field, replace
-from itertools import zip_longest
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
 
 from core.canon.gateway import PAST_MARKERS, CheckReport, EvidencePack, Memory, check_reply
-from core.canon.context import expand_events, resolve_name
-from core.canon.lexical import BigramIndex, terms
-from core.canon.overview import (OVERVIEW_MAX_CANDIDATES, OVERVIEW_MAX_SCENES, OVERVIEW_MAX_EVENTS,
-                                 STORY_MAX_EVENTS, OverviewCandidate, is_overview, select_events, topic_terms)
-from core.canon import retrieval as retrieval_settings
-from core.canon.retrieval import fuse, speaker_view
-from core.canon.temporal import PREDICATES, resolve
+from core.canon.lexical import terms
+from core.canon.overview import is_overview
+from core.canon.assembly import EvidenceAssembler, EvidenceSettings
+from core.canon.packing import CHANNEL_LABEL, clip, estimate_tokens, fill, overview_tool_result
+from core.canon.query import GENERIC_CHARS, TurnPlan, plan_turn, route
+from core.canon.reader import CanonReader
 
 ROOT = Path(__file__).resolve().parent
 NEXUS_DB = ROOT / ".dev_data/canon/v7/20/api/20260924-000545-kcl-arc_nexus/canon.sqlite"
@@ -40,43 +36,7 @@ DEFAULT_DB = next((path for path in (FULL_DB, SAMPLE100_DB, LATEST_DB, TEMPORAL_
                    if path.is_file()), FULL_DB)
 DEFAULT_PERSONA = ROOT / "devtools/canon/amiya_persona_concise.txt"
 DEFAULT_QUESTIONS = ROOT / ".dev_data/canon/eval/retrieval-200-v1.jsonl"
-CHANNEL_LABEL = {
-    "experienced": "亲历",
-    "witnessed": "在场目睹",
-    "told": "听人讲述",
-    "recalled": "回忆",
-    "unstated": "文本未表明是否知情",
-}
-SELF_NAMES = frozenset(("阿米娅", "博士"))
-SELF_CONTEXT = SELF_NAMES | {"罗德岛"}
-GENERIC_CHARS = frozenset(
-    "还记得是什么怎么样了吗呢吧啊呀的地得在有没这那你我他她它们个些时候事情知道觉得想要会能可以说过去上次当时一下"
-)
-QUERY_PAST = ("那次", "那一次", "上次", "当时", "那时", "那天", "那场", "还记得")
-LEXICAL_NOISE = ("还记得", "那一次", "那时候", "那次", "那天", "那时", "那场", "当时", "上次", "后来",
-                 "为什么", "是什么", "是谁", "什么", "怎么", "知道", "是不是")
-LEXICAL_LIMIT = 50
-ENTITY_LIMIT = 60
-PER_SCENE = 3
-SINGLE_LEFT = frozenset("和跟与被让叫问找给对向同帮见把替等陪救及或是说像连带请看喊")
-SINGLE_RIGHT = frozenset("第被和跟与的是在说也都就还又为把让给对向从同去来呢吗吧啊呀了着过当之他她那这会能要有没不怎以讲问叫救帮打做看找见一")
-SINGLE_BLOCK = frozenset((
-    "陈述", "陈旧", "陈列", "陈设", "陈年", "陈词", "陈腐", "辉煌", "今年", "去年", "明年", "那年", "当年",
-    "新年", "多年", "几年", "每年", "年轻", "年纪", "年代", "年龄", "命令", "口令", "其余", "多余", "天空",
-    "空中", "红色", "黑色", "黑暗", "希望", "失望", "山上", "雪山",
-))
-PERSON_REFERENCES = ("她", "他", "那个人")
-OTHER_REFERENCES = ("它", "那里", "那座城", "那个地方")
-EVENT_REFERENCES = ("那件事", "那次", "那一回")
-REASON_MARKERS = ("为什么", "为何", "原因", "缘由", "动机", "目的")
-IMPRESSION_MARKERS = ("印象", "看法", "怎么看", "感觉如何")
-RATIONALE_CUES = ("动机", "来意", "理想", "原因", "因为", "为了", "目的是", "旨在", "阻止", "避免", "减少牺牲", "而战")
-STATUS_TERMS = (
-    "今天", "今晚", "现在", "目前", "最近", "近况", "还在", "还好吗",
-    "在岛上", "在舰上", "如今", "怎么样了", "在哪",
-)
 LANE_LABEL = {"chat": "闲聊", "canon": "剧情", "status": "近况"}
-MAX_SUBJECTS = 3
 MAX_TOOL_ROUNDS = 2
 FALLBACK = "嗯……这件事我记不太清了。"
 RECALL_TOOL = {
@@ -142,977 +102,6 @@ ARCHIVE_KIND = {"operator": "干员档案", "npc": "情报资料", "enemy": "作
 ARCHIVE_DEFAULT = ("基础档案", "客观履历", "情报资料一", "作战情报")
 ARCHIVE_SECTIONS = 2
 ARCHIVE_CHARS = 600
-_CJK = re.compile(r"[一-鿿]+")
-_LATIN = re.compile(r"^[A-Za-z0-9'.-]+$")
-
-
-@dataclass(frozen=True)
-class Hit:
-    event_id: str
-    scene_key: str
-    anchor: str
-    topic: str
-    summary: str
-    channel: str
-    score: float
-    position: int
-    evidence: tuple[tuple[int, str, str], ...]
-
-
-def _matches_alias(query: str, alias: str) -> list[tuple[int, int]]:
-    if _LATIN.fullmatch(alias):
-        pattern = rf"(?<![A-Za-z0-9]){re.escape(alias)}(?![A-Za-z0-9])"
-        return [(m.start(), m.end()) for m in re.finditer(pattern, query)]
-    if len(alias) == 1 and _CJK.fullmatch(alias):
-        return [(i, i + 1) for i, char in enumerate(query) if char == alias and _single_ok(query, i)]
-    found = []
-    start = 0
-    while (pos := query.find(alias, start)) >= 0:
-        found.append((pos, pos + len(alias)))
-        start = pos + len(alias)
-    return found
-
-
-def _single_ok(text: str, i: int) -> bool:
-    """A one-character name counts only between non-letters or name-friendly particles, never inside a word."""
-    left = text[i - 1] if i > 0 else ""
-    right = text[i + 1] if i + 1 < len(text) else ""
-    if (left and left + text[i] in SINGLE_BLOCK) or (right and text[i] + right in SINGLE_BLOCK):
-        return False
-    return ((not left or not _CJK.fullmatch(left) or left in SINGLE_LEFT)
-            and (not right or not _CJK.fullmatch(right) or right in SINGLE_RIGHT))
-
-
-def _estimate_tokens(text: str) -> int:
-    cjk = sum(1 for char in text if _CJK.fullmatch(char))
-    return cjk + math.ceil((len(text) - cjk) / 4)
-
-
-def _clip(text: str, limit: int) -> str:
-    return text[:limit] + ("……" if len(text) > limit else "")
-
-
-_PRIVATE_DOCTOR = re.compile(
-    r"(?:\{DOCTOR\}|博士)[^，。！？]{0,12}(?:感到|感觉|觉得|意识到|直觉|心里|不由自主|无法准确判断)"
-)
-
-
-def visible_summary(summary: str) -> str:
-    """Leave unspoken Doctor thoughts out of Amiya's injected memory summaries."""
-    return "".join(part for part in re.split(r"(?<=[。！？])", summary)
-                   if not _PRIVATE_DOCTOR.search(part)).strip()
-
-
-def explicit_quote(query: str) -> str | None:
-    """Extract a literal claim only when the question supplies concrete wording."""
-    quoted = (re.findall(r'[“「『"]([^”」』"]{4,24})[”」』"]', query)
-              if any(word in query for word in ('是不是', '有没有', '是否', '说过', '叫过', '原话', '称呼')) else [])
-    marker = re.search(
-        r'(?:管.{1,12}?叫|(?:是不是|是否|有没有)叫|被叫做|叫做|叫作|称作|称为|称呼|喊作|说成)'
-        r'([一-鿿A-Za-z0-9·]{4,20})[吗呢吧了]?[？?。]*$', query)
-    endings = [phrase.strip() for phrase in quoted]
-    if marker:
-        endings.append(marker.group(1).lstrip('是为作').rstrip('吗呢吧了'))
-    for phrase in endings:
-        if 4 <= len(phrase) <= 24 and not any(word in phrase for word in (
-                '什么', '哪个', '哪句', '谁', '多少', '如何', '那天', '什么时候')):
-            return phrase
-    return None
-
-
-def _amiya_question(row: sqlite3.Row) -> bool:
-    return row["speaker"] == "阿米娅" and row["text"].rstrip("…—.。 ").endswith(("？", "?"))
-
-
-def _identity_pairs(summary: str, names: set[str], lines: list[tuple[str, str]]) -> set[frozenset[str]]:
-    pairs = set()
-    for match in re.finditer(r"([一-鿿A-Za-z0-9·]{2,14})[（(]([一-鿿A-Za-z0-9·]{2,14})[）)]", summary):
-        first, second = match.groups()
-        if first == second or first not in names or second not in names:
-            continue
-        if (any(text.startswith(first + "：") for _, text in lines)
-                and any(second in text for _, text in lines)) or (
-                any(text.startswith(second + "：") for _, text in lines)
-                and any(first in text for _, text in lines)):
-            pairs.add(frozenset((first, second)))
-    return pairs
-
-
-class CanonReader:
-    """Read canon without opening the write-oriented CanonStore."""
-
-    def __init__(self, path: Path, *, character: str = "amiya", retrieval=None) -> None:
-        if not path.is_file():
-            raise FileNotFoundError(f"找不到 canon 数据库：{path}")
-        uri = path.resolve().as_uri() + "?mode=ro"
-        self.db = sqlite3.connect(uri, uri=True)
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA query_only=ON")
-        self.character = character
-        self.retrieval = retrieval
-        self.last_channels: dict[str, dict[str, int]] = {}
-        self.last_expansion_trace: dict = {}
-        self.meta = dict(self.db.execute("SELECT key,value FROM meta"))
-        self.scene_count = self.db.execute("SELECT count(*) FROM scenes").fetchone()[0]
-        self.event_count = self.db.execute("SELECT count(*) FROM events").fetchone()[0]
-        self.has_temporal = self.db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='facts'"
-        ).fetchone() is not None
-        rows = self.db.execute(
-            "SELECT a.alias,a.entity_id,e.name,e.type FROM aliases a "
-            "JOIN entities e ON e.entity_id=a.entity_id"
-        ).fetchall()
-        self._index_events({row["alias"]: row["entity_id"] for row in rows})
-        self._index_scenes()
-        rows = [row for row in rows if len(row["alias"]) > 1 or not _CJK.fullmatch(row["alias"])
-                or self.entity_events.get(row["entity_id"])]
-        self.aliases = sorted([(row["alias"], row["entity_id"]) for row in rows],
-                              key=lambda item: -len(item[0]))
-        self.alias_names = sorted([(row["alias"], row["name"]) for row in rows],
-                                  key=lambda item: -len(item[0]))
-        self.entity_type = {row["name"]: row["type"] for row in rows}
-        self.identity_events: dict[frozenset[str], str] = {}
-        person_names = {name for name, kind in self.entity_type.items() if kind == "person"}
-        for row in self.db.execute("SELECT event_id,summary FROM events"):
-            for pair in _identity_pairs(row["summary"], person_names,
-                                        self.event_lines.get(row["event_id"], [])):
-                self.identity_events.setdefault(pair, row["event_id"])
-        self.has_archives = self.db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='archives'"
-        ).fetchone() is not None and self.db.execute("SELECT 1 FROM archives LIMIT 1").fetchone() is not None
-        self.titles = tuple(sorted({
-            title for row in self.db.execute("SELECT anchor FROM scenes")
-            for title in re.findall(r"「([^」]+)」", row["anchor"] or "")
-        }))
-
-    def _index_events(self, alias_ids: dict[str, int]) -> None:
-        """Lexical documents and entity links, including extracted participants the entity table misses."""
-        self.beats: dict[str, list[tuple[str, list[str]]]] = defaultdict(list)
-        for row in self.db.execute("SELECT event_id,text,evidence FROM event_beats ORDER BY event_id,ord"):
-            self.beats[row["event_id"]].append((row["text"], json.loads(row["evidence"])))
-        self.entity_events: dict[int, set[str]] = defaultdict(set)
-        for row in self.db.execute(
-                "SELECT ee.event_id,ee.entity_id FROM event_entities ee "
-                "JOIN views v ON v.event_id=ee.event_id WHERE v.character=?", (self.character,)):
-            self.entity_events[row["entity_id"]].add(row["event_id"])
-        documents, self.position, self.doctor_events = {}, {}, set()
-        self.events_by_scene: dict[str, list[str]] = defaultdict(list)
-        self.event_scene: dict[str, str] = {}
-        self.event_order: dict[str, int] = {}
-        for row in self.db.execute(
-                "SELECT e.event_id,e.scene_key,e.topic,e.summary,e.participants,e.narrative_pos,e.involves_doctor,e.ord "
-                "FROM events e JOIN views v ON v.event_id=e.event_id WHERE v.character=?", (self.character,)):
-            event_id, participants = row["event_id"], json.loads(row["participants"])
-            for name in participants:
-                if name in alias_ids:
-                    self.entity_events[alias_ids[name]].add(event_id)
-            documents[event_id] = "\n".join((
-                row["topic"], row["summary"], "、".join(participants),
-                *(text for text, _ in self.beats.get(event_id, ())),
-            )).replace("{DOCTOR}", "博士").replace("@doctor", "博士")
-            self.position[event_id] = row["narrative_pos"]
-            self.event_order[event_id] = row["ord"]
-            self.events_by_scene[row["scene_key"]].append(event_id)
-            self.event_scene[event_id] = row["scene_key"]
-            if row["involves_doctor"]:
-                self.doctor_events.add(event_id)
-        self.event_documents = documents
-        self.lexical = BigramIndex(documents)
-        self.event_lines: dict[str, list[tuple[str, str]]] = defaultdict(list)
-        for row in self.db.execute(
-                "SELECT ee.event_id,l.line_key,l.speaker,l.text FROM event_evidence ee "
-                "JOIN lines l ON l.line_key=ee.line_key ORDER BY ee.event_id,ee.ord"):
-            if row["event_id"] in self.position and row["text"].strip():
-                self.event_lines[row["event_id"]].append(
-                    (row["line_key"], f"{row['speaker'] or '旁白'}：{row['text']}"))
-        self.line_lexical = BigramIndex({event_id: "\n".join(text for _, text in lines)
-                                         for event_id, lines in self.event_lines.items()})
-
-    def _index_scenes(self) -> None:
-        self.scene_meta = {}
-        collections: dict[str, list[tuple[int, str]]] = defaultdict(list)
-        documents = {}
-        for row in self.db.execute(
-                "SELECT s.scene_key,s.narrative_pos,s.anchor,s.collection_id,s.collection_name,"
-                "s.story_name,s.official_summary,p.text episode FROM scenes s "
-                "LEFT JOIN episodes p ON p.scene_key=s.scene_key AND p.character=?",
-                (self.character,)):
-            scene = dict(row)
-            self.scene_meta[row["scene_key"]] = scene
-            collections[row["collection_id"] or row["scene_key"]].append(
-                (row["narrative_pos"], row["scene_key"]))
-            documents[row["scene_key"]] = "\n".join(
-                str(row[key] or "") for key in
-                ("anchor", "collection_name", "story_name", "official_summary", "episode"))
-        self.scene_lexical = BigramIndex(documents)
-        self.collection_scenes = {
-            key: [scene for _, scene in sorted(values)] for key, values in collections.items()
-        }
-
-    def close(self) -> None:
-        self.db.close()
-
-    def persons_in(self, query: str) -> list[str]:
-        return [name for name in self.entities_in(query) if self.entity_type.get(name) == "person"]
-
-    def topic_mentions(self, query: str) -> list[str]:
-        return list(dict.fromkeys(name for _, _, name in self._spans(query) if name not in SELF_NAMES))
-
-    def _spans(self, text: str) -> list[tuple[int, int, str]]:
-        occupied: list[tuple[int, int, str]] = []
-        for alias, name in self.alias_names:
-            for start, end in _matches_alias(text, alias):
-                if any(start < right and left < end for left, right, _ in occupied):
-                    continue
-                occupied.append((start, end, name))
-        return sorted(occupied)
-
-    def entities_in(self, text: str) -> list[str]:
-        names = [name for _, _, name in self._spans(text) if name not in SELF_CONTEXT]
-        return list(dict.fromkeys(names))
-
-    def identity_hit(self, first: str, second: str) -> Hit | None:
-        event_id = self.identity_events.get(frozenset((first, second)))
-        if event_id is None:
-            return None
-        row = self.db.execute(
-            "SELECT e.scene_key,e.topic,e.summary,e.narrative_pos,s.anchor,v.channel "
-            "FROM events e JOIN scenes s ON s.scene_key=e.scene_key "
-            "JOIN views v ON v.event_id=e.event_id WHERE e.event_id=? AND v.character=?",
-            (event_id, self.character),
-        ).fetchone()
-        if row is None:
-            return None
-        preferred = [key for key, text in self.event_lines[event_id]
-                     if text.startswith(first + "：") or text.startswith(second + "：")
-                     or first in text or second in text]
-        return Hit(event_id, row["scene_key"], row["anchor"], row["topic"], row["summary"],
-                   row["channel"], 1.0, row["narrative_pos"], self._evidence(event_id, preferred, 3))
-
-
-    def archive_ids(self, name: str) -> list[str]:
-        """Entity links first (through aliases), then the archive's own name; operators before enemies."""
-        name = name.strip()
-        if not self.has_archives or not name:
-            return []
-        row = self.db.execute(
-            "SELECT e.name FROM aliases a JOIN entities e ON e.entity_id=a.entity_id WHERE a.alias=?", (name,)
-        ).fetchone()
-        names = [row["name"]] if row else ([n for _, _, n in self._spans(name)] or [name])
-        found: list[str] = []
-        for entity in dict.fromkeys(names):
-            found += [r["archive_id"] for r in self.db.execute(
-                "SELECT ea.archive_id FROM entity_archives ea JOIN entities e ON e.entity_id=ea.entity_id "
-                "JOIN archives a ON a.archive_id=ea.archive_id WHERE e.name=? "
-                "ORDER BY a.kind='enemy', a.archive_id", (entity,))]
-            found += [r["archive_id"] for r in self.db.execute(
-                "SELECT archive_id FROM archives WHERE name=? OR appellation=? COLLATE NOCASE "
-                "ORDER BY kind='enemy', archive_id", (entity, entity))]
-        return list(dict.fromkeys(found))
-
-    def archive_sections(self, archive_id: str, *, every_form: bool) -> list[sqlite3.Row]:
-        """By default only the archive's own form: no PATCH unlocks, other forms or hidden sections."""
-        rows = self.db.execute(
-            "SELECT s.*, a.name, a.kind FROM archive_sections s JOIN archives a ON a.archive_id=s.archive_id "
-            "WHERE s.archive_id=? ORDER BY s.seq, s.version", (archive_id,)
-        ).fetchall()
-        if every_form:
-            return rows
-        return [row for row in rows if not row["hidden"] and row["unlock_type"] != "PATCH"
-                and (not json.loads(row["forms"]) or archive_id in json.loads(row["forms"]))]
-
-    def semantic(self, query: str, doctor: bool) -> str:
-        return speaker_view(query) if doctor and retrieval_settings.SPEAKER_VIEW else query
-
-    def without_self(self, text: str) -> str:
-        """Her own and the Doctor's names match nearly every event, so they never steer retrieval."""
-        for start, end, name in reversed(self._spans(text)):
-            if name in SELF_NAMES:
-                text = text[:start] + " " + text[end:]
-        return text
-
-    def fact_context(self, subject: str, *, as_of: str | None = None) -> tuple[str, bool]:
-        if not self.has_temporal:
-            return "", False
-        decisions = [resolve(self.db, subject, predicate, as_of=as_of)
-                     for predicate in PREDICATES]
-        valid = [d for d in decisions if d.status == "as_of_valid"]
-        lines = ["〔F〕[已审阅的时间事实] 以下是截至指定时间点的状态，不代表现实中的今天。"]
-        for decision in valid:
-            for fact in decision.facts:
-                lines.append(
-                    f"· {fact['subject']} {fact['predicate']} "
-                    f"{'非' if not fact['polarity'] else ''}{fact['object']}；"
-                    f"时间点 {fact['point_label']}；状态 {decision.status}"
-                )
-                for ev in fact["evidence"][:3]:
-                    channel = ev["channel"] or "unstated"
-                    lines.append(
-                        f"  证据 {ev['line_key']}（阿米娅渠道 {channel}）：{ev['text'][:100]}"
-                    )
-                for change in fact["transitions"]:
-                    lines.append(
-                        f"  状态变更 {change['earlier_fact_id']} → {fact['fact_id']}；"
-                        f"证据 {change['evidence_event_id']} {change['evidence_line_key']}"
-                    )
-        return ("\n".join(lines) if valid else ""), bool(valid)
-
-    def _lexical(self, query: str) -> tuple[dict[str, int], dict[str, float], list[str]]:
-        for noise in LEXICAL_NOISE:
-            query = query.replace(noise, " ")
-        query_terms = terms(query, GENERIC_CHARS)
-        scores = self.lexical.scores(query_terms)
-        ordered = sorted(scores, key=lambda eid: (-scores[eid], self.position[eid]))[:LEXICAL_LIMIT]
-        return {eid: rank for rank, eid in enumerate(ordered, 1)}, scores, query_terms
-
-    def _lines(self, query_terms: list[str]) -> dict[str, int]:
-        """Raw dialogue keeps names, epithets and quotes that summaries leave out."""
-        scores = self.line_lexical.scores(query_terms)
-        ordered = sorted(scores, key=lambda eid: (-scores[eid], self.position[eid]))[:LEXICAL_LIMIT]
-        return {eid: rank for rank, eid in enumerate(ordered, 1)}
-
-    def _line_keys(self, event_id: str, query_terms: list[str]) -> list[str]:
-        weighted = [(self.line_lexical.weight(text, query_terms), key) for key, text in self.event_lines.get(event_id, ())]
-        best = max((weight for weight, _ in weighted), default=0.0)
-        ranked = sorted((item for item in weighted if best and item[0] >= max(1.0, 0.6 * best)), key=lambda item: -item[0])
-        return [key for _, key in ranked[:2]]
-
-    def _entities(self, query: str, doctor: bool, lexical: dict[str, float]) -> dict[str, int]:
-        """Events linked to the named entities, most entities first, then by lexical relevance."""
-        occupied: list[tuple[int, int]] = []
-        entity_ids: set[int] = set()
-        for alias, entity_id in self.aliases:
-            for start, end in _matches_alias(query, alias):
-                if any(start < right and left < end for left, right in occupied):
-                    continue
-                occupied.append((start, end))
-                entity_ids.add(entity_id)
-        hits: dict[str, int] = defaultdict(int)
-        for entity_id in entity_ids:
-            for event_id in self.entity_events.get(entity_id, ()):
-                hits[event_id] += 1
-        order = lambda eid: (-hits[eid], -lexical.get(eid, 0.0), self.position[eid])
-        event_ids = sorted(hits, key=order)[:ENTITY_LIMIT]
-        if doctor and "我" in query and any(term in query for term in QUERY_PAST):
-            extra = sorted(self.doctor_events - set(event_ids),
-                           key=lambda eid: (-lexical.get(eid, 0.0), self.position[eid]))[:30]
-            event_ids += extra
-        return {event_id: rank for rank, event_id in enumerate(event_ids, 1)}
-
-    def _beat_keys(self, event_id: str, query_terms: list[str]) -> list[str]:
-        weighted = [(self.lexical.weight(text, query_terms), keys) for text, keys in self.beats.get(event_id, ())]
-        best = max((weight for weight, _ in weighted), default=0.0)
-        return [key for weight, keys in weighted if best and weight >= max(1.0, 0.6 * best) for key in keys]
-
-    def _evidence(self, event_id: str, preferred: list[str],
-                  limit: int) -> tuple[tuple[int, str, str], ...]:
-        rows = self.db.execute(
-            "SELECT l.line_key,l.speaker,l.text,ee.ord FROM event_evidence ee "
-            "JOIN lines l ON l.line_key=ee.line_key WHERE ee.event_id=? ORDER BY ee.ord",
-            (event_id,),
-        ).fetchall()
-        by_key = {row["line_key"]: row for row in rows}
-        beats = [json.loads(row["evidence"]) for row in self.db.execute(
-            "SELECT evidence FROM event_beats WHERE event_id=? ORDER BY ord", (event_id,))]
-        spread = [key for depth in zip_longest(*beats) for key in depth if key]
-        ordered = [key for key in dict.fromkeys([*preferred, *spread]) if key in by_key]
-        rest = sorted(
-            (row for row in rows if row["line_key"] not in ordered),
-            key=lambda row: (_amiya_question(row), row["speaker"] != "阿米娅", row["ord"]),
-        )
-        ordered.extend(row["line_key"] for row in rest)
-        return tuple(
-            (by_key[key]["ord"], by_key[key]["speaker"] or "旁白", _clip(by_key[key]["text"], 160))
-            for key in ordered[:limit]
-        )
-
-    def search(self, query: str, *, top_k: int, evidence_lines: int,
-               doctor: bool, focus_person: str | None = None,
-               known_only: bool = False) -> tuple[list[Hit], str | None]:
-        semantic_query = self.semantic(query, doctor)
-        query = self.without_self(query)
-        fts, lexical_scores, query_terms = self._lexical(query)
-        entities = self._entities(query, doctor, lexical_scores)
-        lines = self._lines(query_terms)
-        self.last_channels = {"fts": fts, "entities": entities, "lines": lines}
-        remote_scores = self.retrieval.rank(semantic_query, fts, entities, lines) if self.retrieval else None
-        candidate_ids = (list(remote_scores) if remote_scores is not None
-                         else list(dict.fromkeys([*fts, *lines, *entities])))
-        if not candidate_ids:
-            return [], None
-        marks = ",".join("?" for _ in candidate_ids)
-        rows = self.db.execute(
-            "SELECT e.event_id,e.scene_key,e.topic,e.summary,e.narrative_pos,"
-            "s.anchor,s.tier,v.channel FROM events e "
-            "JOIN scenes s ON s.scene_key=e.scene_key "
-            "JOIN views v ON v.event_id=e.event_id "
-            f"WHERE e.event_id IN ({marks}) AND v.character=?",
-            (*candidate_ids, self.character),
-        ).fetchall()
-        raw_rrf = fuse({"lexical": fts, "lines": lines, "entities": entities})
-        maximum = max(raw_rrf.values(), default=0.0) or 1.0
-        scored = []
-        focus_id = None
-        if focus_person:
-            found = self.db.execute(
-                "SELECT entity_id FROM entities WHERE name=?", (focus_person,)
-            ).fetchone()
-            focus_id = found["entity_id"] if found else None
-        for row in rows:
-            if known_only and row["channel"] == "unstated":
-                continue
-            if (focus_person and focus_person not in (row["topic"] + row["summary"])
-                    and row["event_id"] not in self.entity_events.get(focus_id, ())):
-                continue
-            event_id = row["event_id"]
-            if remote_scores is not None:
-                score = remote_scores[event_id]
-            else:
-                score = raw_rrf.get(event_id, 0.0) / maximum
-            scored.append((score, row))
-        scored.sort(key=lambda item: (-item[0], -item[1]["narrative_pos"], item[1]["event_id"]))
-        selected = []
-        per_scene: dict[str, int] = defaultdict(int)
-        for score, row in scored:
-            if per_scene[row["scene_key"]] >= PER_SCENE:
-                continue
-            per_scene[row["scene_key"]] += 1
-            selected.append(Hit(
-                event_id=row["event_id"], scene_key=row["scene_key"], anchor=row["anchor"],
-                topic=row["topic"], summary=row["summary"], channel=row["channel"],
-                score=score, position=row["narrative_pos"],
-                evidence=self._evidence(row["event_id"],
-                                        [*self._line_keys(row["event_id"], query_terms),
-                                         *self._beat_keys(row["event_id"], query_terms)],
-                                        evidence_lines),
-            ))
-            if len(selected) >= top_k:
-                break
-        episode = None
-        if selected:
-            row = self.db.execute(
-                "SELECT text FROM episodes WHERE scene_key=? AND character=?",
-                (selected[0].scene_key, self.character),
-            ).fetchone()
-            episode = row["text"] if row else None
-        return selected, episode
-
-    def exact_quote_hits(self, query: str, phrase: str, evidence_lines: int) -> list[Hit]:
-        """Find known events with the user's exact quoted wording in a source line."""
-        matching = {event_id: [key for key, text in lines if phrase in text.partition("：")[2]]
-                    for event_id, lines in self.event_lines.items()}
-        matching = {event_id: keys for event_id, keys in matching.items() if keys}
-        if not matching or len(matching) > 16:
-            return []
-        marks = ",".join("?" for _ in matching)
-        rows = self.db.execute(
-            "SELECT e.event_id,e.scene_key,e.topic,e.summary,e.narrative_pos,"
-            "s.anchor,v.channel FROM events e JOIN scenes s ON s.scene_key=e.scene_key "
-            "JOIN views v ON v.event_id=e.event_id "
-            f"WHERE e.event_id IN ({marks}) AND v.character=? AND v.channel!='unstated'",
-            (*matching, self.character),
-        ).fetchall()
-        first_person = next(iter(self.persons_in(query)), None)
-        lexical = self._lexical(query)[1]
-        rows = sorted(rows, key=lambda row: (
-            -int(bool(first_person) and any(
-                text.startswith(first_person + "：") and phrase in text
-                for _, text in self.event_lines[row["event_id"]])),
-            -lexical.get(row["event_id"], 0.0), -row["narrative_pos"], row["event_id"]))
-        return [Hit(row["event_id"], row["scene_key"], row["anchor"], row["topic"],
-                    row["summary"], row["channel"], 1.0, row["narrative_pos"],
-                    self._evidence(row["event_id"], matching[row["event_id"]], evidence_lines))
-                for row in rows[:3]]
-
-    def overview_search(self, query: str, *, doctor: bool, evidence_lines: int = 1,
-                        personal: bool = False, contextual: bool = False) -> tuple[list[Hit], dict]:
-        """Build one dense-backed pool, then select distinct story moments locally."""
-        base, _ = self.search(query, top_k=40, evidence_lines=0, doctor=doctor)
-        if contextual and base:
-            scope = self.scene_meta[base[0].scene_key]["collection_id"]
-            scoped = [hit for hit in base if self.scene_meta[hit.scene_key]["collection_id"] == scope]
-            primary = [replace(hit, evidence=self.overview_evidence(hit.event_id,
-                       self._line_keys(hit.event_id, topic_terms(query, GENERIC_CHARS)), evidence_lines))
-                       for hit in scoped[:4]]
-            context = self.expand_context(primary[:1], query)
-            seen = set()
-            hits = []
-            for hit in [*primary[:1], *context]:
-                if hit.event_id not in seen:
-                    seen.add(hit.event_id)
-                    hits.append(hit)
-            trace = {"scope": None, "candidates": len(base), "selected": [h.event_id for h in hits],
-                     "expansion": self.last_expansion_trace, "source_lines": {
-                         h.event_id: self.source_keys(h) for h in hits}}
-            self.last_overview_trace = trace
-            return hits, trace
-        original = {hit.event_id: rank for rank, hit in enumerate(base)}
-        query_terms = topic_terms(query, GENERIC_CHARS)
-        event_scores = self.lexical.scores(query_terms)
-        scene_scores = self.scene_lexical.scores(query_terms)
-        named = [(len(info["collection_name"]), info["collection_id"], info["collection_name"])
-                 for info in self.scene_meta.values()
-                 if info["collection_id"] and info["collection_name"]
-                 and len(info["collection_name"]) >= 2 and info["collection_name"] in query]
-        pinned = max(named)[1] if named else None
-        collection_scores: dict[str, list[float]] = defaultdict(list)
-        for event_id, score in event_scores.items():
-            scene = self.event_scene.get(event_id)
-            if scene:
-                collection = self.scene_meta[scene]["collection_id"] or scene
-                collection_scores[collection].append(score)
-        collection_rank = sorted(
-            ((sum(sorted(values, reverse=True)[:8]), key)
-             for key, values in collection_scores.items()), reverse=True)
-        primary = pinned or (collection_rank[0][1] if collection_rank else None)
-        pool = set(original)
-        pool.update(sorted(event_scores, key=lambda eid: -event_scores[eid])[:100])
-        for scene in sorted(scene_scores, key=lambda key: -scene_scores[key])[:OVERVIEW_MAX_SCENES]:
-            pool.update(self.events_by_scene.get(scene, ()))
-        if pinned:
-            for scene in self.collection_scenes.get(pinned, ()):
-                pool.update(self.events_by_scene.get(scene, ()))
-        event_max = max(event_scores.values(), default=1.0) or 1.0
-        scene_max = max(scene_scores.values(), default=1.0) or 1.0
-
-        def relevance(event_id: str) -> float:
-            scene = self.event_scene[event_id]
-            score = 0.35 / (1 + original[event_id] / 8) if event_id in original else 0.0
-            score += 0.45 * event_scores.get(event_id, 0.0) / event_max
-            score += 0.35 * scene_scores.get(scene, 0.0) / scene_max
-            collection = self.scene_meta.get(scene, {}).get("collection_id")
-            if collection == primary:
-                score += 0.52
-            if pinned and collection == pinned:
-                score += 0.25
-            return score
-
-        ranked = sorted((eid for eid in pool if eid in self.event_documents),
-                        key=lambda eid: (-relevance(eid), eid))[:OVERVIEW_MAX_CANDIDATES]
-        if not ranked:
-            return [], {"scope": None, "candidates": 0, "selected": []}
-        marks = ",".join("?" for _ in ranked)
-        rows = self.db.execute(
-            "SELECT e.event_id,e.scene_key,e.topic,e.summary,e.narrative_pos,"
-            "s.anchor,s.collection_id,s.collection_name,v.channel FROM events e "
-            "JOIN scenes s ON s.scene_key=e.scene_key "
-            "JOIN views v ON v.event_id=e.event_id "
-            f"WHERE e.event_id IN ({marks}) AND v.character=?",
-            (*ranked, self.character),
-        ).fetchall()
-        candidates = []
-        by_id = {}
-        for row in rows:
-            if (row["channel"] == "unstated" or personal and
-                    row["channel"] not in ("experienced", "witnessed", "told", "recalled")):
-                continue
-            scene = row["scene_key"]
-            collection = row["collection_id"] or scene
-            scene_order = self.collection_scenes.get(collection, [scene])
-            phase = min(2, 3 * scene_order.index(scene) // max(1, len(scene_order)))
-            candidates.append(OverviewCandidate(
-                row["event_id"], scene, collection, relevance(row["event_id"]),
-                phase, self.event_documents[row["event_id"]][:300]))
-            by_id[row["event_id"]] = row
-        story = not personal and not contextual and is_overview(query)
-        limit = STORY_MAX_EVENTS if story else OVERVIEW_MAX_EVENTS
-        selected = select_events(candidates, limit=limit, pinned_collection=pinned)
-        hits = []
-        source_lines = {}
-        for event_id in selected:
-            row = by_id[event_id]
-            evidence = self.overview_evidence(event_id, [], evidence_lines)
-            hits.append(Hit(event_id, row["scene_key"], row["anchor"], row["topic"],
-                            row["summary"], row["channel"], relevance(event_id),
-                            row["narrative_pos"], evidence))
-            ords = [line[0] for line in evidence]
-            if ords:
-                marks = ",".join("?" for _ in ords)
-                line_keys = {line["ord"]: line["line_key"] for line in self.db.execute(
-                    "SELECT ord,line_key FROM event_evidence WHERE event_id=? "
-                    f"AND ord IN ({marks})", (event_id, *ords))}
-                source_lines[event_id] = [line_keys[ord_] for ord_ in ords]
-        scope = next((info["collection_name"] for info in self.scene_meta.values()
-                      if info["collection_id"] == primary and info["collection_name"]), None)
-        trace = {"scope": scope, "scope_id": primary, "candidates": len(candidates),
-                 "selected": selected, "source_lines": source_lines,
-                 "remote_queries": 1 if self.retrieval else 0,
-                 "collection_candidates": collection_rank[:5]}
-        context = self.expand_context(hits[:4], query) if not personal else []
-        known = {hit.event_id for hit in hits}
-        extra = [hit for hit in context if hit.event_id not in known]
-        if extra:
-            hits = [*hits[:6], *extra[:2], *hits[6:]][:limit]
-        trace["expansion"] = self.last_expansion_trace
-        trace["selected"] = [hit.event_id for hit in hits]
-        for hit in hits:
-            source_lines[hit.event_id] = self.source_keys(hit)
-        self.last_overview_trace = trace
-        return hits, trace
-
-    def overview_evidence(self, event_id: str, preferred: list[str], limit: int):
-        candidates = self._evidence(event_id, preferred, max(limit, 8))
-        substantial = [line for line in candidates if len(line[2].strip()) >= 10]
-        return tuple((substantial or list(candidates))[:limit])
-
-    def source_keys(self, hit: Hit) -> list[str]:
-        ordinals = [line[0] for line in hit.evidence]
-        if not ordinals:
-            return []
-        marks = ",".join("?" for _ in ordinals)
-        keys = dict(self.db.execute(
-            f"SELECT ord,line_key FROM event_evidence WHERE event_id=? AND ord IN ({marks})",
-            (hit.event_id, *ordinals)))
-        return [keys[index] for index in ordinals if index in keys]
-
-    def expand_context(self, seeds: list[Hit], query: str, *, limit: int = 6) -> list[Hit]:
-        paths = expand_events(self.db, [hit.event_id for hit in seeds], self.character)
-        self.last_expansion_trace = {"candidates": len(paths), "selected": {}}
-        if not paths:
-            return []
-        query_terms = topic_terms(query, GENERIC_CHARS)
-        lexical = self.lexical.scores(query_terms)
-        peak = max(lexical.values(), default=1.0) or 1.0
-        seed_rank = {hit.event_id: rank for rank, hit in enumerate(seeds)}
-        context_terms = terms(" ".join(hit.topic + " " + hit.summary for hit in seeds), GENERIC_CHARS)
-        affinity = self.lexical.scores(context_terms)
-        affinity_peak = max((affinity.get(event, 0.0) for event in paths), default=1.0) or 1.0
-        marks = ",".join("?" for _ in paths)
-        rows = self.db.execute(
-            "SELECT e.event_id,e.scene_key,e.topic,e.summary,e.narrative_pos,s.anchor,v.channel "
-            "FROM events e JOIN scenes s USING(scene_key) JOIN views v USING(event_id) "
-            f"WHERE e.event_id IN ({marks}) AND v.character=?", (*paths, self.character)).fetchall()
-        ranked = []
-        for row in rows:
-            if row["channel"] == "unstated":
-                continue
-            event = row["event_id"]
-            path = paths[event]
-            strength = (0.30 if path["explicit_with_citations"] else
-                        0.22 if path["via"] == "previous_scene" else
-                        0.18 if path["via"] not in ("same_scene", "next_scene") else 0.04)
-            score = (0.35 / (1 + seed_rank.get(path["seed"], 4)) + strength
-                     + 0.10 * lexical.get(event, 0.0) / peak
-                     + 0.35 * affinity.get(event, 0.0) / affinity_peak - 0.05 * (path["hop"] - 1))
-            ranked.append(Hit(event, row["scene_key"], row["anchor"], row["topic"], row["summary"],
-                              row["channel"], score, row["narrative_pos"],
-                              self.overview_evidence(event, self._line_keys(event, query_terms), 2)))
-        chosen = []
-        scenes = defaultdict(int)
-        for hit in sorted(ranked, key=lambda h: (-h.score, h.event_id)):
-            if scenes[hit.scene_key] >= 3:
-                continue
-            chosen.append(hit)
-            scenes[hit.scene_key] += 1
-            self.last_expansion_trace["selected"][hit.event_id] = paths[hit.event_id]
-            if len(chosen) >= limit:
-                break
-        return chosen
-
-
-def fill(pack: EvidencePack, hits: list[Hit], episode: str | None, budget: int,
-         *, total_budget: int | None = None, summary_limit: int | None = None) -> list[Memory]:
-    """Add hits within both this fetch's share and the turn's cumulative evidence budget."""
-    cap = budget if total_budget is None else total_budget
-    added: list[Memory] = []
-    for index, hit in enumerate(hits):
-        if hit.channel == "unstated" or hit.event_id in pack:
-            continue
-        lines = list(hit.evidence)
-        note = episode if index == 0 and episode else ""
-        summary = visible_summary(hit.summary)
-        if summary_limit is not None:
-            summary = _clip(summary, summary_limit)
-        while True:
-            item = pack.add(hit.event_id, hit.anchor, hit.channel, summary,
-                            tuple((speaker, text) for _, speaker, text in sorted(lines)), note)
-            if (_estimate_tokens(pack.render([*added, item])) <= budget
-                    and _estimate_tokens(pack.render()) <= cap):
-                added.append(item)
-                break
-            pack.pop()
-            if note:
-                note = ""
-            elif lines:
-                lines.pop()
-            else:
-                break
-    return added
-
-
-def fill_fact_adaptive(pack: EvidencePack, hits: list[Hit], episode: str | None,
-                       budget: int) -> tuple[list[Memory], int]:
-    """Widen a crowded initial fact pack while retaining selected source lines."""
-    if pack.items or not 900 <= budget < 1200:
-        return fill(pack, hits, episode, budget, total_budget=budget), budget
-    added = fill(pack, hits, episode, budget, total_budget=budget)
-    available = {hit.event_id for hit in hits if hit.channel != "unstated"}
-    if len(added) >= len(available):
-        return added, budget
-    original = pack.items[:]
-    pack.items.clear()
-    expanded = min(1200, budget + 300)
-    compact = fill(pack, hits, None, expanded, total_budget=expanded, summary_limit=220)
-    if len(compact) <= len(added):
-        pack.items[:] = original
-        return added, budget
-    return compact, expanded
-
-
-def rank_reason_hits(hits: list[Hit], topics: tuple[str, ...]) -> list[Hit]:
-    """Prefer firsthand statements of purpose while retaining retrieval relevance."""
-    def score(hit: Hit) -> float:
-        body = hit.topic + " " + hit.summary
-        cues = sum(cue in body for cue in RATIONALE_CUES)
-        named = sum(name in body for name in topics)
-        firsthand = hit.channel in ("experienced", "witnessed", "told", "recalled")
-        return 2.0 * min(cues, 4) + 1.5 * min(named, 2) + (1.0 if firsthand else 0.0) + hit.score
-
-    return sorted(hits, key=score, reverse=True)
-
-
-def fact_search(reader: CanonReader, query: str, *, top_k: int, evidence_lines: int,
-                doctor: bool, focus_person: str | None = None) -> tuple[list[Hit], str | None]:
-    """Reserve evidence for each explicit part of a Doctor relationship question."""
-    relation = doctor and any(term in query for term in ("关系", "联系"))
-    self_related = any(term in query for term in (
-        "我和", "和我", "我与", "与我", "我跟", "跟我",
-        "博士和", "和博士", "博士与", "与博士", "博士跟", "跟博士"))
-    names = reader.persons_in(query) if relation and self_related else []
-    composite = len(names) == 1
-    hits, episode = reader.search(query, top_k=max(top_k, 24) if composite else top_k,
-                                  evidence_lines=evidence_lines, doctor=doctor,
-                                  focus_person=focus_person, known_only=True)
-    phrase = explicit_quote(query)
-    quoted = reader.exact_quote_hits(query, phrase, evidence_lines) if phrase and not focus_person else []
-    if quoted:
-        hits = list(dict((hit.event_id, hit) for hit in [*quoted, *hits]).values())[:top_k]
-        episode = None
-    if not composite:
-        return hits, episode
-    relation_query = f"{names[0]}和博士之间的联系"
-    related, _ = reader.search(relation_query, top_k=24, evidence_lines=evidence_lines,
-                               doctor=doctor, focus_person=focus_person, known_only=True)
-    if not related:
-        return hits[:top_k], episode
-    asks_events = any(term in query for term in ("发生", "经历", "做了", "做过", "遇到"))
-    context = reader.expand_context(related[:1], relation_query, limit=1)
-    ordered = [*(hits[:1] if asks_events else ()), related[0], *context, *hits, *related]
-    chosen = []
-    seen = set()
-    for hit in ordered:
-        if hit.event_id in seen:
-            continue
-        chosen.append(hit)
-        seen.add(hit.event_id)
-        if len(chosen) >= max(2, min(3, top_k)):
-            break
-    return chosen, None
-
-
-def fill_overview(pack: EvidencePack, hits: list[Hit], budget: int) -> list[Memory]:
-    """Fit short event summaries and original lines inside the shared turn budget."""
-    added: list[Memory] = []
-    for hit in hits:
-        if hit.channel == "unstated" or hit.event_id in pack:
-            continue
-        for summary_limit, line_limit, line_count in ((65, 85, 2), (50, 65, 2),
-                                                       (55, 85, 1), (40, 55, 1)):
-            summary = _clip(hit.topic + "：" + visible_summary(hit.summary), summary_limit)
-            lines = tuple((speaker, _clip(text, line_limit))
-                          for _, speaker, text in hit.evidence[:line_count])
-            item = pack.add(hit.event_id, hit.anchor, hit.channel, summary, lines)
-            if _estimate_tokens(pack.render()) <= budget:
-                added.append(item)
-                break
-            pack.pop()
-    return added
-
-
-def fill_overview_adaptive(pack: EvidencePack, hits: list[Hit], budget: int) -> tuple[list[Memory], int]:
-    """Expand a crowded broad evidence pack only when selected known events do not fit."""
-    pending = sum(hit.channel != "unstated" and hit.event_id not in pack for hit in hits)
-    added = fill_overview(pack, hits, budget)
-    if 900 <= budget < 1200 and len(added) < pending:
-        budget = min(1200, budget + 300)
-        added.extend(fill_overview(pack, hits, budget))
-    return added, budget
-
-
-def _story_source(anchor: str) -> str:
-    title = re.search(r"「([^」]+)」", anchor)
-    parts = anchor.split(" · ")
-    place = " · ".join(parts[-2:]) if len(parts) > 1 else anchor
-    return _clip((title.group(1) + " / " if title else "") + place, 36)
-
-
-def fill_story_adaptive(pack: EvidencePack, hits: list[Hit], budget: int) -> tuple[list[Memory], int]:
-    """Fit a source-ordered story outline before spending remaining room on original lines."""
-    if pack.items:
-        return fill_overview_adaptive(pack, hits, budget)
-    cap = min(2400, budget + 1500) if 900 <= budget < 2400 else budget
-    outline_cap = min(cap, 1600)
-    known = [hit for hit in hits if hit.channel != "unstated"]
-    collections = {hit.event_id: hit.anchor.split(" · ")[0] for hit in known}
-    order = {collection: rank for rank, collection in enumerate(dict.fromkeys(collections.values()))}
-    ordered = sorted(known, key=lambda hit: (order[collections[hit.event_id]], hit.position, hit.event_id))
-    for hit in ordered:
-        if hit.event_id in pack:
-            continue
-        summary = _story_source(hit.anchor) + "｜" + _clip(
-            hit.topic + "：" + visible_summary(hit.summary), 40)
-        pack.add(hit.event_id, hit.anchor, hit.channel, summary, ())
-        if _estimate_tokens(pack.render()) > outline_cap:
-            pack.pop()
-    by_id = {hit.event_id: hit for hit in known}
-    priorities = sorted(range(len(pack.items)),
-                        key=lambda index: (-by_id[pack.items[index].event_id].score, index))
-    blocked: set[str] = set()
-    for line_number in (1, 2, 3, 4):
-        for index in priorities:
-            item = pack.items[index]
-            hit = by_id[item.event_id]
-            if (item.event_id in blocked or len(hit.evidence) < line_number
-                    or len(item.lines) != line_number - 1):
-                continue
-            _, speaker, body = hit.evidence[line_number - 1]
-            trial = replace(item, lines=(*item.lines, (speaker, _clip(body, 95))))
-            pack.items[index] = trial
-            if _estimate_tokens(pack.render()) > cap:
-                pack.items[index] = item
-                blocked.add(item.event_id)
-    effective = cap if _estimate_tokens(pack.render()) > budget else budget
-    return pack.items[:], effective
-
-
-def overview_tool_result(pack: EvidencePack, added: list[Memory], trace: dict,
-                         budget: int) -> str:
-    """Return bounded, source-linked tool evidence without claiming complete coverage."""
-    while added:
-        entries = []
-        for item in added:
-            keys = trace.get("source_lines", {}).get(item.event_id, ())
-            entries.append({
-                "ref": item.eid, "event_id": item.event_id,
-                "channel": CHANNEL_LABEL.get(item.channel, item.channel),
-                "summary": item.summary,
-                "lines": [{"line_key": key, "speaker": speaker, "text": body}
-                          for key, (speaker, body) in zip(keys, item.lines)],
-            })
-        result = json.dumps({
-            "scope": trace.get("scope"), "coverage": "代表性片段，不能据此断言完整或跨篇章时序",
-            "evidence": entries,
-        }, ensure_ascii=False, separators=(",", ":"))
-        if _estimate_tokens(result) <= budget:
-            return result
-        if pack.items[-1] is not added[-1]:
-            raise RuntimeError("Overview evidence pack changed while rendering a tool result")
-        pack.pop()
-        added.pop()
-    return "没有想起新的相关经历；现有证据可能只覆盖部分情节。"
-
-
-def asks_status(query: str) -> bool:
-    return any(term in query for term in STATUS_TERMS)
-
-
-ROUTE_IDF_MASS = 2.7
-
-
-def distinctive_mass(reader: CanonReader, query: str) -> float:
-    """The query's corpus-rare vocabulary mass, scaled by this corpus's rarest term.
-
-    Small talk reaches canon-level dense similarity by matching everyday words the
-    corpus also uses; a story question carries terms that are rare within the
-    corpus. The ratio stays on one scale across corpus sizes, where the raw
-    similarity threshold does not.
-    """
-    idf = reader.lexical.idf
-    if not idf:
-        return 0.0
-    total = sum(idf[term] for term in dict.fromkeys(terms(query, GENERIC_CHARS)) if term in idf)
-    return total / max(idf.values())
-
-
-@dataclass(frozen=True)
-class TurnPlan:
-    lane: str
-    subjects: tuple[str, ...]
-    focus: str | None
-    search_query: str
-    by_retrieval: bool = False
-    overview: bool = False
-    reason: bool = False
-    impression: bool = False
-    topics: tuple[str, ...] = ()
-    intent: str = "fact"
-    corrections: tuple[tuple[str, str], ...] = ()
-
-
-def plan_turn(reader: CanonReader, query: str, focus: str | None, as_of: str | None,
-              context: tuple[str, ...] = ()) -> TurnPlan:
-    """Resolve a short follow-up against named topics before choosing evidence."""
-    query, corrections = resolve_name(query, getattr(reader, "alias_names", []), reader.entity_type)
-    explicit = reader.topic_mentions(query)
-    conversational = any(term in query for term in ("刚才我们", "刚才我说", "我刚才说", "你刚才", "刚才你", "为什么这么觉得", "为啥这么觉得", "我一开始", "我最早", "我最开始"))
-    prediction = any(term in query for term in ("接下来", "以后会", "将会", "下一步", "未来会"))
-    reason = any(marker in query for marker in REASON_MARKERS)
-    impression = any(marker in query for marker in (*IMPRESSION_MARKERS, "感受", "最难的", "你觉得"))
-    person_pointer = any(marker in query for marker in PERSON_REFERENCES)
-    other_pointer = any(marker in query for marker in OTHER_REFERENCES)
-    event_pointer = any(marker in query for marker in EVENT_REFERENCES)
-    focus_type = reader.entity_type.get(focus) if focus else None
-    points_to_focus = (focus and (event_pointer or (person_pointer and focus_type == "person")
-                                  or (other_pointer and focus_type != "person")))
-    resolved = focus if points_to_focus and focus not in explicit else None
-    mentioned = list(dict.fromkeys([*explicit, *([resolved] if resolved else [])]))
-    explicit_person = any(reader.entity_type.get(name) == "person" for name in explicit)
-    reason_context = ([name for name in context if name not in mentioned][:2]
-                      if reason and len(query) <= 30 and not explicit_person else [])
-    subjects = tuple(name for name in mentioned if reader.entity_type.get(name) == "person")[:MAX_SUBJECTS]
-    past = any(term in query for term in QUERY_PAST)
-    overview = (is_overview(query) or (impression and bool(mentioned)) or
-                (bool(mentioned) and bool(re.search(r"(?:发生(?:了)?什么(?:事情|事)?|最后怎么样)[了吗呢？?。]*$", query)))) and not any(
-        term in query for term in ("那次", "那天", "当时"))
-    if conversational:
-        lane = "chat"
-        overview = False
-    elif subjects and (asks_status(query) or as_of) and not prediction:
-        lane = "status"
-        overview = False
-    elif mentioned or past or overview or reason_context:
-        lane = "canon"
-    else:
-        lane = "chat"
-    named_people = [name for name in explicit if reader.entity_type.get(name) == "person"]
-    next_focus = resolved or (focus if reason_context else None) or (named_people[0] if len(named_people) == 1 else
-                              explicit[0] if len(explicit) == 1 else None)
-    topics = tuple(dict.fromkeys([*mentioned, *reason_context]))
-    additions = [name for name in [resolved, *reason_context] if name and name not in query]
-    search_query = " ".join([query, *additions, *(["原因 目的 动机"] if reason and lane == "canon" else [])])
-    intent = ("conversation" if conversational else "prediction" if prediction else
-              "impression" if impression else "overview" if overview else "reason" if reason else
-              "chat" if lane == "chat" else "fact")
-    return TurnPlan(lane, subjects, next_focus, search_query,
-                    overview=overview, reason=reason, impression=impression, topics=topics,
-                    intent=intent, corrections=tuple(corrections.items()))
-
-
-def needs_motive_rerank(reader: CanonReader, plan: TurnPlan) -> bool:
-    """Use purpose ranking only when a question names both sides of a broad relationship."""
-    return (plan.reason and not plan.subjects and len(plan.topics) >= 2
-            and any(reader.entity_type.get(name) in ("place", "faction", "organization")
-                    for name in plan.topics))
-
-
-def route(reader: CanonReader, plan: TurnPlan, query: str, doctor: bool) -> TurnPlan:
-    """A story question without names or time words still reaches canon when retrieval is confident."""
-    if plan.lane != "chat" or plan.intent == "conversation" or reader.retrieval is None:
-        return plan
-    probe = reader.semantic(reader.without_self(query), doctor)
-    if reader.retrieval.confident(probe) and distinctive_mass(reader, probe) >= ROUTE_IDF_MASS:
-        return replace(plan, lane="canon", by_retrieval=True)
-    return plan
 
 
 def persona_profile(persona: str) -> str:
@@ -1283,14 +272,14 @@ def conversation_history(history: list[dict], query: str, budget: int = 5000) ->
     chosen = {}
     used = 0
     if pairs:
-        cost = sum(_estimate_tokens(m["content"]) for m in pairs[0])
+        cost = sum(estimate_tokens(m["content"]) for m in pairs[0])
         if cost <= budget // 4:
             chosen[0] = pairs[0]
             used = cost
     for index in range(len(pairs) - 1, max(-1, len(pairs) - 9), -1):
         if index in chosen:
             continue
-        cost = sum(_estimate_tokens(m["content"]) for m in pairs[index])
+        cost = sum(estimate_tokens(m["content"]) for m in pairs[index])
         if used + cost > budget:
             break
         chosen[index] = pairs[index]
@@ -1301,7 +290,7 @@ def conversation_history(history: list[dict], query: str, budget: int = 5000) ->
     for score, index in sorted(older, reverse=True):
         if not score or len(chosen) >= 10:
             break
-        cost = sum(_estimate_tokens(m["content"]) for m in pairs[index])
+        cost = sum(estimate_tokens(m["content"]) for m in pairs[index])
         if used + cost <= budget:
             chosen[index] = pairs[index]
             used += cost
@@ -1406,7 +395,6 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
              args: argparse.Namespace, persona: str, profile: str) -> None:
     started = time.perf_counter()
     request_offset = len(getattr(llm, "request_metrics", []))
-    reader.last_expansion_trace = {}
     session.active_history = conversation_history(session.history, query)
     plan = route(reader, plan_turn(reader, query, session.focus, args.as_of, session.topics),
                  query, args.doctor)
@@ -1424,54 +412,13 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
         session.focus = None
         session.topics = ()
         session.topic_idle = 0
-    pack = EvidencePack("对方（博士）" if args.doctor else "博士", args.doctor)
-    turn_budget = args.token_budget
+    evidence = EvidenceAssembler(reader, plan, EvidenceSettings(
+        doctor=args.doctor, top_k=args.top_k, evidence_lines=args.evidence_lines,
+        token_budget=args.token_budget, as_of=args.as_of))
+    pack = evidence.pack
     session.plan, session.pack, session.report = plan, pack, None
     session.tool_queries = []
-
-    def fetch(text: str, focus_person: str | None = None,
-              budget: int | None = None, prefer_reason: bool = False,
-              adaptive: bool = False) -> list[Memory]:
-        nonlocal turn_budget
-        hits, episode = fact_search(reader, text,
-                                    top_k=max(args.top_k, 12) if prefer_reason else args.top_k,
-                                    evidence_lines=args.evidence_lines,
-                                    doctor=args.doctor, focus_person=focus_person)
-        if prefer_reason:
-            hits = rank_reason_hits(hits, plan.topics)[:args.top_k]
-            episode = None
-        if plan.intent == "reason" and not prefer_reason:
-            context = reader.expand_context(hits[:2], text, limit=2)
-            known = {hit.event_id for hit in hits}
-            hits = [*hits[:2], *(hit for hit in context if hit.event_id not in known), *hits[2:]]
-            episode = None
-        if adaptive:
-            added, turn_budget = fill_fact_adaptive(pack, hits, episode, turn_budget)
-            return added
-        return fill(pack, hits, episode, turn_budget if budget is None else budget,
-                    total_budget=turn_budget)
-
-    def fetch_overview(text: str, budget: int | None = None) -> tuple[list[Memory], dict]:
-        nonlocal turn_budget
-        hits, trace = reader.overview_search(text, doctor=args.doctor,
-                                             evidence_lines=min(4 if is_overview(text) and not plan.impression
-                                                                else 2, args.evidence_lines),
-                                             personal=plan.impression,
-                                             contextual=not plan.impression and not is_overview(text))
-        packer = (fill_story_adaptive if not plan.impression and is_overview(text)
-                  else fill_overview_adaptive)
-        added, turn_budget = packer(pack, hits, turn_budget if budget is None else budget)
-        return added, trace
-
-    if plan.overview:
-        fetch_overview(plan.search_query)
-    elif plan.lane != "chat":
-        subjects = plan.subjects if plan.lane == "status" and len(plan.subjects) > 1 else (None,)
-        share = turn_budget // len(subjects)
-        for subject in subjects:
-            fetch(plan.search_query, subject, share,
-                  prefer_reason=needs_motive_rerank(reader, plan),
-                  adaptive=len(subjects) == 1 and reader.retrieval is not None)
+    evidence.prefetch()
     if reader.retrieval:
         trace = reader.retrieval.last_trace
         print(f"[retrieval] {reader.retrieval.mode}；"
@@ -1479,11 +426,7 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
               f"{trace.get('seconds', 0):.3f}s")
         if trace.get("degraded"):
             print(f"[retrieval] {trace.get('embedding_error') or trace.get('rerank_error')}")
-    fact_block, fact_valid = "", False
-    if plan.lane == "status":
-        contexts = [reader.fact_context(subject, as_of=args.as_of) for subject in plan.subjects]
-        fact_block = "\n".join(block for block, _ in contexts if block)
-        fact_valid = all(valid for _, valid in contexts)
+    fact_block, fact_valid = evidence.facts()
     session.fact_block = fact_block
     if args.show_sources or args.dry_run:
         print_sources(session)
@@ -1496,7 +439,7 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
         session.tool_queries.append(f"回忆「{wanted or '空'}」")
         if not wanted:
             return "没有想起相关的事。"
-        added = fetch(wanted)
+        added = evidence.fetch(wanted)
         if added:
             return pack.render(added)
         return "没有想起新的相关的事；只根据上面已有的记忆回答，没有的就说记不清。"
@@ -1506,8 +449,8 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
         session.tool_queries.append(f"综述「{wanted or '空'}」")
         if not wanted:
             return "没有指定要综述的经历。"
-        added, trace = fetch_overview(wanted)
-        return overview_tool_result(pack, added, trace, turn_budget)
+        added, trace = evidence.fetch_overview(wanted)
+        return overview_tool_result(pack, added, trace, evidence.budget)
 
     def add_archive(key: str, source: str, body: str) -> Memory | None:
         if key in pack or not body:
@@ -1517,9 +460,9 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
         low, high, best = minimum, len(body), 0
         while low <= high:
             size = (low + high) // 2
-            summary = f"{source}：{_clip(body, size)}"
+            summary = f"{source}：{clip(body, size)}"
             item = pack.add(key, source, "archive", summary, (), prefix="A")
-            fits = _estimate_tokens(pack.render()) <= turn_budget
+            fits = estimate_tokens(pack.render()) <= evidence.budget
             pack.pop()
             if fits:
                 best = size
@@ -1528,7 +471,7 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
                 high = size - 1
         if not best:
             return None
-        return pack.add(key, source, "archive", f"{source}：{_clip(body, best)}", (), prefix="A")
+        return pack.add(key, source, "archive", f"{source}：{clip(body, best)}", (), prefix="A")
 
     def archive(arguments: dict) -> str:
         name = str(arguments.get("name", "")).strip()[:40]
@@ -1555,7 +498,7 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
                 if item:
                     added.append(item)
             notes.append(f"{rows[0]['name']}的{ARCHIVE_KIND.get(rows[0]['kind'], '档案')}可查的段："
-                         f"{_clip('、'.join(titles), 80)}")
+                         f"{clip('、'.join(titles), 80)}")
         body = pack.render(added) if added else "本轮证据预算已满，或档案没有可加入的内容。"
         return body + "\n" + "\n".join(notes)
 
@@ -1568,8 +511,8 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
         known = reader.topic_mentions(pack.render())
         identity_hits = [reader.identity_hit(name, prior) for name in names for prior in known]
         linked = fill(pack, [hit for hit in identity_hits if hit], None,
-                      turn_budget, total_budget=turn_budget)
-        return len(linked) + len(fetch(" ".join(names)))
+                      evidence.budget, total_budget=evidence.budget)
+        return len(linked) + len(evidence.fetch(" ".join(names)))
 
     def sources() -> str:
         said = [m["content"] for m in session.active_history if m["role"] == "user"] + [query]
@@ -1589,7 +532,7 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
     archives = reader.has_archives
     tools = [RECALL_TOOL, OVERVIEW_TOOL, ARCHIVE_TOOL] if archives else [RECALL_TOOL, OVERVIEW_TOOL]
     handlers = {"canon_recall": recall, "canon_overview": overview, "operator_archive": archive}
-    tool_offer = session.tools and _estimate_tokens(pack.render()) + 80 < turn_budget
+    tool_offer = session.tools and estimate_tokens(pack.render()) + 80 < evidence.budget
     system = build_system(persona, args.doctor, plan, pack, fact_block, fact_valid, tool_offer, archives)
     draft, calls = generate(llm, session, system, query, tools if tool_offer else [], handlers,
                             args.temperature)
@@ -1609,9 +552,9 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
     session.report = report
     session.metrics = {"seconds": round(time.perf_counter() - started, 3),
                        "calls": calls + report.calls,
-                       "history_tokens": sum(_estimate_tokens(m["content"]) for m in session.active_history),
-                       "evidence_tokens": _estimate_tokens(pack.render()),
-                       "evidence_budget": turn_budget,
+                       "history_tokens": sum(estimate_tokens(m["content"]) for m in session.active_history),
+                       "evidence_tokens": estimate_tokens(pack.render()),
+                       "evidence_budget": evidence.budget,
                        "intent": plan.intent, "name_corrections": dict(plan.corrections),
                        **usage,
                        "first_response_seconds": request_metrics[0]["seconds"] if request_metrics else None,

@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [v1.2.18.sub] — 2026-09-27
+
+### canon 终端检索与装填迁入 core/canon
+
+- `core/canon/query.py`、`packing.py`、`reader.py`：把 `run_canon_chat.py` 里的查询解析（`TurnPlan`、`plan_turn`、`route`）、证据装填与预算（`Hit`、`fill*`、`overview_tool_result`）以及只读访问（`CanonReader`、`fact_search`）原样迁入；跨模块使用的 `_estimate_tokens`、`_clip` 改名为 `estimate_tokens`、`clip`。
+- `core/canon/assembly.py`：新增 `EvidenceAssembler`，一轮一个实例，持有证据包和本轮预算；终端首轮预取、`canon_recall` / `canon_overview` 工具回调、近况事实块，以及 `devtools/canon/retrieval.py` 的题库评测都经过它。此前评测自带一份组包流程，缺少终端对“问原因”题的上下文扩展；合并后 316 道对比题的路线、注入事件和证据长度与终端逐题一致（离线此前 31 题不一致，hybrid 此前 34 题）。评测结果只在这些问原因题上变化，另修掉印象类综述 trace 带上一题结构扩展记录的问题；终端自身行为不变。
+- `run_canon_chat.py` 从 1,765 行减到约 700 行，只剩命令行、会话、生成、提示词和工具回调；`devtools/canon/dialogue_eval.py` 兼容新旧代码快照的 token 估算函数名。
+- 验证：本机逐题对比工具在 V10 全库上离线跑四份输出（检索评测、终端逐题 dry-run 与脚本化假模型的完整一轮、多轮对话、档案工具），每一步都与迁移前一致；hybrid 模式用一次记录的查询向量离线重放，结论相同。本机 252 项离线测试通过（新增已审阅事实渲染与 `EvidenceAssembler` 测试）。`docs/canon-runtime-architecture.md`、`docs/canon.md`、`docs/canon-retrieval-experiment.md` 同步；Bot 接入前的线程模型记为已知问题。未改数据库、抽取 prompt、插件或 Core；本地开发版本为 `v1.2.18.sub`。
+
 ## [v1.2.17.sub] — 2026-09-27
 
 ### canon V11 抽取与时间事实候选试验

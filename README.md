@@ -6,7 +6,7 @@
 
 **AstrBot 三轴长期记忆与数据可视化插件**
 
-[![version](https://img.shields.io/badge/版本-v1.2.17.sub-blueviolet)](metadata.yaml)
+[![version](https://img.shields.io/badge/版本-v1.2.18.sub-blueviolet)](metadata.yaml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![license](https://img.shields.io/badge/license-APGL-green)](LICENSE)
 [![en](https://img.shields.io/badge/English-README__EN.md-blue)](README_EN.md)
@@ -21,7 +21,7 @@ Made with ♥ by MKiyoaki & Gariton
 
 ## Oedipus-Sub 分支：Core 事件接入
 
-此工作分支版本为 `v1.2.17.sub`。五阶段自动事件消费与注入需要启用支持 Event Protocol v1 的 Core（本轮 `v0.6.0`）；缺失、停用或不兼容时暂停自动处理，保留数据库和独立管理功能。
+此工作分支版本为 `v1.2.18.sub`。五阶段自动事件消费与注入需要启用支持 Event Protocol v1 的 Core（本轮 `v0.6.0`）；缺失、停用或不兼容时暂停自动处理，保留数据库和独立管理功能。
 
 1. 在 Moirai 配置 `core_integration.scope_mappings` 填入 JSON，例如 `{"memory-alice":"Alice"}`，显式指定 scope 对应的旧人格数据桶。
 2. 在 Core Settings 创建人格与绑定，选择 Moirai 提供的 scope。

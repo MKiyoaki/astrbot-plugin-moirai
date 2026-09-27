@@ -25,15 +25,15 @@ M1（B1–B5）已完成；M2（B6–B9）的正式路径还没开始，但检�
 
 | 部分 | 状态 |
 |---|---|
-| B1 目录结构 | `config.py`、`schema.sql`、`store.py`、`prompt.py`、`extract.py`、`importer.py`、`cli.py`；基准用的 `audit.py`、`probes.py`、`compare.py`、`judge.py`、`bench.py`；时间事实用的 `fact_extract.py`、`fact_review.py`、`temporal.py`；终端原型用到的 `retrieval.py`、`lexical.py`、`vector_index.py`、`context.py`、`overview.py`、`gateway.py` |
+| B1 目录结构 | `config.py`、`schema.sql`、`store.py`、`prompt.py`、`extract.py`、`importer.py`、`cli.py`；基准用的 `audit.py`、`probes.py`、`compare.py`、`judge.py`、`bench.py`；时间事实用的 `fact_extract.py`、`fact_review.py`、`temporal.py`；终端与检索评测共用的 `query.py`、`reader.py`、`packing.py`、`assembly.py`、`retrieval.py`、`lexical.py`、`vector_index.py`、`context.py`、`overview.py`、`gateway.py` |
 | B2 配置 | `_conf_schema.json` 新增 `canon` 分组；`PluginConfig.get_canon_config()`；`canon_persona_map` 格式错误时对所有人格都不生效。插件里目前只有配置，没有调用 canon 的代码 |
 | B3 canon.sqlite | schema v5（v2–v4 的旧库打开时原地升级）；trigram 全文表（不可用时降级为 bigram）；库内 `event_vec` 随共享 embedding 的维度创建，模型身份变化时清空重编码。终端试聊不读这两类表，见 [canon 终端试聊](canon-terminal.md) 的“检索”一节 |
 | B4 抽取 | 默认 `canon-extract-v10`（已运行 100 场景与 618 场景全量）；可选 `canon-extract-v11`（只跑过 20 和 100 场景试验）。确定性 user prompt、10 条校验规则、带问题清单的重试（连续失败最多 4 次）、超过 2 万字的场景分块、解析前修复字符串内部未转义的英文双引号。见 [canon 抽取与基准](canon-extraction.md) |
 | B5 导入 | 命令行导入；按 scene_hash 增量；抽取缓存；中断后续跑；删除包里已没有的场景；另有不调用模型的干员档案导入 `archive-import` |
 | 时间事实候选 | 全库分块抽取与失败续跑、审阅包与冲突分组、人工批准后导入、偏序与覆盖判断。V10 用 `canon-facts-v2`，V11 用 `canon-facts-v3`。V10 全库有 5,930 条候选，全部未审阅，库里没有已批准的事实。见 [canon 时间线与事实有效期](canon-temporal-facts.md) |
 | 抽取基准 | `cli bench` / `compare` / `judge`：真实接口、回放、估算；金标准探针、逐事件对比、重测信度、可选 LLM 裁判；手动测试用 `run_canon_dev.py` |
-| 终端试聊原型 | `moirai canon test`：路由、hybrid 检索、综述、结构扩展、档案工具、回复核验。主体逻辑在仓库根目录的 `run_canon_chat.py`，不是正式路径。见 [canon 终端试聊](canon-terminal.md) |
-| B6–B9 检索、注入、命令、初始化 | 正式路径未开始。前提是把终端原型迁进 `core/canon`，见 [canon 运行时结构](canon-runtime-architecture.md) |
+| 终端试聊原型 | `moirai canon test`：路由、hybrid 检索、综述、结构扩展、档案工具、回复核验。查询解析、读取、装填和调度已在 `core/canon`；仓库根目录的 `run_canon_chat.py` 只剩命令行、会话、生成、提示词和工具回调。见 [canon 终端试聊](canon-terminal.md) |
+| B6–B9 检索、注入、命令、初始化 | 正式路径未开始。终端原型已迁进 `core/canon`（v1.2.18.sub）；接入前要先定线程模型和其余待决问题，见 [canon 运行时结构](canon-runtime-architecture.md) |
 
 `/mrm canon import` 属于 B8，在 M2 接入；目前只有命令行入口。
 
@@ -45,7 +45,7 @@ Bot 试跑用的库原定为本机 `.dev_data/canon/v7/20/api/20260924-045430-kc
 
 实施与验证顺序：
 
-1. 先按 [canon 运行时结构](canon-runtime-architecture.md) 把终端原型的检索和装填逻辑迁进 `core/canon`，再完成 B6 检索、B7 渲染及 Core `before_generation` 注入、B9 生命周期；先接入 B8 的 `/mrm canon status` 和 `/mrm canon test`，便于检查实际命中与渲染结果。保持 canon 默认关闭，只让显式映射的人格桶使用。加入相应 B10 离线测试，覆盖检索降级、token 预算、博士称呼、时间过滤、`clear_namespace` 之后的注入以及 canon 故障不影响原有记忆。
+1. 终端原型的检索和装填逻辑已迁进 `core/canon`（v1.2.18.sub）。先按 [canon 运行时结构](canon-runtime-architecture.md) 定下线程模型和待决问题，再以 `EvidenceAssembler` 完成 B6 检索、B7 渲染及 Core `before_generation` 注入、B9 生命周期；先接入 B8 的 `/mrm canon status` 和 `/mrm canon test`，便于检查实际命中与渲染结果。保持 canon 默认关闭，只让显式映射的人格桶使用。加入相应 B10 离线测试，覆盖检索降级、token 预算、博士称呼、时间过滤、`clear_namespace` 之后的注入以及 canon 故障不影响原有记忆。
 2. 在启用 Core Event Protocol v1 的 AstrBot 中，把试跑库映射到阿米娅人格桶，用同一批问题先看 `/mrm canon test` 的事件、分数、证据，再看真实回复和实际注入块。分别检查范围内的剧情、试跑库范围之外的话题、博士身份开关、时间点过滤、重复提问及 canon 不可用时的降级。范围外问题要分别记录“没有命中 canon”和“Bot 最终怎样回答”：模型自带知识也可能回答，不等于 canon 泄漏。
 3. 记录错误命中、漏召回、错误渠道、原文证据不贴题和回答中的身份混淆，用户审阅后决定是否需要调整检索、渲染或抽取。确认试跑可用，再完成 B8 后台全库导入与其余 B10 测试，并按原规格验收当前 story_pack 的全部场景。当前包的 `manifest.json` 记录 618 个场景；规格中的 622 是旧规模，导入数量以当次包为准。
 

@@ -95,7 +95,8 @@ def main(argv=None):
                            "first_response_seconds": calls[0]["seconds"] if calls else None,
                            "peak_rss_mib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
                            "calls": list(calls), "trace": capture.getvalue(),
-                           "evidence_tokens": chat._estimate_tokens(session.pack.render()),
+                           "evidence_tokens": (getattr(chat, "estimate_tokens", None)
+                                              or chat._estimate_tokens)(session.pack.render()),
                            "evidence": session.pack.render(),
                            "events": [item.event_id for item in session.pack.items],
                            "structural_trace": getattr(reader, "last_expansion_trace", {}),

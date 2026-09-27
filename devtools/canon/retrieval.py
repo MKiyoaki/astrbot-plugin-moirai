@@ -1,8 +1,6 @@
 """Local experiment commands for canon indexes backed by shared Moirai model providers."""
 from __future__ import annotations
 
-from core.canon.overview import is_overview
-
 import argparse
 import json
 import math
@@ -196,9 +194,11 @@ def _write(path: Path, value: dict) -> None:
 
 
 def main(argv=None) -> int:
-    from run_canon_chat import (DEFAULT_DB, CanonReader, EvidencePack, _estimate_tokens,
-                                fact_search, fill, fill_fact_adaptive, fill_overview_adaptive, fill_story_adaptive,
-                                needs_motive_rerank, plan_turn, rank_reason_hits, route)
+    from run_canon_chat import DEFAULT_DB
+    from core.canon.assembly import EvidenceAssembler, EvidenceSettings
+    from core.canon.packing import estimate_tokens, rank_reason_hits
+    from core.canon.query import needs_motive_rerank, plan_turn, route
+    from core.canon.reader import CanonReader, fact_search
     parser = argparse.ArgumentParser(description="Canon retrieval experiment; plan is offline")
     parser.add_argument("command", choices=("plan", "build", "probe"))
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
@@ -324,43 +324,25 @@ def main(argv=None) -> int:
                     question = case["question"]
                     doctor = not args.not_doctor
                     plan = route(reader, plan_turn(reader, question, None, None), question, doctor)
-                    pack = EvidencePack("对方（博士）" if doctor else "博士", doctor)
-                    all_hits = []
-                    overview_trace = None
-                    evidence_budget = args.token_budget
-                    if plan.overview:
-                        all_hits, overview_trace = reader.overview_search(
-                            plan.search_query, doctor=doctor,
-                            evidence_lines=min(4 if is_overview(plan.search_query) and not plan.impression
-                                               else 2, args.evidence_lines), personal=plan.impression,
-                            contextual=not plan.impression and not is_overview(plan.search_query))
-                        packer = (fill_story_adaptive if not plan.impression and is_overview(plan.search_query)
-                                  else fill_overview_adaptive)
-                        _, evidence_budget = packer(pack, all_hits, args.token_budget)
-                    else:
-                        subjects = (plan.subjects if plan.lane == "status" and len(plan.subjects) > 1
-                                    else (None,))
-                        for subject in subjects:
-                            motive_rerank = needs_motive_rerank(reader, plan)
-                            hits, episode = fact_search(reader,
-                                plan.search_query, top_k=max(args.top_k, 12) if motive_rerank else args.top_k,
-                                evidence_lines=args.evidence_lines, doctor=doctor, focus_person=subject)
-                            if motive_rerank:
-                                hits = rank_reason_hits(hits, plan.topics)[:args.top_k]
-                                episode = None
-                            all_hits.extend(hits)
-                            if plan.lane != "chat":
-                                if len(subjects) == 1 and retrieval is not None:
-                                    _, evidence_budget = fill_fact_adaptive(
-                                        pack, hits, episode, evidence_budget)
-                                else:
-                                    fill(pack, hits, episode, args.token_budget // len(subjects),
-                                         total_budget=args.token_budget)
+                    evidence = EvidenceAssembler(reader, plan, EvidenceSettings(
+                        doctor=doctor, top_k=args.top_k, evidence_lines=args.evidence_lines,
+                        token_budget=args.token_budget))
+                    evidence.prefetch()
+                    pack, all_hits = evidence.pack, evidence.hits
+                    overview_trace, evidence_budget = evidence.overview_trace, evidence.budget
+                    if plan.lane == "chat" and not plan.overview:
+                        motive_rerank = needs_motive_rerank(reader, plan)
+                        all_hits, _ = fact_search(
+                            reader, plan.search_query,
+                            top_k=max(args.top_k, 12) if motive_rerank else args.top_k,
+                            evidence_lines=args.evidence_lines, doctor=doctor)
+                        if motive_rerank:
+                            all_hits = rank_reason_hits(all_hits, plan.topics)[:args.top_k]
                     trace = retrieval.last_trace if retrieval else {"mode": "baseline"}
                     row = {**{k: case[k] for k in ("id", "category", "expected_lane") if k in case},
                            "question": question, "lane": plan.lane, "overview": plan.overview,
                            "overview_trace": overview_trace,
-                           "evidence_tokens": _estimate_tokens(pack.render()),
+                           "evidence_tokens": estimate_tokens(pack.render()),
                            "evidence_budget": evidence_budget,
                            "hits": [{"event_id": h.event_id, "score": h.score, "channel": h.channel}
                                     for h in all_hits],
