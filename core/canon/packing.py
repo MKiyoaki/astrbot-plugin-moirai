@@ -7,6 +7,7 @@ import math
 import re
 from dataclasses import dataclass, replace
 
+from .character import AMIYA
 from .gateway import EvidencePack, Memory
 
 
@@ -15,9 +16,10 @@ CHANNEL_LABEL = {
     "witnessed": "在场目睹",
     "told": "听人讲述",
     "recalled": "回忆",
+    "reported": "经汇报得知",
     "unstated": "文本未表明是否知情",
 }
-RATIONALE_CUES = ("动机", "来意", "理想", "原因", "因为", "为了", "目的是", "旨在", "阻止", "避免", "减少牺牲", "而战")
+RATIONALE_CUES = ("动机", "来意", "理想", "原因", "因为", "为了", "目的是", "阻止", "避免", "而战")
 _CJK = re.compile(r"[一-鿿]+")
 @dataclass(frozen=True)
 class Hit:
@@ -41,15 +43,16 @@ def clip(text: str, limit: int) -> str:
     return text[:limit] + ("……" if len(text) > limit else "")
 
 
-_PRIVATE_DOCTOR = re.compile(
-    r"(?:\{DOCTOR\}|博士)[^，。！？]{0,12}(?:感到|感觉|觉得|意识到|直觉|心里|不由自主|无法准确判断)"
+_PRIVATE_PLAYER = re.compile(
+    rf"(?:{re.escape(AMIYA.player_placeholder)}|{AMIYA.player})[^，。！？]{{0,12}}"
+    r"(?:感到|感觉|觉得|意识到|直觉|心里|不由自主|无法准确判断)"
 )
 
 
 def visible_summary(summary: str) -> str:
     """Leave unspoken Doctor thoughts out of Amiya's injected memory summaries."""
     return "".join(part for part in re.split(r"(?<=[。！？])", summary)
-                   if not _PRIVATE_DOCTOR.search(part)).strip()
+                   if not _PRIVATE_PLAYER.search(part)).strip()
 
 
 def fill(pack: EvidencePack, hits: list[Hit], episode: str | None, budget: int,
@@ -149,11 +152,12 @@ def _story_source(anchor: str) -> str:
     return clip((title.group(1) + " / " if title else "") + place, 36)
 
 
-def fill_story_adaptive(pack: EvidencePack, hits: list[Hit], budget: int) -> tuple[list[Memory], int]:
+def fill_story_adaptive(pack: EvidencePack, hits: list[Hit], budget: int,
+                        widen: bool = True) -> tuple[list[Memory], int]:
     """Fit a source-ordered story outline before spending remaining room on original lines."""
     if pack.items:
         return fill_overview_adaptive(pack, hits, budget)
-    cap = min(2400, budget + 1500) if 900 <= budget < 2400 else budget
+    cap = min(2400, budget + 1500) if widen and 900 <= budget < 2400 else budget
     outline_cap = min(cap, 1600)
     known = [hit for hit in hits if hit.channel != "unstated"]
     collections = {hit.event_id: hit.anchor.split(" · ")[0] for hit in known}

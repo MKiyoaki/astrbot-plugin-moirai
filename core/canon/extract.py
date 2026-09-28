@@ -41,6 +41,7 @@ _LREF_RE = re.compile(r"^L(\d+)$")
 _REF_SPLIT_RE = re.compile(r"[,，、\s]+")
 _RANGE_DASH_RE = re.compile(r"\s*[-–—~～至到]\s*")
 _REF_TOKEN_RE = re.compile(r"^L?(\d+)(?:-L?(\d+))?$")
+_JSON_TOKEN_RE = re.compile(r'"(?:[^"\\]|\\.)*"|\s+|.', re.DOTALL)
 
 Call = Callable[[str, str], Awaitable[Any]]
 Observer = Callable[[dict], None]
@@ -90,10 +91,39 @@ def repair_quotes(text: str) -> tuple[str, int]:
     return "".join(out), fixed
 
 
-def parse_json(text: str) -> tuple[Any, int]:
-    """去掉 <think> 块和代码围栏后解析 JSON，返回对象和修复的引号处数。
+def repair_value_lists(text: str) -> tuple[str, int]:
+    """把对象里一个键后面并列的多个字符串值包成数组，返回修复后的文本和修复的处数。
 
-    前后夹杂说明文字时退回到最外层花括号；仍然失败时用 repair_quotes 修复后再解析一次。
+    arc:chat 常把 `"evidence":["L20","L25"]` 写成 `"evidence":"L20","L25"`。键的冒号后紧跟字符串、逗号、字符串，
+    且后一个字符串后面不是冒号（不是下一个键）时，这一串字符串只能是同一个值，包成数组没有歧义。
+    """
+    tokens = _JSON_TOKEN_RE.findall(text)
+    sig = [i for i, token in enumerate(tokens) if not token.isspace()]
+
+    def string_value(k: int) -> bool:
+        return (k < len(sig) and tokens[sig[k]].startswith('"')
+                and not (k + 1 < len(sig) and tokens[sig[k + 1]] == ":"))
+
+    fixed, k = 0, 0
+    while k < len(sig):
+        if (tokens[sig[k]] == ":" and k + 3 < len(sig) and tokens[sig[k + 1]].startswith('"')
+                and tokens[sig[k + 2]] == "," and string_value(k + 3)):
+            last = k + 3
+            while last + 2 < len(sig) and tokens[sig[last + 1]] == "," and string_value(last + 2):
+                last += 2
+            tokens[sig[k + 1]] = "[" + tokens[sig[k + 1]]
+            tokens[sig[last]] += "]"
+            fixed += 1
+            k = last + 1
+            continue
+        k += 1
+    return "".join(tokens), fixed
+
+
+def parse_json(text: str) -> tuple[Any, int]:
+    """去掉 <think> 块和代码围栏后解析 JSON，返回对象和修复处数。
+
+    前后夹杂说明文字时退回到最外层花括号；仍然失败时依次用 repair_quotes、repair_value_lists 修复后再解析。
     能直接解析的 JSON 不做任何修改；修复后也解析不了就抛出修复前的错误。
     """
     cleaned = _FENCE_RE.sub("", _THINK_RE.sub("", text or "").strip()).strip()
@@ -111,6 +141,12 @@ def parse_json(text: str) -> tuple[Any, int]:
     if fixed:
         try:
             return json.loads(repaired), fixed
+        except ValueError:
+            pass
+    listed, folded = repair_value_lists(repaired)
+    if folded:
+        try:
+            return json.loads(listed), fixed + folded
         except ValueError:
             pass
     raise first_error
@@ -154,9 +190,27 @@ def _ref_items(value: Any) -> list[str] | None:
     return None
 
 
+def _nested_views(events: list[dict]) -> list[dict] | None:
+    out: list[dict] = []
+    for ev in events:
+        nested = ev.get("views")
+        if nested is None:
+            continue
+        items = [nested] if isinstance(nested, dict) else nested
+        eid = ev.get("id")
+        if not isinstance(items, list) or not isinstance(eid, str):
+            return None
+        for view in items:
+            if not isinstance(view, dict) or view.get("event", eid) != eid:
+                return None
+            out.append({**view, "event": eid})
+    return out or None
+
+
 def normalize_output(obj: Any) -> int:
     """校验前把没有歧义的格式问题规范掉，返回改了几处；认不出的写法原样留给校验。
 
+    - 嵌在事件里的 views：顶层没有 views、每条嵌套视角都属于所在事件时，提升到顶层 views。
     - 缺失的事件 id：仅在现有 id 和全部 views 都与事件顺序 e1、e2……一致时补齐。
     - 证据：见 _ref_items，结果去重并保持顺序。
     - 枚举值（in_world_time、channel、边和实体的 type）：去空格、转小写后是合法值就改。
@@ -180,6 +234,14 @@ def normalize_output(obj: Any) -> int:
             fixed += 1
 
     raw_events = obj.get("events")
+    if obj.get("views") is None and isinstance(raw_events, list):
+        hoisted = _nested_views([ev for ev in raw_events if isinstance(ev, dict)])
+        if hoisted:
+            for ev in raw_events:
+                if isinstance(ev, dict):
+                    ev.pop("views", None)
+            obj["views"] = hoisted
+            fixed += len(hoisted)
     raw_views = obj.get("views")
     if isinstance(raw_events, list) and raw_events and all(isinstance(ev, dict) for ev in raw_events):
         expected = [f"e{i}" for i in range(1, len(raw_events) + 1)]

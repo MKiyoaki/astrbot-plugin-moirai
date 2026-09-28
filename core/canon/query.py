@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from .context import resolve_name
 from .lexical import terms
-from .overview import is_overview
+from .overview import SPECIFIC, is_account, is_overview
 
 if TYPE_CHECKING:
     from .reader import CanonReader
@@ -25,7 +25,7 @@ REASON_MARKERS = ("为什么", "为何", "原因", "缘由", "动机", "目的")
 IMPRESSION_MARKERS = ("印象", "看法", "怎么看", "感觉如何")
 STATUS_TERMS = (
     "今天", "今晚", "现在", "目前", "最近", "近况", "还在", "还好吗",
-    "在岛上", "在舰上", "如今", "怎么样了", "在哪",
+    "如今", "怎么样了", "在哪",
 )
 MAX_SUBJECTS = 3
 def explicit_quote(query: str) -> str | None:
@@ -44,10 +44,10 @@ def explicit_quote(query: str) -> str | None:
             return phrase
     return None
 
-def asks_status(query: str) -> bool:
-    return any(term in query for term in STATUS_TERMS)
+def asks_status(query: str, home_terms: tuple[str, ...] = ()) -> bool:
+    return any(term in query for term in (*STATUS_TERMS, *home_terms))
 
-ROUTE_IDF_MASS = 2.7
+ROUTE_IDF_MASS = 4.2
 
 def distinctive_mass(reader: CanonReader, query: str) -> float:
     """The query's corpus-rare vocabulary mass, scaled by this corpus's rarest term.
@@ -101,13 +101,13 @@ def plan_turn(reader: CanonReader, query: str, focus: str | None, as_of: str | N
                       if reason and len(query) <= 30 and not explicit_person else [])
     subjects = tuple(name for name in mentioned if reader.entity_type.get(name) == "person")[:MAX_SUBJECTS]
     past = any(term in query for term in QUERY_PAST)
-    overview = (is_overview(query) or (impression and bool(mentioned)) or
-                (bool(mentioned) and bool(re.search(r"(?:发生(?:了)?什么(?:事情|事)?|最后怎么样)[了吗呢？?。]*$", query)))) and not any(
-        term in query for term in ("那次", "那天", "当时"))
+    overview = ((is_overview(query, bool(mentioned)) or (impression and bool(mentioned)))
+                and not SPECIFIC.search(query)
+                and (is_account(query) or not any(term in query for term in ("那次", "那天", "当时"))))
     if conversational:
         lane = "chat"
         overview = False
-    elif subjects and (asks_status(query) or as_of) and not prediction:
+    elif subjects and (asks_status(query, reader.profile.home_status_terms) or as_of) and not prediction:
         lane = "status"
         overview = False
     elif mentioned or past or overview or reason_context:

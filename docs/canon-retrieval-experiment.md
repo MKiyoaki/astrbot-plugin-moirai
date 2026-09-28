@@ -285,6 +285,38 @@ first unanswered one, after checking corpus fingerprint and index identity.
 This exists because provider rate limits interrupt long runs; the resumed run
 must use identical settings to the initial one.
 
+### Recalibration on the V11 full build (2026-09-28)
+
+The 2.7 mass floor did not hold on the V11 full build (arc:chat, 4,903
+events). Its hybrid run misrouted three small-talk negatives to canon
+(`x08` 外面下雨了, `x13` 你最近睡得好吗, `x14` 谢谢你一直陪着我), so lane
+accuracy fell to 12/15. On the same questions, V11 dense similarities run about
+0.03–0.05 above V10's.
+
+A calibration run embedded every probe that the local rules leave to retrieval
+routing once, and searched both full indexes with it. That was 42–46 of 303
+questions across the v3 bank files and the adversarial drafts; the per-question
+scores are in `v11/all/build/canon.retrieval/route-calibration-20260928.json`.
+The two classes overlap on similarity alone: V11 small talk reaches 0.655
+(晚安), and story questions go as low as 0.539. The best similarity-only
+threshold (0.55–0.57) cuts V11 errors only from 7 to 6.
+
+A joint search over similarity and mass kept 0.54 and raised
+`ROUTE_IDF_MASS` to 4.2. This is the only setting that improves both builds:
+V11 errors fall from 7 to 5 and V10 errors from 3 to 2. End to end on the v3
+bank:
+
+- V11 lane accuracy rises from 12/15 to 14/15.
+- `p01` (你刚把我唤醒那会儿，我问你是谁，你怎么说的) now stays in small
+  talk. Its casual wording carries too little corpus-rare mass.
+- `x14` still reaches canon.
+- The V10 bank results are identical case by case.
+
+The remaining errors are warm small talk that reads like story dialogue, and
+casually worded story questions. A threshold cannot separate them. Most
+calibration questions are unreviewed adversarial drafts, so treat 4.2 as
+provisional.
+
 
 ## Broad-question overview route (2026-09-25)
 
@@ -294,6 +326,48 @@ not a standalone MCP server or a Bot runtime feature. The broad-question
 classifier recognizes 20/20 existing overview cases and 0/165 specific cases
 or 0/15 small-talk negatives. This bank was available during implementation;
 an independently written holdout remains necessary.
+
+**Generic trigger (2026-09-28).** A generality audit found that 10 of the
+classifier's 27 phrases were copied from the 20 overview questions (for
+example 是怎样袭击 and 怎么撤离), and that 4 natural paraphrases triggered 0/4.
+The phrase list was replaced by rules for question types, in
+`core/canon/overview.py`:
+
+- account wording (来龙去脉, 从头, 一步步, 经历了什么, 如何发展) qualifies alone;
+- looser wording needs a named topic, and it must mark a series of events:
+  讲讲, 概括, 那段时间, 都做了什么, 哪些 + an event noun, 发生了什么 at the end,
+  后来怎样;
+- a request for one datum never qualifies (谁, 叫什么, 哪天, 说了什么, 生日,
+  具体).
+
+A paraphrase set was written and frozen before the rule, in
+`.dev_data/canon/eval/overview-trigger-paraphrase-v1.jsonl`. It has 24
+positives that avoid the original wording and 15 negatives. It was written by
+the implementing agent, so it is not an independent holdout.
+
+The first generic draft scored 24/24 positives and 0/15 negatives. It also
+routed 11/120 regression and 11/60 scene questions to overview, specific ones
+such as 要求他做什么. On the offline baseline, f12 and f41 lost their answer
+lines. The weak markers were then tightened to plural or event-series wording,
+and 怎么……的 was dropped because it cannot tell a process from a single
+cause. That tightening was informed by the bank's over-triggering.
+
+Final result:
+
+| Measure | Result |
+|---|---|
+| Paraphrase positives | 19/24 |
+| Paraphrase negatives triggered | 0/15 |
+| Original overview questions | 16/20 |
+| Regression questions routed to overview | 1/120 |
+| Scene questions routed to overview | 3/60 |
+
+The offline baseline bank is identical case by case except for overview g02 and
+g03. Those two relied on the copied phrases, and overview facets move from
+8/60 to 6/60. That lower number is the unleaked figure.
+
+`tests/test_canon_guards.py` fails when a runtime string literal copies five or
+more characters of an eval question. 最后怎么样 is allow-listed as generic.
 
 One original-query embedding call supplies dense candidates. Local bigram scores
 over event text and scene navigation metadata (anchor, collection, official

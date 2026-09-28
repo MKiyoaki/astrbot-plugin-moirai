@@ -51,6 +51,7 @@ def normalize_polarity(value: object) -> int | None:
 
 
 def validate_candidates(obj: object, allowed: dict[str, set[str]]) -> list[dict]:
+    """A candidate is anchored by its line; a mislabeled event id is corrected only when one event in the chunk owns that line."""
     if not isinstance(obj, dict) or not isinstance(obj.get("facts"), list):
         raise ValueError("事实候选 JSON 缺少 facts 数组")
     output = []
@@ -61,7 +62,10 @@ def validate_candidates(obj: object, allowed: dict[str, set[str]]) -> list[dict]
             raise ValueError("事实候选的谓词不合法")
         event_id, line_key = item.get("event_id"), item.get("line_key")
         if event_id not in allowed or line_key not in allowed[event_id]:
-            raise ValueError("事实候选引用了本块外或不在事件证据里的行")
+            owners = [owner for owner, lines in allowed.items() if line_key in lines]
+            if len(owners) != 1:
+                raise ValueError("事实候选引用了本块外或不在事件证据里的行")
+            event_id = owners[0]
         for key in ("subject", "object"):
             if not isinstance(item.get(key), str) or not item[key].strip():
                 raise ValueError(f"事实候选缺少 {key}")

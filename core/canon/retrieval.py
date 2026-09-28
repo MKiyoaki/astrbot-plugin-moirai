@@ -5,6 +5,7 @@ import time
 from collections import OrderedDict
 
 from ..embedding.remote import RetrievalError
+from .character import CharacterProfile
 from .vector_index import VectorIndex, read_documents
 
 
@@ -29,10 +30,11 @@ def fuse(channels: dict[str, dict[str, int]], *, k: int | None = None,
     return scores
 
 
-def speaker_view(query: str) -> str:
-    """The Doctor asks Amiya; name both so embeddings and the reranker see who did what."""
-    for pronoun, name in (("我们", "博士和阿米娅"), ("咱们", "博士和阿米娅"), ("你们", "阿米娅她们"),
-                          ("我", "博士"), ("你", "阿米娅")):
+def speaker_view(query: str, profile: CharacterProfile) -> str:
+    """The player asks the character; name both so embeddings and the reranker see who did what."""
+    both = f"{profile.player}和{profile.name}"
+    for pronoun, name in (("我们", both), ("咱们", both), ("你们", f"{profile.name}她们"),
+                          ("我", profile.player), ("你", profile.name)):
         query = query.replace(pronoun, name)
     return query
 

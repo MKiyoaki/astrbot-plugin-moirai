@@ -27,7 +27,10 @@ class EvidenceAssembler:
     def __init__(self, reader: CanonReader, plan: TurnPlan, settings: EvidenceSettings) -> None:
         self.reader, self.plan, self.settings = reader, plan, settings
         reader.last_expansion_trace = {}
-        self.pack = EvidencePack("对方（博士）" if settings.doctor else "博士", settings.doctor)
+        player = reader.profile.player
+        self.pack = EvidencePack(f"对方（{player}）" if settings.doctor else player, settings.doctor, reader.profile)
+        self.pack.when = reader.time_label
+        self.pack.recent = reader.is_recent
         self.budget = settings.token_budget
         self.hits: list[Hit] = []
         self.overview_trace: dict | None = None

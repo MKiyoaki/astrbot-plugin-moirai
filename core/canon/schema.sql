@@ -1,4 +1,4 @@
--- canon.sqlite，schema_version 5。event_vec 和全文检索表由 store.py 按 encoder 维度与 FTS 模式创建。
+-- canon.sqlite，schema_version 6。event_vec 和全文检索表由 store.py 按 encoder 维度与 FTS 模式创建。
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
@@ -150,6 +150,18 @@ CREATE TABLE IF NOT EXISTS timeline_before (
   PRIMARY KEY (earlier, later),
   CHECK (earlier != later)
 );
+
+CREATE TABLE IF NOT EXISTS event_times (
+  event_id TEXT PRIMARY KEY REFERENCES events(event_id) ON DELETE CASCADE,
+  year INTEGER,
+  month INTEGER,
+  day INTEGER,
+  sort_key REAL NOT NULL,
+  label TEXT NOT NULL,
+  precision TEXT NOT NULL CHECK (precision IN ('day','month','season','year','span','era')),
+  origin TEXT NOT NULL CHECK (origin IN ('text','stage','story','inherited','note'))
+);
+CREATE INDEX IF NOT EXISTS idx_event_times_sort ON event_times(sort_key);
 
 CREATE TABLE IF NOT EXISTS facts (
   fact_id TEXT PRIMARY KEY,

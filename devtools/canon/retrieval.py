@@ -317,7 +317,8 @@ def main(argv=None) -> int:
                             write_report = False
                             return 0
                 known_events = {row[0] for row in reader.db.execute(
-                    "SELECT event_id FROM views WHERE character=? AND channel!='unstated'", (reader.character,))}
+                    f"SELECT event_id FROM {reader.views} WHERE character=? AND channel!='unstated'",
+                    (reader.character,))}
                 for number, case in enumerate(cases):
                     if number and args.pace > 0 and retrieval is not None:
                         time.sleep(args.pace)

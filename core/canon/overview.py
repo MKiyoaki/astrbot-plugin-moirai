@@ -9,33 +9,45 @@ from dataclasses import dataclass
 from .lexical import terms
 
 
-OVERVIEW_PATTERNS = (
-    "大体发生了什么", "经历了哪些", "卷入了哪些", "面临哪些",
-    "采取了哪些", "如何发展", "怎么变化", "如何展开", "如何一步步",
-    "是怎样袭击", "是怎样推动", "怎么撤离", "面临什么处境",
-    "采取了什么行动", "遭遇了什么", "怎样救助", "那段时间",
-    "有哪些重大转折", "后来面临了哪些", "来龙去脉", "前因后果",
-    "从头到尾", "整体经过", "主要转折", "都做了些什么", "整场战事",
-    "整件事",
+ACCOUNT = re.compile(
+    r"来龙去脉|前因后果|从头|整体经过|一步步|整件事"
+    r"|(?:经历|遭遇)(?:了|过)?些?(?:什么|哪些)|(?:如何|怎么|怎样)(?:发展|展开|变化|演变)"
 )
+TOPIC_ACCOUNT = re.compile(
+    r"讲讲|说说|聊聊|概括|大概|大体|经过|经历|那段时间|那阵子|那些年|这些年|那几年|最后怎么样|结局"
+    r"|后来(?:怎么样|怎样|如何|又)|发生(?:了|过)?些?什么(?:事情?)?[？?。]*$|出了?什么事"
+    r"|都(?:做|干)(?:了|过)?些?(?:什么|哪些)|(?:做|干)(?:了|过)?些(?:什么|哪些)"
+    r"|(?:遇到|碰到|面临|卷入|采取)(?:了|过)?些?(?:什么|哪些)"
+    r"|哪些(?:事|冲突|危机|行动|交锋|转折|选择|决定|经历|变化)|过得(?:怎么样|如何)"
+)
+SPECIFIC = re.compile(r"谁|叫什么|名字|全名|哪天|几号|几点|什么时候|说了什么|说过什么|用什么|什么颜色|头衔|生日|几岁|多大|具体")
 OVERVIEW_MAX_EVENTS = 10
 STORY_MAX_EVENTS = 16
 OVERVIEW_MAX_SCENES = 18
 OVERVIEW_MAX_CANDIDATES = 160
 
 
-def is_overview(query: str) -> bool:
-    """Recognize requests for a multi-event account without an extra model call."""
+def is_overview(query: str, topic: bool = True) -> bool:
+    """Recognize requests for a multi-event account without an extra model call.
+
+    Account wording alone qualifies; looser wording such as 讲讲 or 后来 needs a named topic, and a request
+    for one specific datum never does. Callers that already routed the turn keep the default topic=True.
+    """
     clean = re.sub(r"\s+", "", query)
-    return "具体" not in clean and any(pattern in clean for pattern in OVERVIEW_PATTERNS)
+    if SPECIFIC.search(clean):
+        return False
+    return bool(ACCOUNT.search(clean)) or (topic and bool(TOPIC_ACCOUNT.search(clean)))
+
+
+def is_account(query: str) -> bool:
+    return bool(ACCOUNT.search(re.sub(r"\s+", "", query)))
 
 
 def topic_terms(query: str, generic: frozenset[str]) -> list[str]:
     """Remove broad-question wording before scoring its story topic."""
-    clean = query
-    for phrase in ("大体发生了什么", "那场事件", "那段时间", "发生了什么",
-                   "经历了哪些", "是怎么", "是怎样", "怎么", "如何", "哪些",
-                   "什么", "后来", "事件", "那场", "在", "的", "了", "后", "又"):
+    clean = TOPIC_ACCOUNT.sub(" ", ACCOUNT.sub(" ", query))
+    for phrase in ("那场事件", "是怎么", "是怎样", "怎么", "如何", "哪些",
+                   "什么", "事件", "那场", "在", "的", "了", "后", "又"):
         clean = clean.replace(phrase, " ")
     return terms(clean, generic)
 

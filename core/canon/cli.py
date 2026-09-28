@@ -666,7 +666,7 @@ async def cmd_fact_apply(args) -> int:
     db.row_factory = sqlite3.Row
     try:
         version = db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
-        if version is None or version[0] not in ("3", "4"):
+        if version is None or version[0] not in ("3", "4", "5", "6"):
             raise ValueError("facts-apply 需要 schema_version 3 或以上；请先在数据库副本上运行 canon status")
         payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
         if payload.get("format") == "canon-fact-review-v1":
@@ -676,6 +676,26 @@ async def cmd_fact_apply(args) -> int:
     finally:
         db.close()
     print("已导入经过审阅的时间点、事实与证据链")
+    return 0
+
+
+async def cmd_calendar_apply(args) -> int:
+    import sqlite3
+    from collections import Counter
+    from .calendar import apply_event_times, resolve_event_times
+    from .store import ensure_schema
+    payload = json.loads(Path(args.entries).read_text(encoding="utf-8"))
+    db = sqlite3.connect(args.db)
+    try:
+        ensure_schema(db)
+        times = resolve_event_times(db, payload["entries"])
+        apply_event_times(db, times, payload.get("source") or Path(args.entries).name)
+        total = db.execute("SELECT count(*) FROM events").fetchone()[0]
+    finally:
+        db.close()
+    origins = Counter(item.origin for item in times.values())
+    print(f"已定位 {len(times)}/{total} 个事件的世界时间；来源："
+          + "、".join(f"{name} {count}" for name, count in origins.most_common()))
     return 0
 
 
@@ -767,6 +787,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("facts-apply", help="原子导入经人工审阅的时间事实包")
     p.add_argument("--db", required=True)
     p.add_argument("--input", required=True)
+    p = sub.add_parser("calendar-apply", help="按场景字幕和外部年表给事件定世界时间坐标；不调用模型，只存坐标")
+    p.add_argument("--db", required=True)
+    p.add_argument("--entries", required=True, help="年表条目 JSON，例如 devtools/canon/terra_timeline.py 的输出")
     p = sub.add_parser("facts-query", help="查询事实的世界时间有效性与证据链")
     p.add_argument("--db", required=True)
     p.add_argument("--subject", required=True)
@@ -778,7 +801,8 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"import": cmd_import, "status": cmd_status, "dump": cmd_dump, "bench": cmd_bench,
                "compare": cmd_compare, "judge": cmd_judge,
                "facts-suggest": cmd_fact_suggest, "facts-apply": cmd_fact_apply,
-               "facts-query": cmd_fact_query, "archive-import": cmd_archive_import}[args.cmd]
+               "facts-query": cmd_fact_query, "archive-import": cmd_archive_import,
+               "calendar-apply": cmd_calendar_apply}[args.cmd]
     return asyncio.run(handler(args))
 
 

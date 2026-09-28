@@ -36,7 +36,7 @@ def main(argv=None):
     from devtools.canon.retrieval import setup
 
     cases = [json.loads(line) for line in args.conversations.read_text().splitlines() if line.strip()]
-    persona = (args.code_root / "devtools/canon/amiya_persona_concise.txt").read_text()
+    persona = chat.DEFAULT_PERSONA.read_text(encoding="utf-8").strip()
     settings = argparse.Namespace(doctor=True, as_of=None, token_budget=args.token_budget,
                                  top_k=5, evidence_lines=4, show_sources=False, dry_run=False,
                                  temperature=args.temperature, archive_all=False)

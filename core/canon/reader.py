@@ -11,6 +11,7 @@ from itertools import zip_longest
 from pathlib import Path
 
 from . import retrieval as retrieval_settings
+from .character import profile_for
 from .context import expand_events
 from .lexical import BigramIndex, terms
 from .overview import (OVERVIEW_MAX_CANDIDATES, OVERVIEW_MAX_EVENTS, OVERVIEW_MAX_SCENES, STORY_MAX_EVENTS,
@@ -21,8 +22,6 @@ from .retrieval import fuse, speaker_view
 from .temporal import PREDICATES, resolve
 
 
-SELF_NAMES = frozenset(("阿米娅", "博士"))
-SELF_CONTEXT = SELF_NAMES | {"罗德岛"}
 LEXICAL_NOISE = ("还记得", "那一次", "那时候", "那次", "那天", "那时", "那场", "当时", "上次", "后来",
                  "为什么", "是什么", "是谁", "什么", "怎么", "知道", "是不是")
 LEXICAL_LIMIT = 50
@@ -30,11 +29,6 @@ ENTITY_LIMIT = 60
 PER_SCENE = 3
 SINGLE_LEFT = frozenset("和跟与被让叫问找给对向同帮见把替等陪救及或是说像连带请看喊")
 SINGLE_RIGHT = frozenset("第被和跟与的是在说也都就还又为把让给对向从同去来呢吗吧啊呀了着过当之他她那这会能要有没不怎以讲问叫救帮打做看找见一")
-SINGLE_BLOCK = frozenset((
-    "陈述", "陈旧", "陈列", "陈设", "陈年", "陈词", "陈腐", "辉煌", "今年", "去年", "明年", "那年", "当年",
-    "新年", "多年", "几年", "每年", "年轻", "年纪", "年代", "年龄", "命令", "口令", "其余", "多余", "天空",
-    "空中", "红色", "黑色", "黑暗", "希望", "失望", "山上", "雪山",
-))
 _CJK = re.compile(r"[一-鿿]+")
 _LATIN = re.compile(r"^[A-Za-z0-9'.-]+$")
 def _matches_alias(query: str, alias: str) -> list[tuple[int, int]]:
@@ -55,15 +49,13 @@ def _single_ok(text: str, i: int) -> bool:
     """A one-character name counts only between non-letters or name-friendly particles, never inside a word."""
     left = text[i - 1] if i > 0 else ""
     right = text[i + 1] if i + 1 < len(text) else ""
-    if (left and left + text[i] in SINGLE_BLOCK) or (right and text[i] + right in SINGLE_BLOCK):
-        return False
     return ((not left or not _CJK.fullmatch(left) or left in SINGLE_LEFT)
             and (not right or not _CJK.fullmatch(right) or right in SINGLE_RIGHT))
 
 
 
-def _amiya_question(row: sqlite3.Row) -> bool:
-    return row["speaker"] == "阿米娅" and row["text"].rstrip("…—.。 ").endswith(("？", "?"))
+def _own_question(row: sqlite3.Row, name: str) -> bool:
+    return row["speaker"] == name and row["text"].rstrip("…—.。 ").endswith(("？", "?"))
 
 
 def _identity_pairs(summary: str, names: set[str], lines: list[tuple[str, str]]) -> set[frozenset[str]]:
@@ -80,6 +72,13 @@ def _identity_pairs(summary: str, names: set[str], lines: list[tuple[str, str]])
     return pairs
 
 
+RECENT_MONTHS = 1
+
+
+def _month(key: float) -> int:
+    return int(key // 10000) * 12 + int(key // 100 % 100)
+
+
 class CanonReader:
     """Read canon without opening the write-oriented CanonStore."""
 
@@ -91,7 +90,13 @@ class CanonReader:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA query_only=ON")
         self.character = character
+        self.profile = profile_for(character)
         self.retrieval = retrieval
+        self.reported = self._reported() if self.profile.report_knowledge else None
+        self.views = "views" if self.reported is None else (
+            "(SELECT character,event_id,CASE WHEN channel='unstated' AND event_id IN "
+            f"(SELECT event_id FROM view_access a WHERE a.character=views.character AND ({self.profile.report_sql()})) "
+            "THEN 'reported' ELSE channel END AS channel FROM views)")
         self.last_channels: dict[str, dict[str, int]] = {}
         self.last_expansion_trace: dict = {}
         self.meta = dict(self.db.execute("SELECT key,value FROM meta"))
@@ -106,6 +111,7 @@ class CanonReader:
         ).fetchall()
         self._index_events({row["alias"]: row["entity_id"] for row in rows})
         self._index_scenes()
+        self._index_times()
         rows = [row for row in rows if len(row["alias"]) > 1 or not _CJK.fullmatch(row["alias"])
                 or self.entity_events.get(row["entity_id"])]
         self.aliases = sorted([(row["alias"], row["entity_id"]) for row in rows],
@@ -126,6 +132,24 @@ class CanonReader:
             title for row in self.db.execute("SELECT anchor FROM scenes")
             for title in re.findall(r"「([^」]+)」", row["anchor"] or "")
         }))
+
+    def _reported(self) -> dict[str, tuple[str, frozenset[str]]] | None:
+        """Unstated events that reached her through a report; she knows only the reported content and lines."""
+        if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='view_access'").fetchone() is None:
+            return None
+        reported: dict[str, tuple[str, frozenset[str]]] = {}
+        for row in self.db.execute(
+                "SELECT a.event_id,a.content,a.evidence FROM view_access a JOIN views v "
+                "ON v.event_id=a.event_id AND v.character=a.character "
+                f"WHERE a.character=? AND v.channel='unstated' AND ({self.profile.report_sql()}) ORDER BY a.event_id,a.ord",
+                (self.character,)):
+            content, keys = reported.get(row["event_id"], ("", frozenset()))
+            reported[row["event_id"]] = ("；".join(filter(None, (content, row["content"]))),
+                                         keys | frozenset(json.loads(row["evidence"])))
+        return reported
+
+    def _summary(self, event_id: str, summary: str) -> str:
+        return self.reported[event_id][0] if self.reported and event_id in self.reported else summary
 
     def _index_events(self, alias_ids: dict[str, int]) -> None:
         """Lexical documents and entity links, including extracted participants the entity table misses."""
@@ -151,7 +175,7 @@ class CanonReader:
             documents[event_id] = "\n".join((
                 row["topic"], row["summary"], "、".join(participants),
                 *(text for text, _ in self.beats.get(event_id, ())),
-            )).replace("{DOCTOR}", "博士").replace("@doctor", "博士")
+            )).replace(self.profile.player_placeholder, self.profile.player).replace(self.profile.player_token, self.profile.player)
             self.position[event_id] = row["narrative_pos"]
             self.event_order[event_id] = row["ord"]
             self.events_by_scene[row["scene_key"]].append(event_id)
@@ -191,6 +215,59 @@ class CanonReader:
             key: [scene for _, scene in sorted(values)] for key, values in collections.items()
         }
 
+    def _index_times(self) -> None:
+        """World-calendar labels per event; "now" is the latest main-story time she knows."""
+        self.times: dict[str, tuple[float, str]] = {}
+        self.recounted: set[str] = set()
+        self.now: tuple[float, str] | None = None
+        self.now_precision = ""
+        if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='event_times'").fetchone() is None:
+            return
+        self.times = {row["event_id"]: (row["sort_key"], row["label"])
+                      for row in self.db.execute("SELECT event_id,sort_key,label FROM event_times")}
+        if not self.times:
+            return
+        self.recounted = {row["event_id"] for row in self.db.execute(
+            "SELECT event_id FROM events WHERE in_world_time='past'")} - self.times.keys()
+        row = self.db.execute(
+            "SELECT t.sort_key,t.label,t.precision FROM event_times t JOIN events e ON e.event_id=t.event_id "
+            f"JOIN scenes s ON s.scene_key=e.scene_key JOIN {self.views} v ON v.event_id=t.event_id "
+            "WHERE v.character=? AND v.channel!='unstated' AND s.chapter_no IS NOT NULL "
+            "ORDER BY t.sort_key DESC LIMIT 1", (self.character,)).fetchone()
+        self.now = (row["sort_key"], row["label"]) if row else None
+        self.now_precision = row["precision"] if row else ""
+
+    def is_recent(self, event_id: str) -> bool:
+        """Dated in the current stretch, the only evidence that may speak for the present.
+
+        The stretch is the month of "now" and the month before; a season-precise "now" reaches two months back,
+        and a year-precise one covers its year.
+        """
+        if not self.now or event_id not in self.times:
+            return False
+        key, now = self.times[event_id][0], self.now[0]
+        if self.now_precision in ("year", "span", "era"):
+            return int(key // 10000) == int(now // 10000)
+        reach = 2 if self.now_precision == "season" else RECENT_MONTHS
+        return key <= now and _month(key) >= _month(now) - reach
+
+    def time_label(self, event_id: str) -> str:
+        if event_id in self.times:
+            return self.times[event_id][1]
+        return "往事" if event_id in self.recounted else ""
+
+    def hit(self, event_id: str, evidence_lines: int, prefer: str = "") -> Hit | None:
+        row = self.db.execute(
+            "SELECT e.scene_key,e.topic,e.summary,e.narrative_pos,s.anchor,v.channel "
+            "FROM events e JOIN scenes s ON s.scene_key=e.scene_key "
+            f"JOIN {self.views} v ON v.event_id=e.event_id WHERE e.event_id=? AND v.character=?",
+            (event_id, self.character)).fetchone()
+        if row is None:
+            return None
+        preferred = [key for key, text in self.event_lines[event_id] if prefer and prefer in text]
+        return Hit(event_id, row["scene_key"], row["anchor"], row["topic"], self._summary(event_id, row["summary"]),
+                   row["channel"], 1.0, row["narrative_pos"], self._evidence(event_id, preferred, evidence_lines))
+
     def close(self) -> None:
         self.db.close()
 
@@ -198,7 +275,7 @@ class CanonReader:
         return [name for name in self.entities_in(query) if self.entity_type.get(name) == "person"]
 
     def topic_mentions(self, query: str) -> list[str]:
-        return list(dict.fromkeys(name for _, _, name in self._spans(query) if name not in SELF_NAMES))
+        return list(dict.fromkeys(name for _, _, name in self._spans(query) if name not in self.profile.self_names))
 
     def _spans(self, text: str) -> list[tuple[int, int, str]]:
         occupied: list[tuple[int, int, str]] = []
@@ -210,7 +287,7 @@ class CanonReader:
         return sorted(occupied)
 
     def entities_in(self, text: str) -> list[str]:
-        names = [name for _, _, name in self._spans(text) if name not in SELF_CONTEXT]
+        names = [name for _, _, name in self._spans(text) if name not in self.profile.self_names | {self.profile.home}]
         return list(dict.fromkeys(names))
 
     def identity_hit(self, first: str, second: str) -> Hit | None:
@@ -220,7 +297,7 @@ class CanonReader:
         row = self.db.execute(
             "SELECT e.scene_key,e.topic,e.summary,e.narrative_pos,s.anchor,v.channel "
             "FROM events e JOIN scenes s ON s.scene_key=e.scene_key "
-            "JOIN views v ON v.event_id=e.event_id WHERE e.event_id=? AND v.character=?",
+            f"JOIN {self.views} v ON v.event_id=e.event_id WHERE e.event_id=? AND v.character=?",
             (event_id, self.character),
         ).fetchone()
         if row is None:
@@ -228,7 +305,7 @@ class CanonReader:
         preferred = [key for key, text in self.event_lines[event_id]
                      if text.startswith(first + "：") or text.startswith(second + "：")
                      or first in text or second in text]
-        return Hit(event_id, row["scene_key"], row["anchor"], row["topic"], row["summary"],
+        return Hit(event_id, row["scene_key"], row["anchor"], row["topic"], self._summary(event_id, row["summary"]),
                    row["channel"], 1.0, row["narrative_pos"], self._evidence(event_id, preferred, 3))
 
 
@@ -264,12 +341,12 @@ class CanonReader:
                 and (not json.loads(row["forms"]) or archive_id in json.loads(row["forms"]))]
 
     def semantic(self, query: str, doctor: bool) -> str:
-        return speaker_view(query) if doctor and retrieval_settings.SPEAKER_VIEW else query
+        return speaker_view(query, self.profile) if doctor and retrieval_settings.SPEAKER_VIEW else query
 
     def without_self(self, text: str) -> str:
         """Her own and the Doctor's names match nearly every event, so they never steer retrieval."""
         for start, end, name in reversed(self._spans(text)):
-            if name in SELF_NAMES:
+            if name in self.profile.self_names:
                 text = text[:start] + " " + text[end:]
         return text
 
@@ -290,7 +367,7 @@ class CanonReader:
                 for ev in fact["evidence"][:3]:
                     channel = ev["channel"] or "unstated"
                     lines.append(
-                        f"  证据 {ev['line_key']}（阿米娅渠道 {channel}）：{ev['text'][:100]}"
+                        f"  证据 {ev['line_key']}（{self.profile.name}渠道 {channel}）：{ev['text'][:100]}"
                     )
                 for change in fact["transitions"]:
                     lines.append(
@@ -353,6 +430,8 @@ class CanonReader:
             "JOIN lines l ON l.line_key=ee.line_key WHERE ee.event_id=? ORDER BY ee.ord",
             (event_id,),
         ).fetchall()
+        if self.reported and event_id in self.reported:
+            rows = [row for row in rows if row["line_key"] in self.reported[event_id][1]]
         by_key = {row["line_key"]: row for row in rows}
         beats = [json.loads(row["evidence"]) for row in self.db.execute(
             "SELECT evidence FROM event_beats WHERE event_id=? ORDER BY ord", (event_id,))]
@@ -360,7 +439,7 @@ class CanonReader:
         ordered = [key for key in dict.fromkeys([*preferred, *spread]) if key in by_key]
         rest = sorted(
             (row for row in rows if row["line_key"] not in ordered),
-            key=lambda row: (_amiya_question(row), row["speaker"] != "阿米娅", row["ord"]),
+            key=lambda row: (_own_question(row, self.profile.name), row["speaker"] != self.profile.name, row["ord"]),
         )
         ordered.extend(row["line_key"] for row in rest)
         return tuple(
@@ -387,7 +466,7 @@ class CanonReader:
             "SELECT e.event_id,e.scene_key,e.topic,e.summary,e.narrative_pos,"
             "s.anchor,s.tier,v.channel FROM events e "
             "JOIN scenes s ON s.scene_key=e.scene_key "
-            "JOIN views v ON v.event_id=e.event_id "
+            f"JOIN {self.views} v ON v.event_id=e.event_id "
             f"WHERE e.event_id IN ({marks}) AND v.character=?",
             (*candidate_ids, self.character),
         ).fetchall()
@@ -421,7 +500,7 @@ class CanonReader:
             per_scene[row["scene_key"]] += 1
             selected.append(Hit(
                 event_id=row["event_id"], scene_key=row["scene_key"], anchor=row["anchor"],
-                topic=row["topic"], summary=row["summary"], channel=row["channel"],
+                topic=row["topic"], summary=self._summary(row["event_id"], row["summary"]), channel=row["channel"],
                 score=score, position=row["narrative_pos"],
                 evidence=self._evidence(row["event_id"],
                                         [*self._line_keys(row["event_id"], query_terms),
@@ -450,7 +529,7 @@ class CanonReader:
         rows = self.db.execute(
             "SELECT e.event_id,e.scene_key,e.topic,e.summary,e.narrative_pos,"
             "s.anchor,v.channel FROM events e JOIN scenes s ON s.scene_key=e.scene_key "
-            "JOIN views v ON v.event_id=e.event_id "
+            f"JOIN {self.views} v ON v.event_id=e.event_id "
             f"WHERE e.event_id IN ({marks}) AND v.character=? AND v.channel!='unstated'",
             (*matching, self.character),
         ).fetchall()
@@ -462,12 +541,13 @@ class CanonReader:
                 for _, text in self.event_lines[row["event_id"]])),
             -lexical.get(row["event_id"], 0.0), -row["narrative_pos"], row["event_id"]))
         return [Hit(row["event_id"], row["scene_key"], row["anchor"], row["topic"],
-                    row["summary"], row["channel"], 1.0, row["narrative_pos"],
+                    self._summary(row["event_id"], row["summary"]), row["channel"], 1.0, row["narrative_pos"],
                     self._evidence(row["event_id"], matching[row["event_id"]], evidence_lines))
                 for row in rows[:3]]
 
     def overview_search(self, query: str, *, doctor: bool, evidence_lines: int = 1,
-                        personal: bool = False, contextual: bool = False) -> tuple[list[Hit], dict]:
+                        personal: bool = False, contextual: bool = False,
+                        story: bool | None = None) -> tuple[list[Hit], dict]:
         """Build one dense-backed pool, then select distinct story moments locally."""
         base, _ = self.search(query, top_k=40, evidence_lines=0, doctor=doctor)
         if contextual and base:
@@ -538,7 +618,7 @@ class CanonReader:
             "SELECT e.event_id,e.scene_key,e.topic,e.summary,e.narrative_pos,"
             "s.anchor,s.collection_id,s.collection_name,v.channel FROM events e "
             "JOIN scenes s ON s.scene_key=e.scene_key "
-            "JOIN views v ON v.event_id=e.event_id "
+            f"JOIN {self.views} v ON v.event_id=e.event_id "
             f"WHERE e.event_id IN ({marks}) AND v.character=?",
             (*ranked, self.character),
         ).fetchall()
@@ -554,9 +634,9 @@ class CanonReader:
             phase = min(2, 3 * scene_order.index(scene) // max(1, len(scene_order)))
             candidates.append(OverviewCandidate(
                 row["event_id"], scene, collection, relevance(row["event_id"]),
-                phase, self.event_documents[row["event_id"]][:300]))
+                phase, self._summary(row["event_id"], self.event_documents[row["event_id"]])[:300]))
             by_id[row["event_id"]] = row
-        story = not personal and not contextual and is_overview(query)
+        story = (not personal and not contextual and is_overview(query)) if story is None else story
         limit = STORY_MAX_EVENTS if story else OVERVIEW_MAX_EVENTS
         selected = select_events(candidates, limit=limit, pinned_collection=pinned)
         hits = []
@@ -565,7 +645,7 @@ class CanonReader:
             row = by_id[event_id]
             evidence = self.overview_evidence(event_id, [], evidence_lines)
             hits.append(Hit(event_id, row["scene_key"], row["anchor"], row["topic"],
-                            row["summary"], row["channel"], relevance(event_id),
+                            self._summary(event_id, row["summary"]), row["channel"], relevance(event_id),
                             row["narrative_pos"], evidence))
             ords = [line[0] for line in evidence]
             if ords:
@@ -622,7 +702,7 @@ class CanonReader:
         marks = ",".join("?" for _ in paths)
         rows = self.db.execute(
             "SELECT e.event_id,e.scene_key,e.topic,e.summary,e.narrative_pos,s.anchor,v.channel "
-            "FROM events e JOIN scenes s USING(scene_key) JOIN views v USING(event_id) "
+            f"FROM events e JOIN scenes s USING(scene_key) JOIN {self.views} v USING(event_id) "
             f"WHERE e.event_id IN ({marks}) AND v.character=?", (*paths, self.character)).fetchall()
         ranked = []
         for row in rows:
@@ -636,7 +716,7 @@ class CanonReader:
             score = (0.35 / (1 + seed_rank.get(path["seed"], 4)) + strength
                      + 0.10 * lexical.get(event, 0.0) / peak
                      + 0.35 * affinity.get(event, 0.0) / affinity_peak - 0.05 * (path["hop"] - 1))
-            ranked.append(Hit(event, row["scene_key"], row["anchor"], row["topic"], row["summary"],
+            ranked.append(Hit(event, row["scene_key"], row["anchor"], row["topic"], self._summary(event, row["summary"]),
                               row["channel"], score, row["narrative_pos"],
                               self.overview_evidence(event, self._line_keys(event, query_terms), 2)))
         chosen = []
@@ -656,9 +736,10 @@ def fact_search(reader: CanonReader, query: str, *, top_k: int, evidence_lines: 
                 doctor: bool, focus_person: str | None = None) -> tuple[list[Hit], str | None]:
     """Reserve evidence for each explicit part of a Doctor relationship question."""
     relation = doctor and any(term in query for term in ("关系", "联系"))
+    player = reader.profile.player
     self_related = any(term in query for term in (
         "我和", "和我", "我与", "与我", "我跟", "跟我",
-        "博士和", "和博士", "博士与", "与博士", "博士跟", "跟博士"))
+        f"{player}和", f"和{player}", f"{player}与", f"与{player}", f"{player}跟", f"跟{player}"))
     names = reader.persons_in(query) if relation and self_related else []
     composite = len(names) == 1
     hits, episode = reader.search(query, top_k=max(top_k, 24) if composite else top_k,
@@ -671,7 +752,7 @@ def fact_search(reader: CanonReader, query: str, *, top_k: int, evidence_lines: 
         episode = None
     if not composite:
         return hits, episode
-    relation_query = f"{names[0]}和博士之间的联系"
+    relation_query = f"{names[0]}和{player}之间的联系"
     related, _ = reader.search(relation_query, top_k=24, evidence_lines=evidence_lines,
                                doctor=doctor, focus_person=focus_person, known_only=True)
     if not related:

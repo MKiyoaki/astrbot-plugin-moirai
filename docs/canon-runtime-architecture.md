@@ -19,6 +19,7 @@
 | 生成 | `run_canon_chat.py` 的 `generate`、`ModelClient`（httpx，同步）、`Session`、`conversation_history` | |
 | 核验 | `core/canon/gateway.py` 的 `check_reply` | 会调用模型 |
 | 时间事实 | `core/canon/temporal.py` 的 `resolve`；`CanonReader.fact_context` | |
+| 世界日历 | `core/canon/calendar.py`（离线定坐标，`calendar-apply` 写 `event_times`）；`CanonReader.times`、`now`、`time_label`；`recall.py` 的 `timeline` / `recent` 路径 | 只存坐标，外部年表正文不入库；运行时只读 |
 | 评测 | `devtools/canon/retrieval.py`、`dialogue_eval.py`、`fact_focus.py` | 检索评测经 `EvidenceAssembler` 组包；只从终端导入默认库路径 `DEFAULT_DB`。`dialogue_eval.py` 仍整体运行终端的代码快照 |
 | 插件侧 | `core/config.py` 的 `get_canon_config`、`core/canon/config.py` 的 `CanonConfig` | 只有配置；`event_handler` 没有调用 canon |
 
@@ -61,6 +62,16 @@ Bot 的 `before_generation` 处理函数应构造 `EvidenceAssembler` 并调用 
 
 - 运行时只读，不写 `canon.sqlite`；聊天内容不写回 canon。
 - `unstated` 事件只做导航，不注入；`role_candidate` 获知标签和 `reported` 事实候选都不当作角色知识或世界事实。
+- 汇报即知情（2026-09-28 用户决定）：V11 视角为 `unstated`、但带 `direct_report`（报给阿米娅）或 `command_report`（报给博士或凯尔希）获知标签的事件，读取时渠道记为 `reported`（“经汇报得知”），视为阿米娅已知。作为罗德岛领导人，她知道汇报内容，但不必说明由谁转达。她只知道汇报本身：证据包里这类事件的摘要换成获知标签的 `content`，证据行只取标签引用的行。`record_available` 与 `role_candidate` 仍不算知情；V10 库没有 `view_access`，行为不变。规则写在 `CanonReader` 一处（`REPORT_ACCESS`），检索、组包、综述和评测的已知事件集合共用它。
+- 角色相关的写法只放在 `core/canon/character.py` 的 `CharacterProfile`，按 `CanonPersona.character` 取用。它记录自称名、玩家称谓与占位符（博士、{DOCTOR}、@doctor）、所属组织、汇报接收人、世界名与游戏术语，并带 `report_knowledge` 开关，和 `user_is_doctor` 开关并列。运行时模块（reader、retrieval、gateway、packing、query、overview、context、assembly、lexical、vector_index）不直接写角色名。抽取 prompt 是按版本冻结的故事包资产，不在此列。
+- 防护测试 `tests/test_canon_guards.py`（本地）钉住以下几项，改动时要同步更新文档、版本号和钉值：
+  - 各版本抽取与事实 prompt 的文本（文本变了必须换版本号，因为缓存按版本命中）；
+  - 核验与修订提示词在阿米娅配置下的渲染结果；
+  - 汇报即知情规则及其开关；
+  - 综述路线的问法类别；
+  - 默认人设的禁括号规则与 3,000 token 上限；
+  - 路由门槛；
+  - 运行时代码不写角色名，也不照抄评测题原句。
 - 证据编号可追溯：事件 `E`、档案 `A`、已审阅事实 `F` 都能回到 `line_key`；对话引用 `C` 只说明谁在聊天里说过什么，不证明世界事实。
 - 检索不调用模型；只有生成和核验调用。
 - 每个预算数字只有一个出处。

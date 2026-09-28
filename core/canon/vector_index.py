@@ -11,6 +11,8 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 
+from .character import profile_for
+
 from ..embedding.remote import RetrievalError, normalized_vector
 
 TEXT_RECIPE = "canon-event-topic-summary-participants-beats-v1"
@@ -31,6 +33,7 @@ class Document:
 
 
 def read_documents(source: Path, character: str = "amiya") -> list[Document]:
+    profile = profile_for(character)
     db = sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)
     try:
         db.execute("PRAGMA query_only=ON")
@@ -44,8 +47,8 @@ def read_documents(source: Path, character: str = "amiya") -> list[Document]:
             (character,),
         ).fetchall()
         return [Document(eid, "\n".join((topic, summary, "参与者：" + "、".join(json.loads(parts)),
-                                        *beats.get(eid, []))).replace("{DOCTOR}", "博士")
-                         .replace("@doctor", "博士")) for eid, topic, summary, parts in rows]
+                                        *beats.get(eid, []))).replace(profile.player_placeholder, profile.player)
+                         .replace(profile.player_token, profile.player)) for eid, topic, summary, parts in rows]
     finally:
         db.close()
 

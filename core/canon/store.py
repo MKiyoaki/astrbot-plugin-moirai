@@ -10,16 +10,29 @@ import datetime
 import json
 import logging
 import re
+import sqlite3
 from pathlib import Path
 
 import aiosqlite
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 _SCHEMA = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
 _PRAGMAS = ("PRAGMA foreign_keys=ON", "PRAGMA journal_mode=WAL", "PRAGMA busy_timeout=5000",
             "PRAGMA synchronous=NORMAL")
+SUPPORTED_VERSIONS = ("2", "3", "4", "5", SCHEMA_VERSION)
+
+
+def ensure_schema(db: sqlite3.Connection) -> None:
+    """Bring a built canon database to the current schema without touching its vectors or full-text index."""
+    row = db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+    if row is None or row[0] not in SUPPORTED_VERSIONS:
+        raise ValueError(f"不支持的 canon schema_version：{row[0] if row else None!r}")
+    db.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA +
+                     f"\nINSERT OR REPLACE INTO meta(key,value) VALUES ('schema_version','{SCHEMA_VERSION}');\nCOMMIT;")
+
+
 _TRIGRAM = """
 CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
   topic, summary, content='events', content_rowid='rid', tokenize='trigram'
@@ -99,7 +112,7 @@ class CanonStore:
                 has_meta = await cur.fetchone() is not None
             if has_meta:
                 version = (await self.get_meta()).get("schema_version")
-                if version not in ("2", "3", "4", SCHEMA_VERSION):
+                if version not in SUPPORTED_VERSIONS:
                     raise ValueError(f"不支持的 canon schema_version：{version!r}")
             else:
                 async with self.db.execute(
