@@ -155,6 +155,11 @@ def run_turns(args, chat, setup, cases: list[dict], budgets: list[int]) -> None:
                        "prompt_tokens": metrics.get("prompt_tokens"), "completion_tokens": metrics.get("completion_tokens"),
                        "reviewed": bool(session.report and session.report.reviewed),
                        "problems": len(session.report.problems) if session.report else 0,
+                       "issues": dict(session.report.issues) if session.report else {},
+                       "second_pass": bool(session.report and session.report.second_pass),
+                       "dropped": session.report.dropped if session.report else 0,
+                       "mended": session.report.mended if session.report else 0,
+                       "draft": session.draft, "check": session.report.stages if session.report else [],
                        "evidence": session.pack.render() if session.pack and session.pack.items else ""}
                 with args.out.open("a", encoding="utf-8") as handle:
                     handle.write(json.dumps(row, ensure_ascii=False) + "\n")

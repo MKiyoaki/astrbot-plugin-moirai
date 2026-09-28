@@ -91,6 +91,8 @@ def main(argv=None):
                                       persona=persona, profile=chat.persona_profile(persona))
                     row = {"case": case["id"], "split": case.get("split", "holdout"),
                            "turn": number, "query": query, "answer": session.history[-1]["content"],
+                           "draft": session.draft,
+                           "check": session.report.stages if session.report else [],
                            "seconds": time.perf_counter() - started,
                            "first_response_seconds": calls[0]["seconds"] if calls else None,
                            "peak_rss_mib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,

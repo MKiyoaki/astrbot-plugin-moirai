@@ -415,3 +415,93 @@ generation call using the same 2,400-token evidence pack returned in 10.1
 seconds (2,640 input and 2,712 completion tokens, including reasoning), but its
 draft was not reviewed and is not a quality result. This leaves end-to-end
 latency and reviewed answer quality unverified for the new pack.
+
+## Three-state review and targeted repair — 2026-09-28
+
+A live terminal test report attributed most visible errors to the hand-offs
+between retrieval, generation, review and repair rather than to any single
+stage. Three faults were traced to the checker:
+
+- A coherent revision was rechecked sentence by sentence, and every failing
+  sentence was simply cut. Numbered answers then opened with "the second one
+  was…", and long accounts lost whole nodes.
+- The review returned only true or false. A claim that contradicts the
+  evidence and a claim the current pack does not cover landed in one bucket,
+  so the logs could not tell a generation error from a retrieval miss.
+- A detail missing from the pack was never looked up. The pre-review refetch
+  searches only for names absent from the pack. So a place or ordering detail
+  that the canon does contain, and that an earlier turn had retrieved, was
+  deleted as unsupported.
+
+The review now returns `supported`, `contradicted` or `uncovered` per sentence.
+A conflict must cite the evidence it conflicts with, or it counts as a gap. At
+most three uncovered claim sentences are searched once with their own text,
+through the same `EvidenceAssembler.fetch` and turn budget as the existing name
+refetch. Revision notes differ by status: a conflict is corrected from the cited
+evidence. A gap costs only the unsupported detail and is never turned into a
+hedge, since the output rules forbid hinting at unknown events through
+uncertainty. A revised sentence that still fails gets one targeted second
+revision, and only its changed sentences are rechecked. After any code-side
+drop, a deterministic mend renumbers "第N个/点/条" list items and strips a
+leading connective whose preceding sentence was dropped. Counted events such
+as "第二次" are never renumbered, because they state facts.
+
+`CheckReport.stages` records every review, lookup, revision and recheck. The
+terminal's opt-in `--trace`, `dialogue_eval.py` and `budget_sweep.py` write it
+out, so a failed answer can be attributed to a stage. The 312 offline tests
+pass. The 316-question retrieval parity comparison is identical, because
+retrieval and packing were not touched.
+
+A live run on KCL `arc:chat` used the V11 chat copy at the 2,000-token budget.
+It had two parts: the 40-question sweep bank v2 judged by `arc:nexus`, and an
+eight-turn replay of the questions in the test report with `--trace`. g04 was
+dropped again after four judge timeouts.
+
+Compared with v1.2.24 at the same budget (n = 39, single runs, 95% interval
+about ±0.15):
+
+| Measure | v1.2.24 | v1.2.25 |
+|---|---:|---:|
+| Accuracy | 0.577 | 0.526 |
+| Full marks | 0.41 | 0.44 |
+| Hallucinated | 5.1% | 0% |
+| Unsupported claim present | 23% | 18% |
+| Median latency | 5.2 s | 8.3 s |
+| Median latency, turns with problems | 11.0 s | 13.9 s |
+| Mean calls | 4.05 | 4.72 |
+| Mean evidence tokens | 1,200 | 1,476 |
+
+Six questions went up and ten went down.
+
+- Seven of the ten came from a different recall route or a weaker draft, with
+  no repair involved.
+- One (new32) had an empty draft and fell back to the fixed "cannot remember"
+  line.
+- Three involved the second pass:
+  - d08: the second revision produced the correct answer, but the recheck
+    returned invalid JSON and failed closed.
+  - d17: a "no such memory" sentence was typed `conversation` without a C
+    citation, so the parser downgraded it.
+  - g01: a second revision split one sentence at "；", and the old quota on
+    fresh sentences dropped a supported one. The quota no longer applies to
+    the fully rechecked second pass.
+
+Turns without problems kept their latency; the cost sits in turns with
+problems, whose prompts grow with looked-up evidence. Of 31 reviewed turns:
+
+- Issue statuses: 28 uncovered, 2 contradicted.
+- Lookups: 27 claims in 20 turns; 16 claims added evidence.
+- Second pass: 8 turns.
+
+In the replay, the reviewer caught a borrowed place (a chapter-14 location
+attached to the chapter-12 event) and a speculation stated as fact (corrected
+to "she guessed"). Both were fixed with minimal edits. It also showed three
+remaining limits:
+
+- Deep turns fill the whole budget, so lookups in them find no room.
+- A lookup cannot widen an overview item that was clipped.
+- A recheck may reject a clause that an earlier pass accepted.
+
+The "turning points since Chernobog" answer still covered only two periods,
+because retrieval returned only two. The previous-question bleed did not
+reproduce, because the prior answer in history was intact.

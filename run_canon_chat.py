@@ -37,6 +37,8 @@ DEFAULT_DB = next((path for path in (V11_DB, FULL_DB, SAMPLE100_DB, LATEST_DB, T
                    if path.is_file()), FULL_DB)
 DEFAULT_PERSONA = ROOT / "devtools/canon/amiya_persona.txt"
 DEFAULT_QUESTIONS = ROOT / ".dev_data/canon/eval/retrieval-200-v1.jsonl"
+TRACE_DIR = ROOT / ".dev_data/canon/traces"
+ISSUE_LABEL = {"contradicted": "矛盾", "uncovered": "缺依据"}
 MAX_TOOL_ROUNDS = 2
 FALLBACK = "嗯……这件事我记不太清了。"
 OUTPUT_RULES = (
@@ -218,6 +220,7 @@ class Session:
     report: CheckReport | None = None
     metrics: dict = field(default_factory=dict)
     active_history: list[dict[str, str]] = field(default_factory=list)
+    draft: str = ""
 
 
 def conversation_history(history: list[dict], query: str, budget: int = 5000) -> list[dict]:
@@ -310,15 +313,21 @@ def trace_line(session: Session, calls: int) -> str:
         parts.append("按回复补查：" + "、".join(report.refetched))
     if report.reviewed:
         parts.append("核验：" + ("无效结果，按无依据处理" if report.review_failed
-                                else f"{len(report.problems)} 句无依据" if report.problems else "通过"))
+                                else issue_counts(report) if report.problems else "通过"))
+    if report.looked_up:
+        parts.append(f"按句补查 {report.looked_up} 句，{report.found} 句找到新记忆")
     if report.rewrote:
         parts.append(f"改写提问或出戏句 {report.rewrote} 句")
     if report.revised:
         parts.append("已修订")
+    if report.second_pass:
+        parts.append("复核未过的句子已二次修订")
     if report.rechecked:
         parts.append("已复核修订句")
     if report.dropped:
         parts.append(f"修订后又删去 {report.dropped} 句")
+    if report.mended:
+        parts.append(f"删句后补接 {report.mended} 处")
     if report.questions_removed:
         parts.append(f"删去结尾提问 {report.questions_removed} 句")
     if report.meta_removed:
@@ -332,6 +341,24 @@ def trace_line(session: Session, calls: int) -> str:
     return "[canon] " + "｜".join(parts)
 
 
+def issue_counts(report: CheckReport) -> str:
+    counts = [(label, sum(status == kind for status in report.issues.values())) for kind, label in ISSUE_LABEL.items()]
+    other = len(report.problems) - sum(count for _, count in counts)
+    return "、".join(f"{label} {count} 句" for label, count in (*counts, ("其他", other)) if count)
+
+
+def problem_lines(report: CheckReport) -> list[str]:
+    return [f"第 {index} 句「{report.sentences[index - 1].strip()}」："
+            + (f"[{ISSUE_LABEL[report.issues[index]]}] " if index in report.issues else "") + reason
+            for index, reason in sorted(report.problems.items())]
+
+
+def write_trace(path: Path, row: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
 def print_sources(session: Session) -> None:
     if session.pack is None:
         print("  [canon] 还没有对话")
@@ -342,8 +369,8 @@ def print_sources(session: Session) -> None:
     if session.pack is not None and not session.pack.items:
         print("  [canon] 没有调出记忆")
     if session.report and session.report.problems:
-        for index, reason in sorted(session.report.problems.items()):
-            print(f"  第 {index} 句「{session.report.sentences[index - 1].strip()}」：{reason}")
+        for line in problem_lines(session.report):
+            print(f"  {line}")
 
 
 def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, session: Session,
@@ -457,6 +484,7 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
     system = build_system(persona, args.doctor, pack, session.tools, archives)
     draft, calls = generate(llm, session, system, query, tools if session.tools else [], handlers,
                             args.temperature)
+    session.draft = draft
     if reader.retrieval and any(entry["tool"] == "canon_recall" for entry in recall.log):
         trace = reader.retrieval.last_trace
         print(f"[retrieval] {reader.retrieval.mode}；{'降级' if trace.get('degraded') else '就绪'}；"
@@ -471,6 +499,7 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
             conversation_ids={f"C{i}" for i in range(1, len(session.active_history) + 2)},
             profile=reader.profile,
             long_answer=any(entry.get("depth") == "deep" for entry in recall.log),
+            lookup=evidence.fetch,
         )
     else:
         answer, questions, meta = tidy(draft, allow_questions=False, profile=reader.profile)
@@ -490,9 +519,22 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
                        "first_response_seconds": request_metrics[0]["seconds"] if request_metrics else None,
                        "expansion_candidates": reader.last_expansion_trace.get("candidates", 0)}
     print(trace_line(session, calls + report.calls))
-    for index, reason in sorted(report.problems.items()):
-        print(f"  第 {index} 句「{report.sentences[index - 1].strip()}」：{reason}")
+    for line in problem_lines(report):
+        print(f"  {line}")
     print(f"阿米娅> {answer}")
+    if getattr(args, "trace", None):
+        write_trace(args.trace, {
+            "at": time.strftime("%Y-%m-%dT%H:%M:%S"), "db": str(getattr(args, "db", "")),
+            "model": getattr(llm, "model", None), "query": query, "history": session.active_history,
+            "tools": session.tool_queries, "recalls": recall.log,
+            "evidence": [{"eid": item.eid, "event_id": item.event_id, "channel": item.channel,
+                          "source": item.source, "when": reader.time_label(item.event_id)}
+                         for item in pack.items],
+            "evidence_text": pack.render(), "draft": draft, "check": report.stages,
+            "problems": {str(index): {"sentence": report.sentences[index - 1].strip(), "reason": reason,
+                                      "status": report.issues.get(index, "")}
+                         for index, reason in sorted(report.problems.items())},
+            "answer": answer, "metrics": session.metrics})
     session.history.extend(({"role": "user", "content": query},
                             {"role": "assistant", "content": answer}))
 
@@ -513,6 +555,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--archive-all", action="store_true",
                         help="档案查询也返回升变档案、其他形态和隐藏段（默认只返回本体形态）")
     parser.add_argument("--show-sources", action="store_true")
+    parser.add_argument("--trace", nargs="?", const=TRACE_DIR, type=Path, metavar="JSONL",
+                        help="每轮追加一行完整过程记录（工具调用、证据、初稿、逐句核验、修订与最终回复）；"
+                             "不填路径写到 .dev_data/canon/traces/ 下的新文件")
     parser.add_argument("--dry-run", action="store_true", help="只显示路线、检索与注入片段，不调用模型")
     parser.add_argument("--question", help="只问一次；不填则进入连续对话")
     parser.add_argument("--questions", nargs="?", const=DEFAULT_QUESTIONS, type=Path, metavar="JSONL",
@@ -538,6 +583,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("远程检索需要显式 --allow-remote")
     if args.top_k < 1 or args.token_budget < 0 or args.evidence_lines < 0:
         parser.error("top-k 需为正数；token-budget 和 evidence-lines 不能为负")
+    if args.trace == TRACE_DIR:
+        args.trace = TRACE_DIR / f"chat-{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
     if args.questions is not None:
         from devtools.canon.retrieval import main as retrieval_main
         probe_args = ["probe", "--db", str(args.db), "--mode", args.retrieval,
@@ -584,7 +631,8 @@ def main(argv: list[str] | None = None) -> int:
           f"prompt {reader.meta.get('prompt_version', '?')}；"
           f"{'只看检索' if llm is None else llm.model}；"
           f"{'博士模式' if args.doctor else '普通对话者模式'}")
-    print("本工具不写本地聊天记录；调用远程接口时，请以接口服务方的留存规则为准。")
+    print(f"[canon] 过程记录：{args.trace}（含剧情原文，只留在本机）" if args.trace and llm is not None else
+          "本工具不写本地聊天记录；调用远程接口时，请以接口服务方的留存规则为准。")
     if llm is not None:
         print(f"[canon] 由模型决定是否回忆：闲聊和日常不回忆、只调用一次；需要原作时用 canon_probe / canon_recall"
               f"（轻量或深度）{'或 operator_archive' if reader.has_archives else ''}；用到回忆才核验。"

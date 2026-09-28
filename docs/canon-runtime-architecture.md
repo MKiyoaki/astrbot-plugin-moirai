@@ -17,10 +17,10 @@
 | 调度 | `core/canon/assembly.py`：`EvidenceAssembler`、`EvidenceSettings` | 一轮一个实例，持有证据包和本轮预算；首轮预取、`canon_recall` / `canon_overview` 工具和近况事实块都经过它。自适应装填放宽的预算对之后的工具调用可见 |
 | 提示词与工具 | `run_canon_chat.py` 的 `knowledge`、`build_system`、`OUTPUT_RULES`、三个工具 schema 与回调 | Bot 的注入块属于 B7，另行决定 |
 | 生成 | `run_canon_chat.py` 的 `generate`、`ModelClient`（httpx，同步）、`Session`、`conversation_history` | |
-| 核验 | `core/canon/gateway.py` 的 `check_reply` | 会调用模型 |
+| 核验 | `core/canon/gateway.py` 的 `check_reply`、`parse_review`、`repair_note`、`mend` | 会调用模型。逐句结论三态（有依据 / 冲突 / 缺依据）；缺依据的句子经 `lookup` 回调（终端传 `EvidenceAssembler.fetch`）按句补查；复核未过的句子二次定点修订；删句后按规则补接。`CheckReport.stages` 记录每一步，供 `--trace` 和评测写出 |
 | 时间事实 | `core/canon/temporal.py` 的 `resolve`；`CanonReader.fact_context` | |
 | 世界日历 | `core/canon/calendar.py`（离线定坐标，`calendar-apply` 写 `event_times`）；`CanonReader.times`、`now`、`time_label`；`recall.py` 的 `timeline` / `recent` 路径 | 只存坐标，外部年表正文不入库；运行时只读 |
-| 评测 | `devtools/canon/retrieval.py`、`dialogue_eval.py`、`fact_focus.py` | 检索评测经 `EvidenceAssembler` 组包；只从终端导入默认库路径 `DEFAULT_DB`。`dialogue_eval.py` 仍整体运行终端的代码快照 |
+| 评测 | `devtools/canon/retrieval.py`、`dialogue_eval.py`、`budget_sweep.py`、`fact_focus.py`；终端 `--trace` | 检索评测经 `EvidenceAssembler` 组包；只从终端导入默认库路径 `DEFAULT_DB`。`dialogue_eval.py` 仍整体运行终端的代码快照 |
 | 插件侧 | `core/config.py` 的 `get_canon_config`、`core/canon/config.py` 的 `CanonConfig` | 只有配置；`event_handler` 没有调用 canon |
 
 测试（本机的 `tests/`）直接从 `core/canon` 导入，只有 `conversation_history` 仍从终端导入。
