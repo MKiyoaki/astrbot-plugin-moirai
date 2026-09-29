@@ -29,7 +29,7 @@ class EvidenceAssembler:
         reader.last_expansion_trace = {}
         player = reader.profile.player
         self.pack = EvidencePack(f"对方（{player}）" if settings.doctor else player, settings.doctor, reader.profile)
-        self.pack.when = reader.time_label
+        self.pack.when = reader.time_phrase
         self.pack.recent = reader.is_recent
         self.pack.sequence = getattr(reader, "sequence", None)
         self.budget = settings.token_budget

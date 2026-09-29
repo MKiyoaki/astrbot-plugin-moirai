@@ -11,6 +11,7 @@ from itertools import zip_longest
 from pathlib import Path
 
 from . import retrieval as retrieval_settings
+from .anchors import belongs, interval, most_specific, place, present, select
 from .character import profile_for
 from .context import expand_events
 from .lexical import BigramIndex, terms
@@ -120,6 +121,7 @@ class CanonReader:
         self._index_events({row["alias"]: row["entity_id"] for row in rows})
         self._index_scenes()
         self._index_times()
+        self._index_anchors()
         rows = [row for row in rows if len(row["alias"]) > 1 or not _CJK.fullmatch(row["alias"])
                 or self.entity_events.get(row["entity_id"])]
         self.aliases = sorted([(row["alias"], row["entity_id"]) for row in rows],
@@ -296,10 +298,66 @@ class CanonReader:
         reach = 2 if self.now_precision == "season" else RECENT_MONTHS
         return key <= now and _month(key) >= _month(now) - reach
 
+    def _index_anchors(self) -> None:
+        """Each event's anchor: the most specific known anchor whose story range holds its scene.
+
+        Recollections and events whose direct date lies far from the anchor are left to be placed by date. An
+        anchor with no event the character knows is dropped, so she never tells time by an event she missed.
+        """
+        self.anchors: list = []
+        self.placing: list = []
+        self.anchor_of: dict[str, object] = {}
+        self.intervals: dict[str, tuple[int, int]] = {}
+        table = self.profile.anchors
+        if not table or not self.times:
+            return
+        scenes = [dict(row) for row in self.db.execute(
+            "SELECT scene_key,collection_name,chapter_no,story_code,story_name,avg_tag FROM scenes "
+            "ORDER BY narrative_pos")]
+        ranges = {anchor.name: set().union(*(select(scenes, stages) for stages in anchor.stages)) for anchor in table}
+        direct: dict[str, tuple[int, int] | None] = {}
+        for row in self.db.execute("SELECT event_id,year,month,day,precision,sort_key,label,origin FROM event_times"):
+            span = interval(row["year"], row["month"], row["day"], row["precision"], row["sort_key"], row["label"])
+            if span:
+                self.intervals[row["event_id"]] = span
+                if row["origin"] in ("text", "stage", "story"):
+                    direct[row["event_id"]] = span
+        known = {row["event_id"] for row in self.db.execute(
+            f"SELECT event_id FROM {self.views} WHERE character=? AND channel!='unstated'", (self.character,))}
+        members: dict[str, object] = {}
+        for row in self.db.execute("SELECT event_id,scene_key,in_world_time FROM events"):
+            if row["in_world_time"] == "past":
+                continue
+            anchor = most_specific(anchor for anchor in table if row["scene_key"] in ranges[anchor.name]
+                                   and belongs(anchor, direct.get(row["event_id"])))
+            if anchor:
+                members[row["event_id"]] = anchor
+        usable = {anchor.name for event_id, anchor in members.items() if event_id in known}
+        self.anchors = [anchor for anchor in table if anchor.name in usable]
+        self.anchor_of = {event_id: anchor for event_id, anchor in members.items() if anchor.name in usable}
+        self.placing = [anchor for anchor in self.anchors if not anchor.parent and anchor.places]
+
     def time_label(self, event_id: str) -> str:
         if event_id in self.times:
             return self.times[event_id][1]
         return "往事" if event_id in self.recounted else ""
+
+    def time_phrase(self, event_id: str, *, recent: bool = True) -> str:
+        """What the character is shown for an event's time: an anchor phrase, or the calendar without anchors.
+
+        Evidence from the current stretch is marked 最近, the only evidence that may speak for the present.
+        """
+        anchor = self.anchor_of.get(event_id)
+        if anchor:
+            phrase = anchor.name + anchor.during
+        elif self.placing and event_id in self.intervals:
+            phrase = place(self.intervals[event_id], self.times[event_id][0], self.placing)
+        else:
+            phrase = self.time_label(event_id)
+        return phrase + ("·最近" if recent and phrase and self.is_recent(event_id) else "")
+
+    def now_phrase(self) -> str:
+        return present(self.now[0], self.placing) if self.placing and self.now else ""
 
     def hit(self, event_id: str, evidence_lines: int, prefer: str = "") -> Hit | None:
         row = self.db.execute(

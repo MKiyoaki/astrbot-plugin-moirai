@@ -54,6 +54,13 @@ def now_phrase(label: str) -> str:
     return match.group(1) + ("上旬" if day <= 10 else "中旬" if day <= 20 else "下旬")
 
 
+def present_phrase(reader) -> str:
+    """"Now" in the words the evidence uses: the anchor phrase when the canon has anchors, else the calendar."""
+    if not reader.now:
+        return ""
+    return reader.now_phrase() or now_phrase(reader.now[1])
+
+
 def recall_tool(now: str = "") -> dict:
     """The recall tool; when the canon carries a calendar, it states the present so time words have an anchor."""
     description = ("回忆原作里你知道的事。闲聊、日常、此刻的感受和回应不需要调用。"
@@ -245,6 +252,8 @@ class CanonRecall:
                 group["events"].sort()
                 group["label"] = max(group["labels"], key=lambda label: (group["labels"][label], label.endswith("月")))
                 middle = group["events"][len(group["events"]) // 2]
+                if reader.anchors:
+                    group["label"] = reader.time_phrase(middle[2], recent=False)
                 group["order"] = (middle[0], min(event[1] for event in group["events"]))
             self._axis = sorted(groups.values(), key=lambda group: group["order"])
         return self._axis
@@ -282,7 +291,7 @@ class CanonRecall:
                 chosen.pop(0 if not anchors & {event[2] for event in chosen[0]["events"]} else -1)
             hits = hits[:2]
         rows = [self._row(group, anchors) for group in chosen]
-        head = f"现在大约是{now_phrase(reader.now[1])}。按时间先后，只列你知道的事："
+        head = f"现在大约是{present_phrase(reader)}。按时间先后，只列你知道的事："
         axis_item = None
         while rows:
             axis_item = pack.add(f"timeline:{len(pack.items)}", "时间轴", "timeline", "\n".join([head, *rows]), (),

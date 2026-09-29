@@ -24,7 +24,7 @@ from core.canon.assembly import EvidenceSettings
 from core.canon.packing import CHANNEL_LABEL, clip, estimate_tokens, fill
 from core.canon.query import GENERIC_CHARS, plan_turn, route
 from core.canon.reader import CanonReader
-from core.canon.recall import PROBE_TOOL, TURN_BUDGET, VERIFY_EXTRA, CanonRecall, now_phrase, recall_tool
+from core.canon.recall import PROBE_TOOL, TURN_BUDGET, VERIFY_EXTRA, CanonRecall, present_phrase, recall_tool
 
 ROOT = Path(__file__).resolve().parent
 NEXUS_DB = ROOT / ".dev_data/canon/v7/20/api/20260924-000545-kcl-arc_nexus/canon.sqlite"
@@ -57,6 +57,7 @@ OUTPUT_RULES = (
     "也不要编造博士平时的习惯。可以表达此刻的感受、立场和疑问，不必每轮都用问题收尾。"
     "\n· 对未来的判断只能基于你知道的事，并明确是判断；不知情的事件不能靠加上可能、记不清或不确定来透露。"
 )
+TIME_RULE = "\n· 说到事情发生的时间，照记忆括号里的说法，用某件大事期间、之前或之后来讲，不要说出年份、月份或日期。"
 ARCHIVE_RULE = ("\n· 需要某人的出身、种族、生日、履历、体检、病情或作战情报时，调用 operator_archive；"
                 "查到的是罗德岛档案上的记载，要说成“档案上写着”，不能说成自己亲身经历。")
 ARCHIVE_TOOL = {
@@ -105,7 +106,8 @@ RECALL_POLICY = (
     "别人现在的伤亡、下落、身份或阵营变化这类重大状态，只说你最后知道的情况。"
 )
 MEMORY_NOTE = (
-    "以下是这一轮回忆起的片段。说到别人现在或最近的情况，只能依据括号里时间接近现在的片段；更早的事要说成当时的事，"
+    "以下是这一轮回忆起的片段。括号里是事情发生的时间，标着“最近”的才是接近现在的事。"
+    "说到别人现在或最近的情况，只能依据标着“最近”的片段；更早的事要说成当时的事，"
     "例如“我最后知道……是在……的时候”。排列不代表事件先后；有〔先后〕一行时以它为准，否则以括号里的时间为准；"
     "两者都排不出、也没有原文依据时，不用随后连接两件事。两件事之间的因果没有原话依据时，说成你自己的判断，例如“在我看来……”。"
     "不要把概括写成原话引号。标为不知情的事不要说成亲历。编号只供你对照，不要说出来。"
@@ -120,9 +122,10 @@ def knowledge(pack: EvidencePack, tools: bool) -> str:
     return RECALL_POLICY if tools else "[你的记忆]\n本轮没有调出记忆。讲到原作里的具体事件时，说记不清就好。"
 
 
-def build_system(persona: str, doctor: bool, pack: EvidencePack, tools: bool, archives: bool = False) -> str:
+def build_system(persona: str, doctor: bool, pack: EvidencePack, tools: bool, archives: bool = False,
+                 anchored: bool = False) -> str:
     identity = "当前对话者是博士。" if doctor else "当前对话者的博士身份未确认，不要自行认定。"
-    rules = OUTPUT_RULES + (ARCHIVE_RULE if tools and archives else "")
+    rules = OUTPUT_RULES + (TIME_RULE if anchored else "") + (ARCHIVE_RULE if tools and archives else "")
     return "\n\n".join((persona, identity, knowledge(pack, tools), rules))
 
 
@@ -508,7 +511,7 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
         return body + "\n" + "\n".join(notes)
 
     def messages() -> list[dict]:
-        system = build_system(persona, args.doctor, pack, False)
+        system = build_system(persona, args.doctor, pack, False, anchored=bool(reader.placing))
         return [{"role": "system", "content": system}, *session.active_history,
                 {"role": "user", "content": query}]
 
@@ -533,10 +536,10 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
         return "\n".join(parts)
 
     archives = reader.has_archives
-    now = now_phrase(reader.now[1]) if reader.now else ""
+    now = present_phrase(reader)
     tools = [PROBE_TOOL, recall_tool(now), *([ARCHIVE_TOOL] if archives else [])]
     handlers = {"canon_probe": probe, "canon_recall": remember, "operator_archive": archive}
-    system = build_system(persona, args.doctor, pack, session.tools, archives)
+    system = build_system(persona, args.doctor, pack, session.tools, archives, anchored=bool(reader.placing))
     draft, calls = generate(llm, session, system, query, tools if session.tools else [], handlers,
                             args.temperature)
     if session.tools and supplement_recall(reader, recall, query, args.doctor):
@@ -588,7 +591,8 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
             "model": getattr(llm, "model", None), "query": query, "history": session.active_history,
             "tools": session.tool_queries, "recalls": recall.log,
             "evidence": [{"eid": item.eid, "event_id": item.event_id, "channel": item.channel,
-                          "source": item.source, "when": reader.time_label(item.event_id)}
+                          "source": item.source, "when": reader.time_label(item.event_id),
+                          "said": reader.time_phrase(item.event_id)}
                          for item in pack.items],
             "evidence_text": pack.render(), "order": session.order, "draft": draft, "check": report.stages,
             "problems": {str(index): {"sentence": report.sentences[index - 1].strip(), "reason": reason,

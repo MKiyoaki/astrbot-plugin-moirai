@@ -20,6 +20,7 @@
 | 核验 | `core/canon/gateway.py` 的 `check_reply`、`parse_review`、`repair_note`、`mend`；先后行来自 `CanonReader.sequence`，由 `EvidencePack.order_note` 生成 | 会调用模型。逐句结论三态（有依据 / 冲突 / 缺依据）；缺依据的句子经 `lookup` 回调（终端传 `EvidenceAssembler.fetch`）按句补查；复核未过的句子二次定点修订；删句后按规则补接。`CheckReport.stages` 记录每一步，供 `--trace` 和评测写出 |
 | 时间事实 | `core/canon/temporal.py` 的 `resolve`；`CanonReader.fact_context` | |
 | 世界日历 | `core/canon/calendar.py`（离线定坐标，`calendar-apply` 写 `event_times`）；`CanonReader.times`、`now`、`time_label`；`recall.py` 的 `timeline` / `recent` 路径 | 只存坐标，外部年表正文不入库；运行时只读 |
+| 时间说法 | `core/canon/anchors.py`（锚点的范围选择、归属与定位措辞）；锚点表在 `character.py` 的 `ANCHORS`；`CanonReader.time_phrase`、`now_phrase`；`recall.py` 的 `present_phrase` | 给模型看的时间用大事件说，日历只在底下排序；证据包的 `when` 接 `time_phrase` |
 | 评测 | `devtools/canon/retrieval.py`、`dialogue_eval.py`、`budget_sweep.py`、`fact_focus.py`；终端 `--trace` | 检索评测经 `EvidenceAssembler` 组包；只从终端导入默认库路径 `DEFAULT_DB`。`dialogue_eval.py` 仍整体运行终端的代码快照 |
 | 插件侧 | `core/config.py` 的 `get_canon_config`、`core/canon/config.py` 的 `CanonConfig` | 只有配置；`event_handler` 没有调用 canon |
 
