@@ -22,9 +22,9 @@ from core.canon.gateway import CheckReport, EvidencePack, Memory, check_reply, t
 from core.canon.lexical import terms
 from core.canon.assembly import EvidenceSettings
 from core.canon.packing import CHANNEL_LABEL, clip, estimate_tokens, fill
-from core.canon.query import GENERIC_CHARS
+from core.canon.query import GENERIC_CHARS, plan_turn, route
 from core.canon.reader import CanonReader
-from core.canon.recall import PROBE_TOOL, TURN_BUDGET, CanonRecall, now_phrase, recall_tool
+from core.canon.recall import PROBE_TOOL, TURN_BUDGET, VERIFY_EXTRA, CanonRecall, now_phrase, recall_tool
 
 ROOT = Path(__file__).resolve().parent
 NEXUS_DB = ROOT / ".dev_data/canon/v7/20/api/20260924-000545-kcl-arc_nexus/canon.sqlite"
@@ -41,6 +41,10 @@ TRACE_DIR = ROOT / ".dev_data/canon/traces"
 ISSUE_LABEL = {"contradicted": "矛盾", "uncovered": "缺依据"}
 MAX_TOOL_ROUNDS = 2
 FALLBACK = "嗯……这件事我记不太清了。"
+WRAP_UP = "（回忆次数已用完，不要再调用工具；只根据上面回忆起的内容直接回答，没有的就说记不清。）"
+RETRY_NOTE = "请直接用中文回答，不要输出任何工具调用。"
+TOOL_MARKUP = re.compile(r"<[｜|]+\s*DSML|<tool_call>|<function_calls>|<[｜|]tool[▁_ ]calls?[▁_ ]begin")
+MODEL_TYPE_ALIASES = {"oai": "openai"}
 OUTPUT_RULES = (
     "[回复要求]\n"
     "· 先回应博士说的话；自然交流时可以顺势问一句，不要用反问代替回答。拿不准过去的事实时说清楚哪部分记不清。\n"
@@ -91,7 +95,10 @@ def persona_profile(persona: str) -> str:
 
 RECALL_POLICY = (
     "[回忆方式]\n先判断这句话需不需要回忆原作：\n"
-    "· 闲聊、日常、此刻的感受、对博士的回应，以及本次对话里说过的事：不需要回忆，直接回答。罗德岛上的日常近况可以自然地聊。\n"
+    "· 只有明显不涉及过去经历的话才不需要回忆：问候、闲聊、此刻的感受、对博士的回应，以及本次对话里说过的事。"
+    "罗德岛上的日常近况（天气、饮食、作息）可以自然地聊。\n"
+    "· 问到某个人说过什么、做过什么、多久、几个、为什么、在哪里这类可以核对的细节，即使问法像在聊眼前的事，也要回忆；"
+    "拿不准是眼前的事还是过去的事时，先回忆，不要凭印象直接回答。\n"
     "· 需要原作里某件具体的事、某人某地的经历、你对某人的看法或某人最后的情况：调用 canon_recall，默认 depth=light，选最贴近的 path。\n"
     "· 需要梳理多段经过、前因后果：canon_recall 用 depth=deep。\n"
     "· 不确定该回忆哪个人物、地点或篇章时，先调用 canon_probe。\n"
@@ -99,8 +106,9 @@ RECALL_POLICY = (
 )
 MEMORY_NOTE = (
     "以下是这一轮回忆起的片段。说到别人现在或最近的情况，只能依据括号里时间接近现在的片段；更早的事要说成当时的事，"
-    "例如“我最后知道……是在……的时候”。排列不代表事件先后，先后以括号里的时间为准；没有时间也没有原文依据时，不用随后、因此连接两件事，"
-    "也不要把概括写成原话引号。标为不知情的事不要说成亲历。编号只供你对照，不要说出来。"
+    "例如“我最后知道……是在……的时候”。排列不代表事件先后；有〔先后〕一行时以它为准，否则以括号里的时间为准；"
+    "两者都排不出、也没有原文依据时，不用随后连接两件事。两件事之间的因果没有原话依据时，说成你自己的判断，例如“在我看来……”。"
+    "不要把概括写成原话引号。标为不知情的事不要说成亲历。编号只供你对照，不要说出来。"
 )
 
 
@@ -108,7 +116,7 @@ def knowledge(pack: EvidencePack, tools: bool) -> str:
     if pack.items:
         return "\n".join(("[你的记忆]", MEMORY_NOTE,
                           "摘要中可能夹有博士未说出口的想法或感受；那不是你能直接回忆的见闻，只转述听见的台词和看见的行动。",
-                          pack.render()))
+                          pack.render(), *filter(None, (pack.order_note(),))))
     return RECALL_POLICY if tools else "[你的记忆]\n本轮没有调出记忆。讲到原作里的具体事件时，说记不清就好。"
 
 
@@ -125,6 +133,7 @@ def _model_settings(model_type: str | None) -> tuple[str, str, str, float]:
         raise ValueError("找不到 run_config.py；请按 run_config.py.example 配置模型") from exc
     chosen = model_type or getattr(config, "CANON_CHAT_MODEL_TYPE", "") or getattr(
         config, "CANON_MODEL_TYPE", "") or getattr(config, "MODEL_TYPE", "lmstudio")
+    chosen = MODEL_TYPE_ALIASES.get(chosen, chosen)
     if chosen == "kcl":
         url = getattr(config, "KCL_API_URL", "https://ai.create.kcl.ac.uk/api/v1")
         key = os.environ.get("CANON_CHAT_API_KEY") or getattr(config, "KCL_API_KEY", "")
@@ -133,13 +142,17 @@ def _model_settings(model_type: str | None) -> tuple[str, str, str, float]:
         url = "https://api.deepseek.com"
         key = os.environ.get("CANON_CHAT_API_KEY") or getattr(config, "DEEPSEEK_API_KEY", "")
         model = getattr(config, "DEEPSEEK_MODEL", "")
+    elif chosen == "openai":
+        url = getattr(config, "OPENAI_API_URL", "https://api.openai.com/v1")
+        key = os.environ.get("CANON_CHAT_API_KEY") or getattr(config, "OPENAI_API_KEY", "")
+        model = getattr(config, "OPENAI_MODEL", "")
     elif chosen == "lmstudio":
         url = getattr(config, "LMSTUDIO_API_URL", "http://localhost:1234/v1")
         key = "lm-studio"
         model = getattr(config, "LMSTUDIO_MODEL", "")
     else:
         raise ValueError(f"不支持的模型类型：{chosen}")
-    if not key or key == "your_deepseek_api_key_here" or not model:
+    if not key or key in ("your_deepseek_api_key_here", "your_openai_api_key_here") or not model:
         raise ValueError(f"run_config.py 中 {chosen} 的模型名或 API key 未配置")
     timeout = float(getattr(config, "CANON_TIMEOUT", None) or getattr(config, "TIMEOUT", 300))
     return str(url).rstrip("/"), str(key), str(model), timeout
@@ -154,6 +167,7 @@ class ModelClient:
         self.url, self.key, self.model = url, key, model
         self.client = httpx.Client(timeout=timeout)
         self.request_metrics: list[dict] = []
+        self.omit_temperature = False
 
     def close(self) -> None:
         self.client.close()
@@ -172,18 +186,27 @@ class ModelClient:
                 detail = re.sub(r"\s+", " ", error.replace(self.key, "[API key hidden]")).strip()[:240]
         return f"：{detail}" if detail else "（接口未提供可显示的原因）"
 
-    def chat(self, messages: list[dict], temperature: float,
-             tools: list[dict] | None = None) -> dict:
-        body: dict = {"model": self.model, "messages": messages, "temperature": temperature}
-        if tools:
-            body["tools"] = tools
-            body["tool_choice"] = "auto"
-        started = time.perf_counter()
-        response = self.client.post(
+    def _post(self, body: dict) -> httpx.Response:
+        return self.client.post(
             f"{self.url}/chat/completions",
             headers={"Authorization": f"Bearer {self.key}"},
             json=body,
         )
+
+    def chat(self, messages: list[dict], temperature: float,
+             tools: list[dict] | None = None, tool_choice: str = "auto") -> dict:
+        body: dict = {"model": self.model, "messages": messages, "temperature": temperature}
+        if tools:
+            body["tools"] = tools
+            body["tool_choice"] = tool_choice
+        if self.omit_temperature:
+            body.pop("temperature")
+        started = time.perf_counter()
+        response = self._post(body)
+        if response.status_code == 400 and "temperature" in body and "temperature" in self._detail(response).lower():
+            body.pop("temperature")
+            self.omit_temperature = True
+            response = self._post(body)
         elapsed = time.perf_counter() - started
         try:
             usage = response.json().get("usage") or {}
@@ -221,6 +244,7 @@ class Session:
     metrics: dict = field(default_factory=dict)
     active_history: list[dict[str, str]] = field(default_factory=list)
     draft: str = ""
+    order: str = ""
 
 
 def conversation_history(history: list[dict], query: str, budget: int = 5000) -> list[dict]:
@@ -272,8 +296,17 @@ def generate(llm: ModelClient, session: Session, system: str, query: str,
     retried_empty = False
     while True:
         offer = session.tools and rounds < MAX_TOOL_ROUNDS
+        wrap_up = bool(session.tools and tools and not offer)
+        if wrap_up and messages[-1]["role"] == "tool" and WRAP_UP not in messages[-1]["content"]:
+            messages[-1] = {**messages[-1], "content": f"{messages[-1]['content']}\n{WRAP_UP}"}
         try:
-            message = llm.chat(messages, temperature, tools if offer else None)
+            if wrap_up:
+                try:
+                    message = llm.chat(messages, temperature, tools, tool_choice="none")
+                except ToolsRejected:
+                    message = llm.chat(messages, temperature, None)
+            else:
+                message = llm.chat(messages, temperature, tools if offer else None)
         except ToolsRejected as exc:
             session.tools = False
             print(f"[canon] 接口不接受工具调用，本次会话改为不带工具：{exc}")
@@ -289,10 +322,30 @@ def generate(llm: ModelClient, session: Session, system: str, query: str,
                 result = handler(_tool_args(call)) if handler else f"没有名为 {name} 的工具。"
                 messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": result})
             continue
-        if not message["content"] and not retried_empty:
+        unusable = not message["content"] or (wrap_up and TOOL_MARKUP.search(message["content"]))
+        if unusable and not retried_empty:
             retried_empty = True
+            if wrap_up:
+                messages = [*messages, {"role": "user", "content": RETRY_NOTE}]
             continue
         return message["content"], calls
+
+
+def supplement_recall(reader: CanonReader, recall: CanonRecall, query: str, doctor: bool) -> bool:
+    """Safety net: when the model recalled nothing, a story question is still recalled once, as the local router reads it."""
+    if any(entry["tool"] == "canon_recall" for entry in recall.log):
+        return False
+    plan = route(reader, plan_turn(reader, query, None, None), query, doctor)
+    if plan.lane not in ("canon", "status"):
+        return False
+    if plan.lane == "status" and plan.subjects:
+        recall.recall(plan.search_query, "latest", plan.subjects[0], "light")
+    else:
+        path, depth = (("arc", "deep") if plan.overview else ("reason", "light") if plan.reason
+                       else ("impression", "light") if plan.impression else ("event", "light"))
+        recall.recall(plan.search_query, path, "", depth)
+    recall.log[-1]["fallback"] = True
+    return bool(recall.pack.items)
 
 
 def tier_label(log: list[dict]) -> str:
@@ -334,7 +387,9 @@ def trace_line(session: Session, calls: int) -> str:
         parts.append(f"删去出戏句 {report.meta_removed} 句")
     parts.append(f"模型调用 {calls} 次")
     if session.metrics:
-        parts.append(f"证据 {session.metrics['evidence_tokens']}/{session.metrics['evidence_budget']} token（估算）")
+        parts.append(f"证据 {session.metrics['evidence_tokens']}/{session.metrics['evidence_budget']} token（估算"
+                     + ("，含核验补查" if session.metrics["evidence_tokens"] > session.metrics["evidence_budget"] else "")
+                     + "）")
         parts.append(f"本轮 {session.metrics['seconds']:.1f}s")
         if session.metrics.get("prompt_tokens") is not None:
             parts.append(f"API 输入/输出 {session.metrics['prompt_tokens']}/{session.metrics['completion_tokens']}")
@@ -469,7 +524,7 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
         dialogue = [*session.active_history, {"role": "user", "content": query}]
         identity = ("[对话者]\n当前对话者是博士；[资料]里的“对方（博士）”就是当前对话者。" if args.doctor else
                     "[对话者]\n当前对话者不是博士；[资料]里的“博士”是另一个人，与博士有关的经历不算和当前对话者的共同经历。")
-        parts = [identity, "", "[资料]", pack.render() or "（本轮没有资料）"]
+        parts = [identity, "", "[资料]", pack.render() or "（本轮没有资料）", *filter(None, (pack.order_note(),))]
         parts += ["", "[人设档案]", profile or "（无）", "", "[对话者本次说过的话]",
                   *(f"· {text}" for text in said), "", "[本次对话记录]",
                   "以下只证明本次谁说过什么，不证明所说的世界事实为真。",
@@ -484,6 +539,9 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
     system = build_system(persona, args.doctor, pack, session.tools, archives)
     draft, calls = generate(llm, session, system, query, tools if session.tools else [], handlers,
                             args.temperature)
+    if session.tools and supplement_recall(reader, recall, query, args.doctor):
+        session.tool_queries.append("兜底补召回")
+        draft, calls = llm.complete(messages(), args.temperature) or draft, calls + 1
     session.draft = draft
     if reader.retrieval and any(entry["tool"] == "canon_recall" for entry in recall.log):
         trace = reader.retrieval.last_trace
@@ -499,7 +557,8 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
             conversation_ids={f"C{i}" for i in range(1, len(session.active_history) + 2)},
             profile=reader.profile,
             long_answer=any(entry.get("depth") == "deep" for entry in recall.log),
-            lookup=evidence.fetch,
+            lookup=lambda sentence: evidence.fetch(sentence, budget=VERIFY_EXTRA,
+                                                   ceiling=evidence.budget + VERIFY_EXTRA),
         )
     else:
         answer, questions, meta = tidy(draft, allow_questions=False, profile=reader.profile)
@@ -509,6 +568,7 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
              all(row[key] is not None for row in request_metrics) else None
              for key in ("prompt_tokens", "completion_tokens")}
     session.report = report
+    session.order = pack.order_note()
     session.metrics = {"seconds": round(time.perf_counter() - started, 3),
                        "calls": calls + report.calls,
                        "history_tokens": sum(estimate_tokens(m["content"]) for m in session.active_history),
@@ -530,7 +590,7 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
             "evidence": [{"eid": item.eid, "event_id": item.event_id, "channel": item.channel,
                           "source": item.source, "when": reader.time_label(item.event_id)}
                          for item in pack.items],
-            "evidence_text": pack.render(), "draft": draft, "check": report.stages,
+            "evidence_text": pack.render(), "order": session.order, "draft": draft, "check": report.stages,
             "problems": {str(index): {"sentence": report.sentences[index - 1].strip(), "reason": reason,
                                       "status": report.issues.get(index, "")}
                          for index, reason in sorted(report.problems.items())},
@@ -543,7 +603,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="临时 canon 对话：数据库只读，聊天只在内存")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
     parser.add_argument("--persona-file", type=Path, default=DEFAULT_PERSONA)
-    parser.add_argument("--model-type", choices=("kcl", "deepseek", "lmstudio"))
+    parser.add_argument("--model-type", choices=("kcl", "deepseek", "openai", "oai", "lmstudio"))
     parser.add_argument("--not-doctor", dest="doctor", action="store_false", help="对照测试：当前对话者不是博士")
     parser.set_defaults(doctor=True)
     parser.add_argument("--top-k", type=int, default=5)

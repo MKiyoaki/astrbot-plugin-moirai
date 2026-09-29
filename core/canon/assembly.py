@@ -31,12 +31,13 @@ class EvidenceAssembler:
         self.pack = EvidencePack(f"对方（{player}）" if settings.doctor else player, settings.doctor, reader.profile)
         self.pack.when = reader.time_label
         self.pack.recent = reader.is_recent
+        self.pack.sequence = getattr(reader, "sequence", None)
         self.budget = settings.token_budget
         self.hits: list[Hit] = []
         self.overview_trace: dict | None = None
 
     def fetch(self, text: str, focus_person: str | None = None, budget: int | None = None,
-              prefer_reason: bool = False, adaptive: bool = False) -> list[Memory]:
+              prefer_reason: bool = False, adaptive: bool = False, ceiling: int | None = None) -> list[Memory]:
         settings, plan = self.settings, self.plan
         hits, episode = fact_search(self.reader, text,
                                     top_k=max(settings.top_k, 12) if prefer_reason else settings.top_k,
@@ -55,7 +56,7 @@ class EvidenceAssembler:
             added, self.budget = fill_fact_adaptive(self.pack, hits, episode, self.budget)
             return added
         return fill(self.pack, hits, episode, self.budget if budget is None else budget,
-                    total_budget=self.budget)
+                    total_budget=self.budget if ceiling is None else ceiling)
 
     def fetch_overview(self, text: str, budget: int | None = None) -> tuple[list[Memory], dict]:
         plan = self.plan

@@ -142,6 +142,9 @@ try:
     _KCL_API_URL = getattr(_rc, "KCL_API_URL", "https://ai.create.kcl.ac.uk/api/v1")
     _KCL_KEY = getattr(_rc, "KCL_API_KEY", "")
     _KCL_MODEL = getattr(_rc, "KCL_MODEL", "")
+    _OPENAI_API_URL = getattr(_rc, "OPENAI_API_URL", "https://api.openai.com/v1")
+    _OPENAI_KEY = getattr(_rc, "OPENAI_API_KEY", "")
+    _OPENAI_MODEL = getattr(_rc, "OPENAI_MODEL", "")
     print(f"[Config] Loaded run_config.py  (model_type={_MODEL_TYPE})")
 except Exception as _cfg_err:
     print(f"[Config] WARNING: run_config.py not loaded ({_cfg_err!r}), using built-in defaults.")
@@ -173,9 +176,13 @@ except Exception as _cfg_err:
     _KCL_API_URL = "https://ai.create.kcl.ac.uk/api/v1"
     _KCL_KEY = ""
     _KCL_MODEL = ""
+    _OPENAI_API_URL = "https://api.openai.com/v1"
+    _OPENAI_KEY = ""
+    _OPENAI_MODEL = ""
 
 
 def _get_model_info(model_type: str):
+    model_type = {"oai": "openai"}.get(model_type, model_type)
     if model_type == "lmstudio":
         llm_api_url = _LMSTUDIO_API_URL
         llm_api_key = "lm-studio"
@@ -200,6 +207,14 @@ def _get_model_info(model_type: str):
         llm_api_url = _KCL_API_URL
         llm_api_key = _KCL_KEY
         llm_model = _KCL_MODEL
+    elif model_type == "openai":
+        if not _OPENAI_KEY or _OPENAI_KEY == "your_openai_api_key_here":
+            raise ValueError("OPENAI_API_KEY is empty. Set it in run_config.py (https://platform.openai.com/api-keys).")
+        if not _OPENAI_MODEL:
+            raise ValueError("OPENAI_MODEL is empty. List ids with `curl -H \"Authorization: Bearer <key>\" https://api.openai.com/v1/models`.")
+        llm_api_url = _OPENAI_API_URL
+        llm_api_key = _OPENAI_KEY
+        llm_model = _OPENAI_MODEL
     else:
         raise ValueError("Not supported model type! ")
     return llm_api_url, llm_api_key, llm_model
@@ -395,6 +410,9 @@ class _RealtimeProviderBridge:
 
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(self._url, headers=headers, json=payload)
+            if resp.status_code == 400 and "temperature" in resp.text.lower():
+                payload.pop("temperature")
+                resp = await client.post(self._url, headers=headers, json=payload)
             resp.raise_for_status()
             text = resp.json()["choices"][0]["message"]["content"]
 

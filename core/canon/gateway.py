@@ -38,6 +38,8 @@ _AI = re.compile(r"(?<![A-Za-z])AI(?![A-Za-z])")
 _QUOTED = re.compile(r"[“\"「『]([^“”\"「」『』\n]{1,80})[”\"」』]")
 MIN_QUOTE = 4
 _EVIDENCE_ID = re.compile(r"[EAF]\d*")
+ORDER_HEAD = "〔先后〕按发生先后："
+ORDER_TAIL = "。讲先后以这一行为准，不在这行里的事不要说谁先谁后"
 STALE_NOTE = "把较早的事说成了现在的情况；改成最后知道的情况并带上当时的时间，例如“我最后知道……是在……的时候”，不要说成现在"
 FAILED_NOTE = "核验没有给出有效结果，按无依据处理"
 QUOTE_NOTE = "引号里的话在记忆里找不到原句；不是原话就不要加引号"
@@ -62,6 +64,7 @@ REVIEW_TEMPLATE = (
     "表示不知道、没有消息、记不清、说不准的话本身不需要依据；同一句里其余的具体事实照常核对。\n"
     "判定用 status 三选一：supported＝有依据；contradicted＝与[资料]里的内容冲突，evidence 写与之冲突的资料编号；"
     "uncovered＝[资料]里找不到依据，但也没有与之冲突的内容。"
+    "status 为 uncovered、句中的事都有依据、缺的只是两件事之间的先后或因果连接时，另标 link=true，否则 link=false。"
     "chat 和 opinion 一律 supported；一句评价只要夹带了具体事件、动作、原话或数字，就按 plot 核对。"
     "plot 只有[资料]明确支持才 supported，并在 evidence 写资料编号（如 E1）；"
     "改变资料原意（例如资料说城门已经关上，回复说城门快要关上），把过去说成现在，把听说或不知情说成亲历，都算 contradicted；"
@@ -72,12 +75,16 @@ REVIEW_TEMPLATE = (
     "[本次对话记录]的 C 编号只证明谁在本次聊天说过什么，不证明那些世界事实为真。"
     "conversation＝回顾本次聊天或解释自己的上一句回答，引用对应 C 编号；即使提到剧情人物或地名，也不自动变成 plot。"
     "inference＝明确表示推测的判断，必须引用知情资料中的已知前提，不能把猜测当既定计划。"
+    "因果判断的两端都必须是[资料]里有依据的事；[资料]反对的原因，或只有对话者提出、[资料]里没有的原因，"
+    "不能说成判断认下，判 contradicted 或 uncovered。"
     "不知情资料中的内容不能用可能、不确定是否、记不清是否包装后透露；应判 contradicted。"
     "标为亲历或在场目睹的事件，其原文明示的外部动作可用第一人称回顾，不要求原文再写我记得、我看到。"
     "这不授予其他角色的内心活动，也不改变具体动作的主体；听说不能改成亲历。"
     "一句话可以由多条资料共同支持，先检查相关资料的组合，不要求单条资料包含整句；仍不能凭相邻或排列顺序补造因果。"
     "正常概括和同义表达不要求逐字一致，但不能改变主体、知情渠道、时间或增加心理活动。"
-    "记忆按相关度排列，不代表先后；检查句间后来、再后来、因此所断言的先后或因果，必须有原文依据，不能混合回忆和现实。"
+    "记忆按相关度排列，不代表先后。[资料]里有〔先后〕一行时，与它一致的先后（后来、再往后、之后）算有依据，"
+    "与它相反的算 contradicted；这一行没排进去的事，断言先后仍须原文依据。"
+    "因果（因此、所以、才、导致）须有原文依据，或明确说成{name}自己的判断并按 inference 核对。不能混合回忆和现实。"
     "对{player}平时习惯的断言是 shared，需要依据；普通寒暄与此刻的主观感受才是 chat。"
     "向对方询问感受或意图（例如你是在担心吗）是 chat，不是断言，不需要剧情证据；问题若预设具体经历，则核对该经历。"
     "每句另标 now：断言某个人物、组织或地点此刻（现在、最近、目前）的状态、下落、处境或关系时为 true；"
@@ -85,7 +92,8 @@ REVIEW_TEMPLATE = (
     "now 只描述这句在说什么时候，不影响 status。\n"
     "只输出 JSON："
     '{{"sentences":[{{"i":1,"type":"plot|profile|shared|opinion|chat|conversation|inference","now":false,'
-    '"status":"supported|contradicted|uncovered","evidence":["E1"],"problem":"不是 supported 时写明冲突在哪或缺了什么"}}]}}'
+    '"status":"supported|contradicted|uncovered","link":false,"evidence":["E1"],'
+    '"problem":"不是 supported 时写明冲突在哪或缺了什么"}}]}}'
 )
 REVISE_NOTE = (
     "（校对意见，不是{player}说的话）你刚才的回复逐句编号如下：\n{listing}\n"
@@ -210,6 +218,8 @@ class EvidencePack:
                          "timeline": "时间轴，只列你知道的事"}
         self.when: Callable[[str], str] | None = None
         self.recent: Callable[[str], bool] | None = None
+        self.sequence: Callable[[list[str]], tuple[list[str], list[str]]] | None = None
+        self.ordered = False
 
     def __contains__(self, event_id: str) -> bool:
         return any(item.event_id == event_id for item in self.items)
@@ -245,6 +255,17 @@ class EvidencePack:
     def mentions(self, name: str) -> bool:
         return bool(_norm(name)) and _norm(name) in _norm(self.render())
 
+    def order_note(self) -> str:
+        """Shown only once a turn asks for a sequence: the order that is certain, and what stays unordered."""
+        if not (self.ordered and self.sequence):
+            return ""
+        eids = {item.event_id: item.eid for item in self.items if item.eid.startswith("E")}
+        chain, rest = self.sequence(list(eids))
+        if len(chain) < 2:
+            return ""
+        unordered = "；" + "、".join(eids[event] for event in rest) + "先后不明" if rest else ""
+        return ORDER_HEAD + " → ".join(eids[event] for event in chain) + unordered + ORDER_TAIL
+
     def fresh_ids(self) -> set[str]:
         return {item.eid for item in self.items if self.recent and self.recent(item.event_id)}
 
@@ -257,6 +278,7 @@ class Verdict:
     evidence: tuple[str, ...]
     problem: str
     now: bool = False
+    link: bool = False
 
     @property
     def supported(self) -> bool:
@@ -294,6 +316,7 @@ def parse_review(raw: str, count: int, evidence_ids: set[str],
         cited = tuple(str(x) for x in evidence)
         ids = {c for c in cited if _EVIDENCE_ID.fullmatch(c)}
         problem = str(row.get("problem") or "")
+        link = status == "uncovered" and row.get("link") is True
         if kind in FREE_TYPES:
             status = "supported"
         elif status == "contradicted":
@@ -307,7 +330,8 @@ def parse_review(raw: str, count: int, evidence_ids: set[str],
             status, problem = "uncovered", problem or "没有引用有效的记忆编号"
         elif kind in ("shared", "profile") and status == "supported" and not ids <= evidence_ids:
             status, problem = "uncovered", problem or "没有引用有效的记忆编号"
-        verdicts[index] = Verdict(index, kind, status, cited, problem, row.get("now") is True)
+        verdicts[index] = Verdict(index, kind, status, cited, problem, row.get("now") is True,
+                                  link and status == "uncovered")
     if len(verdicts) != count:
         return None
     return [verdicts[i] for i in range(1, count + 1)]
@@ -339,7 +363,7 @@ def revise(complete: Complete, messages: list[dict], sentences: list[str],
                 f"围绕{profile.player}这一轮的问题，用已核实的内容重新组织一个连贯的回答。保留重要观点，"
                 "不要逐项汇报材料，也不要因为删了事实就只剩空话。仅用已有记忆与本次对话记录；"
                 "可以表达此刻感受，不能添加新经历。优先保留已经核实的核心冲突和直接回答；若只有人称或时态等局部错误，修正该处，不要舍弃同句里已有依据的冲突对象和行动。先回应核心要点，"
-                + ("再用一段话讲清主要经过，" if long_answer else "再用一两件必要的事说明，通常两到四句，")
+                + ("再按先后用一段话讲清主要经过，" if long_answer else "再用一两件必要的事说明，通常两到四句，")
                 + "不要逐项复述记忆。不知情的具体内容直接省去，不能改成不确定是否来透露。"
                 + ("必要时可以自然追问，但先回答。" if allow_questions else "用陈述句结束。")
                 + "只输出修订后的回复。")
@@ -380,12 +404,17 @@ REWRITE_REASON = {
 
 
 def repair_note(verdict: Verdict | None, reason: str, evidence_ids: set[str], found: bool = False) -> str:
-    """A conflict is corrected from the evidence it names; a gap costs only the unsupported detail, never a hedge."""
+    """A conflict is corrected from the evidence it names; a missing link becomes her own judgment; any other gap
+    costs only the unsupported detail, never a hedge."""
     if verdict is None or verdict.supported:
         return reason
     if verdict.status == "contradicted":
         cited = "、".join(c for c in verdict.evidence if c in evidence_ids)
         return f"{reason}" + (f"（与{cited}冲突）" if cited else "") + "；按记忆里的说法改正"
+    if verdict.link:
+        return (f"{reason}；句中的事有依据，缺的是两件事之间的联系：先后与〔先后〕一行一致就保留；"
+                "因果改成你自己的判断，例如“在我看来，正是……才……”，只连接记忆里有的事，"
+                "不能把对方提出而记忆里没有的原因说成判断")
     if found:
         return f"{reason}；[你的记忆]里补上了相关片段，能支持原意就按记忆保留，不能支持就只删去没有依据的那一处"
     return f"{reason}；只删去没有依据的那一处，同句其余有依据的内容保留，整句都没有依据才删掉这句"
@@ -584,7 +613,7 @@ def check_reply(
     if report.revised:
         return cut(), report
     found: set[int] = set()
-    claims = [v.index for v in issues.values() if v.status == "uncovered" and v.kind in CLAIM_KINDS]
+    claims = [v.index for v in issues.values() if v.status == "uncovered" and v.kind in CLAIM_KINDS and not v.link]
     if lookup is not None and claims:
         rows = []
         for i in claims[:CLAIM_LOOKUPS]:

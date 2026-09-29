@@ -79,6 +79,14 @@ def _month(key: float) -> int:
     return int(key // 10000) * 12 + int(key // 100 % 100)
 
 
+def _span(year: int, month: int | None, day: int | None, precision: str) -> tuple[int, int]:
+    base = year * 10000
+    if precision == "day" and month and day:
+        return base + month * 100 + day, base + month * 100 + day
+    if precision == "month" and month:
+        return base + month * 100 + 1, base + month * 100 + 31
+    return base + 101, base + 1231
+
 class CanonReader:
     """Read canon without opening the write-oriented CanonStore."""
 
@@ -165,9 +173,11 @@ class CanonReader:
         self.events_by_scene: dict[str, list[str]] = defaultdict(list)
         self.event_scene: dict[str, str] = {}
         self.event_order: dict[str, int] = {}
+        self.story_events: set[str] = set()
         for row in self.db.execute(
-                "SELECT e.event_id,e.scene_key,e.topic,e.summary,e.participants,e.narrative_pos,e.involves_doctor,e.ord "
-                "FROM events e JOIN views v ON v.event_id=e.event_id WHERE v.character=?", (self.character,)):
+                "SELECT e.event_id,e.scene_key,e.topic,e.summary,e.participants,e.narrative_pos,e.involves_doctor,e.ord,"
+                "e.in_world_time,s.chapter_no FROM events e JOIN views v ON v.event_id=e.event_id "
+                "JOIN scenes s ON s.scene_key=e.scene_key WHERE v.character=?", (self.character,)):
             event_id, participants = row["event_id"], json.loads(row["participants"])
             for name in participants:
                 if name in alias_ids:
@@ -182,6 +192,8 @@ class CanonReader:
             self.event_scene[event_id] = row["scene_key"]
             if row["involves_doctor"]:
                 self.doctor_events.add(event_id)
+            if row["chapter_no"] is not None and row["in_world_time"] != "past":
+                self.story_events.add(event_id)
         self.event_documents = documents
         self.lexical = BigramIndex(documents)
         self.event_lines: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -218,6 +230,7 @@ class CanonReader:
     def _index_times(self) -> None:
         """World-calendar labels per event; "now" is the latest main-story time she knows."""
         self.times: dict[str, tuple[float, str]] = {}
+        self.spans: dict[str, tuple[int, int]] = {}
         self.recounted: set[str] = set()
         self.now: tuple[float, str] | None = None
         self.now_precision = ""
@@ -225,6 +238,10 @@ class CanonReader:
             return
         self.times = {row["event_id"]: (row["sort_key"], row["label"])
                       for row in self.db.execute("SELECT event_id,sort_key,label FROM event_times")}
+        self.spans = {row["event_id"]: _span(row["year"], row["month"], row["day"], row["precision"])
+                      for row in self.db.execute(
+                          "SELECT event_id,year,month,day,precision FROM event_times WHERE year IS NOT NULL "
+                          "AND origin IN ('text','stage','story') AND precision IN ('day','month','season','year')")}
         if not self.times:
             return
         self.recounted = {row["event_id"] for row in self.db.execute(
@@ -236,6 +253,34 @@ class CanonReader:
             "ORDER BY t.sort_key DESC LIMIT 1", (self.character,)).fetchone()
         self.now = (row["sort_key"], row["label"]) if row else None
         self.now_precision = row["precision"] if row else ""
+
+    def sequence(self, event_ids: list[str]) -> tuple[list[str], list[str]]:
+        """Events whose order is certain as one chain, and the rest.
+
+        Main-story events outside recollection keep the story's own order. Any other event joins the chain only
+        where its directly dated interval clears both neighbours; an inherited date, or none, leaves it unordered.
+        """
+        ids = list(dict.fromkeys(event for event in event_ids if event in self.position))
+        chain = sorted((event for event in ids if event in self.story_events),
+                       key=lambda event: (self.position[event], self.event_order.get(event, 0)))
+        rest = []
+        for event in sorted((event for event in ids if event not in self.story_events),
+                            key=lambda event: (self.spans.get(event, (float("inf"),))[0], self.position[event],
+                                               self.event_order.get(event, 0))):
+            slot = next((index for index in range(len(chain) + 1) if event in self.spans
+                         and (index == 0 or self._before(chain[index - 1], event))
+                         and (index == len(chain) or self._before(event, chain[index]))), None)
+            if slot is None:
+                rest.append(event)
+            else:
+                chain.insert(slot, event)
+        return chain, rest
+
+    def _before(self, first: str, second: str) -> bool:
+        if first in self.story_events and second in self.story_events:
+            return ((self.position[first], self.event_order.get(first, 0))
+                    < (self.position[second], self.event_order.get(second, 0)))
+        return first in self.spans and second in self.spans and self.spans[first][1] < self.spans[second][0]
 
     def is_recent(self, event_id: str) -> bool:
         """Dated in the current stretch, the only evidence that may speak for the present.

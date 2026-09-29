@@ -18,7 +18,10 @@ from .reader import CanonReader, fact_search
 
 PATHS = ("event", "reason", "impression", "arc", "latest", "timeline", "recent")
 TURN_BUDGET = 2000
+VERIFY_EXTRA = 400
 DEEP_NOTE = "（这是一段需要梳理的经过：这一轮不受三句的限制，用一段话讲清主要经过，约 150–300 字，不逐条复述。）"
+CAUSAL_NOTE = ("（这是一段前因后果：这一轮不受三句的限制，用一段话按先后讲清，约 150–300 字：先说起点，"
+               "再说两三个关键转折，最后说结果；只挑必要的事，不逐条复述。两件事之间的因果没有原话依据时，说成你自己的判断。）")
 DEPTHS = ("light", "deep")
 PROBE_NAMES = 3
 PROBE_COLLECTIONS = 3
@@ -70,7 +73,7 @@ def recall_tool(now: str = "") -> dict:
                 "properties": {
                     "query": {"type": "string", "description": "凝练后可以独立理解的回忆内容，写清人物、地点和要找的事"},
                     "path": {"type": "string", "enum": list(PATHS if now else PATHS[:5])},
-                    "subject": {"type": "string", "description": "主要人物、地点、组织或篇章名；没有就留空"},
+                    "subject": {"type": "string", "description": "主要人物、地点或组织的名字，只写一个名字，不要写篇章名或几个词；不确定就留空"},
                     "depth": {"type": "string", "enum": list(DEPTHS)},
                 },
                 "required": ["query", "path"],
@@ -150,17 +153,28 @@ class CanonRecall:
             return "没有指定要回忆的内容。"
         if room <= 0:
             return "这一轮能想起的内容已经到上限；只根据上面已有的记忆回答，没有的就说记不清。"
+        if deep or path == "reason":
+            self.pack.ordered = True
         share = room
         cap = self.used() + share
         added, body = self._fetch(query or subject, path, subject, deep, share, cap)
         entry.update(added=len(added), tokens_after=self.used())
         if not added:
-            return "没有想起新的相关的事；只根据上面已有的记忆回答，没有的就说记不清。"
-        return (DEEP_NOTE + "\n" + body) if deep else body
+            if self.pack.items:
+                return "没有想起新的相关的事；只根据上面已有的记忆回答，没有的就说记不清。"
+            return ("没有想起相关的事。可以换一个更具体的人物、地点或组织的名字，或者不填 subject 再回忆一次；"
+                    "仍然想不起来就说记不清。")
+        note = CAUSAL_NOTE if deep and path == "reason" else DEEP_NOTE if deep else ""
+        return "\n".join(part for part in (note, body, self.pack.order_note()) if part)
+
+    def _focus(self, subject: str) -> str | None:
+        """Only a known entity name narrows a search; any other text is left to the query itself."""
+        return subject if subject in self.reader.entity_type else None
 
     def _fetch(self, text: str, path: str, subject: str, deep: bool, share: int,
                cap: int) -> tuple[list[Memory], str]:
         reader, settings, pack = self.reader, self.settings, self.pack
+        focus = self._focus(subject)
         if path in ("arc", "impression"):
             hits, trace = reader.overview_search(
                 text, doctor=settings.doctor, evidence_lines=min(4 if path == "arc" else 2, settings.evidence_lines),
@@ -174,8 +188,8 @@ class CanonRecall:
             added = fill(pack, hits, None, share, total_budget=cap)
             return added, pack.render(added)
         if path == "latest":
-            hits, _ = reader.search(subject or text, top_k=24, evidence_lines=settings.evidence_lines,
-                                    doctor=settings.doctor, focus_person=subject or None, known_only=True)
+            hits, _ = reader.search(subject if focus else text, top_k=24, evidence_lines=settings.evidence_lines,
+                                    doctor=settings.doctor, focus_person=focus, known_only=True)
             hits = sorted(hits, key=lambda hit: (reader.times.get(hit.event_id, (float("-inf"),))[0], hit.position),
                           reverse=True)[:settings.top_k]
             added = fill(pack, hits, None, share, total_budget=cap)
@@ -185,7 +199,7 @@ class CanonRecall:
         reason = path == "reason"
         hits, episode = fact_search(reader, text, top_k=max(settings.top_k, 12) if reason else settings.top_k,
                                     evidence_lines=settings.evidence_lines, doctor=settings.doctor,
-                                    focus_person=subject or None)
+                                    focus_person=focus)
         if reason:
             hits, episode = rank_reason_hits(hits, (subject,) if subject else ())[:settings.top_k], None
         if deep and hits:
@@ -252,8 +266,9 @@ class CanonRecall:
             hits = [hit for hit in (reader.hit(event[2], settings.evidence_lines)
                                     for event in latest[:RECENT_EVENTS]) if hit]
         else:
-            found, _ = reader.search(subject or text, top_k=3, evidence_lines=settings.evidence_lines,
-                                     doctor=settings.doctor, focus_person=subject or None, known_only=True)
+            focus = self._focus(subject)
+            found, _ = reader.search(subject if focus else text, top_k=3, evidence_lines=settings.evidence_lines,
+                                     doctor=settings.doctor, focus_person=focus, known_only=True)
             hits = [hit for hit in found if hit.event_id in reader.times and reader.times[hit.event_id][0] <= reader.now[0]]
             anchors = {hit.event_id for hit in hits[:2]}
             where = [index for index, group in enumerate(axis)
