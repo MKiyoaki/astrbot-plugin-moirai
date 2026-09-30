@@ -27,7 +27,7 @@ Highlights:
 
 - **Visualised memory management**: 7 WebUI pages covering the full data lifecycle — event timeline, interactive social graph, narrative summary reader, hybrid recall debugger, persona library, and live statistics. All data is browsable and editable in-browser.
 - **Highly configurable**: 70+ config keys; each subsystem (social graph, summaries, Soul Layer, VCM) can be toggled independently. Retrieval strategy, event boundary thresholds, and decay rates are all tunable per deployment.
-- **Memory recall costs zero extra LLM calls**: Retrieving and injecting memory on every message requires no LLM calls — no added API cost, no added latency. BM25 keyword and vector semantic search run in parallel, fused via RRF, then filled to a configurable token budget.
+- **Memory recall costs zero extra LLM calls**: Retrieving and injecting memory on every message requires no LLM calls — no added API cost, no added latency. BM25 keyword search (Chinese indexed as adjacent character pairs plus single characters, no segmenter dependency) and vector semantic search run in parallel, fused via RRF; each recalled event then contributes the summary segments that best match the message, within a configurable token budget.
 - **Graceful degradation**: Falls back to BM25 when the embedding model is unavailable. Social graph, summaries, and Soul Layer are fully isolated — a failure in one module does not affect the memory injection hot path.
 
 ---

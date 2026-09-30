@@ -274,7 +274,7 @@ class CommandManager:
         results = await self._recall.recall(query, group_id=group_id, scope_mode=scope_mode)
         if not results:
             return self._t("cmd.recall.not_found", query=query)
-        return format_events_for_prompt_safe(results, token_budget=800)
+        return format_events_for_prompt_safe(results, token_budget=800, query=query)
 
     # ------------------------------------------------------------------
     # Action commands

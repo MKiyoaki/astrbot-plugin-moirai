@@ -168,7 +168,7 @@ class MoiraiPlugin(Star):
         if not results:
             yield event.plain_result("未找到相关记忆。")
             return
-        formatted = format_events_for_prompt_safe(results, token_budget=600)
+        formatted = format_events_for_prompt_safe(results, token_budget=600, query=query)
         yield event.plain_result(formatted)
 
     # ── Command group: /mrm ───────────────────────────────────────────────────

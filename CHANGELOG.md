@@ -1,5 +1,47 @@
 # CHANGELOG
 
+## [v1.2.31.sub] — 2026-09-30
+
+### 普通记忆中文召回修复：二字加单字全文索引、向量排名保留、按问题注入摘要段落
+
+- 起因：把主线第 0–5 章原文当作群聊跑一遍普通记忆管线，再用出处在这些场景的 17 道题做离线评测。BM25 在 17 题上全部 0 命中；答案事件只有 1 题进入注入；注入文本里 36 个答案要点一个也没有。原因有四处：
+  - FTS5 的 `unicode61` 分词把一整串汉字当成一个词，整句中文问题几乎匹配不到任何事件；
+  - `search_fts` 按 BM25 取前 20 后又按显著度重排，查询出错时静默返回空；
+  - BM25 为空时，`vector_fallback` 分支把所有向量命中设成同一分数，向量排名被丢掉；
+  - 注入格式只写标题、标签和开头 4 句不带说话人的原话，从不写摘要，而且超预算时 `break`。
+- `core/retrieval/terms.py`（新增）：Moirai 自己的切词，不依赖分词库，也不用正则。连续汉字切成相邻两字（一个字的段落保留这个字）加英文单词，单个汉字另存一列；查询去掉常用虚字，最多 48 项；分词器身份为 `cjk-pairs+chars-v1`。
+  - 选型依据：四个数据集共 4,216 道题的离线对比，包括 C-MTEB 的 DuRetrieval、EcomRetrieval、VideoRetrieval 和 canon 全库。
+  - “二字 + 单字”和“jieba + 单字”打平（nDCG@10 平均 0.587 对 0.589）；加单字在四个数据集上都显著有效；只切二字或只用 jieba 都更差。
+  - THULAC 常驻内存 +799 MB，检索没有更好。
+- `migrations/021_event_search_terms.sql`（新增）：
+  - `events` 新增 `search_words`、`search_chars` 两列，新增 `search_index_meta` 表；
+  - `events_fts` 重建并加入这两列；
+  - UPDATE 触发器只在文本列变化时触发，改显著度、访问次数不再重写全文索引。
+- `core/repository/sqlite.py`：
+  - `db_open` 在迁移后调用 `sync_search_terms`：分词器身份变化时清空两列重算，并分批补算为空的事件（二字切分约 20 MB/秒，一万个事件不到 1 秒）。
+  - `upsert`、`set_chat_content_tags` 写入时同时计算两列。
+  - `search_fts` 改为逐项指定列的 OR 查询，`bm25()` 两列等权，结果保持 BM25 顺序；出错时记警告再返回空。
+- `core/retrieval/backend.py`（新增）：`RetrievalBackend` 接口（关键词检索、向量检索）与 `SQLiteRetrievalBackend`。`HybridRetriever` 新增可选参数 `backend`（默认 SQLite），`RecallManager` 的两路检索改走该接口，以后换索引或由 Core 分派时不必改排序和注入。
+- `core/managers/recall_manager.py`：BM25 为空时的向量候选改用 `rrf_scores([vec])`，保留向量排名。
+- `core/utils/formatter.py`：
+  - 注入按召回顺序，不再按显著度重排；
+  - 每个事件平均分剩余预算，写入与问题最相关的摘要段落（不含 `[Eval]`，段落保持原顺序；有段落命中时只用命中的段落，剩余预算留给后面的事件）；
+  - 放不下时截断这一条再继续，不再整段清空；
+  - 只有没有摘要的事件才附开头原话。
+  - `format_events_for_prompt(_safe)` 新增 `query` 参数；`recall_and_inject` 的两种注入位置、`/recall` 命令（`command_manager.py`、`main.py`）都传入问题。
+- 测试：新增本地 `tests/test_memory_recall_cjk.py`（15 项，全部自编文本），覆盖切词、中文检索与索引同步、分词器身份切换后重算、向量排名保留、按问题挑段与截断；全部 356 项离线测试通过。
+- 离线评测（第 0–5 章，17 道题，查询向量已缓存，没有调用 embedding；arc:chat 盲评，只计代码核对过的原文摘录）：
+
+  | 指标 | 修复前 | 修复后 |
+  |---|---|---|
+  | BM25 有命中的题 | 0 | 17 |
+  | 答案事件进入注入 | 1/17 | 8/17 |
+  | 答案要点覆盖 | 0/36 | 9/36 |
+  | 注入量 | 约 270 token | 约 580 token（预算 800 不变） |
+
+  同一批题上 canon 为 23/36。
+- `README.md`、`README_EN.md`：更新召回与注入的说明。
+
 ## [v1.2.30.sub] — 2026-09-30
 
 ### 修复 WebUI 样式丢失；Leiden 社区改用色轮取色；情感着色按视图归一化

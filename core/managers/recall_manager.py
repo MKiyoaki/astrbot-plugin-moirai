@@ -520,6 +520,7 @@ class RecallManager(BaseRecallManager):
         async with performance_timer("recall_search"):
             _log = logging.getLogger(__name__)
             event_repo = self._retriever._event_repo
+            backend = self._retriever.backend
             encoder = self._retriever._encoder
             enc_dim = encoder.dim
             bm25_limit = self._retriever._bm25_limit
@@ -547,7 +548,7 @@ class RecallManager(BaseRecallManager):
                     return None
                 encode_coro = encoder.encode(query) if enc_dim > 0 else _null_encode()
                 bm25_raw, shared_embedding_raw = await asyncio.gather(
-                    event_repo.search_fts(query, limit=bm25_limit, **common),
+                    backend.lexical(query, limit=bm25_limit, **common),
                     encode_coro,
                     return_exceptions=True,
                 )
@@ -560,7 +561,7 @@ class RecallManager(BaseRecallManager):
                     shared_embedding = shared_embedding_raw
 
                 if shared_embedding and enc_dim > 0:
-                    vec_raw = await event_repo.search_vector(
+                    vec_raw = await backend.vector(
                         shared_embedding, limit=vec_limit, **common
                     )
                     vec = vec_raw if not isinstance(vec_raw, Exception) else []
@@ -579,9 +580,7 @@ class RecallManager(BaseRecallManager):
 
             if not bm25 and cfg.vector_fallback_enabled and vec:
                 candidates = vec
-                scores: dict[str, float] = {
-                    e.event_id: 1.0 / (cfg.rrf_k + 1) for e in vec
-                }
+                scores: dict[str, float] = rrf_scores([vec], k=cfg.rrf_k)
             else:
                 scores = rrf_scores([bm25, vec], k=cfg.rrf_k)
                 seen: set[str] = set()
@@ -838,7 +837,9 @@ class RecallManager(BaseRecallManager):
                     return len(events) if messages else 0
 
                 # Build memory body (may be empty if no events).
-                body = format_events_for_prompt_safe(events, token_budget=token_budget) if events else ""
+                body = format_events_for_prompt_safe(
+                    events, token_budget=token_budget, query=query
+                ) if events else ""
 
                 # OCEAN persona injection — use pre-fetched result.
                 persona_segment = ""

@@ -43,6 +43,7 @@ from ..domain.models import (
     PersonaGroup,
     RawStoredMessage,
 )
+from ..retrieval.terms import TOKENIZER_ID, fts_match, index_columns
 from .base import (
     EventRepository,
     EventStatusStats,
@@ -352,6 +353,7 @@ async def db_open(
             await db.execute(pragma)
         await db.commit()
         await run_migrations(db)
+        await sync_search_terms(db)
         if await _try_load_sqlite_vec(db, vec_dim):
             problem = await _vector_index_problem(db, vec_dim, vec_identity)
             if problem and on_vector_problem is not None:
@@ -359,6 +361,49 @@ async def db_open(
             elif problem:
                 logger.error("[db_open] vector recall unavailable: %s", problem)
         yield db
+
+
+async def sync_search_terms(db: aiosqlite.Connection, batch: int = 500) -> int:
+    """Fill events.search_words/search_chars where missing; recompute all when the tokenizer changed.
+
+    Returns the number of events (re)indexed. The FTS table follows through the
+    events_au trigger, so no separate rebuild is needed.
+    """
+    async with db.execute("SELECT value FROM search_index_meta WHERE key = 'tokenizer'") as cur:
+        row = await cur.fetchone()
+    if row is None or row[0] != TOKENIZER_ID:
+        await db.execute("UPDATE events SET search_words = NULL, search_chars = NULL")
+        await db.execute(
+            "INSERT OR REPLACE INTO search_index_meta(key, value) VALUES ('tokenizer', ?)",
+            (TOKENIZER_ID,),
+        )
+        await db.commit()
+    done = 0
+    while True:
+        async with db.execute(
+            "SELECT rowid, topic, chat_content_tags, summary FROM events "
+            "WHERE search_words IS NULL OR search_chars IS NULL LIMIT ?",
+            (batch,),
+        ) as cur:
+            rows = await cur.fetchall()
+        if not rows:
+            break
+        updates = []
+        for rowid, topic, tags, summary in rows:
+            try:
+                tag_list = json.loads(tags or "[]")
+            except (TypeError, ValueError):
+                tag_list = []
+            words, chars = index_columns(topic or "", [str(t) for t in tag_list], summary or "")
+            updates.append((words, chars, rowid))
+        await db.executemany(
+            "UPDATE events SET search_words = ?, search_chars = ? WHERE rowid = ?", updates
+        )
+        await db.commit()
+        done += len(updates)
+    if done:
+        logger.info("[db_open] indexed keyword terms for %d events (%s)", done, TOKENIZER_ID)
+    return done
 
 
 # ---------------------------------------------------------------------------
@@ -904,10 +949,15 @@ class SQLiteEventRepository(EventRepository):
         scope_mode: str = "all",
         bot_persona_name: str | None = None,
     ) -> list[Event]:
-        """BM25 full-text search over topic and chat_content_tags.
+        """BM25 keyword search over the CJK pair and single-character columns, best match first.
 
-        group_id=None searches across all groups; pass a value to restrict to one scope.
+        The query is split by core/retrieval/terms.py the same way events are,
+        so Chinese text matches without a word segmenter. group_id=None searches
+        across all groups; pass a value to restrict to one scope.
         """
+        match = fts_match(query)
+        if not match:
+            return []
         try:
             clauses = ["e.status = 'active'"] if active_only else []
             scope_clause, scope_params = _event_scope_where("e", group_id, scope_mode)
@@ -920,17 +970,20 @@ class SQLiteEventRepository(EventRepository):
                 " AND rowid IN (SELECT e.rowid FROM events e WHERE "
                 + " AND ".join(clauses) + ")"
             ) if clauses else ""
-            params = [query, *scope_params, limit]
+            params = [match, *scope_params, limit]
             async with self._db.execute(
-                f"{_EVENT_SELECT} e WHERE e.rowid IN ("
-                "  SELECT rowid FROM events_fts WHERE events_fts MATCH ?"
-                f"{candidate_filter} ORDER BY rank LIMIT ?)"
-                " ORDER BY e.salience DESC",
+                f"SELECT {_EVENT_COLS} FROM "
+                "(SELECT rowid, bm25(events_fts, 0.0, 0.0, 0.0, 1.0, 1.0) AS score "
+                "FROM events_fts WHERE events_fts MATCH ?"
+                f"{candidate_filter} ORDER BY score LIMIT ?) f "
+                "JOIN events e ON e.rowid = f.rowid"
+                " ORDER BY f.score",
                 params,
             ) as cur:
                 rows = await cur.fetchall()
             return [_row_to_event(r) for r in rows]
-        except Exception:
+        except Exception as exc:
+            logger.warning("[search_fts] keyword search failed; returning no BM25 hits: %s", exc)
             return []
 
     async def search_vector(
@@ -1011,13 +1064,16 @@ class SQLiteEventRepository(EventRepository):
         return [_row_to_event(r) for r in rows]
 
     async def upsert(self, event: Event) -> None:
+        search_words, search_chars = index_columns(
+            event.topic or "", [str(t) for t in (event.chat_content_tags or [])], event.summary or ""
+        )
         async with _txn(self._db, self._lock):
             await self._db.execute(
                 "INSERT INTO events(event_id, group_id, start_time, end_time, participants, "
                 "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
                 "inherit_from, last_accessed_at, access_count, status, is_locked, bot_persona_name, event_type, "
-                "participant_style, interaction_classification) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                "participant_style, interaction_classification, search_words, search_chars) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(event_id) DO UPDATE SET "
                 "group_id=excluded.group_id, "
                 "start_time=excluded.start_time, "
@@ -1036,7 +1092,9 @@ class SQLiteEventRepository(EventRepository):
                 "is_locked=excluded.is_locked, "
                 "bot_persona_name=excluded.bot_persona_name, "
                 "event_type=excluded.event_type, "
-                "participant_style=excluded.participant_style",
+                "participant_style=excluded.participant_style, "
+                "search_words=excluded.search_words, "
+                "search_chars=excluded.search_chars",
                 (
                     event.event_id,
                     event.group_id,
@@ -1058,6 +1116,8 @@ class SQLiteEventRepository(EventRepository):
                     event.event_type,
                     _j(event.participant_style or {}),
                     _j(event.interaction_classification) if event.interaction_classification else "",
+                    search_words,
+                    search_chars,
                 ),
             )
 
@@ -1580,9 +1640,17 @@ class SQLiteEventRepository(EventRepository):
 
     async def set_chat_content_tags(self, event_id: str, tags: list[str]) -> None:
         async with _txn(self._db, self._lock):
+            async with self._db.execute(
+                "SELECT topic, summary FROM events WHERE event_id = ?", (event_id,)
+            ) as cur:
+                row = await cur.fetchone()
+            if row is None:
+                return
+            search_words, search_chars = index_columns(row[0] or "", [str(t) for t in tags], row[1] or "")
             await self._db.execute(
-                "UPDATE events SET chat_content_tags = ? WHERE event_id = ?",
-                (_j(list(tags)), event_id),
+                "UPDATE events SET chat_content_tags = ?, search_words = ?, search_chars = ? "
+                "WHERE event_id = ?",
+                (_j(list(tags)), search_words, search_chars, event_id),
             )
 
     async def get_tag_categories(self) -> dict[str, tuple[str, float]]:

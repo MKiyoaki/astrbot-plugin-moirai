@@ -13,6 +13,7 @@ import logging
 from ..domain.models import Event
 from ..embedding.encoder import Encoder, NullEncoder
 from ..repository.base import EventRepository
+from .backend import RetrievalBackend, SQLiteRetrievalBackend
 from .rrf import rrf_scores
 
 logger = logging.getLogger(__name__)
@@ -35,8 +36,10 @@ class HybridRetriever:
         weighted_random: bool = False,
         sampling_temperature: float = 1.0,
         reranker=None,
+        backend: RetrievalBackend | None = None,
     ) -> None:
         self._event_repo = event_repo
+        self.backend: RetrievalBackend = backend or SQLiteRetrievalBackend(event_repo)
         self._encoder: Encoder = encoder or NullEncoder()
         self._bm25_limit = bm25_limit
         self._vec_limit = vec_limit
@@ -72,7 +75,7 @@ class HybridRetriever:
         embedding: pre-computed query vector; if None, will be encoded here.
         """
         async def _bm25_search() -> list[Event]:
-            return await self._event_repo.search_fts(
+            return await self.backend.lexical(
                 query, limit=self._bm25_limit, active_only=active_only,
                 group_id=group_id, scope_mode=scope_mode,
             )
@@ -81,7 +84,7 @@ class HybridRetriever:
             if self._encoder.dim <= 0:
                 return []
             vec = embedding if embedding is not None else await self._encoder.encode(query)
-            return await self._event_repo.search_vector(
+            return await self.backend.vector(
                 vec, limit=self._vec_limit, active_only=active_only,
                 group_id=group_id, scope_mode=scope_mode,
             )
