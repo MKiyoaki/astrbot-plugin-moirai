@@ -15,7 +15,7 @@
 | 结构扩展与综述 | `context.py` 的 `expand_events`、`overview.py`；`CanonReader.overview_search`、`expand_context` | |
 | 证据装填与预算 | `core/canon/packing.py`：`Hit`、`fill*`、`rank_reason_hits`、`result_line`、`estimate_tokens`；`recall.py` 的 `CanonRecall._incident`（讲经过的事件窗口）；`gateway.py` 的 `EvidencePack` | 预算常量仍直接写在 `fill_*` 里。`EvidencePack.render` 按 `CanonReader.sequence` 编号、换成第一人称，并列出 `CanonReader.causal_links` 的因果许可 |
 | 调度 | `core/canon/assembly.py`：`EvidenceAssembler`、`EvidenceSettings` | 一轮一个实例，持有证据包和本轮预算；首轮预取、`canon_recall` / `canon_overview` 工具和近况事实块都经过它。自适应装填放宽的预算对之后的工具调用可见 |
-| 提示词与工具 | `run_canon_chat.py` 的 `knowledge`、`build_system`、`OUTPUT_RULES`、`MEMORY_NOTE`、`STYLE`（[讲法]）、三个工具 schema 与回调、`archive_names`；`query.py` 的 `task_of` | 系统提示词每次请求前重建，工具结果只回一行说明。查档案由代码直接取。Bot 的注入块属于 B7，另行决定 |
+| 提示词与工具 | `run_canon_chat.py` 的 `knowledge`、`build_system`、`OUTPUT_RULES`、`MEMORY_NOTE`、`STYLE`（[讲法]）、三个工具 schema 与回调、`archive_names`；`query.py` 的 `task_of` | 系统提示词每次请求前重建，工具结果只回一行说明。查档案由代码直接取。`run_turn` 可带入宿主侧的 `memory_block`（普通记忆），只给模型看，不参与路由和检查。Bot 路径沿用工具调用，见待决问题 4 |
 | 生成 | `run_canon_chat.py` 的 `generate`、`ModelClient`（httpx，同步）、`Session`、`conversation_history` | |
 | 检查 | `core/canon/gateway.py` 的 `align`、`inspect`、`check_reply`、`beat_line` | 检查本身不调模型：逐句对到证据，按结构标出问题；有问题才调一次模型定点修补，修补后仍有问题的句子换成对上的记忆原句。`CheckReport.stages` 记录对齐、修补和替换，供 `--trace` 和评测写出 |
 | 时间事实 | `core/canon/temporal.py` 的 `resolve`；`CanonReader.fact_context` | |
@@ -45,7 +45,7 @@
 - **调度**：`assembly.py` 和 `packing.py`。接入 Bot 后，这一层也负责和原有 memory 块分配同一份预算。
 - **检查**：`gateway.py`。
 
-Bot 的 `before_generation` 处理函数应构造 `EvidenceAssembler` 并调用 `prefetch()` / `facts()`，不要再抄一份组包流程。
+Bot 路径上的 canon 工具回调应复用终端的 `CanonRecall` / `EvidenceAssembler`，不要再抄一份组包流程。首轮预取（`prefetch()`）只留在离线检索评测里，不作为 Bot 的默认路径（见待决问题 4）。
 
 ## 迁移记录与对比方法
 
@@ -86,9 +86,13 @@ Bot 的 `before_generation` 处理函数应构造 `EvidenceAssembler` 并调用 
 
 1. **索引选哪套**：向量用 `event_vec` 还是派生索引；全文用 trigram 表还是内存 BM25（要比较召回、启动时间和常驻内存）。
 2. **融合怎样统一**：用哪个 k 和权重，用 200 题评测决定。
-3. **Bot 的预算**：插件默认值和终端基础值该取哪个；canon 块和原有 memory 块怎样分配名额。
-4. **Bot 里怎样检查**：Core Event Protocol v1 的 contribution 只有 prompt 文本块、`reply_prefix` 等，没有替换最终回复的操作，所以终端 gateway 的修补不能原样用在 Bot 上；按先后编号的证据和[讲法]可以作为注入块直接用。要么只注入约束，要么扩展 Core 协议；后者是 Core 仓库的改动，需要走 Core 的 TODO 批准。
-5. **聊天记忆污染**：Bot 说出的剧情内容会被 Moirai 的事件抽取器写进聊天记忆，之后作为“我们聊过的事”召回时会绕过 gateway。需要在抽取或召回时标注这类内容的来源。
+3. **Bot 的预算**：插件默认值和终端基础值该取哪个；canon 块和原有 memory 块怎样分配名额。2026-09-30 全数据流测试暂时分开计：普通记忆 800，canon 每轮 2,000。是否共用一份，按测试数据再定；普通记忆的窗口大小另行测试。
+4. **Bot 里怎样召回和检查**（2026-09-30 已定方向）：Bot 沿用终端逻辑，不采用“生成前注入证据块”。
+   - 模型通过工具调用选档位：不召回、轻量召回、深度探索、查档案。召回过的轮次做逐句对齐检查和定点修补。
+   - Core Event Protocol v1 缺两样能力：一是扩展声明工具，由 Core 交给宿主、再把执行转回扩展（现在只有 `before_tool` 观察和合成的 `tool_pair`）；二是替换最终回复（现在只有 prompt 文本块和 `reply_prefix`）。
+   - 这两项都是 Core 仓库的协议扩展，需要走 Core 的 TODO 批准。Moirai 不改用 AstrBot 自己的工具注册，以免绑死宿主。
+   - 在此之前，工作区的 `scripts/fullflow_test.py` 在测试框架里模拟宿主的工具循环。
+5. **聊天记忆污染**：Bot 说出的剧情内容会被 Moirai 的事件抽取器写进聊天记忆，之后作为“我们聊过的事”召回时会绕过 gateway。需要在抽取或召回时标注这类内容的来源。2026-09-30 用户决定先观察：全数据流测试记录哪些聊天记忆事件是由阿米娅的剧情回答构成的，以及它们之后是否又被注入。
 6. **跨轮工作记忆**：是否保留最近几轮的证据 ID，下一轮以压缩形式带回，供追问和检查使用。
 7. **未用数据**：`cognitions`、`view_access` 是否进入检索或注入；进入前需要审阅。
 

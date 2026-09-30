@@ -37,15 +37,15 @@ class RetrievalBackend(ABC):
         """Nearest events by embedding, closest first."""
 
 
-class SQLiteRetrievalBackend(RetrievalBackend):
-    """FTS5 over Moirai's CJK term columns plus sqlite-vec, inside the event database."""
+class RepositoryRetrievalBackend(RetrievalBackend):
+    """Searches served by the event repository itself; for SQLite, FTS5 over the CJK term columns plus sqlite-vec."""
 
     def __init__(self, event_repo: EventRepository) -> None:
         self._repo = event_repo
 
     @property
     def identity(self) -> dict:
-        return {"backend": "sqlite", "tokenizer": TOKENIZER_ID}
+        return {"backend": "repository", "repository": type(self._repo).__name__, "tokenizer": TOKENIZER_ID}
 
     async def lexical(
         self, query: str, *, limit: int = 20, active_only: bool = True,

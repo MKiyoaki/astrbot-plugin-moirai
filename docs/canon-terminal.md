@@ -10,7 +10,7 @@
 moirai canon test
 ```
 
-- **数据库**：优先读 V11 全库试聊副本 `.dev_data/canon/v11/chat/full-20260928.sqlite`（618 个场景、4,903 个事件，已导入干员档案；复制自 `v11/all/build/canon.sqlite`，按 `imported_at` 找到该构建目录下的向量索引）；不存在时依次退回 V10 全库 `.dev_data/canon/v10/all/build/canon.sqlite`（4,377 个事件，未导入档案）、100 场景和 20 场景的试聊副本，最后是旧的 Nexus 基准库。启动时打印选中的路径。`--db` 指定别的副本。两份全库都没有已审阅的时间事实。
+- **数据库**：默认读 V11 全库试聊副本 `.dev_data/canon/v11/chat/full-20260928.sqlite`（618 个场景、4,903 个事件，已导入干员档案；复制自 `v11/all/build/canon.sqlite`，按 `imported_at` 找到该构建目录下的向量索引）。这个文件不存在时直接报错，不再退回旧版本的库；V10 和更早的构建已在 2026-09-30 清理时删除。启动时打印选中的路径。`--db` 指定别的副本。库里没有已审阅的时间事实。
 - **人格**：默认 `devtools/canon/amiya_persona.txt`，即 2026-09-26 被精简版替换之前的完整人设。2026-09-28 并入用户原版人设的外貌、说话方式、原作台词分类与“一次不超过三句”（原版的“用括号描述动作”被否决，人设改为明确禁止括号或星号描写），并注明台词只用于把握语气、不照搬；随后去重精简到约 2,500 token（合并版约 4,600），原作台词每类 2 句。精简版已删除。2026-09-29 删去“仍然没有就坦诚说记不清”“拿不准时请坦诚说明不确定”两句，改为“记忆里有的直接说；确实没有的只在那一处说一句没印象”，三句的限制在讲经过和转述档案时放开。
 - **对话者**：默认是博士；`--not-doctor` 做身份对照。`--as-of <point_id>` 指定一个已审阅的剧情时间点。
 - **模型**：模型类型依次取 `--model-type`、`CANON_CHAT_MODEL_TYPE`、`CANON_MODEL_TYPE` 和 `run_config.py` 的 `MODEL_TYPE`。API key 取自 `CANON_CHAT_API_KEY` 或所选模型的配置，从不打印。
@@ -144,12 +144,14 @@ python -m core.canon.cli archive-import --pack ../Arknights-Texts/exports/archiv
 
 ## 批量检索评测
 
-现有自动检索题库可直接通过同一个 `test` 入口批量运行，不调用生成模型。省略 `--questions` 后面的路径时使用本机 `.dev_data/canon/eval/retrieval-200-v1.jsonl`（原 99 题、81 道新增事实题、20 道跨事件大问题）；每题独立检索，不沿用上一题的聊天历史。大问题各标三个原文支持的剧情要点，报告单列要点召回与至少覆盖两个要点的比例。全量库可这样测：
+现有自动检索题库可直接通过同一个 `test` 入口批量运行，不调用生成模型。省略 `--questions` 后面的路径时使用 `../Arknights-Texts/eval/canon_retrieval_bank.jsonl`（200 题：细节 99、场景召回 66、跨事件大问题 20、闲聊 15；原名 `retrieval-200-v3-audited.jsonl`，字段说明见 Arknights-Texts 的 README，数据从私有 HF 数据集 `ProjectOedipus/Arknights-Amiya` 获取）；每题独立检索，不沿用上一题的聊天历史。大问题各标三个原文支持的剧情要点，报告单列要点召回与至少覆盖两个要点的比例。全量库可这样测：
 
 ```bash
 moirai canon test --questions
 ```
 
-批量评测默认用离线 baseline；`--retrieval hybrid --allow-remote` 需要这份库对应的派生向量索引，并会向配置的 embedding 服务发送查询。先用 `moirai canon retrieval plan --db <canon.sqlite>` 估算，再显式运行 `moirai canon retrieval build --allow-remote --db <canon.sqlite>` 建索引。`--out <报告.json>` 可指定报告位置；未指定时报告写入这份库旁的 `canon.retrieval/runs/`。报告逐题记录路线、命中、最终和注入排名，并汇总最终召回、注入召回、答案行注入率与闲聊路线正确率。旧版 100 场景构筑可指定 `.dev_data/canon/eval/retrieval-200-v1-100-compatible.jsonl`，只测试它们实际包含答案的 128 题。大问题的三个要点是选定的代表性证据，其他相关事件可能同样有用；要点覆盖率是严格的锚点指标，不等同于最终回答质量。旧 100 题可显式指定 `retrieval-100-v2.jsonl` 复测。
+批量评测默认用离线 baseline；`--retrieval hybrid --allow-remote` 需要这份库对应的派生向量索引，并会向配置的 embedding 服务发送查询。先用 `moirai canon retrieval plan --db <canon.sqlite>` 估算，再显式运行 `moirai canon retrieval build --allow-remote --db <canon.sqlite>` 建索引。`--out <报告.json>` 可指定报告位置；未指定时报告写入这份库旁的 `canon.retrieval/runs/`。报告逐题记录路线、命中、最终和注入排名，并汇总最终召回、注入召回、答案行注入率与闲聊路线正确率。大问题的三个要点是选定的代表性证据，其他相关事件可能同样有用；要点覆盖率是严格的锚点指标，不等同于最终回答质量。这 200 题在开发中都用过，融合权重和路线阈值也在它上面调过，分数偏乐观，只适合做改动前后的回归对比。旧的 `retrieval-200-v1`、`retrieval-100-v2` 等题库已在 2026-09-30 删除。
+
+回答质量评测用 `devtools/canon/budget_sweep.py`，默认题库是 `../Arknights-Texts/eval/canon_answer_bank.jsonl`（55 题，原名 `sweep-bank-v4.jsonl`）。`devtools/canon/sweep_wrap.py` 用指定代码目录自己的 `budget_sweep` 跑一次扫描，给跨章节题（kind 为 cross）另加因果和先后的评审规则，并可跳过指定题的评审；`devtools/canon/sweep_compare.py` 把后面各次评审结果和第一次逐题配对比较，给出分差、bootstrap 区间以及幻觉和延迟的拆分。
 
 请把试聊中发现的无关召回和回答问题记录下来，在 B6–B9 的正式 Bot 路径再验证。

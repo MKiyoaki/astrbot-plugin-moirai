@@ -1,0 +1,458 @@
+<title>Canon 合成迭代</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  /* Layout: one reading column of stacked sections; metric charts as a wrapping grid of small multiples. Tokens shared with the other canon pages. */
+  :root {
+    --bg: #F3F5F6; --surface: #FFFFFF; --ink: #17212B; --muted: #5A6772; --faint: #8A96A0; --line: #D3DADF; --lane: #E7ECEF;
+    --accent: #0B6E7F; --accent-soft: #D5EBEE; --bar-old: #B7C2C9; --good: #2D7A4E; --good-soft: #DBEEE2; --bad: #B03A36; --bad-soft: #F6DFDC; --warm: #A85A0C; --warm-soft: #F3E1CC;
+    --sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --serif: "Noto Serif SC", "Songti SC", "SimSun", serif;
+    --mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark; --bg: #0F1519; --surface: #161E24; --ink: #E1E8ED; --muted: #93A1AC; --faint: #6D7A84; --line: #2E3A44; --lane: #1B242B;
+      --accent: #4DB6C6; --accent-soft: #173A40; --bar-old: #46535D; --good: #62C28A; --good-soft: #16321F; --bad: #E77A73; --bad-soft: #3D1F1D; --warm: #E2A04C; --warm-soft: #3A2A16;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark; --bg: #0F1519; --surface: #161E24; --ink: #E1E8ED; --muted: #93A1AC; --faint: #6D7A84; --line: #2E3A44; --lane: #1B242B;
+    --accent: #4DB6C6; --accent-soft: #173A40; --bar-old: #46535D; --good: #62C28A; --good-soft: #16321F; --bad: #E77A73; --bad-soft: #3D1F1D; --warm: #E2A04C; --warm-soft: #3A2A16;
+  }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.7; }
+  .page { max-width: 1060px; margin: 0 auto; padding-inline: 20px; padding-block: 40px 72px; display: grid; gap: 48px; }
+  header { display: grid; gap: 10px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; color: var(--muted); }
+  h1 { font-family: var(--serif); font-size: clamp(28px, 4vw, 38px); line-height: 1.25; margin: 0; text-wrap: balance; }
+  h2 { font-family: var(--serif); font-size: 22px; margin: 0; text-wrap: balance; }
+  h3 { font-size: 15px; margin: 0; }
+  p { margin: 0; max-width: 72ch; }
+  .lede { color: var(--muted); font-size: 16px; }
+  .note { font-size: 13px; color: var(--muted); max-width: 86ch; }
+  section { display: grid; gap: 14px; }
+  .flow { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .flow svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); }
+  .flow .fb { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+  .flow .fm { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.4; }
+  .flow .fw { fill: var(--warm-soft); stroke: var(--warm); stroke-width: 1.2; }
+  .flow .fc { fill: var(--good-soft); stroke: var(--good); stroke-width: 1.2; }
+  .flow .fg { fill: var(--surface); stroke: var(--good); stroke-width: 1.4; }
+  .flow .fd { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 5 4; }
+  .flow .ft { font-size: 13px; font-weight: 700; }
+  .flow .fs { font-size: 11.5px; fill: var(--muted); }
+  .flow .fl { font-size: 11px; fill: var(--muted); }
+  .flow .fe { stroke: currentColor; stroke-width: 1.3; fill: none; opacity: 0.7; }
+  .flow .fd2 { stroke: currentColor; stroke-width: 1.2; fill: none; opacity: 0.6; stroke-dasharray: 4 4; }
+  .flow .fa { fill: currentColor; opacity: 0.7; }
+  .versions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+  .ver { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; min-width: 0; }
+  .ver .tag { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .ver b { font-size: 15px; }
+  .ver span { font-size: 13px; color: var(--muted); }
+  .ver.latest { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 6px; min-width: 0; position: relative; }
+  .card-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .card-head b { font-size: 14px; }
+  .card-head span { font-size: 12px; color: var(--muted); }
+  .card svg { display: block; width: 100%; height: auto; color: var(--ink); }
+  svg text { font-family: var(--sans); fill: currentColor; }
+  svg .tick { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+  svg .lab { font-size: 12px; fill: var(--ink); }
+  svg .val { font-size: 12px; fill: var(--ink); font-variant-numeric: tabular-nums; }
+  svg .grid-line { stroke: var(--line); stroke-width: 1; }
+  svg .zero { stroke: var(--muted); stroke-width: 1; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font-size: 12.5px; box-shadow: 0 4px 14px rgba(0,0,0,0.12); font-variant-numeric: tabular-nums; z-index: 2; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-weight: 600; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .cell { display: flex; align-items: center; gap: 8px; }
+  .mini { height: 8px; border-radius: 0 3px 3px 0; background: var(--bar-old); }
+  .mini.hi { background: var(--accent); }
+  .cases { display: grid; gap: 16px; }
+  .case { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 10px; min-width: 0; }
+  .case h3 { font-size: 15px; }
+  .case h3 small { font-weight: 400; color: var(--muted); font-size: 12.5px; margin-left: 8px; }
+  .row { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 12px; padding-top: 10px; border-top: 1px solid var(--lane); }
+  .row:first-of-type { border-top: 0; padding-top: 0; }
+  .row .who { display: grid; gap: 4px; align-content: start; font-size: 13px; }
+  .row .who b { font-size: 13.5px; }
+  .row .cost { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .pill { justify-self: start; font-size: 11.5px; border-radius: 999px; padding: 1px 8px; border: 1px solid var(--line); color: var(--muted); }
+  .pill.ok { border-color: var(--good); color: var(--good); }
+  .pill.no { border-color: var(--bad); color: var(--bad); }
+  .row .text { font-size: 13.5px; }
+  @media (max-width: 640px) { .row { grid-template-columns: 1fr; gap: 4px; } }
+  ul.caveats { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; font-size: 13.5px; max-width: 86ch; }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">MOIRAI · CANON · v1.2.28.sub 定版 · 2026-09-30 · 本地 Gemma-4-26B-A4B 作答 · KCL arc:chat 评审</div>
+    <h1>Canon 合成迭代</h1>
+    <p class="lede">v1.2.28.sub 的定版汇报（代码在工作区，未提交）：定版包含什么、相对旧版的变化、当前数据流，以及同一套 55 道题（sweep-bank-v4，每个版本各跑 3 次）上每一版的准确度、幻觉、成本和说话方式。“混合（估算）”即定版的分流方式，由 C 和 B1 的实测结果拼成，没有单独再跑。</p>
+  </header>
+
+  <section>
+    <h2>定版结论</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>指标（55 题 × 3 次）</th><th class="num">旧版 v1.2.27</th><th class="num">定版（混合估算）</th><th>方向</th></tr></thead>
+      <tbody>
+        <tr><td>准确度</td><td class="num">0.466</td><td class="num">0.497</td><td>↑ 误差内</td></tr>
+        <tr><td>幻觉回答占比</td><td class="num">9.3%</td><td class="num">8.0%</td><td>↓</td></tr>
+        <tr><td>每条回答的无依据说法</td><td class="num">0.69</td><td class="num">0.44</td><td>↓</td></tr>
+        <tr><td>每轮模型调用</td><td class="num">3.48</td><td class="num">2.20</td><td>↓ 37%</td></tr>
+        <tr><td>每轮输入 token</td><td class="num">13,109</td><td class="num">8,313</td><td>↓ 37%</td></tr>
+        <tr><td>每轮输出 token</td><td class="num">347</td><td class="num">153</td><td>↓ 56%</td></tr>
+        <tr><td>延迟中位数</td><td class="num">12.0 s</td><td class="num">7.5 s</td><td>↓</td></tr>
+        <tr><td>推托（“记不清”“需要时间”）</td><td class="num">13.3%</td><td class="num">5.0%</td><td>↓</td></tr>
+        <tr><td>查档案准确度（6 道补充题）</td><td class="num">0.25</td><td class="num">0.92</td><td>↑，调用 4 → 1</td></tr>
+      </tbody>
+    </table></div>
+    <ul class="caveats">
+      <li><b>定版包含：</b>证据按发生先后编号、第一人称；查档案由代码直接取；逐句对齐检查（不调模型），有问题才修补一次；讲经过先写提纲指针再说；“旧事说成现在”收窄；兜底句当面称博士“您”；去掉用正则删证据句的 <code>visible_summary</code>。这一版没有新增任何正则。</li>
+      <li><b>定版之后未在 gemma 上重跑的两处：</b>“旧事说成现在”收窄只做了离线重放（13 轮重评，得分幻觉持平，少 13 次修补调用）；去掉 <code>visible_summary</code> 只影响 10 条事件的摘要。表中数字不含这两处。</li>
+      <li><b>未解决：</b>55 题里只有 4 题被分到“讲经过”，大体经过和跨章节题多数用不上提纲；否认检查抓不到真正的“否认记得的事”；“介绍维多利亚”这类综述缺少地点层级；博士没说出口的内心句要在建库时标注。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>当前数据流</h2>
+    <p class="note">工作区里的最新代码（未提交）。青色框调用模型，实线框是代码，虚线框按条件触发。四条讲法里只有“讲经过”加提纲（指针 CoT）。</p>
+    <div class="flow">
+      <svg viewBox="0 0 1000 620" role="img" aria-label="当前数据流：讲法判断后，查档案直接取档案一次成文；其余由主模型带工具起草，召回组包后每次重建系统提示词，讲经过先写提纲指针再回答，最后由代码逐句对齐检查，有问题才定点修补一次。">
+        <defs><marker id="fa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="fa"/></marker></defs>
+        <rect class="fb" x="16" y="16" width="150" height="54" rx="8"/><text class="ft" x="91" y="48" text-anchor="middle">博士的话</text>
+        <rect class="fb" x="196" y="16" width="300" height="54" rx="8"/><text class="ft" x="346" y="38" text-anchor="middle">讲法判断（代码）</text><text class="fs" x="346" y="57" text-anchor="middle">查档案 / 讲经过 / 问原因 / 问事实</text>
+        <line class="fe" x1="166" y1="43" x2="194" y2="43" marker-end="url(#fa)"/>
+
+        <rect class="fb" x="16" y="110" width="280" height="54" rx="8"/><text class="ft" x="156" y="132" text-anchor="middle">查档案：代码直接取档案</text><text class="fs" x="156" y="151" text-anchor="middle">不给工具、不补召回</text>
+        <rect class="fm" x="16" y="190" width="280" height="54" rx="8"/><text class="ft" x="156" y="212" text-anchor="middle">一次成文</text><text class="fs" x="156" y="231" text-anchor="middle">说成“档案上写着”</text>
+        <path class="fe" d="M240 70 V 90 H 156 V 108" marker-end="url(#fa)"/>
+        <line class="fe" x1="156" y1="164" x2="156" y2="188" marker-end="url(#fa)"/>
+
+        <rect class="fm" x="330" y="110" width="300" height="64" rx="8"/><text class="ft" x="480" y="132" text-anchor="middle">主模型起草</text><text class="fs" x="480" y="150" text-anchor="middle">工具：probe / recall / archive，最多 2 轮</text><text class="fs" x="480" y="166" text-anchor="middle">工具结果只回一行说明</text>
+        <path class="fe" d="M420 70 V 90 H 480 V 108" marker-end="url(#fa)"/>
+        <rect class="fb" x="670" y="110" width="314" height="64" rx="8"/><text class="ft" x="827" y="132" text-anchor="middle">召回与组包（代码）</text><text class="fs" x="827" y="150" text-anchor="middle">四路检索 + 知情过滤</text><text class="fs" x="827" y="166" text-anchor="middle">讲经过：轻量→事件窗口；arc 或 deep→骨架＋展开</text>
+        <line class="fe" x1="630" y1="130" x2="668" y2="130" marker-end="url(#fa)"/><text class="fl" x="649" y="124" text-anchor="middle">调用</text>
+        <rect class="fw" x="670" y="196" width="314" height="64" rx="8"/><text class="ft" x="827" y="218" text-anchor="middle">证据包（每轮 ≤2,000 token）</text><text class="fs" x="827" y="236" text-anchor="middle">按发生先后编号，换成第一人称</text><text class="fs" x="827" y="252" text-anchor="middle">〔因果〕只列原文明说的</text>
+        <line class="fe" x1="827" y1="174" x2="827" y2="194" marker-end="url(#fa)"/>
+        <rect class="fb" x="670" y="282" width="314" height="64" rx="8"/><text class="ft" x="827" y="304" text-anchor="middle">每次请求前重建系统提示词</text><text class="fs" x="827" y="322" text-anchor="middle">[你的记忆] + [讲法]</text><text class="fs" x="827" y="338" text-anchor="middle">讲经过另加 [先想后说]</text>
+        <line class="fe" x1="827" y1="260" x2="827" y2="280" marker-end="url(#fa)"/>
+        <path class="fe" d="M670 314 H 540 V 176" marker-end="url(#fa)"/><text class="fl" x="600" y="308" text-anchor="middle">回到起草</text>
+
+        <rect class="fm" x="330" y="370" width="300" height="64" rx="8"/><text class="ft" x="480" y="392" text-anchor="middle">草稿</text><text class="fs" x="480" y="410" text-anchor="middle">讲经过：先写〈提纲〉只写记忆编号，再写〈回答〉</text><text class="fs" x="480" y="426" text-anchor="middle">提纲某块写“无”→补查一次→重写</text>
+        <path class="fe" d="M400 174 V 368" marker-end="url(#fa)"/>
+        <rect class="fd" x="16" y="370" width="280" height="64" rx="8"/><text class="ft" x="156" y="392" text-anchor="middle">兜底补召回</text><text class="fs" x="156" y="410" text-anchor="middle">一次召回都没做、判为剧情题</text><text class="fs" x="156" y="426" text-anchor="middle">→ 补召回并重写（+1 次）</text>
+        <line class="fd2" x1="296" y1="402" x2="328" y2="402" marker-end="url(#fa)"/>
+
+        <rect class="fc" x="330" y="462" width="300" height="72" rx="8"/><text class="ft" x="480" y="484" text-anchor="middle">对齐检查（代码，不调模型）</text><text class="fs" x="480" y="503" text-anchor="middle">逐句对到记忆：名字、数字、说过头、引号</text><text class="fs" x="480" y="520" text-anchor="middle">先后、因果、否认、客套收尾、旧事说成现在、出戏</text>
+        <line class="fe" x1="480" y1="434" x2="480" y2="460" marker-end="url(#fa)"/>
+        <path class="fe" d="M156 244 V 262 H 8 V 498 H 328" marker-end="url(#fa)"/>
+        <rect class="fm" x="670" y="462" width="314" height="72" rx="8"/><text class="ft" x="827" y="484" text-anchor="middle">有问题：定点修补一次</text><text class="fs" x="827" y="503" text-anchor="middle">只改标出的句子，再检查一遍</text><text class="fs" x="827" y="520" text-anchor="middle">仍不过→换成记忆原句（称博士“您”）；对不上→去掉</text>
+        <line class="fe" x1="630" y1="498" x2="668" y2="498" marker-end="url(#fa)"/><text class="fl" x="649" y="492" text-anchor="middle">有问题</text>
+        <rect class="fg" x="330" y="560" width="300" height="48" rx="8"/><text class="ft" x="480" y="589" text-anchor="middle">回复（只把这一句写进历史）</text>
+        <line class="fe" x1="480" y1="534" x2="480" y2="558" marker-end="url(#fa)"/><text class="fl" x="492" y="550">没问题</text>
+        <path class="fe" d="M827 534 V 584 H 632" marker-end="url(#fa)"/>
+      </svg>
+    </div>
+    <p class="note"><b>分流的缺口：</b>55 题里只有 4 题被判成“讲经过”。大体经过和跨章节的 11 题里，7 题因为问法是“怎么收场的”“发生了什么？阿米娅做了什么？”这类，被判成了问事实或问原因，用不上提纲。但模型自己在这些题上 33 次有 27 次选了深度回忆（deep），而其他题型几乎不选；按“模型选了 deep 就算讲经过”来分流，能覆盖这些题，还不用关键词。</p>
+  </section>
+
+  <section>
+    <h2>版本</h2>
+    <div class="versions" id="versions"></div>
+  </section>
+
+  <section>
+    <h2>主要指标（55 题 × 3 次）</h2>
+    <p class="note">每张图一个指标，最新版本用青色，其余灰色。鼠标停在条上看具体数值。准确度是评审分除以 2；幻觉指与原文或反例矛盾的回答占比；无依据说法是材料里找不到但也不矛盾的具体说法。</p>
+    <div class="grid" id="metrics"></div>
+  </section>
+
+  <section>
+    <h2>相对旧版 A 的变化</h2>
+    <p class="note">按题配对：先把每题 3 次取平均，再算各版本减旧版 A 的差值；横线是 bootstrap 95% 区间，跨过 0 表示差别在误差之内。</p>
+    <div class="grid" id="paired"></div>
+  </section>
+
+  <section>
+    <h2>按题型的准确度</h2>
+    <div class="table-wrap"><table id="kinds"></table></div>
+    <p class="note">每个题型的题数不多（3–12 道），单格的差别要看趋势，不能逐格下结论。</p>
+  </section>
+
+  <section id="premise-section">
+    <h2>前提核对（错误前提、问事实、问细节，29 题 × 3 次）</h2>
+    <div class="table-wrap"><table id="premise"></table></div>
+    <p class="note">C2 在 C 的基础上，把问事实和问原因的提纲第一块改成“前提：问题里认定的事对不对”，前提不对时回答第一句先纠正。只重跑了这三类题，所以单独列一张表。</p>
+  </section>
+
+  <section>
+    <h2>讲述完整度盲评（大体经过、跨章节题）</h2>
+    <div class="table-wrap"><table id="narrative"></table></div>
+    <p class="note">arc:chat 在不知道版本的情况下只看表达方式打分：有没有点题、交代起因、按先后讲、讲出结果、开头结尾有没有推托或客套，以及像不像人在讲自己的经历（1–5）。</p>
+  </section>
+
+  <section>
+    <h2>30 道未参与调整的新题</h2>
+    <div class="table-wrap"><table id="heldout"></table></div>
+    <p class="note">题目取自 retrieval-200-v3 里答案落在阿米娅知情事件上、又不在上面 55 题里的 30 道，参考答案未经人工复核，只作方向参考。每个版本跑 1 次。</p>
+  </section>
+
+  <section>
+    <h2>代表题在各版本下的回答</h2>
+    <p class="note">原型阶段的单次运行，用来看说话方式的变化；每一行是一次真实输出的节选。成本是这一轮的模型调用次数和接口返回的输入/输出 token。</p>
+    <div class="cases" id="cases"></div>
+  </section>
+
+  <section>
+    <h2>指针 CoT（C）比 v1.2.28 修正版（B1）多出的幻觉</h2>
+    <ul class="caveats">
+      <li><b>展开时补进了记忆里没有的细节：</b>涅瓦湖那题 3 次都把原文的“挥剑”说成“挥动法杖”（模型自带的印象）；另有一次把“克制住想拥抱的冲动”说成“克制不住”。</li>
+      <li><b>错误前提被认下：</b>“Mon3tr 复苏时凯尔希也回来了吧”3 次都答“是的”。提纲的“答案”块先找支持的记忆，没有先核对问题里的前提；B1 这题答对。</li>
+      <li>其余零散：把“我”的判断安到霜星身上、归队和停火的先后说反、把两个人的立场混在一起、一句“远北的事我没印象”。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>检查链路离线重放（09-30）</h2>
+    <p class="note">本地 gemma 已关，没有重新生成。拿 B1、C 两组存档的初稿和修补记录，按新规则推出改后的回答，只把会变的 22 轮送 KCL arc:chat 重评。修补本身可靠：修补时没被标的句子 142/142 原样保留，问题出在误报。</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>首轮标记（B1+C，348 轮）</th><th class="num">次数</th><th>实际情况</th></tr></thead>
+      <tbody>
+        <tr><td>旧事说成现在</td><td class="num">24</td><td>15 次是误报：“还在/依然”只表示持续；或是转述别人当时的话（“阿洛伊泽说……现在已经没有人知道”）</td></tr>
+        <tr><td>说过头（量词）</td><td class="num">27</td><td>有纠正（“大家都在为无法撤退而困扰”→具体人名），也有无用的；不动</td></tr>
+        <tr><td>否认</td><td class="num">5</td><td>全标在该说“没印象”的对抗题上；B1 14 次幻觉里有 6 次是真的否认已知事实，一次都没抓到；靠结构分不出，不动</td></tr>
+        <tr><td>先后 / 数字 / 因果 / 名字</td><td class="num">10</td><td>多数误报，但有 1 次抓到真的先后颠倒（x-c02）</td></tr>
+      </tbody>
+    </table></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>改动</th><th class="num">影响轮数</th><th class="num">得分</th><th class="num">幻觉</th><th class="num">命中要点</th><th class="num">无依据说法</th><th class="num">调用</th><th>结论</th></tr></thead>
+      <tbody>
+        <tr><td>收窄“旧事说成现在”</td><td class="num">13</td><td class="num">8 → 8</td><td class="num">1 → 1</td><td class="num">10 → 13</td><td class="num">12 → 11</td><td class="num">−13</td><td><b>已改</b></td></tr>
+        <tr><td>取消兜底换句，保留修补版</td><td class="num">9</td><td class="num">4 → 5</td><td class="num">1 → 3</td><td class="num">6 → 8</td><td class="num">5 → 4</td><td class="num">0</td><td>不改：x-c02 的兜底删掉的恰是真的先后颠倒</td></tr>
+      </tbody>
+    </table></div>
+    <ul class="caveats">
+      <li><b>典型误报：</b>c-t04“布列斯克最近为什么戒严”。原稿“阿洛伊泽说……现在已经没有人知道还剩多少正常的感染者”是对的，被标成旧事说成现在，修补改成“当时”，评审 4 次都记为无依据。收窄后原稿直接通过。</li>
+      <li><b>新规则：</b>只看“现在、目前、如今、至今、最近”；句中有“当时、那时”，或“现在”出现在“说、提到、告诉”之后，不算。普通字符串判断，没有正则。</li>
+      <li><b>小修：</b>兜底换回的记忆原句当面称博士为“您”，原来会说“对方（博士）”（11 次换句里有 4 次）。</li>
+      <li><b>平均调用：</b>B1 2.14 → 2.11，C 2.31 → 2.27；每省一次修补，那一轮约快 4 秒。</li>
+      <li><b>还没法离线验证的：</b>60/183 轮模型没调工具就直接答，第一稿作废多花 1 次调用，可试“第一轮必须调工具”；讲经过的“无”块补查在 12 轮里一次没触发。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>正则盘点（对话数据流）</h2>
+    <p class="note">定版对话数据流（<code>run_canon_chat.py</code> 与它加载的 canon 模块）里还有 29 处正则，全部早于 v1.2.28；v1.2.28 删掉 5 处旧的（gateway 3 处、<code>visible_summary</code> 2 处），新写的判断都用普通字符串。建库一侧（calendar、extract、audit、bench、store）另有 32 处，不在对话流里，未逐个核查。</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>类别</th><th class="num">处数</th><th>位置与作用</th></tr></thead>
+      <tbody>
+        <tr><td>删改证据文字</td><td class="num">0</td><td>原来的 <code>visible_summary</code>（2 处）已去掉（见下）</td></tr>
+        <tr><td>给证据加标签</td><td class="num">1</td><td><code>packing._story_source</code> 取「篇名」放在讲经过提纲行前</td></tr>
+        <tr><td>可能间接改回答</td><td class="num">6</td><td>引号、出戏词（<code>_QUOTED</code>、<code>_AI</code>、<code>game_pattern</code>）标出后修补一次，仍不过会被换句或去掉；<code>TOOL_MARKUP</code> 丢弃漏出工具标记的草稿；<code>_END</code> 决定回答在哪里切句。348 轮里引号和出戏一次都没触发</td></tr>
+        <tr><td>只做判断</td><td class="num">20</td><td>检索切词、认人名、判断是否讲经过、原话查证、数 token、比对时去标点、启动显示、报错信息</td></tr>
+        <tr><td>实际不生效</td><td class="num">2</td><td>没有大事件时间点的库才用的两处日期处理</td></tr>
+      </tbody>
+    </table></div>
+    <ul class="caveats">
+      <li><b>去掉的 <code>visible_summary</code>：</b>09-26 为普瑞赛斯那题加的，一句话里“博士”后面跟着“感到/觉得/意识到/直觉”就整句删掉。阿米娅知情的 1,700 条事件里命中 10 条：7 条删错（阿米娅自己的感受、她说出口的话、别人对博士的评价、普瑞赛斯的感受）；另外 3 条确是博士内心，但连带删掉了看得见的事实（如天灾云消失）。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>读数时要注意</h2>
+    <ul class="caveats">
+      <li>v1.2.28 修正版是在看过同一套题的中期结果后改的一次；在 30 道新题上，准确度与旧版持平（0.417 对 0.450，差别在误差内），幻觉相同。</li>
+      <li>指针 CoT 是在三道代表题上调出来的，55 题的结果是它第一次在整套题上的表现。</li>
+      <li>评审只有 arc:chat 一个模型；每题 3 次，95% 区间大约 ±0.08。检索全程用离线 baseline，没有用向量。</li>
+      <li>查档案题不在这 55 题里；在另外 6 道补充题上，旧版准确度 0.25，v1.2.28 为 0.92，调用从 4 次降到 1 次。</li>
+    </ul>
+  </section>
+</div>
+
+<script type="application/json" id="data">{"versions": [{"key": "A", "name": "v1.2.27 旧版", "note": "逐句核验 + 整段修订 + 删句补接", "summary": {"turns": 162, "accuracy": 0.4660493827160494, "full_marks": 0.32098765432098764, "hallucinated": 0.09259259259259259, "unsupported": 0.6851851851851852, "calls": 3.4753086419753085, "prompt_tokens": 13108.506172839507, "completion_tokens": 347.34567901234567, "latency_median": 12.004, "latency_p90": 24.879, "hedging": 0.13333333333333333, "closing": 0, "chars": 140.2283950617284}, "by_kind": {"cross": {"accuracy": 0.1, "hallucinated": 0.3333333333333333, "calls": 4}, "detail": {"accuracy": 0.8, "hallucinated": 0.1, "calls": 3.6}, "fact": {"accuracy": 0.4583333333333333, "hallucinated": 0.027777777777777776, "calls": 3.388888888888889}, "false_premise": {"accuracy": 0.2619047619047619, "hallucinated": 0.19047619047619047, "calls": 3.7142857142857144}, "overview": {"accuracy": 0.13333333333333333, "hallucinated": 0.06666666666666667, "calls": 4.4}, "past_absence": {"accuracy": 0.6666666666666666, "hallucinated": 0.1111111111111111, "calls": 2.6666666666666665}, "recent": {"accuracy": 0.43333333333333335, "hallucinated": 0, "calls": 4}, "report_only": {"accuracy": 0.16666666666666666, "hallucinated": 0, "calls": 3.6666666666666665}, "smalltalk": {"accuracy": 1.0, "hallucinated": 0, "calls": 1}}, "narrative": {"abstract": 0.8484848484848485, "orientation": 0.8484848484848485, "sequence": 0.8787878787878788, "resolution": 0.6363636363636364, "hedge": 0.24242424242424243, "natural": 4.363636363636363, "n": 33}}, {"key": "B0", "name": "v1.2.28 第一版", "note": "先后编号 + 对齐检查 + 查档案直取", "summary": {"turns": 161, "accuracy": 0.4409937888198758, "full_marks": 0.2857142857142857, "hallucinated": 0.08695652173913043, "unsupported": 0.453416149068323, "calls": 2.0683229813664594, "prompt_tokens": 7716.080745341615, "completion_tokens": 116.90062111801242, "latency_median": 7.289, "latency_p90": 9.924, "hedging": 0.01680672268907563, "closing": 0, "chars": 93.46583850931677}, "by_kind": {"cross": {"accuracy": 0.2857142857142857, "hallucinated": 0.14285714285714285, "calls": 2.142857142857143}, "detail": {"accuracy": 0.65, "hallucinated": 0.1, "calls": 2.066666666666667}, "fact": {"accuracy": 0.2638888888888889, "hallucinated": 0.1111111111111111, "calls": 2.2222222222222223}, "false_premise": {"accuracy": 0.3333333333333333, "hallucinated": 0.09523809523809523, "calls": 2.0476190476190474}, "overview": {"accuracy": 0.2, "hallucinated": 0.06666666666666667, "calls": 2.2}, "past_absence": {"accuracy": 0.7777777777777778, "hallucinated": 0.2222222222222222, "calls": 2}, "recent": {"accuracy": 0.5, "hallucinated": 0, "calls": 2.3333333333333335}, "report_only": {"accuracy": 0.16666666666666666, "hallucinated": 0, "calls": 2.2222222222222223}, "smalltalk": {"accuracy": 1.0, "hallucinated": 0, "calls": 1}}, "narrative": null, "paired": {"accuracy": {"diff": -0.027777777777777776, "lo": -0.11419753086419752, "hi": 0.05246913580246914, "n": 54}, "hallucinated": {"diff": -0.0030864197530864213, "lo": -0.05246913580246914, "hi": 0.046296296296296294, "n": 54}, "prompt_tokens": {"diff": -5390.135802469135, "lo": -6362.061728395061, "hi": -4423.716049382716, "n": 54}, "calls": {"diff": -1.4074074074074074, "lo": -1.654320987654321, "hi": -1.1666666666666667, "n": 54}}}, {"key": "B1", "name": "v1.2.28 修正版", "note": "补回兜底召回、问事实答全、问原因讲法", "summary": {"turns": 162, "accuracy": 0.49382716049382713, "full_marks": 0.3395061728395062, "hallucinated": 0.07407407407407407, "unsupported": 0.41358024691358025, "calls": 2.1419753086419755, "prompt_tokens": 8055.697530864198, "completion_tokens": 130.96296296296296, "latency_median": 7.524, "latency_p90": 11.127, "hedging": 0.05, "closing": 0, "chars": 105.33333333333333}, "by_kind": {"cross": {"accuracy": 0.13333333333333333, "hallucinated": 0.13333333333333333, "calls": 2.2666666666666666}, "detail": {"accuracy": 0.8333333333333334, "hallucinated": 0.1, "calls": 2.3}, "fact": {"accuracy": 0.4305555555555556, "hallucinated": 0.027777777777777776, "calls": 2.25}, "false_premise": {"accuracy": 0.30952380952380953, "hallucinated": 0.09523809523809523, "calls": 2.142857142857143}, "overview": {"accuracy": 0.16666666666666666, "hallucinated": 0.2, "calls": 2.2}, "past_absence": {"accuracy": 0.7777777777777778, "hallucinated": 0.1111111111111111, "calls": 2.111111111111111}, "recent": {"accuracy": 0.5333333333333333, "hallucinated": 0, "calls": 2.3333333333333335}, "report_only": {"accuracy": 0.16666666666666666, "hallucinated": 0, "calls": 2.111111111111111}, "smalltalk": {"accuracy": 1.0, "hallucinated": 0, "calls": 1}}, "narrative": {"abstract": 0.8484848484848485, "orientation": 0.9393939393939394, "sequence": 0.8181818181818182, "resolution": 0.45454545454545453, "hedge": 0.30303030303030304, "natural": 4.121212121212121, "n": 33}, "paired": {"accuracy": {"diff": 0.027777777777777776, "lo": -0.02160493827160494, "hi": 0.07716049382716049, "n": 54}, "hallucinated": {"diff": -0.018518518518518517, "lo": -0.06172839506172839, "hi": 0.024691358024691357, "n": 54}, "prompt_tokens": {"diff": -5052.808641975309, "lo": -5989.561728395061, "hi": -4133.993827160493, "n": 54}, "calls": {"diff": -1.3333333333333333, "lo": -1.5679012345679013, "hi": -1.1049382716049383, "n": 54}}}, {"key": "C", "name": "指针 CoT", "note": "讲经过分窗口/骨架 + 先写提纲指针再说", "summary": {"turns": 162, "accuracy": 0.49691358024691357, "full_marks": 0.35185185185185186, "hallucinated": 0.08641975308641975, "unsupported": 0.5987654320987654, "calls": 2.314814814814815, "prompt_tokens": 8971.771604938273, "completion_tokens": 223.34567901234567, "latency_median": 12.497499999999999, "latency_p90": 26.049, "hedging": 0.075, "closing": 0, "chars": 138.88888888888889}, "by_kind": {"cross": {"accuracy": 0.2, "hallucinated": 0.13333333333333333, "calls": 2.7333333333333334}, "detail": {"accuracy": 0.7666666666666667, "hallucinated": 0.1, "calls": 2.3333333333333335}, "fact": {"accuracy": 0.4583333333333333, "hallucinated": 0.027777777777777776, "calls": 2.2777777777777777}, "false_premise": {"accuracy": 0.23809523809523808, "hallucinated": 0.19047619047619047, "calls": 2.4761904761904763}, "overview": {"accuracy": 0.16666666666666666, "hallucinated": 0.26666666666666666, "calls": 2.6}, "past_absence": {"accuracy": 1.0, "hallucinated": 0, "calls": 2.111111111111111}, "recent": {"accuracy": 0.5333333333333333, "hallucinated": 0, "calls": 2.6}, "report_only": {"accuracy": 0.16666666666666666, "hallucinated": 0, "calls": 2.3333333333333335}, "smalltalk": {"accuracy": 1.0, "hallucinated": 0, "calls": 1}}, "narrative": {"abstract": 0.8181818181818182, "orientation": 0.9090909090909091, "sequence": 0.9393939393939394, "resolution": 0.5454545454545454, "hedge": 0.21212121212121213, "natural": 4.393939393939394, "n": 33}, "paired": {"accuracy": {"diff": 0.0308641975308642, "lo": -0.033950617283950615, "hi": 0.0925925925925926, "n": 54}, "hallucinated": {"diff": -0.006172839506172838, "lo": -0.06172839506172839, "hi": 0.04938271604938271, "n": 54}, "prompt_tokens": {"diff": -4136.734567901234, "lo": -5037.444444444444, "hi": -3245.358024691358, "n": 54}, "calls": {"diff": -1.1604938271604939, "lo": -1.3950617283950617, "hi": -0.9320987654320987, "n": 54}}}, {"key": "H", "name": "混合（估算）", "note": "只有讲经过用指针 CoT，其余同 B1；由 C 和 B1 的实测结果拼成", "summary": {"turns": 162, "accuracy": 0.49691358024691357, "full_marks": 0.3395061728395062, "hallucinated": 0.08024691358024691, "unsupported": 0.4444444444444444, "calls": 2.197530864197531, "prompt_tokens": 8313.425925925925, "completion_tokens": 152.65432098765433, "latency_median": 7.524, "latency_p90": 11.559, "hedging": 0.05, "closing": 0, "chars": 111.1358024691358}, "by_kind": {"cross": {"accuracy": 0.13333333333333333, "hallucinated": 0.13333333333333333, "calls": 2.6}, "detail": {"accuracy": 0.8333333333333334, "hallucinated": 0.1, "calls": 2.3}, "fact": {"accuracy": 0.4305555555555556, "hallucinated": 0.027777777777777776, "calls": 2.25}, "false_premise": {"accuracy": 0.30952380952380953, "hallucinated": 0.09523809523809523, "calls": 2.142857142857143}, "overview": {"accuracy": 0.2, "hallucinated": 0.26666666666666666, "calls": 2.466666666666667}, "past_absence": {"accuracy": 0.7777777777777778, "hallucinated": 0.1111111111111111, "calls": 2.111111111111111}, "recent": {"accuracy": 0.5333333333333333, "hallucinated": 0, "calls": 2.3333333333333335}, "report_only": {"accuracy": 0.16666666666666666, "hallucinated": 0, "calls": 2.111111111111111}, "smalltalk": {"accuracy": 1.0, "hallucinated": 0, "calls": 1}}, "narrative": {"abstract": 0.8484848484848485, "orientation": 0.9696969696969697, "sequence": 0.8484848484848485, "resolution": 0.48484848484848486, "hedge": 0.18181818181818182, "natural": 4.454545454545454, "n": 33}, "paired": {"accuracy": {"diff": 0.030864197530864196, "lo": -0.018518518518518517, "hi": 0.07716049382716049, "n": 54}, "hallucinated": {"diff": -0.01234567901234568, "lo": -0.05555555555555555, "hi": 0.030864197530864196, "n": 54}, "prompt_tokens": {"diff": -4795.080246913581, "lo": -5713.672839506173, "hi": -3901.259259259259, "n": 54}, "calls": {"diff": -1.2777777777777777, "lo": -1.5123456790123457, "hi": -1.0493827160493827, "n": 54}}}], "kinds": ["cross", "detail", "fact", "false_premise", "overview", "past_absence", "recent", "report_only", "smalltalk"], "kind_counts": {"fact": 12, "detail": 10, "overview": 6, "past_absence": 3, "false_premise": 7, "report_only": 3, "smalltalk": 4, "recent": 5, "cross": 5}, "recount_ids": ["g01", "g04", "x-c03", "x-c04"], "premise": [{"key": "A", "name": "v1.2.27 旧版", "turns": 87, "accuracy": 0.5287356321839081, "hallucinated": 0.09195402298850575, "calls": 3.5402298850574714, "completion_tokens": 307.735632183908, "false_premise": {"accuracy": 0.2619047619047619, "hallucinated": 0.19047619047619047}, "fact": {"accuracy": 0.4583333333333333, "hallucinated": 0.027777777777777776}, "detail": {"accuracy": 0.8, "hallucinated": 0.1}}, {"key": "B1", "name": "v1.2.28 修正版", "turns": 87, "accuracy": 0.5402298850574713, "hallucinated": 0.06896551724137931, "calls": 2.2413793103448274, "completion_tokens": 122.70114942528735, "false_premise": {"accuracy": 0.30952380952380953, "hallucinated": 0.09523809523809523}, "fact": {"accuracy": 0.4305555555555556, "hallucinated": 0.027777777777777776}, "detail": {"accuracy": 0.8333333333333334, "hallucinated": 0.1}}, {"key": "C", "name": "指针 CoT", "turns": 87, "accuracy": 0.5114942528735632, "hallucinated": 0.09195402298850575, "calls": 2.3448275862068964, "completion_tokens": 188.83908045977012, "false_premise": {"accuracy": 0.23809523809523808, "hallucinated": 0.19047619047619047}, "fact": {"accuracy": 0.4583333333333333, "hallucinated": 0.027777777777777776}, "detail": {"accuracy": 0.7666666666666667, "hallucinated": 0.1}}, {"key": "C2", "name": "指针 CoT + 前提核对", "turns": 87, "accuracy": 0.5172413793103449, "hallucinated": 0.09195402298850575, "calls": 2.2988505747126435, "completion_tokens": 203.2528735632184, "false_premise": {"accuracy": 0.2857142857142857, "hallucinated": 0.19047619047619047}, "fact": {"accuracy": 0.375, "hallucinated": 0.027777777777777776}, "detail": {"accuracy": 0.85, "hallucinated": 0.1}}], "heldout": {"A": {"turns": 30, "accuracy": 0.45, "full_marks": 0.4, "hallucinated": 0.13333333333333333, "unsupported": 0.9333333333333333, "calls": 3.1666666666666665, "prompt_tokens": 11717.9, "completion_tokens": 911.8666666666667, "latency_median": 11.123999999999999, "latency_p90": 22.328, "hedging": 0.1, "closing": 0, "chars": 1746.8333333333333}, "B1": {"turns": 30, "accuracy": 0.4166666666666667, "full_marks": 0.36666666666666664, "hallucinated": 0.13333333333333333, "unsupported": 0.6, "calls": 2, "prompt_tokens": 7593.1, "completion_tokens": 102.76666666666667, "latency_median": 7.619999999999999, "latency_p90": 11.215, "hedging": 0.03333333333333333, "closing": 0, "chars": 76.33333333333333}}}</script>
+<script type="application/json" id="cases-data">[{"q": "涅瓦湖撤离那一夜，集团军的炮火之下发生了什么？阿米娅做了什么？", "type": "来龙去脉", "rows": [{"v": "v1.2.28", "calls": 2, "in": 8019, "out": 184, "verdict": "停在半路，没有结果", "text": "当时的情况非常混乱，零星的炮弹像惊雷一样在人群中央炸开，队伍被冲击截断成了两半，冰面也因为爆炸而开裂……我当时先让大家往另一头跑……随后让极境去联系Raidian，报告西北方向有落单的矿工需要接应。"}, {"v": "讲述手法（不加 CoT）", "calls": 1, "in": 3921, "out": 128, "verdict": "四个要点齐全", "text": "炮火把我们的队伍炸成了两半，冰面也因为爆炸而不断开裂。为了引开火力，达雅和基安他们甚至举着火把往回走……我挥动剑刃在冰面上划出了火墙……幸好后来您和Mon3tr赶到了现场，调度中心下令停火，大家才终于安全归队。"}, {"v": "笔记式 CoT", "calls": 1, "in": 4027, "out": 289, "verdict": "内容同上，输出更多", "text": "集团军的炮火把我们在涅瓦湖东岸的队伍炸成了两半，连冰面都裂开了。当时达雅和基安为了引开火力，竟然举着火把往回走……只能挥动剑刃在冰面上划出火墙……幸好后来您和Mon3tr赶到了，调度中心下令停火，大家才总算平安归队。"}, {"v": "方向式 CoT", "calls": 1, "in": 4246, "out": 256, "verdict": "细节保留更多", "text": "达雅和基安他们为了能引开那些炮火，竟然举着火把往回走，我当时怎么拦都拦不住……我能感觉到他们内心的愤怒，而我也压抑不住自己的愤怒，只能挥剑在冰面上划出火墙……好在后来您和Mon3tr赶到了，调度中心下令停火后，大家才终于安全归队。"}, {"v": "指针 CoT", "calls": 1, "in": 3984, "out": 242, "verdict": "完整、细节保留、最便宜之一", "text": "当时我们在涅瓦湖东岸的树林里，正遭受着集团军密集的炮火攻击，队伍甚至被炸成了两半……达雅和基安他们为了引开火力，执意举着火把往回走，无论我怎么喝止都拦不住他们……于是我挥动法杖，在冰面上划出了火墙……幸好，后来您和Mon3tr及时赶到了，调度中心也下达了停火指令，大家才终于能够安全归队。"}]}, {"q": "布伦特伍德之战的档案你可以复述给我吗", "type": "单件经过", "rows": [{"v": "v1.2.26 实测（线上，arc:chat）", "calls": 6, "in": 22888, "out": 4439, "verdict": "先后说反被核验改写；开头免责", "text": "博士，布伦特伍德的经过我大概能讲清楚，但要像档案那样一字不差地复述，我做不到……出发前，可露希尔确认了补给线起点就在布伦特伍德……那本是预定中的会师，可每一支队伍都经历了太多艰难。"}, {"v": "v1.2.28", "calls": 2, "in": 7699, "out": 319, "verdict": "先后正确，偏短", "text": "当时我们正前往布伦特伍德，车里一直很安静……等车队接近小镇的时候，Logos先生下令停车……我当时决定把这边交给我也……赫德雷还提到，这里有一只巨兽……"}, {"v": "指针 CoT + 篇章提纲取证", "calls": 2, "in": 8129, "out": 460, "verdict": "把仪式真相当结果，先后说反；缺明椒和 W", "text": "……就在混乱中，赫德雷提到了那里有一只巨兽……而仪式的真相是：萨卡兹越善战，浇灌的鲜血越多，仪式便得以延续……"}, {"v": "指针 CoT + 事件窗口取证", "calls": 2, "in": 8528, "out": 663, "verdict": "起因、经过、结果、感受齐全", "text": "那时候我们正乘车接近布伦特伍德，Logos先生突然下令停车……Logos先生说，战争中的鲜血让血魔集齐了仪式的条件……我当时想让Logos先生先去确认仪式的情况，自己则决定带着大家留下对付失控的血液造物。在战斗中，明椒承诺保护队员……随后W和赫德雷出现了……这里有一只巨兽，正是它将萨卡兹带入了伦蒂尼姆。……我心里觉得很安心。"}]}, {"q": "介绍一下维多利亚", "type": "介绍", "rows": [{"v": "v1.2.28", "calls": 3, "in": 10946, "out": 281, "verdict": "只讲一件事，结尾推托", "text": "摩根曾当众高喊出推进之王真正的王室全名……至于更深层的历史或者现状，我目前还没有印象。您是想了解关于那里的什么情报吗？"}, {"v": "讲述手法（不加 CoT）", "calls": 2, "in": 8818, "out": 444, "verdict": "空话为主", "text": "维多利亚正处于极其动荡的局面中……不仅有萨卡兹军队的介入，还有各种势力在暗中角力。我记得在城墙上，我们曾与曼弗雷德交锋……"}, {"v": "笔记式 CoT", "calls": 2, "in": 8891, "out": 483, "verdict": "要点本身就是空话", "text": "维多利亚现在正处于非常动荡的时期，各方势力都在为了权力和生存而争斗……摩根喊出了推进之王亚历山德莉娜·维娜·维多利亚殿下的全名……"}, {"v": "指针 CoT + 单篇章", "calls": 3, "in": 13822, "out": 870, "verdict": "更具体，但格式没跟上、多花调用", "text": "温德米尔公爵的突然战死打破了原本的平衡……公爵们之间存在着深刻的对立……看着号角率领的队伍在废墟中坚守，也见证了摩根当众喊出推进之王……的王室全名。"}, {"v": "指针 CoT + 多篇章一行式（手动加“伦蒂尼姆”）", "calls": 1, "in": 4581, "out": 366, "verdict": "具体、最便宜；缺掌权者和结局", "text": "我也曾看到那些在混乱中逃离的市民，他们一边谈论着萨卡兹军队如何一步步逼近……自救军的目标只有一个，就是夺回伦蒂尼姆……自救军被曼弗雷德赶出了城市，而大公爵们也终于开始行动了……"}, {"v": "理想答案（人工撰写，已核对）", "calls": 0, "in": 0, "out": 0, "verdict": "参照", "text": "伦蒂尼姆已经被萨卡兹的军队占住了，掌权的是一个叫特雷西斯的萨卡兹。城里的人一批批往外逃，留下来的普通市民自己组织起了“自救军”……最后在伦蒂尼姆地下的王座厅里，是阿斯卡纶小姐亲手结束了特雷西斯……"}]}]</script>
+<script>
+(function () {
+  var data = JSON.parse(document.getElementById("data").textContent);
+  var cases = JSON.parse(document.getElementById("cases-data").textContent);
+  var versions = data.versions;
+  var latest = versions[versions.length - 1].key;
+  var NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, parent, text) {
+    var node = document.createElementNS(NS, tag);
+    for (var k in attrs) node.setAttribute(k, attrs[k]);
+    if (text !== undefined) node.textContent = text;
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+  function h(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
+  function pct(v) { return (v * 100).toFixed(1) + "%"; }
+  function num(v, d) { return Number(v).toLocaleString("zh-CN", { maximumFractionDigits: d, minimumFractionDigits: d }); }
+
+  var vbox = document.getElementById("versions");
+  versions.forEach(function (v) {
+    var card = h("div", "ver" + (v.key === latest ? " latest" : ""));
+    card.appendChild(h("div", "tag", v.key));
+    card.appendChild(h("b", "", v.name));
+    card.appendChild(h("span", "", v.note));
+    vbox.appendChild(card);
+  });
+
+  function tipper(card) {
+    var tip = h("div", "tip"); tip.hidden = true; card.appendChild(tip);
+    return {
+      show: function (evt, html) {
+        tip.innerHTML = html; tip.hidden = false;
+        var box = card.getBoundingClientRect();
+        var x = Math.min(evt.clientX - box.left + 12, box.width - 170);
+        tip.style.left = Math.max(4, x) + "px"; tip.style.top = (evt.clientY - box.top + 10) + "px";
+      },
+      hide: function () { tip.hidden = true; }
+    };
+  }
+
+  var METRICS = [
+    ["accuracy", "准确度", "越高越好", function (v) { return num(v, 3); }, 1],
+    ["hallucinated", "幻觉回答占比", "越低越好", pct, null],
+    ["unsupported", "每条回答的无依据说法", "越低越好", function (v) { return num(v, 2); }, null],
+    ["calls", "每轮模型调用", "越低越好", function (v) { return num(v, 2); }, null],
+    ["prompt_tokens", "每轮输入 token", "越低越好", function (v) { return num(v, 0); }, null],
+    ["completion_tokens", "每轮输出 token", "越低越好", function (v) { return num(v, 0); }, null],
+    ["latency_median", "每轮延迟中位数（秒）", "越低越好", function (v) { return num(v, 1); }, null],
+    ["hedging", "带推托措辞的回答占比", "越低越好", pct, null]
+  ];
+  var metricsBox = document.getElementById("metrics");
+  METRICS.forEach(function (m) {
+    var key = m[0], card = h("div", "card");
+    var head = h("div", "card-head"); head.appendChild(h("b", "", m[1])); head.appendChild(h("span", "", m[2])); card.appendChild(head);
+    var W = 320, rowH = 30, top = 6, left = 58, right = 64, H = top + rowH * versions.length + 8;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": m[1] + "按版本比较" }, card);
+    var max = m[4] || Math.max.apply(null, versions.map(function (v) { return v.summary[key]; })) * 1.05 || 1;
+    var t = tipper(card);
+    versions.forEach(function (v, i) {
+      var y = top + i * rowH, val = v.summary[key], w = Math.max(2, (W - left - right) * val / max);
+      el("text", { x: left - 8, y: y + 17, "text-anchor": "end", class: "lab" }, svg, v.key);
+      var bar = el("path", { d: "M" + left + " " + (y + 5) + " h" + (w - 4) + " a4 4 0 0 1 4 4 v8 a4 4 0 0 1 -4 4 h" + (-(w - 4)) + " z",
+                             fill: v.key === latest ? "var(--accent)" : "var(--bar-old)" }, svg);
+      el("text", { x: left + w + 6, y: y + 17, class: "val" }, svg, m[3](val));
+      var hit = el("rect", { x: 0, y: y, width: W, height: rowH, fill: "transparent" }, svg);
+      hit.addEventListener("mousemove", function (evt) { t.show(evt, "<b>" + v.name + "</b><br>" + m[1] + "：" + m[3](val) + "<br>n = " + v.summary.turns + " 轮"); });
+      hit.addEventListener("mouseleave", t.hide);
+    });
+    metricsBox.appendChild(card);
+  });
+
+  var pairedBox = document.getElementById("paired");
+  [["accuracy", "准确度差值", "向右更好", function (v) { return (v >= 0 ? "+" : "") + num(v, 3); }],
+   ["hallucinated", "幻觉占比差值", "向左更好", function (v) { return (v >= 0 ? "+" : "") + num(v * 100, 1) + " 个百分点"; }],
+   ["calls", "每轮调用差值", "向左更好", function (v) { return (v >= 0 ? "+" : "") + num(v, 2); }],
+   ["prompt_tokens", "每轮输入 token 差值", "向左更好", function (v) { return (v >= 0 ? "+" : "") + num(v, 0); }]].forEach(function (m) {
+    var rows = versions.filter(function (v) { return v.paired; });
+    if (!rows.length) return;
+    var card = h("div", "card");
+    var head = h("div", "card-head"); head.appendChild(h("b", "", m[1] + "（减旧版 A）")); head.appendChild(h("span", "", m[2])); card.appendChild(head);
+    var W = 320, rowH = 30, top = 6, left = 58, right = 16, H = top + rowH * rows.length + 22;
+    var ext = Math.max.apply(null, rows.map(function (v) { var p = v.paired[m[0]]; return Math.max(Math.abs(p.lo), Math.abs(p.hi)); })) * 1.15 || 1;
+    var x = function (v) { return left + (W - left - right) * (v + ext) / (2 * ext); };
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": m[1] }, card);
+    el("line", { x1: x(0), x2: x(0), y1: top, y2: top + rowH * rows.length, class: "zero" }, svg);
+    el("text", { x: x(0), y: H - 4, "text-anchor": "middle", class: "tick" }, svg, "0");
+    el("text", { x: x(-ext) + 2, y: H - 4, class: "tick" }, svg, m[3](-ext));
+    el("text", { x: x(ext) - 2, y: H - 4, "text-anchor": "end", class: "tick" }, svg, m[3](ext));
+    var t = tipper(card);
+    rows.forEach(function (v, i) {
+      var p = v.paired[m[0]], y = top + i * rowH + 15, color = v.key === latest ? "var(--accent)" : "var(--muted)";
+      el("text", { x: left - 8, y: y + 4, "text-anchor": "end", class: "lab" }, svg, v.key);
+      el("line", { x1: x(p.lo), x2: x(p.hi), y1: y, y2: y, stroke: color, "stroke-width": 2, "stroke-linecap": "round" }, svg);
+      el("circle", { cx: x(p.diff), cy: y, r: 5, fill: color, stroke: "var(--surface)", "stroke-width": 2 }, svg);
+      var hit = el("rect", { x: 0, y: y - 15, width: W, height: rowH, fill: "transparent" }, svg);
+      hit.addEventListener("mousemove", function (evt) { t.show(evt, "<b>" + v.name + "</b><br>差值 " + m[3](p.diff) + "<br>95% 区间 " + m[3](p.lo) + " 至 " + m[3](p.hi) + "<br>" + p.n + " 题配对"); });
+      hit.addEventListener("mouseleave", t.hide);
+    });
+    pairedBox.appendChild(card);
+  });
+
+  var KIND = { fact: "问事实", detail: "问细节", overview: "大体经过", cross: "跨章节因果", recent: "近况", false_premise: "错误前提", past_absence: "不在场", report_only: "只听过汇报", smalltalk: "闲聊" };
+  var kt = document.getElementById("kinds");
+  var thead = kt.createTHead().insertRow();
+  thead.appendChild(h("th", "", "题型（题数）"));
+  versions.forEach(function (v) { thead.appendChild(h("th", "", v.key + " " + v.name)); });
+  var body = kt.createTBody();
+  data.kinds.forEach(function (k) {
+    var tr = body.insertRow(); tr.appendChild(h("td", "", (KIND[k] || k) + "（" + data.kind_counts[k] + "）"));
+    versions.forEach(function (v) {
+      var td = h("td", "num"), s = v.by_kind[k];
+      if (s) {
+        var cell = h("div", "cell"), bar = h("div", "mini" + (v.key === latest ? " hi" : ""));
+        bar.style.width = Math.max(2, s.accuracy * 80) + "px";
+        cell.appendChild(bar); cell.appendChild(h("span", "", num(s.accuracy, 2) + (s.hallucinated ? " · 幻觉 " + pct(s.hallucinated) : "")));
+        td.appendChild(cell);
+      } else td.textContent = "—";
+      tr.appendChild(td);
+    });
+  });
+
+  var nt = document.getElementById("narrative");
+  var nv = versions.filter(function (v) { return v.narrative; });
+  var NMET = [["n", "回答数", function (v) { return v; }], ["abstract", "点题", pct], ["orientation", "交代起因", pct], ["sequence", "按先后讲", pct], ["resolution", "讲出结果", pct], ["hedge", "有推托或客套（越低越好）", pct], ["natural", "像人讲述（1–5）", function (v) { return num(v, 2); }]];
+  var nh = nt.createTHead().insertRow(); nh.appendChild(h("th", "", "指标"));
+  nv.forEach(function (v) { nh.appendChild(h("th", "", v.key + " " + v.name)); });
+  var nb = nt.createTBody();
+  NMET.forEach(function (m) {
+    var tr = nb.insertRow(); tr.appendChild(h("td", "", m[1]));
+    nv.forEach(function (v) { tr.appendChild(h("td", "num", m[2](v.narrative[m[0]]))); });
+  });
+
+  var pt = document.getElementById("premise");
+  if (!data.premise || !data.premise.length) { document.getElementById("premise-section").hidden = true; }
+  else {
+    var PCOL = [["accuracy", "准确度（全部）", function (v) { return num(v, 3); }], ["hallucinated", "幻觉占比（全部）", pct],
+                ["false_premise", "错误前提：准确度 / 幻觉", null], ["fact", "问事实：准确度 / 幻觉", null], ["detail", "问细节：准确度 / 幻觉", null],
+                ["calls", "每轮调用", function (v) { return num(v, 2); }], ["completion_tokens", "每轮输出 token", function (v) { return num(v, 0); }]];
+    var ph = pt.createTHead().insertRow(); ph.appendChild(h("th", "", "指标"));
+    data.premise.forEach(function (v) { ph.appendChild(h("th", "", v.key + " " + v.name)); });
+    var pb = pt.createTBody();
+    PCOL.forEach(function (m) {
+      var tr = pb.insertRow(); tr.appendChild(h("td", "", m[1]));
+      data.premise.forEach(function (v) {
+        var val = v[m[0]];
+        tr.appendChild(h("td", "num", !val && val !== 0 ? "—" : m[2] ? m[2](val) : num(val.accuracy, 2) + " / " + pct(val.hallucinated)));
+      });
+    });
+  }
+
+  var ht = document.getElementById("heldout");
+  var HMET = [["turns", "回答数", function (v) { return v; }], ["accuracy", "准确度", function (v) { return num(v, 3); }], ["hallucinated", "幻觉回答占比", pct], ["unsupported", "每条回答的无依据说法", function (v) { return num(v, 2); }], ["calls", "每轮模型调用", function (v) { return num(v, 2); }], ["prompt_tokens", "每轮输入 token", function (v) { return num(v, 0); }], ["latency_median", "延迟中位数（秒）", function (v) { return num(v, 1); }]];
+  var hh = ht.createTHead().insertRow(); ["指标", "A v1.2.27 旧版", "B1 v1.2.28 修正版"].forEach(function (x) { hh.appendChild(h("th", "", x)); });
+  var hb = ht.createTBody();
+  HMET.forEach(function (m) {
+    var tr = hb.insertRow(); tr.appendChild(h("td", "", m[1]));
+    tr.appendChild(h("td", "num", m[2](data.heldout.A[m[0]]))); tr.appendChild(h("td", "num", m[2](data.heldout.B1[m[0]])));
+  });
+
+  var cbox = document.getElementById("cases");
+  cases.forEach(function (c) {
+    var card = h("div", "case"), title = h("h3", "", c.q);
+    title.appendChild(h("small", "", c.type)); card.appendChild(title);
+    c.rows.forEach(function (r) {
+      var row = h("div", "row"), who = h("div", "who");
+      who.appendChild(h("b", "", r.v));
+      who.appendChild(h("span", "cost", r.calls ? r.calls + " 次调用 · 输入 " + num(r.in, 0) + " · 输出 " + num(r.out, 0) : "人工参照"));
+      var has = function (words) { return words.some(function (w) { return r.verdict.indexOf(w) >= 0; }); };
+      var good = has(["齐全", "完整", "具体、最便宜", "先后正确", "细节保留"]), bad = has(["说反", "空话", "推托", "半路", "没跟上", "缺"]);
+      who.appendChild(h("span", "pill" + (good && !bad ? " ok" : bad && !good ? " no" : ""), r.verdict));
+      row.appendChild(who); row.appendChild(h("div", "text", r.text));
+      card.appendChild(row);
+    });
+    cbox.appendChild(card);
+  });
+})();
+</script>

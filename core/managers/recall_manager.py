@@ -31,6 +31,7 @@ from ..utils.formatter import (
     format_events_for_prompt_safe,
     format_persona_for_prompt,
 )
+from ..retrieval.backend import RepositoryRetrievalBackend
 from ..retrieval.rrf import rrf_scores
 from ..tags import derive_tag_categories
 from .base import BaseRecallManager
@@ -520,7 +521,7 @@ class RecallManager(BaseRecallManager):
         async with performance_timer("recall_search"):
             _log = logging.getLogger(__name__)
             event_repo = self._retriever._event_repo
-            backend = self._retriever.backend
+            backend = getattr(self._retriever, "backend", None) or RepositoryRetrievalBackend(event_repo)
             encoder = self._retriever._encoder
             enc_dim = encoder.dim
             bm25_limit = self._retriever._bm25_limit

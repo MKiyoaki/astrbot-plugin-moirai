@@ -1,5 +1,36 @@
 # CHANGELOG
 
+## [v1.2.32.sub] — 2026-09-30
+
+### 修复 v1.2.31 的召回回归：检索器没有 backend 时注入被静默吞掉
+
+- 起因：v1.2.31 的 `RecallManager.recall` 直接读取 `self._retriever.backend`。插件和开发脚本用的是 `HybridRetriever`，不受影响；但工作区的联合检查（`scripts/verify-event-runtime.py`）传入的检索器没有这个属性，召回抛出 `AttributeError`，被 `recall_and_inject` 当作没有结果，结果是什么都不注入。13 项联合检查中 8 项失败（7 FAIL、1 ERROR）。
+- `core/managers/recall_manager.py`：检索器没有 `backend` 时，退回使用事件仓储自带的检索。
+- `core/retrieval/backend.py`：`SQLiteRetrievalBackend` 改名为 `RepositoryRetrievalBackend`。它只是转调事件仓储的检索方法，对 SQLite 和内存仓储都适用；`identity` 改为记录仓储类型。`core/retrieval/hybrid.py` 同步改名。
+- 测试：本地 `tests/test_memory_recall_cjk.py` 新增一项，用没有 `backend` 的检索器做召回；Moirai 357 项离线测试通过，工作区联合检查 13 项通过。
+
+### canon 终端接入全数据流测试；Bot 路径改为沿用工具调用
+
+- `run_canon_chat.py`：`run_turn` 新增可选参数 `memory_block`，用于接入宿主侧的上下文（例如插件注入的普通记忆）。它只放在给模型看的用户消息前面；路由、召回、回复检查和保存的历史仍只用用户原话。终端不传这个参数，行为不变。工作区的全数据流测试（`scripts/fullflow_test.py`）用它，把 Core 注入的普通记忆和 canon 的工具调用放进同一轮对话。
+- `docs/canon.md`、`docs/canon-runtime-architecture.md`：记录 2026-09-30 的决定。
+  - Bot 路径沿用终端逻辑：模型按档位（不召回、轻量召回、深度探索、查档案）自己调用 canon 工具，召回过的轮次在生成后做对齐检查和定点修补，不再采用“生成前注入证据块”。
+  - Core Event Protocol v1 既不能让扩展提供工具，也不能替换最终回复，需要先扩展 Core 协议。这属于 Core 仓库的改动，要走 Core 的批准。
+  - 待决问题 3、5 补充了测试期的预算与回写污染的处理：预算分开计，回写污染先观察。
+
+### canon 开发数据清理：题库移到 Arknights-Texts，默认路径跟着改
+
+- 起因：canon 暂时迭代完成，本机 `.dev_data/canon/` 清理掉用不到的内容，从 1.4 GB 减到 273 MB。删除了 v1–v10 的构建、V11 的样本和对比运行、`parity/` 对比工具、旧题库和旧评测结果；只留 V11 全库构建、试聊副本、向量索引和 `timeline/`。这些都被 `.gitignore` 忽略，不入库。
+- 题库只留两份，改名后放进 Arknights-Texts 的 `eval/`，随数据一起放在私有 HF 数据集 `ProjectOedipus/Arknights-Amiya`，内容不变（sha256 相同）：
+  - `sweep-bank-v4.jsonl` 改为 `canon_answer_bank.jsonl`（55 题，回答评测）；
+  - `retrieval-200-v3-audited.jsonl` 改为 `canon_retrieval_bank.jsonl`（200 题，离线检索回归）。
+- `run_canon_chat.py`：
+  - 默认库固定为 V11 试聊副本，去掉依次退回 V10 和 v7 各库的逻辑；`--db` 指向的文件不存在时直接报错。
+  - `--questions` 不带路径时改用 `../Arknights-Texts/eval/canon_retrieval_bank.jsonl`。
+- `devtools/canon/budget_sweep.py`：默认题库改为 `../Arknights-Texts/eval/canon_answer_bank.jsonl`。
+- `devtools/canon/sweep_wrap.py`、`devtools/canon/sweep_compare.py`（新增，原先只在本机 `.dev_data/canon/eval/`）：前者用指定代码目录自己的 `budget_sweep` 跑扫描，并给跨章节题加因果和先后的评审规则；后者把多次评审结果逐题配对比较。
+- `docs/canon-v1.2.28-report.html`（新增）：v1.2.28“先排后说”A/B 的定版汇报页，原在本机 `.dev_data/canon/eval/ab-20260929/`，其余 A/B 数据已删除，结论见 `docs/canon-dialogue-quality.md`。
+- `docs/canon-terminal.md`：数据库、题库和评测工具的说明同步。
+
 ## [v1.2.31.sub] — 2026-09-30
 
 ### 普通记忆中文召回修复：二字加单字全文索引、向量排名保留、按问题注入摘要段落

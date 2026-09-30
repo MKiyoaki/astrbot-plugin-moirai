@@ -28,16 +28,9 @@ from core.canon.reader import CanonReader
 from core.canon.recall import PROBE_TOOL, TURN_BUDGET, VERIFY_EXTRA, CanonRecall, present_phrase, recall_tool
 
 ROOT = Path(__file__).resolve().parent
-NEXUS_DB = ROOT / ".dev_data/canon/v7/20/api/20260924-000545-kcl-arc_nexus/canon.sqlite"
-TEMPORAL_DB = ROOT / ".dev_data/canon/v7/chat/nexus-v3.sqlite"
-LATEST_DB = ROOT / ".dev_data/canon/v7/chat/nexus-20260924-045430.sqlite"
-SAMPLE100_DB = ROOT / ".dev_data/canon/v7/chat/100-20260924-171238.sqlite"
-FULL_DB = ROOT / ".dev_data/canon/v10/all/build/canon.sqlite"
-V11_DB = ROOT / ".dev_data/canon/v11/chat/full-20260928.sqlite"
-DEFAULT_DB = next((path for path in (V11_DB, FULL_DB, SAMPLE100_DB, LATEST_DB, TEMPORAL_DB, NEXUS_DB)
-                   if path.is_file()), FULL_DB)
+DEFAULT_DB = ROOT / ".dev_data/canon/v11/chat/full-20260928.sqlite"
 DEFAULT_PERSONA = ROOT / "devtools/canon/amiya_persona.txt"
-DEFAULT_QUESTIONS = ROOT / ".dev_data/canon/eval/retrieval-200-v1.jsonl"
+DEFAULT_QUESTIONS = ROOT.parent / "Arknights-Texts" / "eval" / "canon_retrieval_bank.jsonl"
 TRACE_DIR = ROOT / ".dev_data/canon/traces"
 ISSUE_LABEL = {"entity": "记忆外的名字", "meta": "出戏", "quote": "引号", "number": "数字", "quantity": "说过头",
                "stale": "旧事说成现在", "denial": "否认记得的事", "order": "先后", "causal": "因果",
@@ -493,8 +486,14 @@ def print_sources(session: Session) -> None:
 
 
 def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, session: Session,
-             args: argparse.Namespace, persona: str) -> None:
+             args: argparse.Namespace, persona: str, memory_block: str = "") -> None:
+    """One canon turn; results stay on the session (pack, report, recall log, metrics, answer in history).
+
+    memory_block is host-side context (e.g. ordinary chat memory injected by the plugin) shown to the model
+    ahead of the user's words. Routing, recall and the reply check still read only the user's query.
+    """
     started = time.perf_counter()
+    prompt = f"{memory_block}\n\n{query}" if memory_block else query
     request_offset = len(getattr(llm, "request_metrics", []))
     session.active_history = conversation_history(session.history, query)
     recall = CanonRecall(reader, EvidenceSettings(
@@ -597,12 +596,12 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
     def messages(outline: bool = False) -> list[dict]:
         return [{"role": "system", "content": build_system(persona, args.doctor, pack, False, archives, anchored,
                                                           session.task, outline)},
-                *session.active_history, {"role": "user", "content": query}]
+                *session.active_history, {"role": "user", "content": prompt}]
 
     now = present_phrase(reader)
     tools = [PROBE_TOOL, recall_tool(now), *([ARCHIVE_TOOL] if archives else [])]
     handlers = {"canon_probe": probe, "canon_recall": remember, "operator_archive": archive}
-    draft, calls = generate(llm, session, system, query, tools if offer else [], handlers, args.temperature)
+    draft, calls = generate(llm, session, system, prompt, tools if offer else [], handlers, args.temperature)
     if offer and supplement_recall(reader, recall, query, args.doctor):
         session.tool_queries.append("兜底补召回")
         draft, calls = llm.complete(messages(think), args.temperature) or draft, calls + 1
@@ -688,7 +687,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="只显示路线、检索与注入片段，不调用模型")
     parser.add_argument("--question", help="只问一次；不填则进入连续对话")
     parser.add_argument("--questions", nargs="?", const=DEFAULT_QUESTIONS, type=Path, metavar="JSONL",
-                        help="按题库批量评测检索；不填路径使用本地 retrieval-200-v1 题库")
+                        help="按题库批量评测检索；不填路径使用 Arknights-Texts/eval/canon_retrieval_bank.jsonl（200 题）")
     parser.add_argument("--out", type=Path, help="题库评测的 JSON 报告路径")
     parser.add_argument("--retrieval", choices=("auto", "baseline", "hybrid", "hybrid-rerank"), default="auto",
                         help="auto：有向量索引就用 hybrid，否则用 baseline；离线单轮或题库评测默认 baseline")
@@ -702,6 +701,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--out 仅用于 --questions")
     if args.questions is not None and not args.questions.is_file():
         parser.error(f"找不到题库：{args.questions}")
+    if not args.db.is_file():
+        parser.error(f"找不到 canon 数据库：{args.db}；用 --db 指定")
     if args.retrieval == "auto":
         from devtools.canon.retrieval import index_available
         offline = (args.dry_run or args.questions is not None) and not args.allow_remote

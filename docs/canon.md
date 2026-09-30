@@ -45,7 +45,10 @@ Bot 试跑用的库原定为本机 `.dev_data/canon/v7/20/api/20260924-045430-kc
 
 实施与验证顺序：
 
-1. 终端原型的检索和装填逻辑已迁进 `core/canon`（v1.2.18.sub）。先按 [canon 运行时结构](canon-runtime-architecture.md) 定下线程模型和待决问题，再以 `EvidenceAssembler` 完成 B6 检索、B7 渲染及 Core `before_generation` 注入、B9 生命周期；先接入 B8 的 `/mrm canon status` 和 `/mrm canon test`，便于检查实际命中与渲染结果。保持 canon 默认关闭，只让显式映射的人格桶使用。加入相应 B10 离线测试，覆盖检索降级、token 预算、博士称呼、时间过滤、`clear_namespace` 之后的注入以及 canon 故障不影响原有记忆。
+1. 终端原型的检索和装填逻辑已迁进 `core/canon`（v1.2.18.sub）。先按 [canon 运行时结构](canon-runtime-architecture.md) 定下线程模型和待决问题，再以 `EvidenceAssembler` 完成 B6 检索、B7 Bot 路径、B9 生命周期。
+   - **B7 沿用终端逻辑**（2026-09-30 用户决定）：模型按档位自己调用 `canon_probe`、`canon_recall`、`operator_archive`，档位分不召回、轻量召回、深度探索、查档案；召回过的轮次在生成后做逐句对齐检查和定点修补。不再采用“生成前把证据块注入提示词”。
+   - **这需要先扩展 Core 协议**：Core Event Protocol v1 既不能让扩展给模型提供工具，也不能替换最终回复，只有 `before_tool` 观察和合成的 `tool_pair`。这属于 Core 仓库的改动，要走 Core 的 TODO 批准。
+   - 在那之前，工作区的 `scripts/fullflow_test.py` 在测试框架里模拟宿主的工具循环；先接入 B8 的 `/mrm canon status` 和 `/mrm canon test`，便于检查实际命中与渲染结果。保持 canon 默认关闭，只让显式映射的人格桶使用。加入相应 B10 离线测试，覆盖检索降级、token 预算、博士称呼、时间过滤、`clear_namespace` 之后的注入以及 canon 故障不影响原有记忆。
 2. 在启用 Core Event Protocol v1 的 AstrBot 中，把试跑库映射到阿米娅人格桶，用同一批问题先看 `/mrm canon test` 的事件、分数、证据，再看真实回复和实际注入块。分别检查范围内的剧情、试跑库范围之外的话题、博士身份开关、时间点过滤、重复提问及 canon 不可用时的降级。范围外问题要分别记录“没有命中 canon”和“Bot 最终怎样回答”：模型自带知识也可能回答，不等于 canon 泄漏。
 3. 记录错误命中、漏召回、错误渠道、原文证据不贴题和回答中的身份混淆，用户审阅后决定是否需要调整检索、渲染或抽取。确认试跑可用，再完成 B8 后台全库导入与其余 B10 测试，并按原规格验收当前 story_pack 的全部场景。当前包的 `manifest.json` 记录 618 个场景；规格中的 622 是旧规模，导入数量以当次包为准。
 
@@ -72,14 +75,17 @@ Moirai core/canon（M1，已实现）
     ⑤ 有 encoder 时给新事件编码向量（event_vec）；更新 meta；输出报告
   cli dump → review.html（人工审阅）；cli status → 库的概况
 ────────────────── M2，未实现（终端原型见 canon-terminal.md）──────────────────
-  Core before_generation → event_handler：先注入 Moirai 原有的 memory 块，再调用 canon.inject
-    → 查询解析：意图、主体、时间点
-    → 检索：向量 + 事件文本 + 原文台词 + 实体四路加权 RRF；角色不知情（unstated）的事件只作导航，不注入
-    → 装填 canon 块：命中事件的摘要 + 相关原文行（{DOCTOR} 按人格桶设置渲染，按 token 预算截断）
-    → 注入 system prompt
+  Core before_generation → event_handler：注入 Moirai 原有的 memory 块
+  宿主生成时向模型提供 canon 工具（需要 Core 协议扩展）→ 模型判断档位
+    → 不召回：直接回答
+    → 轻量召回 / 深度探索 / 查档案：工具回调走 CanonRecall / EvidenceAssembler
+       → 检索：向量 + 事件文本 + 原文台词 + 实体四路加权 RRF；角色不知情（unstated）的事件只作导航，不注入
+       → 证据按先后编号放进[你的记忆]，每次请求前重建系统提示词
+    → 召回过的轮次：逐句对齐检查，有问题才定点修补一次（替换回复需要 Core 协议扩展）
+  Core after_generation → Moirai 把最终回复写回聊天记忆（回写污染见运行时结构的待决问题 5）
 ```
 
-数据只单向流动：canon 只进 prompt，聊天内容永远不写回 canon。检索不调用模型；导入和基准会调用抽取接口，终端的回复核验会调用对话模型。Bot 路径上怎样核验还没有决定，见 [canon 运行时结构](canon-runtime-architecture.md) 的待决问题。
+数据只单向流动：canon 只进 prompt，聊天内容永远不写回 canon。检索不调用模型；导入和基准会调用抽取接口，终端和 Bot 路径的回复核验会调用对话模型。
 
 ## 与规格不同的地方
 

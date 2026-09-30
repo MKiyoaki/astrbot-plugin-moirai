@@ -13,7 +13,7 @@ import logging
 from ..domain.models import Event
 from ..embedding.encoder import Encoder, NullEncoder
 from ..repository.base import EventRepository
-from .backend import RetrievalBackend, SQLiteRetrievalBackend
+from .backend import RetrievalBackend, RepositoryRetrievalBackend
 from .rrf import rrf_scores
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ class HybridRetriever:
         backend: RetrievalBackend | None = None,
     ) -> None:
         self._event_repo = event_repo
-        self.backend: RetrievalBackend = backend or SQLiteRetrievalBackend(event_repo)
+        self.backend: RetrievalBackend = backend or RepositoryRetrievalBackend(event_repo)
         self._encoder: Encoder = encoder or NullEncoder()
         self._bm25_limit = bm25_limit
         self._vec_limit = vec_limit

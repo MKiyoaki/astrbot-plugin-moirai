@@ -19,10 +19,9 @@ from contextlib import ExitStack
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-EVAL = ROOT / ".dev_data/canon/eval"
 DEFAULT_DB = ROOT / ".dev_data/canon/v11/chat/full-20260928.sqlite"
 BUDGETS = (400, 700, 1000, 1500, 2000, 3000)
-BANK = EVAL / "sweep-bank-v2.jsonl"
+BANK = ROOT.parent / "Arknights-Texts" / "eval" / "canon_answer_bank.jsonl"
 JUDGE_MODEL = "arc:nexus"
 JUDGE_SYSTEM = (
     "你是独立评测员，不是被测模型。逐条核对角色回复里的剧情说法，再按答案要点打分。\n"
