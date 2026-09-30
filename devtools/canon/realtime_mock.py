@@ -81,6 +81,15 @@ def build(args) -> tuple[list[dict], list[dict], dict]:
     counts = {"assistant": 0, "doctor": 0, "narrator": 0, "npc": 0, "dropped": 0}
     speakers: set[str] = set()
     overrides = None
+    visibility = None
+    excluded_counts = {"narrator": 0, "private": 0}
+    if args.dialogue_only:
+        if not args.speaker_map or not args.visibility_map:
+            raise SystemExit("dialogue-only 需要 --speaker-map 和 --visibility-map")
+        entries = json.loads(args.visibility_map.read_text(encoding="utf-8"))
+        visibility = {entry["line_key"]: entry for entry in entries}
+        if len(visibility) != len(entries):
+            raise SystemExit("visibility-map 包含重复 line_key")
     rule_counts = {}
     action_counts = {}
     if args.speaker_map:
@@ -116,6 +125,14 @@ def build(args) -> tuple[list[dict], list[dict], dict]:
                 action = override["action"]
                 action_counts[action] = action_counts.get(action, 0) + 1
             who = sender(line, bot_display, bot_aliases, args.narration, override)
+            if who is not None and args.dialogue_only:
+                visibility_entry = visibility.get(line["k"])
+                if visibility_entry and visibility_entry["visibility"] == "private":
+                    who = None
+                    excluded_counts["private"] += 1
+                elif who[2] == NARRATOR[1]:
+                    who = None
+                    excluded_counts["narrator"] += 1
             if who is None or not line["text"].strip():
                 counts["dropped"] += 1
                 continue
@@ -137,6 +154,8 @@ def build(args) -> tuple[list[dict], list[dict], dict]:
             if overrides is not None:
                 row.update({"original_speaker": line["spk"], "cleaned_speaker": nickname,
                             "rule": override["rule"] if override else "original"})
+            if args.dialogue_only:
+                row["visibility"] = "public_speech"
             linemap.append(row)
             if role == "assistant":
                 counts["assistant"] += 1
@@ -147,6 +166,10 @@ def build(args) -> tuple[list[dict], list[dict], dict]:
             else:
                 counts["npc"] += 1
                 speakers.add(nickname)
+    if visibility is not None:
+        chosen_lines = {line["k"] for scene in scenes if scene["scene_key"] in chosen for line in scene["lines"]}
+        if not set(visibility) <= chosen_lines:
+            raise SystemExit("visibility-map 包含选定范围外的 line_key")
     if overrides is not None and set(overrides) != used_overrides:
         raise SystemExit(f"speaker-map 有 {len(set(overrides) - used_overrides)} 条不在选定范围内")
     if not messages:
@@ -175,6 +198,16 @@ def build(args) -> tuple[list[dict], list[dict], dict]:
         manifest["action_counts"] = action_counts
         if args.end_scene:
             manifest["end_scene"] = args.end_scene
+    if args.dialogue_only:
+        manifest["replay_mode"] = "public_dialogue"
+        manifest["visibility_map"] = args.visibility_map.name
+        manifest["visibility_map_sha256"] = hashlib.sha256(args.visibility_map.read_bytes()).hexdigest()
+        manifest["excluded_counts"] = excluded_counts
+        tag_counts = {}
+        for entry in visibility.values():
+            tag = entry["tag"]
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        manifest["private_tag_counts"] = tag_counts
     return messages, linemap, manifest
 
 
@@ -204,6 +237,8 @@ def main(argv=None):
     parser.add_argument("--narration", choices=("narrator", "drop"), default="narrator")
     parser.add_argument("--persona", type=Path, default=DEFAULT_PERSONA)
     parser.add_argument("--speaker-map", type=Path)
+    parser.add_argument("--visibility-map", type=Path)
+    parser.add_argument("--dialogue-only", action="store_true")
     parser.add_argument("--end-scene", help="包含指定场景，排除统一时间线中其后的场景")
     args = parser.parse_args(argv)
     if args.scene_gap_minutes <= 30:

@@ -1,6 +1,6 @@
 # Main story chapter 0–8 speaker cleanup review
 
-Scope ends at END8-1; EG-1–5 are excluded. Each item gives the adjacent source lines. Evidence and confidence are recorded in the JSON map.
+Scope ends at END8-1; EG-1–5 are excluded. Character vocalizations keep their original text as message content under the identified speaker. Each item gives the adjacent source lines. Evidence and confidence are recorded in the JSON map.
 
 Entries: 1611; unresolved: 0.
 
@@ -329,7 +329,7 @@ None.
 - `obt/main/level_main_03-05_end#1.1` (3-5, `obt/main/level_main_03-05_end`):  / **第二十七关（后）** / 后撤！重整队形！  
   `∅` → `删除` (delete, high); 关卡标题 / header
 - `obt/main/level_main_03-05_end#75.1` (3-5, `obt/main/level_main_03-05_end`): 喂？ / **————** / 你是……  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_03-06_beg#1.1` (3-6, `obt/main/level_main_03-06_beg`):  / **第二十八关（前）** / ……  
   `∅` → `删除` (delete, high); 关卡标题 / header
 - `obt/main/level_main_03-06_end#1.1` (3-6, `obt/main/level_main_03-06_end`):  / **第二十八关（后）** / 不……  
@@ -377,7 +377,7 @@ None.
 - `obt/main/level_main_04-02_end#115.1` (4-2, `obt/main/level_main_04-02_end`): 不，所有人都聚在一起，向着共同的目标，不断地努力。 / **这片大地已经麻木。** / 还没有……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_04-02_end#118.1` (4-2, `obt/main/level_main_04-02_end`): 感染者绝不能就此陷入绝望…… / **你。** / 被愤怒吞噬吧。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `阿米娅` (map, low); 阿米娅遭遇感染者孩童时的内心声音
 - `obt/main/level_main_04-02_end#119.1` (4-2, `obt/main/level_main_04-02_end`): 你。 / **被愤怒吞噬吧。** / 只有———————  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_04-02_end#120.1` (4-2, `obt/main/level_main_04-02_end`): 被愤怒吞噬吧。 / **只有———————** / 我……  
@@ -619,7 +619,7 @@ None.
 - `obt/main/level_main_06-01_beg#1.1` (6-1, `obt/main/level_main_06-01_beg`):  / **第一关（前）** / 937年  
   `∅` → `删除` (delete, high); 关卡标题 / header
 - `obt/main/level_main_06-01_beg#6.1` (6-1, `obt/main/level_main_06-01_beg`): 第一关（前） / **937年** / 埃里克勋爵与匹斯堡议会大学李尔兰·D教授于城邦史标准论刊（《我们从哪里来？》，44期）发表了合著论文。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_06-01_beg#7.1` (6-1, `obt/main/level_main_06-01_beg`): 937年 / **埃里克勋爵与匹斯堡议会大学李尔兰·D教授于城邦史标准论刊（《我们从哪里来？》，44期）发表了合著论文。** / 论文声称，据多具已风化遗骸的鉴定结果。  
   `∅` → `旁白` (narrator, medium); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_06-01_beg#8.1` (6-1, `obt/main/level_main_06-01_beg`): 埃里克勋爵与匹斯堡议会大学李尔兰·D教授于城邦史标准论刊（《我们从哪里来？》，44期）发表了合著论文。 / **论文声称，据多具已风化遗骸的鉴定结果。** / 萨尔贡四号填埋窟的考察已得出关键性结论，即感染者的隔离和处决无疑与实在法同源。  
@@ -627,7 +627,7 @@ None.
 - `obt/main/level_main_06-01_beg#9.1` (6-1, `obt/main/level_main_06-01_beg`): 论文声称，据多具已风化遗骸的鉴定结果。 / **萨尔贡四号填埋窟的考察已得出关键性结论，即感染者的隔离和处决无疑与实在法同源。** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_06-01_beg#10.1` (6-1, `obt/main/level_main_06-01_beg`): 萨尔贡四号填埋窟的考察已得出关键性结论，即感染者的隔离和处决无疑与实在法同源。 / **……** / 综上所述，感染者受难的历史，自法律出现的时候就已经开始了。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_06-01_beg#11.1` (6-1, `obt/main/level_main_06-01_beg`): …… / **综上所述，感染者受难的历史，自法律出现的时候就已经开始了。** / 龙门，基础支撑层，出口  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_06-01_beg#17.1` (6-1, `obt/main/level_main_06-01_beg`): 综上所述，感染者受难的历史，自法律出现的时候就已经开始了。 / **龙门，基础支撑层，出口** / 霜星！  
@@ -687,7 +687,7 @@ None.
 - `obt/main/level_main_06-02_beg#28.1` (6-2, `obt/main/level_main_06-02_beg`): 是那个吗，走路很轻的干员吗？ / **是他啊！有印象吗？** / 嗯。  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_06-02_beg#34.1` (6-2, `obt/main/level_main_06-02_beg`): 他就在那。 / **……啊？** / 从没听过你对我的评价，现在才知道，原来我感受起来是这么脆弱。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `煌` (map, high); 迷迭香指出 Scout 就在身旁，随后煌回应
 - `obt/main/level_main_06-02_beg#41.1` (6-2, `obt/main/level_main_06-02_beg`): 从没听过你对我的评价，现在才知道，原来我感受起来是这么脆弱。 / **你什么时候来的？！** / 可以说是一直都在。我习惯隐藏自己了。  
   `∅` → `煌` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_06-02_beg#48.1` (6-2, `obt/main/level_main_06-02_beg`): 为什么煌没有感觉到呢？ / **……我是比较粗线条，没看到啦！** / 不是，你听她说了那么久，怎么不帮她修下啊。  
@@ -885,9 +885,9 @@ None.
 - `obt/main/level_main_06-05_end#5.1` (6-5, `obt/main/level_main_06-05_end`): 第二关（后） / **与此同时，贫民区的另一处** / 不要慌张！慢慢说！  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_06-05_end#18.1` (6-5, `obt/main/level_main_06-05_end`): 情况，向我报告！ / **……** / ……  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_06-05_end#25.1` (6-5, `obt/main/level_main_06-05_end`): 向我报告！ / **……呼。** / 什么人！  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `弑君者` (map, medium); 遇袭时弑君者喘息并继续发问
 - `obt/main/level_main_06-05_end#38.1` (6-5, `obt/main/level_main_06-05_end`): 让他安静！ / **……（非人的笑声）** / 我……我，我想回乌萨斯……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_06-05_end#94.1` (6-5, `obt/main/level_main_06-05_end`): 还在交头接耳个什么！ / **您好。** / 臭老鼠！你在干嘛！是不是你！  
@@ -1081,15 +1081,15 @@ None.
 - `obt/main/level_main_06-10_beg#1.1` (6-11, `obt/main/level_main_06-10_beg`):  / **第四关（前）** / 呜，呜……  
   `∅` → `删除` (delete, high); 关卡标题 / header
 - `obt/main/level_main_06-10_beg#5.1` (6-11, `obt/main/level_main_06-10_beg`): 第四关（前） / **呜，呜……** / 我肚子好饿！  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `孩童` (map, high); 本场景第 20 行起同一孩童具名发言
 - `obt/main/level_main_06-10_beg#6.1` (6-11, `obt/main/level_main_06-10_beg`): 呜，呜…… / **我肚子好饿！** / 爸爸呢？爸爸去哪里了？  
-  `∅` → `孩子` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
+  `∅` → `孩童` (map, high); 本场景第 20 行起同一孩童具名发言
 - `obt/main/level_main_06-10_beg#7.1` (6-11, `obt/main/level_main_06-10_beg`): 我肚子好饿！ / **爸爸呢？爸爸去哪里了？** / 没有爸爸不行……我要爸爸！爸爸！  
-  `∅` → `孩子` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
+  `∅` → `孩童` (map, high); 本场景第 20 行起同一孩童具名发言
 - `obt/main/level_main_06-10_beg#8.1` (6-11, `obt/main/level_main_06-10_beg`): 爸爸呢？爸爸去哪里了？ / **没有爸爸不行……我要爸爸！爸爸！** / 爸爸会来带我走的！  
-  `∅` → `孩子` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
+  `∅` → `孩童` (map, high); 本场景第 20 行起同一孩童具名发言
 - `obt/main/level_main_06-10_beg#9.1` (6-11, `obt/main/level_main_06-10_beg`): 没有爸爸不行……我要爸爸！爸爸！ / **爸爸会来带我走的！** / ……！  
-  `∅` → `孩子` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
+  `∅` → `孩童` (map, high); 本场景第 20 行起同一孩童具名发言
 - `obt/main/level_main_06-10_beg#98.1` (6-11, `obt/main/level_main_06-10_beg`): 我还活着？ / **不然呢，你觉得你死了会好点吗？** / 煌干员？  
   `？？？` → `煌` (map, high); 立绘 id char_017_homura_3；同 id 具名台词或场景摘要
 - `obt/main/level_main_06-10_end#1.1` (6-11, `obt/main/level_main_06-10_end`):  / **第四关（后）** / （呃，呃……！哈，哈……）  
@@ -1143,13 +1143,13 @@ None.
 - `obt/main/level_st_06-02#6.1` (6-13, `obt/main/level_st_06-02`): 醒醒！ / **醒醒！！** / ……？  
   `？？？` → `爱国者` (map, medium); 霜星被爱国者救下的童年回忆
 - `obt/main/level_st_06-02#7.1` (6-13, `obt/main/level_st_06-02`): 醒醒！！ / **……？** / 醒醒……醒醒！  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `霜星` (map, high); 童年霜星在爱国者唤醒后呼唤父亲
 - `obt/main/level_st_06-02#8.1` (6-13, `obt/main/level_st_06-02`): ……？ / **醒醒……醒醒！** / 过来，亚当！拿温水过来！  
   `？？？` → `爱国者` (map, medium); 霜星被爱国者救下的童年回忆
 - `obt/main/level_st_06-02#9.1` (6-13, `obt/main/level_st_06-02`): 醒醒……醒醒！ / **过来，亚当！拿温水过来！** / 爸……  
   `？？？` → `爱国者` (map, medium); 霜星被爱国者救下的童年回忆
 - `obt/main/level_st_06-02#10.1` (6-13, `obt/main/level_st_06-02`): 过来，亚当！拿温水过来！ / **爸……** / 啊……  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `霜星` (map, high); 童年霜星在爱国者唤醒后呼唤父亲
 - `obt/main/level_st_06-02#11.1` (6-13, `obt/main/level_st_06-02`): 爸…… / **啊……** / 她活着！太好了，她还活着，她还活着，感谢先祖！  
   `？？？` → `爱国者` (map, medium); 霜星被爱国者救下的童年回忆
 - `obt/main/level_st_06-02#12.1` (6-13, `obt/main/level_st_06-02`): 啊…… / **她活着！太好了，她还活着，她还活着，感谢先祖！** / 亚当！动作快点！  
@@ -1157,7 +1157,7 @@ None.
 - `obt/main/level_st_06-02#13.1` (6-13, `obt/main/level_st_06-02`): 她活着！太好了，她还活着，她还活着，感谢先祖！ / **亚当！动作快点！** / 爸……爸……？  
   `？？？` → `爱国者` (map, medium); 霜星被爱国者救下的童年回忆
 - `obt/main/level_st_06-02#14.1` (6-13, `obt/main/level_st_06-02`): 亚当！动作快点！ / **爸……爸……？** / 爸爸？  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `霜星` (map, high); 童年霜星在爱国者唤醒后呼唤父亲
 - `obt/main/level_st_06-02#15.1` (6-13, `obt/main/level_st_06-02`): 爸……爸……？ / **爸爸？** / ……我……是的！我是爸爸！  
   `？？？` → `霜星` (map, high); 童年霜星呼唤父亲
 - `obt/main/level_st_06-02#16.1` (6-13, `obt/main/level_st_06-02`): 爸爸？ / **……我……是的！我是爸爸！** / 可以，可以！我是爸爸，没错！  
@@ -1181,7 +1181,7 @@ None.
 - `obt/main/level_st_06-02#25.1` (6-13, `obt/main/level_st_06-02`): ……女儿……我的女儿！坚持住！ / **爸爸，不要……不要再离开我了……** / 10:48 A.M.  
   `∅` → `霜星` (map, high); 童年霜星呼唤父亲
 - `obt/main/level_st_06-02#31.1` (6-13, `obt/main/level_st_06-02`): 爸爸，不要……不要再离开我了…… / **10:48 A.M.** / 切尔诺伯格分城“14区”废墟  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_st_06-02#32.1` (6-13, `obt/main/level_st_06-02`): 10:48 A.M. / **切尔诺伯格分城“14区”废墟** / 地基层上部  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_st_06-02#33.1` (6-13, `obt/main/level_st_06-02`): 切尔诺伯格分城“14区”废墟 / **地基层上部** / ……  
@@ -1195,7 +1195,7 @@ None.
 - `obt/main/level_main_06-13_beg#1.1` (6-15, `obt/main/level_main_06-13_beg`):  / **第一关（前）** / 12:21 P.M.  
   `∅` → `删除` (delete, high); 关卡标题 / header
 - `obt/main/level_main_06-13_beg#7.1` (6-15, `obt/main/level_main_06-13_beg`): 第一关（前） / **12:21 P.M.** / 切尔诺伯格分城“14区”废墟  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_06-13_beg#8.1` (6-15, `obt/main/level_main_06-13_beg`): 12:21 P.M. / **切尔诺伯格分城“14区”废墟** / 区块地面  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_06-13_beg#9.1` (6-15, `obt/main/level_main_06-13_beg`): 切尔诺伯格分城“14区”废墟 / **区块地面** / 搞什么？  
@@ -1203,7 +1203,7 @@ None.
 - `obt/main/level_main_06-13_end#1.1` (6-15, `obt/main/level_main_06-13_end`):  / **第一关（后）** / ……  
   `∅` → `删除` (delete, high); 关卡标题 / header
 - `obt/main/level_main_06-13_end#133.1` (6-15, `obt/main/level_main_06-13_end`): 你，你看我干什么？ / **15:22 P.M.** / 切尔诺伯格分城“14区”废墟  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_06-13_end#134.1` (6-15, `obt/main/level_main_06-13_end`): 15:22 P.M. / **切尔诺伯格分城“14区”废墟** / 区块地面  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_06-13_end#135.1` (6-15, `obt/main/level_main_06-13_end`): 切尔诺伯格分城“14区”废墟 / **区块地面** / 挖掘作业三小时后  
@@ -1357,7 +1357,7 @@ None.
 - `obt/main/level_st_07-01#347.1` (7-1, `obt/main/level_st_07-01`): 等等。 / **等一下，等一下。我有施术去引爆炸药吗？** / ……  
   `∅` → `W` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_st_07-01#348.1` (7-1, `obt/main/level_st_07-01`): 等一下，等一下。我有施术去引爆炸药吗？ / **……** / 她为什么把佩剑刺进了地里？  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_st_07-01#349.1` (7-1, `obt/main/level_st_07-01`): …… / **她为什么把佩剑刺进了地里？** / 这就是你的陷阱吗？  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_st_07-01#357.1` (7-1, `obt/main/level_st_07-01`): 等等，你…… / **没有火焰，没有燃烧。** / 我布置好的，使劲扭动着源石身躯钻进城邦钢铁地基里的上百个炸弹，全都消失了。  
@@ -1385,7 +1385,7 @@ None.
 - `obt/main/level_st_07-01#368.1` (7-1, `obt/main/level_st_07-01`): 本该从各个方向发出的让她粉身碎骨的无死角爆炸，成了一个长裤里生不逢时的闷屁。 / **好，我彻底玩砸了。** / ……  
   `∅` → `W` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_st_07-01#369.1` (7-1, `obt/main/level_st_07-01`): 好，我彻底玩砸了。 / **……** / 咳，咳……  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_st_07-01#402.1` (7-1, `obt/main/level_st_07-01`): ……排不上号。 / **我要死了吗？应该是的。** / 不过，死又算什么呢？比死糟糕的事情多了去了。  
   `∅` → `W` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_st_07-01#403.1` (7-1, `obt/main/level_st_07-01`): 我要死了吗？应该是的。 / **不过，死又算什么呢？比死糟糕的事情多了去了。** / 所以，当你觉得自己要完蛋的时候……  
@@ -1399,7 +1399,7 @@ None.
 - `obt/main/level_st_07-01#424.1` (7-1, `obt/main/level_st_07-01`): 希望你的死亡足够痛苦，维多利亚的W。 / **战斗过后 距切城撞击31hrs 6:30P.M.** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-01_beg#9.1` (7-2, `obt/main/level_main_07-01_beg`):  / **6:30 p.m.** / 编号00000-00002，接入权限-8。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_07-01_beg#47.1` (7-2, `obt/main/level_main_07-01_beg`): ……这里真的能算家吗？ / **你是，博士？** / 啊？  
   `？？？` → `迷迭香` (map, high); 立绘 id avg_npc_042；同 id 具名台词或场景摘要
 - `obt/main/level_main_07-01_beg#51.1` (7-2, `obt/main/level_main_07-01_beg`): 你好？ / **……是你，没有错。** / 我感觉到了……虽然，不太一样。  
@@ -1579,23 +1579,23 @@ None.
 - `obt/main/level_main_07-03_beg#310.1` (7-4, `obt/main/level_main_07-03_beg`): 让我们在仪器开始全速运转前，守住这片区域。 / **4小时前** / 这就是我们的伪装？  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-03_beg#337.1` (7-4, `obt/main/level_main_07-03_beg`): 随着时间推移，最拙劣的猎人也能分辨出猎物与诱饵的不同。我们要在他们识破我们之前避开他们的视线。 / **10:00 a.m.** / 这次作战不需要我们实地降落，对吗教官？  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_07-03_beg#370.1` (7-4, `obt/main/level_main_07-03_beg`): ……一旦被打下来就没有下一次了啊…… / **10:00 am 核心城外围** / 嗯？  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-04_end#8.1` (7-5, `obt/main/level_main_07-04_end`):  / **6:00am** / 消灭侦查部队后，不会剩多少时间。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_07-04_end#352.1` (7-5, `obt/main/level_main_07-04_end`): 我。 / **凯尔希一只手环抱过你的腰部，将你拉上了滑索。** / 博士，下次再自己把握命运吧。  
   `∅` → `旁白` (narrator, medium); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-04_end#361.1` (7-5, `obt/main/level_main_07-04_end`): 博士，下次再自己把握命运吧。 / **风沙很大，那只“手”很坚硬，你有点不确定它是否属于凯尔希。** / 各个小队，请各就各位！  
   `∅` → `旁白` (narrator, medium); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-04_end#377.1` (7-5, `obt/main/level_main_07-04_end`): 接下来的行动，我们不能有任何失误！ / **10:30 a.m.** / 核心城地下基建  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_07-04_end#378.1` (7-5, `obt/main/level_main_07-04_end`): 10:30 a.m. / **核心城地下基建** / 没错，这个痕迹确实也是侵入的痕迹。  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-05_beg#6.1` (7-6, `obt/main/level_main_07-05_beg`):  / **切尔诺伯格地下基建** / 10:30 a.m.  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-05_beg#7.1` (7-6, `obt/main/level_main_07-05_beg`): 切尔诺伯格地下基建 / **10:30 a.m.** / 你在这，是在等我？  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_07-05_beg#145.1` (7-6, `obt/main/level_main_07-05_beg`): 博士，她身边真的很危险！ / **……敌人。** / 难道说……  
   `？？？` → `迷迭香` (map, medium); 迷迭香战斗时发现敌人
 - `obt/main/level_main_07-05_end#9.1` (7-6, `obt/main/level_main_07-05_end`):  / **流血。刺穿。撕裂。** / 这不对。  
@@ -1619,7 +1619,7 @@ None.
 - `obt/main/level_st_07-02#210.1` (7-7, `obt/main/level_st_07-02`): 龙门是什么时候变成这样？ / **我是究竟什么时候，变成了现在这样？** /   
   `∅` → `魏彦吾` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_07-06_beg#7.1` (7-8, `obt/main/level_main_07-06_beg`):  / **11:30 a.m.** / 领袖。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_07-06_beg#92.1` (7-8, `obt/main/level_main_07-06_beg`): 如果是这样，那也就不奇怪了。 / **……你是谁？** / 我是谁？  
   `？？？` → `幻影弩手` (map, medium); 被塔露拉背弃的幻影弩手回忆
 - `obt/main/level_main_07-06_beg#93.1` (7-8, `obt/main/level_main_07-06_beg`): ……你是谁？ / **我是谁？** / 你想做什么？  
@@ -1661,7 +1661,7 @@ None.
 - `obt/main/level_main_07-07_end#123.1` (7-9, `obt/main/level_main_07-07_end`): 医生……？！ / **……** / Guard，解释一下。  
   `？？？` → `阿米娅` (map, high); 立绘 id char_002_amiya_1；同 id 具名台词或场景摘要
 - `obt/main/level_main_07-08_end#146.1` (7-10, `obt/main/level_main_07-08_end`): 我不是刚刚……终端……我怎么又忘了？ / **1月3日** / 有个白发的老先生送来了一块焦黑的东西。Machinist看到那东西就坐在凳子上起不来了。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_07-08_end#147.1` (7-10, `obt/main/level_main_07-08_end`): 1月3日 / **有个白发的老先生送来了一块焦黑的东西。Machinist看到那东西就坐在凳子上起不来了。** / 老先生点了点头就离开了，同行的凯尔希医生也没说什么，只是碰了碰我的头。  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-08_end#148.1` (7-10, `obt/main/level_main_07-08_end`): 有个白发的老先生送来了一块焦黑的东西。Machinist看到那东西就坐在凳子上起不来了。 / **老先生点了点头就离开了，同行的凯尔希医生也没说什么，只是碰了碰我的头。** / 那是Scout的东西。  
@@ -1669,13 +1669,13 @@ None.
 - `obt/main/level_main_07-08_end#149.1` (7-10, `obt/main/level_main_07-08_end`): 老先生点了点头就离开了，同行的凯尔希医生也没说什么，只是碰了碰我的头。 / **那是Scout的东西。** / Scout。  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-08_end#150.1` (7-10, `obt/main/level_main_07-08_end`): 那是Scout的东西。 / **Scout。** / Scout也不在了。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `迷迭香` (map, high); 迷迭香想起 Scout 的连续内心独白
 - `obt/main/level_main_07-08_end#151.1` (7-10, `obt/main/level_main_07-08_end`): Scout。 / **Scout也不在了。** / Scout不是连影子都没有的人吗？不是其他人都死了他也会活下来的人吗？不是说的故事长到不会结束的人吗？  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-08_end#152.1` (7-10, `obt/main/level_main_07-08_end`): Scout也不在了。 / **Scout不是连影子都没有的人吗？不是其他人都死了他也会活下来的人吗？不是说的故事长到不会结束的人吗？** / Scout……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-08_end#153.1` (7-10, `obt/main/level_main_07-08_end`): Scout不是连影子都没有的人吗？不是其他人都死了他也会活下来的人吗？不是说的故事长到不会结束的人吗？ / **Scout……** / 我翻了以前的记录。Scout帮我做了蝴蝶结。可那是小女孩才用的，我已经不玩玩具了。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `迷迭香` (map, high); 迷迭香想起 Scout 的连续内心独白
 - `obt/main/level_main_07-08_end#154.1` (7-10, `obt/main/level_main_07-08_end`): Scout…… / **我翻了以前的记录。Scout帮我做了蝴蝶结。可那是小女孩才用的，我已经不玩玩具了。** / Scout为什么会死？  
   `∅` → `迷迭香` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_07-08_end#155.1` (7-10, `obt/main/level_main_07-08_end`): 我翻了以前的记录。Scout帮我做了蝴蝶结。可那是小女孩才用的，我已经不玩玩具了。 / **Scout为什么会死？** / 为什么？为什么？为什么？  
@@ -1717,9 +1717,9 @@ None.
 - `obt/main/level_main_07-16_end#497.1` (7-18, `obt/main/level_main_07-16_end`): 沉进静静的黑色…… / **哥哥，姐姐，妹妹，弟弟，梦乡啊梦乡，盖住了他们的身体……♪** / “小姐”？怎么在这哭唧唧的……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-16_end#542.1` (7-18, `obt/main/level_main_07-16_end`): 我终于……能够回家…… / **不。** / ——不。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `爱国者` (map, high); 爱国者濒死时对幻觉的连续否定
 - `obt/main/level_main_07-16_end#545.1` (7-18, `obt/main/level_main_07-16_end`): 不。 / **——不。** / ——  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `爱国者` (map, high); 爱国者濒死时对幻觉的连续否定
 - `obt/main/level_main_07-16_end#652.1` (7-18, `obt/main/level_main_07-16_end`): 那个……整合运动的，暴君，命运……你们自己……去推翻。 / **等等。** / 不对。  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-16_end#653.1` (7-18, `obt/main/level_main_07-16_end`): 等等。 / **不对。** / 凯尔希抬眼望向阴沉的天空。  
@@ -1763,7 +1763,7 @@ None.
 - `obt/main/level_main_07-16_end#733.1` (7-18, `obt/main/level_main_07-16_end`): 温迪戈的动作，戛然而止。 / **似乎有什么从他头盔中悄然滴落。** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-16_end#734.1` (7-18, `obt/main/level_main_07-16_end`): 似乎有什么从他头盔中悄然滴落。 / **……** / 一分钟过去了。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_07-16_end#735.1` (7-18, `obt/main/level_main_07-16_end`): …… / **一分钟过去了。** / 在这漫长的一分钟里，除了移动城市的隆隆声外，你什么也听不见。  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_07-16_end#736.1` (7-18, `obt/main/level_main_07-16_end`): 一分钟过去了。 / **在这漫长的一分钟里，除了移动城市的隆隆声外，你什么也听不见。** / 你意识到，面前的怪物已经死了。  
@@ -1811,11 +1811,11 @@ None.
 - `obt/main/level_st_07-03#501.1` (7-19, `obt/main/level_st_07-03`): 可杀他的不是外人吗？我看见有别的人杀了他，不是塔露拉！ / **是爱国者和乌萨斯的军队勾结，想要害领袖！睁大眼看清楚，爱国者才是叛徒！！** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_st_07-03#504.1` (7-19, `obt/main/level_st_07-03`): 是爱国者和乌萨斯的军队勾结，想要害领袖！睁大眼看清楚，爱国者才是叛徒！！ / **……** / ……  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_st_07-03#579.1` (7-19, `obt/main/level_st_07-03`): 你也是。 / **切尔诺伯格核心能源区** / 3:00 p.m.  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_st_07-03#580.1` (7-19, `obt/main/level_st_07-03`): 切尔诺伯格核心能源区 / **3:00 p.m.** / 为什么把我分到你这组？  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_st_07-03#646.1` (7-19, `obt/main/level_st_07-03`): 你问我？你居然问我？你怎么还敢摆出装聋作哑，视而不见，一副无所谓的样子？ / **萨卡兹女人用你从没见过的眼神看着你。** / 她在对凯尔希医生说话，眼神却没从你身上挪开。  
   `∅` → `旁白` (narrator, medium); 第三人称叙述或地点/时间字幕
 - `obt/main/level_st_07-03#647.1` (7-19, `obt/main/level_st_07-03`): 萨卡兹女人用你从没见过的眼神看着你。 / **她在对凯尔希医生说话，眼神却没从你身上挪开。** / 凯尔希，你和博士一起行动？  
@@ -1889,7 +1889,7 @@ None.
 - `obt/main/level_main_08-01_beg#42.1` (R8-1, `obt/main/level_main_08-01_beg`): 这让我想起好几年前的一些事情。 / **我想，我还是要和你说说，否则我心里是没法安稳的。** / 12月14日  
   `∅` → `塔露拉` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-01_beg#43.1` (R8-1, `obt/main/level_main_08-01_beg`): 我想，我还是要和你说说，否则我心里是没法安稳的。 / **12月14日** / 脱离黑蛇第三年  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_08-01_beg#52.1` (R8-1, `obt/main/level_main_08-01_beg`): 12月14日 / **脱离黑蛇第三年** / 乌萨斯小村庄  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-01_beg#53.1` (R8-1, `obt/main/level_main_08-01_beg`): 脱离黑蛇第三年 / **乌萨斯小村庄** / 塔露拉，快回来！别让他们看见你这身才好啊。  
@@ -1983,7 +1983,7 @@ None.
 - `obt/main/level_main_08-03_beg#15.1` (R8-3, `obt/main/level_main_08-03_beg`): 我想我怎么报答他们都不过分。 / **遗憾的是，我没能好好报答他们。** / 1月13日  
   `∅` → `塔露拉` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-03_beg#16.1` (R8-3, `obt/main/level_main_08-03_beg`): 遗憾的是，我没能好好报答他们。 / **1月13日** / 上一次的例行检查中，我们有一个队员遭到了袭击。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_08-03_beg#147.1` (R8-3, `obt/main/level_main_08-03_beg`): 不，老爷，你看看我的法术……你看看我的法术！ / **老人切开了自己的手腕，红色没有流进雪地，而是像雾一样弥散在空气中。** / 你看，你看……老爷！我是货真价实的感染者！  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-03_end#27.1` (R8-3, `obt/main/level_main_08-03_end`): ……阿丽娜？ / **塔露拉惊讶地看着阿丽娜。阿丽娜用塔露拉从没见过的眼神望着她。** / 你眼里有一团火。  
@@ -2017,7 +2017,7 @@ None.
 - `obt/main/level_main_08-04_beg#21.1` (R8-4, `obt/main/level_main_08-04_beg`): 希望这确实有效。 / **也希望爷爷能够安眠。除了老奶奶，我没有比他更亲的亲人。** / 2月7日  
   `∅` → `塔露拉` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-04_beg#22.1` (R8-4, `obt/main/level_main_08-04_beg`): 也希望爷爷能够安眠。除了老奶奶，我没有比他更亲的亲人。 / **2月7日** / 脱离黑蛇第三年  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_08-04_beg#28.1` (R8-4, `obt/main/level_main_08-04_beg`): 2月7日 / **脱离黑蛇第三年** / 先生，我是……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_st_08-03#13.1` (M8-3, `obt/main/level_st_08-03`):  / **中央区** / 救，救命……！  
@@ -2169,9 +2169,9 @@ None.
 - `obt/main/level_main_08-08_beg#24.1` (R8-8, `obt/main/level_main_08-08_beg`): 但在西北冻原……只有雪。 / **只有雪的土地是养活不了大家的。** / 11月3日  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-08_beg#30.1` (R8-8, `obt/main/level_main_08-08_beg`): 只有雪的土地是养活不了大家的。 / **11月3日** / 第X年  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_08-08_beg#31.1` (R8-8, `obt/main/level_main_08-08_beg`): 11月3日 / **第X年** / 兄弟姐妹们，没事吧？！  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_08-09_beg#91.1` (M8-6, `obt/main/level_main_08-09_beg`): 菲林，受乌萨斯盾卫和游击队战士支援的外人，你是第一个！ / **年纪尚幼的术师抬起手。战场的嘈杂声响好像与她无关，她目不斜视。她目光如炬。** / 此前，她的惶恐与她的痛惜使她不断追逐着她不断流逝的记忆。  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-09_beg#92.1` (M8-6, `obt/main/level_main_08-09_beg`): 年纪尚幼的术师抬起手。战场的嘈杂声响好像与她无关，她目不斜视。她目光如炬。 / **此前，她的惶恐与她的痛惜使她不断追逐着她不断流逝的记忆。** / 现在，她与友人的约定，她与这些钢铁墙垛共同的责任，令她停步，令她站定。  
@@ -2203,7 +2203,7 @@ None.
 - `obt/main/level_main_08-10_beg#19.1` (R8-9, `obt/main/level_main_08-10_beg`): 在离他们几公里外的废弃聚居地，我们扎了营，那有不少燃料，能让我们支撑一段时间。 / **树根实在不好吃。不想再听老爷子说什么“很有营养”之类了。** / 12月7日  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-10_beg#20.1` (R8-9, `obt/main/level_main_08-10_beg`): 树根实在不好吃。不想再听老爷子说什么“很有营养”之类了。 / **12月7日** / 这条路通向什么地方，我是清楚的。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_08-10_beg#25.1` (R8-9, `obt/main/level_main_08-10_beg`): 12月7日 / **这条路通向什么地方，我是清楚的。** / 那个终点我们必须走到，就算我走不到，叶莲娜，阿丽娜，还有伊诺他们……也应该能走到。  
   `∅` → `塔露拉` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-10_beg#26.1` (R8-9, `obt/main/level_main_08-10_beg`): 这条路通向什么地方，我是清楚的。 / **那个终点我们必须走到，就算我走不到，叶莲娜，阿丽娜，还有伊诺他们……也应该能走到。** / 只是我们脚下的路，实在太不分明了。  
@@ -2339,7 +2339,7 @@ None.
 - `obt/main/level_main_08-13_beg#11.1` (R8-11, `obt/main/level_main_08-13_beg`): 快过去吧，冬天。再不过去，我们就都要被这场雪埋住了。 / **快点过去吧。** / 2月21日  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-13_beg#12.1` (R8-11, `obt/main/level_main_08-13_beg`): 快点过去吧。 / **2月21日** / 塔露拉，你怎么了？  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_08-13_beg#106.1` (R8-11, `obt/main/level_main_08-13_beg`): （不会，不会……怎么会在这？！帝国豢养的孽物怎么会在这？！） / **嘶……** / 唔，呃……呃！  
   `？？？` → `“皇帝的利刃”` (map, high); 同场景稍后具名的嘶声与对白
 - `obt/main/level_main_08-13_beg#126.1` (R8-11, `obt/main/level_main_08-13_beg`): 你不知道我们……你不知道我们遇着了什么！你连他是什么都不知道还想上去送命！ / **嘶……呼……** / 你怕个屁？！我们人这么多！  
@@ -2397,7 +2397,7 @@ None.
 - `obt/main/level_main_08-14_beg#135.1` (M8-8, `obt/main/level_main_08-14_beg`): 那我为什么……会给它们？ / **是因为这东西不重要吗？应该不是吧。如果太冷的话，我也会消失的。** / ……  
   `∅` → `梅菲斯特` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-14_beg#136.1` (M8-8, `obt/main/level_main_08-14_beg`): 是因为这东西不重要吗？应该不是吧。如果太冷的话，我也会消失的。 / **……** / 我知道了。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_beg#137.1` (M8-8, `obt/main/level_main_08-14_beg`): …… / **我知道了。** / 是因为我的朋友们一定会这样做的。  
   `∅` → `梅菲斯特` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-14_beg#138.1` (M8-8, `obt/main/level_main_08-14_beg`): 我知道了。 / **是因为我的朋友们一定会这样做的。** / 我的朋友……  
@@ -2467,27 +2467,27 @@ None.
 - `obt/main/level_main_08-14_end#9.1` (M8-8, `obt/main/level_main_08-14_end`):  / **我该向前走。** / ……  
   `∅` → `梅菲斯特` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-14_end#10.1` (M8-8, `obt/main/level_main_08-14_end`): 我该向前走。 / **……** / 干员们，喷雾准备！清除当前空间内的粉尘！  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#13.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **干员们，喷雾准备！清除当前空间内的粉尘！** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#14.1` (M8-8, `obt/main/level_main_08-14_end`): 干员们，喷雾准备！清除当前空间内的粉尘！ / **……** / 我应该向前走。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#17.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **我应该向前走。** / ……  
   `∅` → `梅菲斯特` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-14_end#18.1` (M8-8, `obt/main/level_main_08-14_end`): 我应该向前走。 / **……** / 退后！变异已经达到极限了，不准再对个体施加更多压力！  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#21.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **退后！变异已经达到极限了，不准再对个体施加更多压力！** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#24.1` (M8-8, `obt/main/level_main_08-14_end`): 退后！变异已经达到极限了，不准再对个体施加更多压力！ / **……** / 有人在说话 有人在唱歌。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#25.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **有人在说话 有人在唱歌。** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#26.1` (M8-8, `obt/main/level_main_08-14_end`): 有人在说话 有人在唱歌。 / **……** / 所有的梦境都沉进湖底♪  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#27.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **所有的梦境都沉进湖底♪** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#28.1` (M8-8, `obt/main/level_main_08-14_end`): 所有的梦境都沉进湖底♪ / **……** / 生命很重要 很重要  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#29.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **生命很重要 很重要** / 朋友们失去了生命 他们就离我而去  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#30.1` (M8-8, `obt/main/level_main_08-14_end`): 生命很重要 很重要 / **朋友们失去了生命 他们就离我而去** / 他们停下 不会再向前走了  
@@ -2495,15 +2495,15 @@ None.
 - `obt/main/level_main_08-14_end#31.1` (M8-8, `obt/main/level_main_08-14_end`): 朋友们失去了生命 他们就离我而去 / **他们停下 不会再向前走了** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#32.1` (M8-8, `obt/main/level_main_08-14_end`): 他们停下 不会再向前走了 / **……** / “……如果你真的有了自己的想法，想要去追随什么……”  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#34.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **“……如果你真的有了自己的想法，想要去追随什么……”** / ……  
   `∅` → `梅菲斯特` (map, medium); 梅菲斯特回忆中的原话
 - `obt/main/level_main_08-14_end#36.1` (M8-8, `obt/main/level_main_08-14_end`): “……如果你真的有了自己的想法，想要去追随什么……” / **……** / Mon3tr！照射点，准备！  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#39.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **Mon3tr！照射点，准备！** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#42.1` (M8-8, `obt/main/level_main_08-14_end`): Mon3tr！照射点，准备！ / **……** / 我该去哪里？  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#43.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **我该去哪里？** / 我知道了 我知道了  
   `∅` → `梅菲斯特` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-14_end#44.1` (M8-8, `obt/main/level_main_08-14_end`): 我该去哪里？ / **我知道了 我知道了** / 但是去哪里都会被打的  
@@ -2515,45 +2515,45 @@ None.
 - `obt/main/level_main_08-14_end#47.1` (M8-8, `obt/main/level_main_08-14_end`): 被打很痛 打别人 别人就很痛 / **不想再痛下去了 但是 现在好痛** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#48.1` (M8-8, `obt/main/level_main_08-14_end`): 不想再痛下去了 但是 现在好痛 / **……** / 这样就可以了吗？！感染者最后都会变成这样吗！  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#51.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **这样就可以了吗？！感染者最后都会变成这样吗！** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#54.1` (M8-8, `obt/main/level_main_08-14_end`): 这样就可以了吗？！感染者最后都会变成这样吗！ / **……** / 不行 还是得向前走了 他们在担心 不能再让他们担心了  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#55.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **不行 还是得向前走了 他们在担心 不能再让他们担心了** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#56.1` (M8-8, `obt/main/level_main_08-14_end`): 不行 还是得向前走了 他们在担心 不能再让他们担心了 / **……** / ……就连时间也在此冻结♪  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#57.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **……就连时间也在此冻结♪** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#58.1` (M8-8, `obt/main/level_main_08-14_end`): ……就连时间也在此冻结♪ / **……** / 我知道 他们讨厌我 但是 他们是因为我做错了 讨厌我  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#59.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **我知道 他们讨厌我 但是 他们是因为我做错了 讨厌我** / 我不想再做错  
   `∅` → `梅菲斯特` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-14_end#60.1` (M8-8, `obt/main/level_main_08-14_end`): 我知道 他们讨厌我 但是 他们是因为我做错了 讨厌我 / **我不想再做错** / ……  
   `∅` → `梅菲斯特` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-14_end#61.1` (M8-8, `obt/main/level_main_08-14_end`): 我不想再做错 / **……** / 博士！我已经说过，无论是消除病兆还是清除病原，对于我来说都是一样的！  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#64.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **博士！我已经说过，无论是消除病兆还是清除病原，对于我来说都是一样的！** / ……  
   `∅` → `梅菲斯特` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-14_end#67.1` (M8-8, `obt/main/level_main_08-14_end`): 博士！我已经说过，无论是消除病兆还是清除病原，对于我来说都是一样的！ / **……** / 好暗啊 会走到哪里去呢？  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#68.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **好暗啊 会走到哪里去呢？** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#69.1` (M8-8, `obt/main/level_main_08-14_end`): 好暗啊 会走到哪里去呢？ / **……** / 那你就快选！  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#72.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **那你就快选！** / ……  
   `∅` → `梅菲斯特` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-14_end#73.1` (M8-8, `obt/main/level_main_08-14_end`): 那你就快选！ / **……** / 照我说的做！  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#74.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **照我说的做！** / ……  
   `∅` → `梅菲斯特` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-14_end#75.1` (M8-8, `obt/main/level_main_08-14_end`): 照我说的做！ / **……** / “我不想伤害别人。我也不想被别人伤害。这两件事，我都不想。”  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#78.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **“我不想伤害别人。我也不想被别人伤害。这两件事，我都不想。”** / ……  
   `∅` → `梅菲斯特` (map, medium); 梅菲斯特回忆中的原话
 - `obt/main/level_main_08-14_end#80.1` (M8-8, `obt/main/level_main_08-14_end`): “我不想伤害别人。我也不想被别人伤害。这两件事，我都不想。” / **……** / 这是梦吧？  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#81.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **这是梦吧？** / 所有人都静静地呆着 笑着的梦  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#82.1` (M8-8, `obt/main/level_main_08-14_end`): 这是梦吧？ / **所有人都静静地呆着 笑着的梦** / 梦该醒了 梦总要醒的 如果梦没有醒 就只是停在原地  
@@ -2563,11 +2563,11 @@ None.
 - `obt/main/level_main_08-14_end#84.1` (M8-8, `obt/main/level_main_08-14_end`): 梦该醒了 梦总要醒的 如果梦没有醒 就只是停在原地 / **该向前走了** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#85.1` (M8-8, `obt/main/level_main_08-14_end`): 该向前走了 / **……** / 关闭舱口！处理掉所有子体感染源，快！  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#88.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **关闭舱口！处理掉所有子体感染源，快！** / ……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#91.1` (M8-8, `obt/main/level_main_08-14_end`): 关闭舱口！处理掉所有子体感染源，快！ / **……** / 走吧 走吧  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#92.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **走吧 走吧** / 还是不要回头了  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#93.1` (M8-8, `obt/main/level_main_08-14_end`): 走吧 走吧 / **还是不要回头了** / 我想 我想到了  
@@ -2607,23 +2607,23 @@ None.
 - `obt/main/level_main_08-14_end#466.1` (M8-8, `obt/main/level_main_08-14_end`): 这种事并不是第一次。 / **有东西滑进了你纷乱的思绪。** / ……  
   `∅` → `旁白` (narrator, medium); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#467.1` (M8-8, `obt/main/level_main_08-14_end`): 有东西滑进了你纷乱的思绪。 / **……** / 警报声几乎要刺破你的耳膜。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#468.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **警报声几乎要刺破你的耳膜。** / ……  
   `∅` → `旁白` (narrator, medium); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#469.1` (M8-8, `obt/main/level_main_08-14_end`): 警报声几乎要刺破你的耳膜。 / **……** / 你们在走道里拼命地奔跑。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#470.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **你们在走道里拼命地奔跑。** / ……  
   `∅` → `旁白` (narrator, medium); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#471.1` (M8-8, `obt/main/level_main_08-14_end`): 你们在走道里拼命地奔跑。 / **……** / 你躺进了那台冰冷的仪器，突如其来的倦意干扰了你原本清醒的意识。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#472.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **你躺进了那台冰冷的仪器，突如其来的倦意干扰了你原本清醒的意识。** / ……  
   `∅` → `旁白` (narrator, medium); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#473.1` (M8-8, `obt/main/level_main_08-14_end`): 你躺进了那台冰冷的仪器，突如其来的倦意干扰了你原本清醒的意识。 / **……** / 这个场景对你来说实在再熟悉不过，但是，无论你多想戳破那层蒙在你记忆之上的薄纱，一切思绪上的努力都徒劳无功。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#474.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **这个场景对你来说实在再熟悉不过，但是，无论你多想戳破那层蒙在你记忆之上的薄纱，一切思绪上的努力都徒劳无功。** / ……  
   `∅` → `旁白` (narrator, medium); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#475.1` (M8-8, `obt/main/level_main_08-14_end`): 这个场景对你来说实在再熟悉不过，但是，无论你多想戳破那层蒙在你记忆之上的薄纱，一切思绪上的努力都徒劳无功。 / **……** / 直至那个声音响起。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_main_08-14_end#476.1` (M8-8, `obt/main/level_main_08-14_end`): …… / **直至那个声音响起。** / ……博士……  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-14_end#477.1` (M8-8, `obt/main/level_main_08-14_end`): 直至那个声音响起。 / **……博士……** / ……没想到现在不想松手的会是我。  
@@ -2745,15 +2745,15 @@ None.
 - `obt/main/level_main_08-15_beg#222.1` (JT8-1, `obt/main/level_main_08-15_beg`): —— / **你会看到，你投入了一切的这片大地并不想要你。** / 不。不。  
   `∅` → `科西切` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-15_beg#224.1` (JT8-1, `obt/main/level_main_08-15_beg`): 你会看到，你投入了一切的这片大地并不想要你。 / **不。不。** / ——  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `塔露拉` (map, high); 与科西切诱导字幕交错的塔露拉抗拒
 - `obt/main/level_main_08-15_beg#252.1` (JT8-1, `obt/main/level_main_08-15_beg`): 那他们求你的时候，你们是什么反应？ / **你会看见你的所想所为化作乌有。** / 不。  
   `∅` → `科西切` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-15_beg#254.1` (JT8-1, `obt/main/level_main_08-15_beg`): 你会看见你的所想所为化作乌有。 / **不。** / 我憎恨你们这些卑劣的人。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `塔露拉` (map, high); 与科西切诱导字幕交错的塔露拉抗拒
 - `obt/main/level_main_08-15_beg#278.1` (JT8-1, `obt/main/level_main_08-15_beg`): 我恨你们。 / **你会看见他们唾弃你所尊敬的一切，生命、尊严和理念都毫无意义。** / 不！！  
   `∅` → `科西切` (map, medium); 连续第一人称独白与前后场景对白；场景官方摘要
 - `obt/main/level_main_08-15_beg#293.1` (JT8-1, `obt/main/level_main_08-15_beg`): 你会看见他们唾弃你所尊敬的一切，生命、尊严和理念都毫无意义。 / **不！！** /   
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `塔露拉` (map, high); 与科西切诱导字幕交错的塔露拉抗拒
 - `obt/main/level_main_08-15_end#38.1` (JT8-1, `obt/main/level_main_08-15_end`): 啊……啊…… / **已经不能再回头了。** / 至此，这里发生的事，除了塔露拉外，无人知晓。  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-15_end#39.1` (JT8-1, `obt/main/level_main_08-15_end`): 已经不能再回头了。 / **至此，这里发生的事，除了塔露拉外，无人知晓。** / 之后的事情，众所皆知。  
@@ -3107,7 +3107,7 @@ None.
 - `obt/main/level_main_08-17_end#309.1` (JT8-3, `obt/main/level_main_08-17_end`): 靠你了，W。 / **卡特斯女孩将一个盒子推进了萨卡兹的手中。** / ……谢谢。  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-17_end#380.1` (JT8-3, `obt/main/level_main_08-17_end`): （乌萨斯语）为了喂饱所有人民。 / **5:42p.m.** / 这个铁块不情愿地轰鸣着，放慢了它冲向毁灭的脚步。  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `旁白` (narrator, high); 日期或时间字幕
 - `obt/main/level_main_08-17_end#381.1` (JT8-3, `obt/main/level_main_08-17_end`): 5:42p.m. / **这个铁块不情愿地轰鸣着，放慢了它冲向毁灭的脚步。** / 终于，切尔诺伯格核心城停在了龙门的舰炮射程之外。  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_main_08-17_end#382.1` (JT8-3, `obt/main/level_main_08-17_end`): 这个铁块不情愿地轰鸣着，放慢了它冲向毁灭的脚步。 / **终于，切尔诺伯格核心城停在了龙门的舰炮射程之外。** / 也没我想象中那么危险，只能说，好在我们还能把它停下来。  
@@ -3181,7 +3181,7 @@ None.
 - `obt/main/level_st_08-06#746.1` (END8-1, `obt/main/level_st_08-06`): （晖洁……好好活下去。） / **数周后** / 诸位尊敬的罗德岛干员们，这里是凯尔希。  
   `∅` → `旁白` (narrator, high); 第三人称叙述或地点/时间字幕
 - `obt/main/level_st_08-06#750.1` (END8-1, `obt/main/level_st_08-06`): 在我们的努力下，切尔诺伯格事件终于以一种较和平的方式结束了。 / **……** / 疼吗？  
-  `∅` → `删除` (delete, high); 无两个连续汉字的分隔线或拟声
+  `∅` → `删除` (delete, high); 纯分隔线或无明确人物的停顿
 - `obt/main/level_st_08-06#1017.1` (END8-1, `obt/main/level_st_08-06`): 等等！别进去……魏长官也在里面。 / **Chief，您似乎有客人。** / 能进这附近的都是值得信任的人。与其关心这个不如关心你自己的伤势。  
   `？？？` → `莫斯提马` (map, high); 立绘 id char_213_mostma_1；同 id 具名台词或场景摘要
 - `obt/main/level_st_08-06#1021.1` (END8-1, `obt/main/level_st_08-06`): 能进这附近的都是值得信任的人。与其关心这个不如关心你自己的伤势。 / **如果您觉得允许外面那两个人偷听没什么关系，那我这点小伤也只是小意思。** / 这次你来是做什么，拉特兰的信使？  

@@ -40,7 +40,10 @@ import {
   buildExportGraph, downloadText, exportFilename, exportPng, exportSvg,
   toEdgesCsv, toGexf, toNodesCsv,
 } from '@/lib/graph-export'
-import { getPaletteColor } from '@/lib/colors'
+import { getClusterColor } from '@/lib/colors'
+import {
+  pairSentiment, pairSentimentScale, sentimentLevel, sentimentLevelColor, SENTIMENT_NEUTRAL_COLOR,
+} from '@/lib/sentiment-color'
 import { useForceSimulation } from '@/hooks/use-force-simulation'
 import { useRouter } from 'next/navigation'
 
@@ -281,6 +284,11 @@ export default function GraphPage() {
     if (!visual.leidenEnabled) return {}
     return leidenCluster(activeNodes, activePairs, visual.leidenResolution, physics.edgeWeightSource)
   }, [visual.leidenEnabled, visual.leidenResolution, physics.edgeWeightSource, activeNodes, activePairs])
+  const clusterCount = useMemo(() => new Set(Object.values(clusterMap)).size, [clusterMap])
+  const sentimentScale = useMemo(
+    () => pairSentimentScale(activePairs, visual.sentimentAxis),
+    [activePairs, visual.sentimentAxis],
+  )
 
   const exportRadius = useMemo(() => {
     const degrees = degreeMap(activeNodes, activePairs)
@@ -312,19 +320,12 @@ export default function GraphPage() {
         nodeRadius: id => exportRadius.get(id) ?? 12,
         nodeColor: n => {
           if (n.data.is_bot) return 'var(--primary)'
-          if (visual.leidenEnabled) return getPaletteColor(clusterMap[n.data.id] ?? 0)
+          if (visual.leidenEnabled) return getClusterColor(clusterMap[n.data.id] ?? 0, clusterCount)
           return 'var(--muted)'
         },
         edgeColor: (pair: EdgePair) => {
-          if (!visual.sentimentEnabled) return '#aaaaaa'
-          const pick = (e: api.ImpressionEdge) =>
-            visual.sentimentAxis === 'power' ? e.data.power : e.data.affect
-          const avg = pair.isBidirectional && pair.bwd
-            ? (pick(pair.fwd) + pick(pair.bwd)) / 2
-            : pick(pair.fwd)
-          if (avg > 0.3) return '#2d7d46'
-          if (avg < -0.1) return '#c0392b'
-          return '#aaaaaa'
+          if (!visual.sentimentEnabled) return SENTIMENT_NEUTRAL_COLOR
+          return sentimentLevelColor(sentimentLevel(pairSentiment(pair, visual.sentimentAxis), sentimentScale))
         },
         clusterOf: id => (visual.leidenEnabled ? clusterMap[id] : undefined),
       })
@@ -362,7 +363,7 @@ export default function GraphPage() {
     }
   }, [
     currentGroup, activeNodes, activePairs, positions, physics.edgeWeightSource,
-    exportRadius, clusterMap, visual.leidenEnabled, visual.sentimentEnabled,
+    exportRadius, clusterMap, clusterCount, sentimentScale, visual.leidenEnabled, visual.sentimentEnabled,
     visual.sentimentAxis, toast, i18n.graph.params.exportFailed,
   ])
 

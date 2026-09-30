@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## [v1.2.30.sub] — 2026-09-30
+
+### 修复 WebUI 样式丢失；Leiden 社区改用色轮取色；情感着色按视图归一化
+
+- `.gitignore`：删除 v1.2.29 加入的 `/web/frontend/*` 反向忽略规则。Tailwind v4 扫描类名时遵守 `.gitignore`，该规则让 `app/`、`components/` 全部被跳过，构建出的样式表缺失全部工具类（约 160 KB → 51 KB），WebUI 在所有浏览器中失去布局。`leiden.ts` 与 `tests/leiden-graph.cjs` 已被跟踪，不受影响。
+- `web/frontend/lib/colors.ts`：新增 `getClusterColor()`。以主题的 `--color-palette-1` 为起点，在 OKLCH 色轮上按社区数均分色相，社区越多色相间隔越小，不再在 8 个社区后重复颜色；最大社区保持主题原色，按与社区数互质的步长分配色相，使大小相邻的社区在色轮上相隔较远；色度下限 0.08，灰阶主题 Nox 也能区分社区。
+- `web/frontend/app/graph/page.tsx`、`components/graph/network-graph.tsx`：画布与 GEXF/CSV/图片导出改用 `getClusterColor()`。
+- `web/frontend/lib/sentiment-color.ts`：新增情感着色模块。原先固定阈值（> 0.3 正向、< −0.1 负向）高于实际数据范围（|B|、|P| 最大约 0.28），1417 对关系中共融轴仅 11 对、支配轴仅 2 对被着色。现改为按当前视图中关系对数值的 95 分位绝对值归一化（下限 0.02），正负各分 4 档，颜色为中性灰到原红/绿端点的 OKLab 插值；同一数据下共融轴 940 对、支配轴 987 对被着色，后端数值范围变化时映射无需调整。
+- `components/graph/network-graph.tsx`、`app/graph/page.tsx`、`components/graph/node-detail.tsx`：画布边与箭头（每档一个 marker）、GEXF/CSV/图片导出、节点详情中的 B/P 数值改用上述模块，共用同一缩放。
+- `tests/leiden-graph.cjs`：新增色轮均分、不重复与相邻社区间隔的测试，以及情感分档、缩放下限与数值整体放大后档位不变的测试（共 12 项通过）；前端类型检查与构建通过，重新生成 `pages/moirai/_app/`。
+
 ## [v1.2.29.sub] — 2026-09-30
 
 ### 关系图改用 Leiden 社区识别

@@ -425,8 +425,8 @@ function splitDisconnected(g: Graph, membership: Int32Array): Int32Array {
 // Returns nodeId → communityId. Edge weights follow edgePairWeight() for the
 // active weight source, so communities agree with the ForceAtlas2 layout;
 // isolated nodes are singleton communities. Ids are ranked by community size
-// (largest first, ties broken by the smallest member id) so palette colours
-// stay put when the resolution changes a little.
+// (largest first, ties broken by the smallest member id), so the largest
+// community always keeps the theme's base colour in getClusterColor().
 
 export function leidenCluster(
   nodes: PersonaNode[],

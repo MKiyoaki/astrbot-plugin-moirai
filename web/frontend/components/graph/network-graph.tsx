@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo, useImperativeHandle } from 'react'
-import type { PersonaNode, ImpressionEdge } from '@/lib/api'
+import type { PersonaNode } from '@/lib/api'
 import type { EdgePair, PhysicsParams, VisualParams, PositionMap } from '@/lib/graph-types'
 import { computeNodeRadius, degreeMap } from '@/lib/graph-utils'
 import { leidenCluster } from '@/lib/leiden'
@@ -7,12 +7,14 @@ import { GraphNode } from '@/components/graph/graph-node'
 import { GraphEdge } from '@/components/graph/graph-edge'
 import { useApp } from '@/lib/store'
 import { getLocalizedOrientation } from '@/lib/i18n'
-import { getPaletteColor } from '@/lib/colors'
+import { getClusterColor } from '@/lib/colors'
+import {
+  pairSentiment, pairSentimentScale, sentimentLevel, sentimentLevelColor,
+  SENTIMENT_MARKER_LEVELS, SENTIMENT_NEUTRAL_COLOR,
+} from '@/lib/sentiment-color'
 
 const DEFAULT_FILL = 'var(--muted)'
-const EDGE_POS_COLOR = '#2d7d46'
-const EDGE_NEG_COLOR = '#c0392b'
-const EDGE_NEU_COLOR = '#aaa'
+const sentimentArrowId = (level: number) => (level === 0 ? 'arr' : `arr-s${level}`)
 
 /** id of the pan/zoom group; the image exporter neutralises its transform. */
 export const GRAPH_VIEWPORT_ID = 'moirai-graph-viewport'
@@ -130,6 +132,7 @@ export function NetworkGraph({
     if (!params.leidenEnabled) return {}
     return leidenCluster(nodes, edgePairs, params.leidenResolution, params.edgeWeightSource)
   }, [nodes, edgePairs, params.leidenEnabled, params.leidenResolution, params.edgeWeightSource])
+  const clusterCount = useMemo(() => new Set(Object.values(clusterMap)).size, [clusterMap])
 
   // ── Derived lookups ─────────────────────────────────────────────────────────
   // Computed once per data change instead of scanning the edge/node arrays
@@ -160,10 +163,10 @@ export function NetworkGraph({
     if (n.data.is_bot) return 'var(--primary)'
     if (params.leidenEnabled) {
       const cid = clusterMap[n.data.id] ?? 0
-      return getPaletteColor(cid)
+      return getClusterColor(cid, clusterCount)
     }
     return DEFAULT_FILL
-  }, [params.leidenEnabled, clusterMap])
+  }, [params.leidenEnabled, clusterMap, clusterCount])
 
   // Focus node: pan to center it
   useEffect(() => {
@@ -322,19 +325,16 @@ export function NetworkGraph({
 
   // ── Edge color ──────────────────────────────────────────────────────────────
 
-  const pickAxis = useCallback((edge: ImpressionEdge): number =>
-    params.sentimentAxis === 'power' ? edge.data.power : edge.data.affect
-  , [params.sentimentAxis])
+  // Scaled to the pairs on screen; see lib/sentiment-color.ts.
+  const sentimentScale = useMemo(
+    () => pairSentimentScale(edgePairs, params.sentimentAxis),
+    [edgePairs, params.sentimentAxis],
+  )
 
-  const edgeColor = useCallback((pair: EdgePair): string => {
-    if (!params.sentimentEnabled) return EDGE_NEU_COLOR
-    const avg = pair.isBidirectional && pair.bwd
-      ? (pickAxis(pair.fwd) + pickAxis(pair.bwd)) / 2
-      : pickAxis(pair.fwd)
-    if (avg > 0.3) return EDGE_POS_COLOR
-    if (avg < -0.1) return EDGE_NEG_COLOR
-    return EDGE_NEU_COLOR
-  }, [params.sentimentEnabled, pickAxis])
+  const edgeLevel = useCallback((pair: EdgePair): number => {
+    if (!params.sentimentEnabled) return 0
+    return sentimentLevel(pairSentiment(pair, params.sentimentAxis), sentimentScale)
+  }, [params.sentimentEnabled, params.sentimentAxis, sentimentScale])
 
   const edgeWidth = useCallback((pair: EdgePair): number => {
     const base = params.defaultEdgeWidth
@@ -422,11 +422,10 @@ export function NetworkGraph({
       >
         <defs>
           {([
-            ['arr', EDGE_NEU_COLOR],
-            ['arr-pos', EDGE_POS_COLOR],
-            ['arr-neg', EDGE_NEG_COLOR],
+            ['arr', SENTIMENT_NEUTRAL_COLOR],
+            ...SENTIMENT_MARKER_LEVELS.map(level => [sentimentArrowId(level), sentimentLevelColor(level)]),
             ['arr-highlight', 'var(--primary)'],
-          ] as const).map(([id, fill]) => (
+          ] as [string, string][]).map(([id, fill]) => (
             <marker
               key={id}
               id={id}
@@ -466,7 +465,8 @@ export function NetworkGraph({
             const isSelected = selectedPairKey === pair.pairKey
             const isFocused = connectedEdgeKeys.has(pair.pairKey)
 
-            const color = edgeColor(pair)
+            const level = edgeLevel(pair)
+            const color = sentimentLevelColor(level)
             const w = edgeWidth(pair)
             const isDimmed = getIsDimmed(pair.pairKey, 'edge')
 
@@ -489,7 +489,7 @@ export function NetworkGraph({
             const x2 = pb.x - unitX * rB
             const y2 = pb.y - unitY * rB
 
-            const arrowId = (isHovered || isSelected) ? 'arr-highlight' : (color === EDGE_POS_COLOR ? 'arr-pos' : color === EDGE_NEG_COLOR ? 'arr-neg' : 'arr')
+            const arrowId = (isHovered || isSelected) ? 'arr-highlight' : sentimentArrowId(level)
 
             return (
               <GraphEdge

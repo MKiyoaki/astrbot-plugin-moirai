@@ -74,3 +74,41 @@ export function getThreadColor(id: string): string {
 export function getPaletteColor(index: number): string {
   return PALETTE_COLORS[Math.abs(index) % PALETTE_COLORS.length]
 }
+
+// Chroma floor for cluster colours: grayscale themes (nox) would otherwise
+// rotate a zero-chroma colour and draw every community the same grey.
+const MIN_CLUSTER_CHROMA = 0.08
+
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b)
+}
+
+/**
+ * Step through the hue slots so size-ranked neighbours land far apart on the
+ * wheel. Coprime with `count`, so every slot is still used exactly once.
+ */
+export function clusterHueStride(count: number): number {
+  if (count <= 2) return 1
+  let stride = Math.max(1, Math.round(count * 0.38))
+  while (gcd(stride, count) !== 1) stride++
+  return stride
+}
+
+/** Hue offset in degrees from the theme's first palette colour. */
+export function clusterHueOffset(index: number, count: number): number {
+  const n = Math.max(1, Math.floor(count))
+  const i = ((Math.floor(index) % n) + n) % n
+  const slot = (i * clusterHueStride(n)) % n
+  return Math.round((slot * 360 / n) * 100) / 100
+}
+
+/**
+ * Colour for graph community `index` out of `count`: the theme's first palette
+ * colour rotated around the OKLCH hue wheel. The wheel is split evenly by the
+ * community count, so more communities means a smaller hue step and colours
+ * never repeat. Community 0 (the largest) keeps the theme colour itself.
+ */
+export function getClusterColor(index: number, count: number): string {
+  const offset = clusterHueOffset(index, count)
+  return `oklch(from var(--color-palette-1) l max(c, ${MIN_CLUSTER_CHROMA}) calc(h + ${offset}))`
+}

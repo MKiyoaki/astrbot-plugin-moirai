@@ -1436,7 +1436,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -1649,11 +1649,11 @@
  {
   "line_key": "obt/main/level_main_04-02_end#118.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
-  "confidence": "high"
+  "action": "map",
+  "rule": "context",
+  "target": "阿米娅",
+  "evidence": "阿米娅遭遇感染者孩童时的内心声音",
+  "confidence": "low"
  },
  {
   "line_key": "obt/main/level_main_04-02_end#119.1",
@@ -2738,10 +2738,10 @@
  {
   "line_key": "obt/main/level_main_06-01_beg#6.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -2777,7 +2777,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -3044,10 +3044,10 @@
  {
   "line_key": "obt/main/level_main_06-02_beg#34.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "map",
+  "rule": "context",
+  "target": "煌",
+  "evidence": "迷迭香指出 Scout 就在身旁，随后煌回应",
   "confidence": "high"
  },
  {
@@ -3938,17 +3938,17 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
   "line_key": "obt/main/level_main_06-05_end#25.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
-  "confidence": "high"
+  "action": "map",
+  "rule": "context",
+  "target": "弑君者",
+  "evidence": "遇袭时弑君者喘息并继续发问",
+  "confidence": "medium"
  },
  {
   "line_key": "obt/main/level_main_06-05_end#38.1",
@@ -4817,10 +4817,10 @@
  {
   "line_key": "obt/main/level_main_06-10_beg#5.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "map",
+  "rule": "context",
+  "target": "孩童",
+  "evidence": "本场景第 20 行起同一孩童具名发言",
   "confidence": "high"
  },
  {
@@ -4828,36 +4828,36 @@
   "original_speaker": "",
   "action": "map",
   "rule": "context",
-  "target": "孩子",
-  "evidence": "连续第一人称独白与前后场景对白；场景官方摘要",
-  "confidence": "medium"
+  "target": "孩童",
+  "evidence": "本场景第 20 行起同一孩童具名发言",
+  "confidence": "high"
  },
  {
   "line_key": "obt/main/level_main_06-10_beg#7.1",
   "original_speaker": "",
   "action": "map",
   "rule": "context",
-  "target": "孩子",
-  "evidence": "连续第一人称独白与前后场景对白；场景官方摘要",
-  "confidence": "medium"
+  "target": "孩童",
+  "evidence": "本场景第 20 行起同一孩童具名发言",
+  "confidence": "high"
  },
  {
   "line_key": "obt/main/level_main_06-10_beg#8.1",
   "original_speaker": "",
   "action": "map",
   "rule": "context",
-  "target": "孩子",
-  "evidence": "连续第一人称独白与前后场景对白；场景官方摘要",
-  "confidence": "medium"
+  "target": "孩童",
+  "evidence": "本场景第 20 行起同一孩童具名发言",
+  "confidence": "high"
  },
  {
   "line_key": "obt/main/level_main_06-10_beg#9.1",
   "original_speaker": "",
   "action": "map",
   "rule": "context",
-  "target": "孩子",
-  "evidence": "连续第一人称独白与前后场景对白；场景官方摘要",
-  "confidence": "medium"
+  "target": "孩童",
+  "evidence": "本场景第 20 行起同一孩童具名发言",
+  "confidence": "high"
  },
  {
   "line_key": "obt/main/level_main_06-10_beg#98.1",
@@ -5096,10 +5096,10 @@
  {
   "line_key": "obt/main/level_st_06-02#7.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "map",
+  "rule": "context",
+  "target": "霜星",
+  "evidence": "童年霜星在爱国者唤醒后呼唤父亲",
   "confidence": "high"
  },
  {
@@ -5123,10 +5123,10 @@
  {
   "line_key": "obt/main/level_st_06-02#10.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "map",
+  "rule": "context",
+  "target": "霜星",
+  "evidence": "童年霜星在爱国者唤醒后呼唤父亲",
   "confidence": "high"
  },
  {
@@ -5159,10 +5159,10 @@
  {
   "line_key": "obt/main/level_st_06-02#14.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "map",
+  "rule": "context",
+  "target": "霜星",
+  "evidence": "童年霜星在爱国者唤醒后呼唤父亲",
   "confidence": "high"
  },
  {
@@ -5267,10 +5267,10 @@
  {
   "line_key": "obt/main/level_st_06-02#31.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -5330,10 +5330,10 @@
  {
   "line_key": "obt/main/level_main_06-13_beg#7.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -5366,10 +5366,10 @@
  {
   "line_key": "obt/main/level_main_06-13_end#133.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -6062,7 +6062,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -6188,7 +6188,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -6248,10 +6248,10 @@
  {
   "line_key": "obt/main/level_main_07-01_beg#9.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -7058,10 +7058,10 @@
  {
   "line_key": "obt/main/level_main_07-03_beg#337.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -7076,10 +7076,10 @@
  {
   "line_key": "obt/main/level_main_07-04_end#8.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -7103,10 +7103,10 @@
  {
   "line_key": "obt/main/level_main_07-04_end#377.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -7130,10 +7130,10 @@
  {
   "line_key": "obt/main/level_main_07-05_beg#7.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -7238,10 +7238,10 @@
  {
   "line_key": "obt/main/level_main_07-06_beg#7.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -7427,10 +7427,10 @@
  {
   "line_key": "obt/main/level_main_07-08_end#146.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -7463,10 +7463,10 @@
  {
   "line_key": "obt/main/level_main_07-08_end#150.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "map",
+  "rule": "context",
+  "target": "迷迭香",
+  "evidence": "迷迭香想起 Scout 的连续内心独白",
   "confidence": "high"
  },
  {
@@ -7490,10 +7490,10 @@
  {
   "line_key": "obt/main/level_main_07-08_end#153.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "map",
+  "rule": "context",
+  "target": "迷迭香",
+  "evidence": "迷迭香想起 Scout 的连续内心独白",
   "confidence": "high"
  },
  {
@@ -7679,19 +7679,19 @@
  {
   "line_key": "obt/main/level_main_07-16_end#542.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "map",
+  "rule": "context",
+  "target": "爱国者",
+  "evidence": "爱国者濒死时对幻觉的连续否定",
   "confidence": "high"
  },
  {
   "line_key": "obt/main/level_main_07-16_end#545.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "map",
+  "rule": "context",
+  "target": "爱国者",
+  "evidence": "爱国者濒死时对幻觉的连续否定",
   "confidence": "high"
  },
  {
@@ -7889,7 +7889,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -8105,7 +8105,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -8120,10 +8120,10 @@
  {
   "line_key": "obt/main/level_st_07-03#580.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -8453,10 +8453,10 @@
  {
   "line_key": "obt/main/level_main_08-01_beg#43.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -8876,10 +8876,10 @@
  {
   "line_key": "obt/main/level_main_08-03_beg#16.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -9029,10 +9029,10 @@
  {
   "line_key": "obt/main/level_main_08-04_beg#22.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -9713,19 +9713,19 @@
  {
   "line_key": "obt/main/level_main_08-08_beg#30.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
   "line_key": "obt/main/level_main_08-08_beg#31.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -9866,10 +9866,10 @@
  {
   "line_key": "obt/main/level_main_08-10_beg#20.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -10478,10 +10478,10 @@
  {
   "line_key": "obt/main/level_main_08-13_beg#12.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -10742,7 +10742,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11057,7 +11057,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11075,7 +11075,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11093,7 +11093,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11111,7 +11111,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11129,7 +11129,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11147,7 +11147,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11183,7 +11183,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11201,7 +11201,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11219,7 +11219,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11273,7 +11273,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11291,7 +11291,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11309,7 +11309,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11327,7 +11327,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11354,7 +11354,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11372,7 +11372,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11390,7 +11390,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11408,7 +11408,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11426,7 +11426,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11444,7 +11444,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11489,7 +11489,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11507,7 +11507,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11687,7 +11687,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11705,7 +11705,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11723,7 +11723,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11741,7 +11741,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -11759,7 +11759,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {
@@ -12305,10 +12305,10 @@
  {
   "line_key": "obt/main/level_main_08-15_beg#224.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "map",
+  "rule": "context",
+  "target": "塔露拉",
+  "evidence": "与科西切诱导字幕交错的塔露拉抗拒",
   "confidence": "high"
  },
  {
@@ -12323,10 +12323,10 @@
  {
   "line_key": "obt/main/level_main_08-15_beg#254.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "map",
+  "rule": "context",
+  "target": "塔露拉",
+  "evidence": "与科西切诱导字幕交错的塔露拉抗拒",
   "confidence": "high"
  },
  {
@@ -12341,10 +12341,10 @@
  {
   "line_key": "obt/main/level_main_08-15_beg#293.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "map",
+  "rule": "context",
+  "target": "塔露拉",
+  "evidence": "与科西切诱导字幕交错的塔露拉抗拒",
   "confidence": "high"
  },
  {
@@ -13934,10 +13934,10 @@
  {
   "line_key": "obt/main/level_main_08-17_end#380.1",
   "original_speaker": "",
-  "action": "delete",
-  "rule": "noise",
-  "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "action": "narrator",
+  "rule": "narrator",
+  "target": "旁白",
+  "evidence": "日期或时间字幕",
   "confidence": "high"
  },
  {
@@ -14270,7 +14270,7 @@
   "action": "delete",
   "rule": "noise",
   "target": "",
-  "evidence": "无两个连续汉字的分隔线或拟声",
+  "evidence": "纯分隔线或无明确人物的停顿",
   "confidence": "high"
  },
  {

@@ -10,6 +10,7 @@ import type { PersonaNode } from '@/lib/api'
 import type { EdgePair } from '@/lib/graph-types'
 import { useApp } from '@/lib/store'
 import { getLocalizedOrientation } from '@/lib/i18n'
+import { pairSentimentScale, sentimentLevel, sentimentLevelColor } from '@/lib/sentiment-color'
 
 interface NodeDetailProps {
   node: PersonaNode
@@ -28,6 +29,12 @@ export function NodeDetail({ node, allNodes, edgePairs, onBack, onEdit, onDelete
   const nodeMap = new Map(allNodes.map(n => [n.data.id, n]))
 
   const connectedEdges = edgePairs.filter(p => p.srcId === node.data.id || p.tgtId === node.data.id)
+  const affectScale = pairSentimentScale(edgePairs, 'benevolence')
+  const powerScale = pairSentimentScale(edgePairs, 'power')
+  const valueStyle = (value: number, scale: number) => {
+    const level = sentimentLevel(value, scale)
+    return level === 0 ? undefined : { color: sentimentLevelColor(level) }
+  }
 
   const lastActive = node.data.last_active_at
     ? new Date(node.data.last_active_at).toLocaleString(i18n.common.status === '状态' ? 'zh-CN' : (i18n.common.status === 'ステータス' ? 'ja-JP' : 'en-US'), { dateStyle: 'short', timeStyle: 'short' })
@@ -168,18 +175,16 @@ export function NodeDetail({ node, allNodes, edgePairs, onBack, onEdit, onDelete
                     const label = getLocalizedOrientation(pair.fwd.data.label, i18n)
                     const affect = pair.fwd.data.affect
                     const power  = pair.fwd.data.power
-                    const affectColor = affect > 0.3 ? 'text-green-600' : affect < -0.1 ? 'text-red-500' : 'text-muted-foreground'
-                    const powerColor  = power  > 0.3 ? 'text-green-600' : power  < -0.1 ? 'text-red-500' : 'text-muted-foreground'
 
                     return (
                       <div key={pair.pairKey} className="flex items-center gap-1.5 text-xs">
                         <span className="text-muted-foreground">{dirSymbol}</span>
                         <span className="flex-1 truncate">{other?.data.label ?? otherId}</span>
                         <Badge variant="outline" className="text-[9px] h-3.5 px-1">{label}</Badge>
-                        <span className={`font-mono text-[10px] ${affectColor}`} title="B">
+                        <span className="font-mono text-[10px] text-muted-foreground" style={valueStyle(affect, affectScale)} title="B">
                           {affect >= 0 ? '+' : ''}{affect.toFixed(2)}
                         </span>
-                        <span className={`font-mono text-[10px] ${powerColor}`} title="P">
+                        <span className="font-mono text-[10px] text-muted-foreground" style={valueStyle(power, powerScale)} title="P">
                           {power >= 0 ? '+' : ''}{power.toFixed(2)}
                         </span>
                       </div>

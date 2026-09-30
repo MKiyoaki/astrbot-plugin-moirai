@@ -26,6 +26,8 @@ function load(file) {
 }
 const { leidenCluster } = load(path.join(root, 'lib/leiden.ts'))
 const { buildExportGraph, toGexf, toNodesCsv } = load(path.join(root, 'lib/graph-export'))
+const { clusterHueOffset, getClusterColor } = load(path.join(root, 'lib/colors.ts'))
+const sentiment = load(path.join(root, 'lib/sentiment-color.ts'))
 
 const node = id => ({ data: { id, label: id } })
 const pair = (a, b, affinity = 1, totalMsgs = 120) => {
@@ -242,4 +244,59 @@ test('stays fast on a few thousand nodes', () => {
   console.log(`  ${n} nodes / ${pairs.length} edges: ${ms.toFixed(0)} ms, ${communities(map).size} communities`)
   assert.ok(ms < 2000, `took ${ms} ms`)
   assertConnected(map, pairs)
+})
+
+test('cluster colours split the hue wheel evenly and never repeat', () => {
+  for (let k = 1; k <= 24; k++) {
+    const offsets = Array.from({ length: k }, (_, i) => clusterHueOffset(i, k))
+    assert.equal(offsets[0], 0)
+    assert.equal(new Set(offsets).size, k, `k=${k} repeats a hue`)
+    const step = 360 / k
+    for (const o of offsets) {
+      assert.ok(o >= 0 && o < 360)
+      assert.ok(Math.abs(o / step - Math.round(o / step)) < 1e-3, `k=${k} offset ${o} is off the ${step}° grid`)
+    }
+    for (let i = 1; i < k && k > 6; i++) {
+      const d = Math.abs(offsets[i] - offsets[i - 1])
+      assert.ok(Math.min(d, 360 - d) > step + 1e-9, `k=${k}: ranks ${i - 1} and ${i} are wheel neighbours`)
+    }
+  }
+  assert.match(getClusterColor(3, 10), /^oklch\(from var\(--color-palette-1\) l max\(c, 0\.08\) calc\(h \+ [0-9.]+\)\)$/)
+  assert.equal(getClusterColor(10, 10), getClusterColor(0, 10))
+})
+
+test('sentiment colours are scaled to the pairs shown, not fixed cut-offs', () => {
+  const { pairSentiment, pairSentimentScale, sentimentScale, sentimentLevel, sentimentLevelColor, SENTIMENT_LEVELS, SENTIMENT_MARKER_LEVELS, SENTIMENT_NEUTRAL_COLOR } = sentiment
+  const edge = (affect, power) => ({ data: { affect, power } })
+  const bi = { isBidirectional: true, fwd: edge(0.2, -0.1), bwd: edge(0.1, 0.3) }
+  assert.ok(Math.abs(pairSentiment(bi, 'benevolence') - 0.15) < 1e-9)
+  assert.ok(Math.abs(pairSentiment(bi, 'power') - 0.1) < 1e-9)
+  assert.equal(pairSentiment({ isBidirectional: false, fwd: edge(-0.2, 0.4) }, 'power'), 0.4)
+
+  assert.equal(sentimentLevel(0, 0.1), 0)
+  assert.equal(sentimentLevel(0.1, 0.1), SENTIMENT_LEVELS)
+  assert.equal(sentimentLevel(-0.5, 0.1), -SENTIMENT_LEVELS)
+  assert.equal(sentimentLevel(0.01, 0.1), 0)
+  assert.equal(sentimentLevelColor(0), SENTIMENT_NEUTRAL_COLOR)
+  assert.equal(sentimentLevelColor(SENTIMENT_LEVELS), '#2d7d46')
+  assert.equal(sentimentLevelColor(-SENTIMENT_LEVELS), '#c0392b')
+  const all = [0, ...SENTIMENT_MARKER_LEVELS].map(sentimentLevelColor)
+  assert.equal(new Set(all).size, 2 * SENTIMENT_LEVELS + 1)
+  assert.ok(!SENTIMENT_MARKER_LEVELS.includes(0))
+
+  assert.equal(sentimentScale([]), 0.02)
+  assert.equal(sentimentScale([0.001, -0.002, 0.003]), 0.02)
+
+  const rng = mulberry32(99)
+  const values = Array.from({ length: 1400 }, () => (rng() - 0.45) * 0.12 * (rng() < 0.05 ? 4 : 1))
+  const pairs = values.map(v => ({ isBidirectional: false, fwd: edge(v, v) }))
+  const scale = pairSentimentScale(pairs, 'benevolence')
+  const levels = values.map(v => sentimentLevel(v, scale))
+  const coloured = levels.filter(l => l !== 0).length
+  assert.equal(values.filter(v => v > 0.3 || v < -0.1).length < 60, true)
+  assert.ok(coloured > values.length * 0.4, `only ${coloured} of ${values.length} coloured`)
+
+  const grown = pairs.map(p => ({ ...p, fwd: edge(p.fwd.data.affect * 5, 0) }))
+  const grownScale = pairSentimentScale(grown, 'benevolence')
+  assert.deepEqual(grown.map(p => sentimentLevel(pairSentiment(p, 'benevolence'), grownScale)), levels)
 })
