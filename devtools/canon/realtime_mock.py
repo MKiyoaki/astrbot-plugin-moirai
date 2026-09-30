@@ -49,11 +49,15 @@ def speaker_id(name: str) -> str:
     return "npc_" + hashlib.sha1(name.encode("utf-8")).hexdigest()[:12]
 
 
-def sender(line: dict, bot_display: str, bot_aliases: set[str], narration: str):
+def sender(line: dict, bot_display: str, bot_aliases: set[str], narration: str, override=None):
+    if override and override["action"] == "delete":
+        return None
+    if override and override["action"] == "narrator":
+        return "user", *NARRATOR
     if line["kind"] == "option":
         return "user", *DOCTOR
-    name = line["spk"]
-    if line["kind"] == "dialogue" and name:
+    name = override["target"] if override and override["action"] in ("map", "narrator") else line["spk"]
+    if (line["kind"] == "dialogue" or override and override["action"] == "map") and name:
         if name in bot_aliases:
             return "assistant", bot_display, BOT_ID
         if name == DOCTOR[0]:
@@ -76,9 +80,25 @@ def build(args) -> tuple[list[dict], list[dict], dict]:
     messages, linemap, chosen = [], [], []
     counts = {"assistant": 0, "doctor": 0, "narrator": 0, "npc": 0, "dropped": 0}
     speakers: set[str] = set()
+    overrides = None
+    rule_counts = {}
+    action_counts = {}
+    if args.speaker_map:
+        entries = json.loads(args.speaker_map.read_text(encoding="utf-8"))
+        overrides = {entry["line_key"]: entry for entry in entries}
+        if len(overrides) != len(entries):
+            raise SystemExit("speaker-map 包含重复 line_key")
+    end_pos = None
+    if args.end_scene:
+        matches = [scene["narrative_pos"] for scene in scenes if scene["scene_key"] == args.end_scene]
+        if len(matches) != 1:
+            raise SystemExit(f"end-scene 无法唯一定位：{args.end_scene}")
+        end_pos = matches[0]
+    used_overrides = set()
     slot = 0
     for index, scene in enumerate(scenes):
-        selected = scene["chapter_no"] is not None and lo <= scene["chapter_no"] <= hi
+        selected = (scene["chapter_no"] is not None and lo <= scene["chapter_no"] <= hi
+                    and (end_pos is None or scene["narrative_pos"] <= end_pos))
         if selected:
             chosen.append(scene["scene_key"])
         for line in scene["lines"]:
@@ -86,7 +106,16 @@ def build(args) -> tuple[list[dict], list[dict], dict]:
             slot += 1
             if not selected:
                 continue
-            who = sender(line, bot_display, bot_aliases, args.narration)
+            override = overrides.get(line["k"]) if overrides is not None else None
+            if override is not None:
+                if override["original_speaker"] != line["spk"]:
+                    raise SystemExit(f"speaker-map 原说话人不匹配：{line['k']}")
+                used_overrides.add(line["k"])
+                rule = override["rule"]
+                rule_counts[rule] = rule_counts.get(rule, 0) + 1
+                action = override["action"]
+                action_counts[action] = action_counts.get(action, 0) + 1
+            who = sender(line, bot_display, bot_aliases, args.narration, override)
             if who is None or not line["text"].strip():
                 counts["dropped"] += 1
                 continue
@@ -103,8 +132,12 @@ def build(args) -> tuple[list[dict], list[dict], dict]:
                 "group_id": args.group_id,
             })
             messages.append(message)
-            linemap.append({"timestamp": float(ts), "line_key": line["k"],
-                            "scene_key": scene["scene_key"], "kind": line["kind"], "spk": line["spk"]})
+            row = {"timestamp": float(ts), "line_key": line["k"],
+                   "scene_key": scene["scene_key"], "kind": line["kind"], "spk": line["spk"]}
+            if overrides is not None:
+                row.update({"original_speaker": line["spk"], "cleaned_speaker": nickname,
+                            "rule": override["rule"] if override else "original"})
+            linemap.append(row)
             if role == "assistant":
                 counts["assistant"] += 1
             elif user_id == DOCTOR[1]:
@@ -114,6 +147,8 @@ def build(args) -> tuple[list[dict], list[dict], dict]:
             else:
                 counts["npc"] += 1
                 speakers.add(nickname)
+    if overrides is not None and set(overrides) != used_overrides:
+        raise SystemExit(f"speaker-map 有 {len(set(overrides) - used_overrides)} 条不在选定范围内")
     if not messages:
         raise SystemExit(f"第 {lo}–{hi} 章没有可导出的行")
     pack_manifest = json.loads((args.pack / "manifest.json").read_text(encoding="utf-8"))
@@ -133,6 +168,13 @@ def build(args) -> tuple[list[dict], list[dict], dict]:
         "first": messages[0]["time"],
         "last": messages[-1]["time"],
     }
+    if overrides is not None:
+        manifest["speaker_map"] = args.speaker_map.name
+        manifest["speaker_map_sha256"] = hashlib.sha256(args.speaker_map.read_bytes()).hexdigest()
+        manifest["rule_counts"] = rule_counts
+        manifest["action_counts"] = action_counts
+        if args.end_scene:
+            manifest["end_scene"] = args.end_scene
     return messages, linemap, manifest
 
 
@@ -161,6 +203,8 @@ def main(argv=None):
     parser.add_argument("--scene-gap-minutes", type=int, default=45, help="须大于断窗间隔 30 分钟")
     parser.add_argument("--narration", choices=("narrator", "drop"), default="narrator")
     parser.add_argument("--persona", type=Path, default=DEFAULT_PERSONA)
+    parser.add_argument("--speaker-map", type=Path)
+    parser.add_argument("--end-scene", help="包含指定场景，排除统一时间线中其后的场景")
     args = parser.parse_args(argv)
     if args.scene_gap_minutes <= 30:
         parser.error("--scene-gap-minutes 须大于 30，否则相邻场景会并进同一个窗口")
@@ -171,9 +215,14 @@ def main(argv=None):
     files = {
         f"{name}.json": json.dumps(messages, ensure_ascii=False, indent=1) + "\n",
         f"{name}.linemap.jsonl": "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in linemap),
-        "amiya_persona.md": persona_markdown(args.persona, manifest["bot"]["nickname"]),
     }
-    manifest["files"] = {file: write(args.out_dir / file, text) for file, text in files.items()}
+    if args.speaker_map:
+        persona_text = persona_markdown(args.persona, manifest["bot"]["nickname"])
+        manifest["files"] = {file: write(args.out_dir / file, content) for file, content in files.items()}
+        manifest["files"]["amiya_persona.md"] = hashlib.sha256(persona_text.encode("utf-8")).hexdigest()
+    else:
+        files["amiya_persona.md"] = persona_markdown(args.persona, manifest["bot"]["nickname"])
+        manifest["files"] = {file: write(args.out_dir / file, content) for file, content in files.items()}
     write(args.out_dir / f"{name}.manifest.json", json.dumps(manifest, ensure_ascii=False, indent=1) + "\n")
     counts = manifest["counts"]
     print(f"{name}: {len(manifest['scene_keys'])} 场景，{counts['messages']} 条消息"

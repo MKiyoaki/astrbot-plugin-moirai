@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback, useMemo, useImperativeHandle } from 'react'
 import type { PersonaNode, ImpressionEdge } from '@/lib/api'
 import type { EdgePair, PhysicsParams, VisualParams, PositionMap } from '@/lib/graph-types'
-import { computeNodeRadius, degreeMap, mockCluster } from '@/lib/graph-utils'
+import { computeNodeRadius, degreeMap } from '@/lib/graph-utils'
+import { leidenCluster } from '@/lib/leiden'
 import { GraphNode } from '@/components/graph/graph-node'
 import { GraphEdge } from '@/components/graph/graph-edge'
 import { useApp } from '@/lib/store'
@@ -127,8 +128,8 @@ export function NetworkGraph({
   // Leiden clustering (memoized)
   const clusterMap = useMemo(() => {
     if (!params.leidenEnabled) return {}
-    return mockCluster(nodes, edgePairs, params.leidenResolution)
-  }, [nodes, edgePairs, params.leidenEnabled, params.leidenResolution])
+    return leidenCluster(nodes, edgePairs, params.leidenResolution, params.edgeWeightSource)
+  }, [nodes, edgePairs, params.leidenEnabled, params.leidenResolution, params.edgeWeightSource])
 
   // ── Derived lookups ─────────────────────────────────────────────────────────
   // Computed once per data change instead of scanning the edge/node arrays

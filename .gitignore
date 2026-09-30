@@ -260,3 +260,13 @@ web/frontend/.next/
 
 # Build source maps expose implementation details in public release artifacts
 /pages/moirai/**/*.map
+
+# Keep Leiden source and its offline regression test visible in development.
+!/web/frontend/
+/web/frontend/*
+!/web/frontend/lib/
+/web/frontend/lib/*
+!/web/frontend/lib/leiden.ts
+!/tests/
+/tests/*
+!/tests/leiden-graph.cjs

@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [v1.2.29.sub] — 2026-09-30
+
+### 关系图改用 Leiden 社区识别
+
+- `web/frontend/lib/leiden.ts`：新增本地加权 Leiden 社区识别，分辨率滑块现在影响划分；固定随机种子及节点、边排序保证同一图谱的结果可复现，孤立节点各自成组。边权使用当前布局选择的亲密度、消息数或等权模式。
+- `web/frontend/app/graph/page.tsx`、`components/graph/network-graph.tsx`：画布和 GEXF/CSV 导出使用同一划分；`lib/graph-utils.ts` 删除原先只按连通分量分组的 `mockCluster`。
+- `tests/leiden-graph.cjs`：覆盖社区连通性、分辨率、可复现性、边权、局部最优和导出。前端类型检查、构建与 10 项离线测试通过；详见 `web/frontend/README.md`。
+
 ## [v1.2.28.sub] — 2026-09-29
 
 ### canon “先排后说”：证据按先后编号，检查改为对齐，查档案直接取

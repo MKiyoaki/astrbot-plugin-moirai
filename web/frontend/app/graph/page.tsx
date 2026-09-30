@@ -32,9 +32,10 @@ import {
   type GroupCard,
 } from '@/lib/graph-types'
 import {
-  buildGroupCards, computeNodeRadius, degreeMap, mockCluster,
+  buildGroupCards, computeNodeRadius, degreeMap,
   GROUP_ID_GLOBAL, GROUP_ID_PRIVATE,
 } from '@/lib/graph-utils'
+import { leidenCluster } from '@/lib/leiden'
 import {
   buildExportGraph, downloadText, exportFilename, exportPng, exportSvg,
   toEdgesCsv, toGexf, toNodesCsv,
@@ -278,8 +279,8 @@ export default function GraphPage() {
   // ── Export ──────────────────────────────────────────────────────────────────
   const clusterMap = useMemo(() => {
     if (!visual.leidenEnabled) return {}
-    return mockCluster(activeNodes, activePairs, visual.leidenResolution)
-  }, [visual.leidenEnabled, visual.leidenResolution, activeNodes, activePairs])
+    return leidenCluster(activeNodes, activePairs, visual.leidenResolution, physics.edgeWeightSource)
+  }, [visual.leidenEnabled, visual.leidenResolution, physics.edgeWeightSource, activeNodes, activePairs])
 
   const exportRadius = useMemo(() => {
     const degrees = degreeMap(activeNodes, activePairs)

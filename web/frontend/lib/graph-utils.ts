@@ -209,44 +209,6 @@ export function computeNodeRadius(msgs: number, minMsgs: number, maxMsgs: number
   return 12 + t * 10
 }
 
-// ── mockCluster ───────────────────────────────────────────────────────────────
-// BFS-based greedy clustering (Leiden approximation for MVP).
-// Returns a map of nodeId → clusterId.
-
-export function mockCluster(
-  nodes: PersonaNode[],
-  edgePairs: EdgePair[],
-  _resolution = 1.0,
-): Record<string, number> {
-  void _resolution
-  const adj = new Map<string, Set<string>>()
-  for (const n of nodes) adj.set(n.data.id, new Set())
-  for (const p of edgePairs) {
-    adj.get(p.srcId)?.add(p.tgtId)
-    adj.get(p.tgtId)?.add(p.srcId)
-  }
-
-  const cluster: Record<string, number> = {}
-  let cid = 0
-  for (const n of nodes) {
-    const id = n.data.id
-    if (cluster[id] !== undefined) continue
-    const queue = [id]
-    cluster[id] = cid
-    while (queue.length > 0) {
-      const curr = queue.shift()!
-      for (const nb of adj.get(curr) ?? []) {
-        if (cluster[nb] === undefined) {
-          cluster[nb] = cid
-          queue.push(nb)
-        }
-      }
-    }
-    cid++
-  }
-  return cluster
-}
-
 // ── aggregateTopTags ──────────────────────────────────────────────────────────
 // Returns the top-k content_tags by frequency across all nodes.
 
