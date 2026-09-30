@@ -28,6 +28,8 @@ STATUS_TERMS = (
     "如今", "怎么样了", "在哪",
 )
 MAX_SUBJECTS = 3
+LOOKUP = ("档案", "资料", "履历", "生日", "身高", "种族", "体检", "病历", "病情", "感染情况", "出身", "作战情报")
+RECOUNT = ("经过", "复述", "怎么回事", "之战", "之役", "那一战", "讲讲", "说说", "讲一下", "讲一遍", "详细")
 def explicit_quote(query: str) -> str | None:
     """Extract a literal claim only when the question supplies concrete wording."""
     quoted = (re.findall(r'[“「『"]([^”」』"]{4,24})[”」』"]', query)
@@ -43,6 +45,19 @@ def explicit_quote(query: str) -> str | None:
                 '什么', '哪个', '哪句', '谁', '多少', '如何', '那天', '什么时候')):
             return phrase
     return None
+
+def task_of(query: str) -> str:
+    """How the evidence is shaped: a recount retells an incident, a lookup reads an archive, a reason names a motive.
+
+    Account wording wins over archive wording, so asking to retell a battle's record is a recount.
+    """
+    clean = "".join(query.split())
+    if is_overview(clean) or any(word in clean for word in RECOUNT):
+        return "recount"
+    if any(word in clean for word in LOOKUP):
+        return "lookup"
+    return "reason" if any(marker in clean for marker in REASON_MARKERS) else "fact"
+
 
 def asks_status(query: str, home_terms: tuple[str, ...] = ()) -> bool:
     return any(term in query for term in (*STATUS_TERMS, *home_terms))

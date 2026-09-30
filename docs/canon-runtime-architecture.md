@@ -13,11 +13,11 @@
 | 只读访问与索引 | `core/canon/reader.py`：`CanonReader`、`fact_search` | 同步 sqlite、`mode=ro`；构造时在内存里建三份两字 BM25（事件文本、原文台词、场景资料）和别名表，查询方法只读这些数据和 SQLite |
 | 召回与融合 | `core/canon/retrieval.py`（`fuse`、`CanonRetrieval`）、`lexical.py`、`vector_index.py` | hybrid 需要派生向量索引；embedding 由 `devtools/retrieval.py` 的 `ProviderBridge` 提供 |
 | 结构扩展与综述 | `context.py` 的 `expand_events`、`overview.py`；`CanonReader.overview_search`、`expand_context` | |
-| 证据装填与预算 | `core/canon/packing.py`：`Hit`、`fill*`、`rank_reason_hits`、`overview_tool_result`、`estimate_tokens`；`gateway.py` 的 `EvidencePack` | 预算常量仍直接写在 `fill_*` 里 |
+| 证据装填与预算 | `core/canon/packing.py`：`Hit`、`fill*`、`rank_reason_hits`、`result_line`、`estimate_tokens`；`recall.py` 的 `CanonRecall._incident`（讲经过的事件窗口）；`gateway.py` 的 `EvidencePack` | 预算常量仍直接写在 `fill_*` 里。`EvidencePack.render` 按 `CanonReader.sequence` 编号、换成第一人称，并列出 `CanonReader.causal_links` 的因果许可 |
 | 调度 | `core/canon/assembly.py`：`EvidenceAssembler`、`EvidenceSettings` | 一轮一个实例，持有证据包和本轮预算；首轮预取、`canon_recall` / `canon_overview` 工具和近况事实块都经过它。自适应装填放宽的预算对之后的工具调用可见 |
-| 提示词与工具 | `run_canon_chat.py` 的 `knowledge`、`build_system`、`OUTPUT_RULES`、三个工具 schema 与回调 | Bot 的注入块属于 B7，另行决定 |
+| 提示词与工具 | `run_canon_chat.py` 的 `knowledge`、`build_system`、`OUTPUT_RULES`、`MEMORY_NOTE`、`STYLE`（[讲法]）、三个工具 schema 与回调、`archive_names`；`query.py` 的 `task_of` | 系统提示词每次请求前重建，工具结果只回一行说明。查档案由代码直接取。Bot 的注入块属于 B7，另行决定 |
 | 生成 | `run_canon_chat.py` 的 `generate`、`ModelClient`（httpx，同步）、`Session`、`conversation_history` | |
-| 核验 | `core/canon/gateway.py` 的 `check_reply`、`parse_review`、`repair_note`、`mend`；先后行来自 `CanonReader.sequence`，由 `EvidencePack.order_note` 生成 | 会调用模型。逐句结论三态（有依据 / 冲突 / 缺依据）；缺依据的句子经 `lookup` 回调（终端传 `EvidenceAssembler.fetch`）按句补查；复核未过的句子二次定点修订；删句后按规则补接。`CheckReport.stages` 记录每一步，供 `--trace` 和评测写出 |
+| 检查 | `core/canon/gateway.py` 的 `align`、`inspect`、`check_reply`、`beat_line` | 检查本身不调模型：逐句对到证据，按结构标出问题；有问题才调一次模型定点修补，修补后仍有问题的句子换成对上的记忆原句。`CheckReport.stages` 记录对齐、修补和替换，供 `--trace` 和评测写出 |
 | 时间事实 | `core/canon/temporal.py` 的 `resolve`；`CanonReader.fact_context` | |
 | 世界日历 | `core/canon/calendar.py`（离线定坐标，`calendar-apply` 写 `event_times`）；`CanonReader.times`、`now`、`time_label`；`recall.py` 的 `timeline` / `recent` 路径 | 只存坐标，外部年表正文不入库；运行时只读 |
 | 时间说法 | `core/canon/anchors.py`（锚点的范围选择、归属与定位措辞）；锚点表在 `character.py` 的 `ANCHORS`；`CanonReader.time_phrase`、`now_phrase`；`recall.py` 的 `present_phrase` | 给模型看的时间用大事件说，日历只在底下排序；证据包的 `when` 接 `time_phrase` |
@@ -32,7 +32,7 @@
 2. **索引有两套。** 向量：库内 `event_vec`（`import --embed` 写入）和构建目录旁的派生索引（终端实际用的）。全文：库内 trigram 表 `events_fts` / `beats_fts` 和启动时建的内存 BM25（终端实际用的）。
 3. **融合有两套。** canon 用加权 RRF（k=10，四路权重不同），Moirai 原有记忆用 `core/retrieval/rrf.py` 的等权 RRF（k=60）。
 4. **预算互不知晓。** 终端的证据预算、插件配置 `canon_token_budget` 和原有 memory 块的预算各自独立（数字见 [canon 终端试聊](canon-terminal.md) 的“证据预算”）。
-5. **证据包每轮重建。** 工具往返不写入历史，上一轮用过的证据在下一轮就没有了；追问只能靠 `focus` / `topics` 重新检索，核验器也看不到上一轮的依据。
+5. **证据包每轮重建。** 工具往返不写入历史，上一轮用过的证据在下一轮就没有了；追问只能靠 `focus` / `topics` 重新检索，检查也看不到上一轮的依据。
 6. **同步和异步混用。** 读取与生成是同步的（sqlite3、httpx），插件和 `CanonStore` 是异步的。
 7. **已写入但没用上的数据。** `cognitions`（逐场景的人物态度）和 V11 的 `view_access` 都已入库，运行时没有读取。
 
@@ -43,7 +43,7 @@
 - **查询解析**：`query.py`。以后可整理成带类型的查询结构（意图、主体、焦点、`as_of`、要查的记忆类型——事件、综述、档案、事实——以及知情要求）。
 - **检索**：`reader.py` 加 `retrieval.py`、`overview.py`、`context.py`。输入查询，输出带 trace 的候选；不调用模型。
 - **调度**：`assembly.py` 和 `packing.py`。接入 Bot 后，这一层也负责和原有 memory 块分配同一份预算。
-- **核验**：`gateway.py`。
+- **检查**：`gateway.py`。
 
 Bot 的 `before_generation` 处理函数应构造 `EvidenceAssembler` 并调用 `prefetch()` / `facts()`，不要再抄一份组包流程。
 
@@ -67,14 +67,14 @@ Bot 的 `before_generation` 处理函数应构造 `EvidenceAssembler` 并调用 
 - 角色相关的写法只放在 `core/canon/character.py` 的 `CharacterProfile`，按 `CanonPersona.character` 取用。它记录自称名、玩家称谓与占位符（博士、{DOCTOR}、@doctor）、所属组织、汇报接收人、世界名与游戏术语，并带 `report_knowledge` 开关，和 `user_is_doctor` 开关并列。运行时模块（reader、retrieval、gateway、packing、query、overview、context、assembly、lexical、vector_index）不直接写角色名。抽取 prompt 是按版本冻结的故事包资产，不在此列。
 - 防护测试 `tests/test_canon_guards.py`（本地）钉住以下几项，改动时要同步更新文档、版本号和钉值：
   - 各版本抽取与事实 prompt 的文本（文本变了必须换版本号，因为缓存按版本命中）；
-  - 核验与修订提示词在阿米娅配置下的渲染结果；
+  - 定点修补提示词和各类问题说明在阿米娅配置下的渲染结果；
   - 汇报即知情规则及其开关；
   - 综述路线的问法类别；
   - 默认人设的禁括号规则与 3,000 token 上限；
   - 路由门槛；
   - 运行时代码不写角色名，也不照抄评测题原句。
 - 证据编号可追溯：事件 `E`、档案 `A`、已审阅事实 `F` 都能回到 `line_key`；对话引用 `C` 只说明谁在聊天里说过什么，不证明世界事实。
-- 检索不调用模型；只有生成和核验调用。
+- 检索和检查不调用模型；只有生成和定点修补调用。
 - 每个预算数字只有一个出处。
 - 已保留的抽取 prompt 版本一字不改。
 - 剧情原文、数据库、评测报告只留在本机，不进 git；测试只用自编文本。
@@ -87,9 +87,9 @@ Bot 的 `before_generation` 处理函数应构造 `EvidenceAssembler` 并调用 
 1. **索引选哪套**：向量用 `event_vec` 还是派生索引；全文用 trigram 表还是内存 BM25（要比较召回、启动时间和常驻内存）。
 2. **融合怎样统一**：用哪个 k 和权重，用 200 题评测决定。
 3. **Bot 的预算**：插件默认值和终端基础值该取哪个；canon 块和原有 memory 块怎样分配名额。
-4. **Bot 里怎样核验**：Core Event Protocol v1 的 contribution 只有 prompt 文本块、`reply_prefix` 等，没有替换最终回复的操作，所以终端 gateway 不能原样用在 Bot 上。要么只注入约束，要么扩展 Core 协议；后者是 Core 仓库的改动，需要走 Core 的 TODO 批准。
+4. **Bot 里怎样检查**：Core Event Protocol v1 的 contribution 只有 prompt 文本块、`reply_prefix` 等，没有替换最终回复的操作，所以终端 gateway 的修补不能原样用在 Bot 上；按先后编号的证据和[讲法]可以作为注入块直接用。要么只注入约束，要么扩展 Core 协议；后者是 Core 仓库的改动，需要走 Core 的 TODO 批准。
 5. **聊天记忆污染**：Bot 说出的剧情内容会被 Moirai 的事件抽取器写进聊天记忆，之后作为“我们聊过的事”召回时会绕过 gateway。需要在抽取或召回时标注这类内容的来源。
-6. **跨轮工作记忆**：是否保留最近几轮的证据 ID，下一轮以压缩形式带回，供追问和核验使用。
+6. **跨轮工作记忆**：是否保留最近几轮的证据 ID，下一轮以压缩形式带回，供追问和检查使用。
 7. **未用数据**：`cognitions`、`view_access` 是否进入检索或注入；进入前需要审阅。
 
 ## 参考

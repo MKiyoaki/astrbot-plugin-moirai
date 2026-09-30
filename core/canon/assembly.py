@@ -32,6 +32,7 @@ class EvidenceAssembler:
         self.pack.when = reader.time_phrase
         self.pack.recent = reader.is_recent
         self.pack.sequence = getattr(reader, "sequence", None)
+        self.pack.links = getattr(reader, "causal_links", None)
         self.budget = settings.token_budget
         self.hits: list[Hit] = []
         self.overview_trace: dict | None = None

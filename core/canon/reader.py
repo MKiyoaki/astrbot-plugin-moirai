@@ -176,6 +176,7 @@ class CanonReader:
         self.event_scene: dict[str, str] = {}
         self.event_order: dict[str, int] = {}
         self.story_events: set[str] = set()
+        self.past_events: set[str] = set()
         for row in self.db.execute(
                 "SELECT e.event_id,e.scene_key,e.topic,e.summary,e.participants,e.narrative_pos,e.involves_doctor,e.ord,"
                 "e.in_world_time,s.chapter_no FROM events e JOIN views v ON v.event_id=e.event_id "
@@ -196,6 +197,8 @@ class CanonReader:
                 self.doctor_events.add(event_id)
             if row["chapter_no"] is not None and row["in_world_time"] != "past":
                 self.story_events.add(event_id)
+            if row["in_world_time"] == "past":
+                self.past_events.add(event_id)
         self.event_documents = documents
         self.lexical = BigramIndex(documents)
         self.event_lines: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -277,6 +280,37 @@ class CanonReader:
             else:
                 chain.insert(slot, event)
         return chain, rest
+
+    def known_set(self) -> set[str]:
+        """Events she knows, reports included: the set every injection path shares."""
+        if getattr(self, "_known", None) is None:
+            self._known = {row[0] for row in self.db.execute(
+                f"SELECT event_id FROM {self.views} WHERE character=? AND channel!='unstated'", (self.character,))}
+        return self._known
+
+    def causal_links(self, event_ids: list[str]) -> set[tuple[str, str]]:
+        """Cause and motivation edges the source states outright and cites; inferred edges license nothing."""
+        ids = list(dict.fromkeys(event_ids))
+        if len(ids) < 2:
+            return set()
+        marks = ",".join("?" for _ in ids)
+        rows = self.db.execute(
+            f"SELECT src,dst,evidence FROM edges WHERE explicit=1 AND type IN ('cause','motivation') "
+            f"AND src IN ({marks}) AND dst IN ({marks})", (*ids, *ids)).fetchall()
+        return {(row["src"], row["dst"]) for row in rows if json.loads(row["evidence"] or "[]")}
+
+    def scene_run(self, anchor: str, *, before: int, after: int) -> list[str]:
+        """The anchor's scene neighbours she knows, in scene order: the incident a recount retells."""
+        known = self.known_set()
+        scene = self.events_by_scene.get(self.event_scene.get(anchor, ""), [])
+        ordered = sorted(scene, key=lambda event: self.event_order.get(event, 0))
+        if anchor not in ordered:
+            return [anchor]
+        at = ordered.index(anchor)
+        usable = lambda event: event not in self.past_events and event in known
+        earlier = [event for event in reversed(ordered[:at]) if usable(event)][:before]
+        later = [event for event in ordered[at + 1:] if usable(event)][:after]
+        return [*reversed(earlier), anchor, *later]
 
     def _before(self, first: str, second: str) -> bool:
         if first in self.story_events and second in self.story_events:

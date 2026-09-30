@@ -505,3 +505,158 @@ remaining limits:
 The "turning points since Chernobog" answer still covered only two periods,
 because retrieval returned only two. The previous-question bleed did not
 reproduce, because the prior answer in history was intact.
+
+## Storyline evidence and alignment check ("先排后说") — 2026-09-29
+
+The user's 布伦特伍德 recount, the 杜宾 and 凯尔希 archive turns, and a
+diagnosis page showed three problems:
+- the evidence pack was in relevance order;
+- the drafting call never saw the evidence instructions;
+- the sentence-level review, whole-reply revision and regex patching
+  (`mend`, `tidy`) broke narratives apart and encouraged disclaimers.
+
+The user required that no budget rise and chose the local Gemma-4-26B-A4B as
+the test model. The terminal flow in [canon terminal](canon-terminal.md)
+describes the result (v1.2.28.sub).
+
+Method. HEAD fe17122 (v1.2.27.sub) was run as arm A against the working tree
+as arm B, with the same V11 chat database and baseline retrieval (no embedding
+calls). Answers came from local gemma at temperature 0.3. KCL arc:chat judged
+at temperature 0, with the existing `budget_sweep` judge and the
+`sweep_wrap` cross-question rubric.
+
+The bank was sweep-bank-v4 (55 questions) plus six new items:
+- two recounts, including the 布伦特伍德 case;
+- four archive lookups, including 杜宾, 凯尔希, and a birthday the archive
+  leaves 未公开.
+
+Each question ran three times per arm. g04 is skipped by the judge as before.
+One arc:chat judge call timed out (HTTP 502) and one was rate-limited (429,
+retried). A separate blind arc:chat pass rated narrative shape for the 13
+overview, cross and recount questions.
+
+B was revised once after an interim look at the same bank:
+- the safety-net recall had been blocked whenever the model had consulted an
+  archive for a story question;
+- fact answers skipped parts of multi-part questions;
+- the old "answer a why question with a stated motive" rule had been dropped.
+
+Both B versions are reported. A 30-question held-out set was then drawn from
+retrieval-200-v3-audited. It keeps questions whose answer lines fall in events
+Amiya knows and that are not in the bank. Its references are unreviewed, so it
+gives direction only.
+
+| Measure (paired by question, 95% bootstrap CI) | A | B first | B final |
+|---|---:|---:|---:|
+| Accuracy (score / 2) | 0.447 | 0.480 | 0.522, +0.075 (+0.014, +0.142) |
+| Hallucinated answers | 9.4% | 8.4% | 7.8%, −1.7 pt (−5.6, +2.2) |
+| Unsupported claims per answer | 0.68 | 0.48 | 0.41 (−0.47, −0.09) |
+| Model calls per turn | 3.52 | 1.99 | 2.06 |
+| Prompt tokens per turn | 13,269 | 7,381 | 7,687 (−42%) |
+| Completion tokens per turn | 352 | 122 | 135 |
+| Latency median / P90 (s) | 12.4 / 25.4 | 7.2 / 10.6 | 7.5 / 11.1 |
+| Answers with disclaimers | 13.8% | 1.5% | 4.3% |
+| Archive lookups, accuracy | 0.25 | — | 0.92 |
+| Single-incident recounts, accuracy | 0.33 | — | 0.50 |
+
+Held-out set (30 questions, one run per arm):
+
+| Measure | A | B final |
+|---|---:|---:|
+| Accuracy | 0.450 | 0.417 (−0.20, +0.13) |
+| Hallucinated answers | 13.3% | 13.3% |
+| Model calls | 3.17 | 2.00 |
+| Prompt tokens | 11,718 | 7,593 |
+| Latency median (s) | 11.1 | 7.6 |
+
+The cost reduction holds on both sets, and hallucination did not rise on
+either. The accuracy gain on the tuned bank does not replicate on the held-out
+set, where the difference is within noise.
+
+Narrative shape did not improve for cross-chapter accounts. The blind rating of
+naturalness was 4.41 for A and 4.18 for B (paired −0.23, CI −0.56 to +0.10).
+The share of answers that reach an outcome fell from 0.64 to 0.46, and
+cross/overview answers became shorter.
+
+The cause is the incident window. It was applied whenever the model chose a
+light `arc` recall, and a cross-chapter outcome lies outside the anchor's
+scene, so gemma correctly said it did not remember the ending. Single-incident
+recounts improved.
+
+Proposed next step, not yet run: keep the incident window for one incident and
+use the chapter outline for 来龙去脉 / 前因后果 wording.
+
+Local reports, the extra bank, the held-out bank and the analysis scripts are
+under `.dev_data/canon/eval/ab-20260929/`. They contain source text and remain
+ignored.
+
+## Outline pointers for recounts — 2026-09-30
+
+The user asked for a light chain of thought before speaking. Several variants were tried on local gemma: summary notes, direction-guided notes, and pointer outlines. Summary notes compressed the answer. Pointer outlines were adopted: the model lists memory numbers per block and then expands each block from those memories.
+
+Version C put the outline on every recall turn and was run on the same 55 questions × 3. Compared with the fixed v1.2.28 (B1):
+
+| Measure | B1 | C |
+|---|---:|---:|
+| Accuracy | 0.494 | 0.497 |
+| Hallucinated answers | 7.4% | 8.6% |
+| Unsupported claims per answer | 0.41 | 0.60 |
+| Output tokens per turn | 131 | 223 |
+| Median latency (s) | 7.5 | 12.5 |
+
+Blind narrative rating of the overview and cross questions:
+
+| Measure | B1 | C |
+|---|---:|---:|
+| Naturalness | 4.12 | 4.39 |
+| Told in order | 0.82 | 0.94 |
+| Reached the outcome | 0.45 | 0.55 |
+
+C's extra hallucinations came from two sources:
+- expansion adding detail the memory lacks;
+- accepting a false premise, because the answer block seeks support.
+
+A premise block (C2) was tested on the 29 false-premise, fact and detail questions. It fixed the acceptance once in three runs but did not raise accuracy (0.517 against B1's 0.540). The outline therefore stays on recounts only, and fact and reason turns keep B1's behaviour.
+
+Combining C's measured rows for recount-routed questions with B1's rows for the rest gives:
+- accuracy 0.497;
+- hallucinated answers 8.0%;
+- 2.20 calls per turn;
+- median latency 7.5 s.
+
+This is essentially B1, because the current wording rules route only 4 of the 55 questions to recount. Seven of the eleven overview and cross questions are routed to fact or reason, even though the model itself chose deep recall on 27 of their 33 turns. Other kinds almost never choose deep. Routing a turn to recount when the model recalls with `depth=deep` is the proposed next step and has not been measured.
+
+The seven regular expressions added in v1.2.28 were replaced with plain string handling. There are 339 offline tests and all pass. The data, scripts and the version-history page live under `.dev_data/canon/eval/ab-20260929/`.
+
+## Check-chain replay — 2026-09-30
+
+The local model was off, so the stored B1 and C turns were replayed offline (`replay.py` in the same folder). Only the turns whose answer would change were re-judged by KCL arc:chat: 22 turns, with no API errors.
+
+The repair itself behaves. Across all repairs, every sentence that was not flagged (142 of 142) came back unchanged. The problems come from false flags.
+
+The present-tense check raised 24 flags. Fifteen were false, in two ways:
+- a continuation word such as 还在 or 依然 marks aspect, not the present;
+- the now-word sits inside someone's reported words, as in "阿洛伊泽说……现在已经没有人知道".
+
+On c-t04, a repair turned a correct "现在" into "当时", and the judge marked the change as unsupported four times.
+
+Two changes were replayed:
+
+| Change | Turns | Score | Hallucinated | Key points | Unsupported | Calls |
+|---|---:|---:|---:|---:|---:|---:|
+| Narrow the present-tense check | 13 | 8 → 8 | 1 → 1 | 10 → 13 | 12 → 11 | −13 |
+| Keep the repair instead of the memory-sentence fallback | 9 | 4 → 5 | 1 → 3 | 6 → 8 | 5 → 4 | 0 |
+
+- **Narrowing the check was adopted** (`speaks_of_now`). It ignores continuation words, sentences framed by 当时 or 那时, and a now-word that follows a reporting verb.
+- **Removing the fallback was rejected.** On x-c02, the fallback's drop had removed a real order inversion. The fallback's memory sentence now addresses the Doctor as 您 rather than 对方（博士）.
+
+Other findings:
+- **Denial check.** It raised 5 flags, all on questions where "没印象" was the right answer. It caught none of the 6 real denials of known facts among B1's 14 hallucinations. Structure cannot tell the two apart, so the check is unchanged.
+- **Wasted first draft.** On 60 of 183 B1 turns, the model answered without recalling, so its first draft was discarded. Requiring a tool call on the first round would need a gemma run to measure.
+- **Recount gap recall.** Under the "无"-only rule, the gap recall fired on none of the 12 recount turns.
+
+The 2026-09-26 visibility filter (`visible_summary`) was removed. It deleted whole summary sentences in which the Doctor "感到/觉得/意识到". Among Amiya's 1,700 known events, 10 were hit:
+- **Seven were deletions in error.** They removed Amiya's own feelings, lines spoken aloud, another character's remark about the Doctor, or Priestess's feeling.
+- **Three did concern the Doctor's inner state.** They also took visible facts with them, such as the calamity cloud vanishing.
+
+The viewpoint boundary for the Doctor's unspoken thoughts belongs in the build, where each sentence can be tagged, not in a runtime word pattern.

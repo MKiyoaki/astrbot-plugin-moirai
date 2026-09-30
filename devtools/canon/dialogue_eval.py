@@ -88,7 +88,7 @@ def main(argv=None):
                     started = time.perf_counter()
                     with contextlib.redirect_stdout(capture):
                         chat.run_turn(query, reader=reader, llm=llm, session=session, args=settings,
-                                      persona=persona, profile=chat.persona_profile(persona))
+                                      persona=persona)
                     row = {"case": case["id"], "split": case.get("split", "holdout"),
                            "turn": number, "query": query, "answer": session.history[-1]["content"],
                            "draft": session.draft,

@@ -7,6 +7,23 @@ Usage:
     python run_realtime_dev.py --fresh    # force a full rebuild, skip the prompt
     python run_realtime_dev.py --self-test # offline regressions, no runtime DB or models
 
+Other datasets (all optional; defaults are the paths below):
+    --data PATH      message JSON (default tests/mock_data/mock_realtime.json)
+    --dev-data DIR   DB, archive, summary stash and settings (default .dev_data)
+    --persona PATH   [Eval] persona prompt (default tests/mock_data/mock_persona.md)
+    --bot-id ID      the persona binds to ("internal", ID) (default gariton), so
+                     platform "internal" messages with user_id ID are the bot itself
+    --model-type T   lmstudio | deepseek | kcl | openai (default run_config MODEL_TYPE)
+    --model NAME     model id for that type (default the one in run_config)
+    --llm-concurrency N   shared LLM concurrency (default run_config LLM_CONCURRENCY)
+    --set NAME=VALUE override one run_config.py value for this process only
+                     (repeatable), e.g. --set RETRIEVAL_ENCODER_RETRY_MAX=6
+    e.g. the canon story export from devtools/canon/realtime_mock.py:
+    python run_realtime_dev.py --fresh --data tests/mock_data/canon_amiya_main_ch00-05.json \
+        --dev-data .dev_data/canon_realtime/main-ch00-05 \
+        --persona tests/mock_data/amiya_persona.md --bot-id char_002_amiya \
+        --model-type kcl --model arc:nexus --llm-concurrency 3
+
 Persistence:
     .dev_data/realtime_test.db and the group summaries it generates are no longer
     wiped on exit. If a previous session's DB is found on startup, you'll be asked
@@ -105,11 +122,42 @@ except ImportError:
                 f"\r  {self._desc}: {self._n}{total_str} {self._unit}", end="", flush=True)
 
 
+def _flag_value(name: str, default):
+    for i, arg in enumerate(sys.argv):
+        if arg == name and i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+        if arg.startswith(name + "="):
+            return arg.split("=", 1)[1]
+    return default
+
+
+def _apply_config_overrides(module) -> None:
+    """Apply every ``--set NAME=VALUE`` to the loaded run_config module, this process only."""
+    import ast
+    for i, arg in enumerate(sys.argv):
+        if arg != "--set":
+            continue
+        if i + 1 >= len(sys.argv) or "=" not in sys.argv[i + 1]:
+            raise SystemExit("--set expects NAME=VALUE")
+        key, raw = sys.argv[i + 1].split("=", 1)
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]*", key):
+            raise SystemExit(f"--set expects an upper-case run_config name, got {key!r}")
+        try:
+            value = ast.literal_eval(raw)
+        except (ValueError, SyntaxError):
+            value = raw
+        known = "" if hasattr(module, key) else " (not in run_config.py)"
+        setattr(module, key, value)
+        shown = "<redacted>" if re.search(r"KEY|TOKEN|SECRET", key) else repr(value)
+        print(f"[Config] --set {key}={shown}{known}")
+
+
 # ── LLM Configuration ────────────────────────────────────────────────────────
 
 # Load local config (run_config.py is gitignored); fall back to defaults.
 try:
     import run_config as _rc  # type: ignore[import]
+    _apply_config_overrides(_rc)
     _EVENT_MODE      = _rc.EVENT_MODE
     _MOOD_SOURCE     = _rc.MOOD_SOURCE
     _TIMEOUT         = _rc.TIMEOUT
@@ -219,14 +267,19 @@ def _get_model_info(model_type: str):
         raise ValueError("Not supported model type! ")
     return llm_api_url, llm_api_key, llm_model
 
+# Command-line overrides leave run_config.py untouched for other jobs.
+_MODEL_TYPE = _flag_value("--model-type", _MODEL_TYPE)
+_LLM_CONCURRENCY = int(_flag_value("--llm-concurrency", _LLM_CONCURRENCY))
 LLM_API_URL, LLM_API_KEY, LLM_MODEL = _get_model_info(_MODEL_TYPE)
+LLM_MODEL = _flag_value("--model", LLM_MODEL)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
 _ROOT = Path(__file__).parent
-MOCK_DATA_PATH = _ROOT / "tests" / "mock_data" / "mock_realtime.json"
-MOCK_PERSONA_PATH = _ROOT / "tests" / "mock_data" / "mock_persona.md"
-DEV_DATA = _ROOT / ".dev_data"
+MOCK_DATA_PATH = Path(_flag_value("--data", _ROOT / "tests" / "mock_data" / "mock_realtime.json")).resolve()
+MOCK_PERSONA_PATH = Path(_flag_value("--persona", _ROOT / "tests" / "mock_data" / "mock_persona.md")).resolve()
+BOT_PHYSICAL_ID = _flag_value("--bot-id", "gariton")
+DEV_DATA = Path(_flag_value("--dev-data", _ROOT / ".dev_data")).resolve()
 ARCHIVE_DIR = DEV_DATA / "archive"
 REALTIME_DB = DEV_DATA / "realtime_test.db"
 DATAFLOW_DB = DEV_DATA / "dataflow_test.db"
@@ -259,7 +312,7 @@ def _resume_requested() -> bool:
     if not REALTIME_DB.exists():
         return False
     ans = input(
-        "\n[Dev] 检测到已有测试数据 (.dev_data/realtime_test.db)。"
+        f"\n[Dev] 检测到已有测试数据 ({REALTIME_DB})。"
         "是否恢复上次会话进度，跳过重新构建？(Y/n): "
     ).strip().lower()
     return ans not in ("n", "no")
@@ -440,7 +493,7 @@ def _cleanup() -> None:
         if REALTIME_GROUPS_STASH.exists():
             shutil.rmtree(str(REALTIME_GROUPS_STASH))
         shutil.move(str(realtime_groups), str(REALTIME_GROUPS_STASH))
-        print("[Cleanup] Stashed realtime summary files → .dev_data/realtime_groups/")
+        print(f"[Cleanup] Stashed realtime summary files → {REALTIME_GROUPS_STASH}/")
 
     # Restore the original summary dir that was moved at startup
     if _archived_groups is not None and _archived_groups.exists():
@@ -461,6 +514,9 @@ async def main() -> None:
     print("=" * 70)
     resume = _resume_requested()
     print(f"  MODE: {'RESUME (skip rebuild)' if resume else 'FRESH BUILD'}")
+    print(f"  DATA: {MOCK_DATA_PATH}")
+    print(f"  DIR : {DEV_DATA}  |  PERSONA: {MOCK_PERSONA_PATH.name} → (internal, {BOT_PHYSICAL_ID})")
+    print(f"  LLM : {_MODEL_TYPE}:{LLM_MODEL}  |  concurrency {_LLM_CONCURRENCY}")
     _archive_step(resume)
 
     # Step 2: Imports (lazy, inside main — same pattern as run_dataflow_dev.py)
@@ -799,8 +855,8 @@ async def main() -> None:
                 from core.domain.models import Persona as _Persona
                 _persona_name, _persona_desc = _load_mock_persona(MOCK_PERSONA_PATH)
                 _mock_persona = _Persona(
-                    uid="bot_internal_gariton",
-                    bound_identities=[("internal", "gariton")],
+                    uid=f"bot_internal_{BOT_PHYSICAL_ID}",
+                    bound_identities=[("internal", BOT_PHYSICAL_ID)],
                     primary_name=_persona_name,
                     persona_attrs={"description": _persona_desc},
                     confidence=0.9,

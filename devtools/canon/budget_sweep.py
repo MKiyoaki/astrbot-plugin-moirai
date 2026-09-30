@@ -110,7 +110,6 @@ def run_turns(args, chat, setup, cases: list[dict], budgets: list[int]) -> None:
     """Phase 1: answer every question at every budget in one sequence, so judging never disturbs latency."""
     done = {(row["id"], row["budget"]) for row in read_rows(args.out)}
     persona = chat.DEFAULT_PERSONA.read_text(encoding="utf-8").strip()
-    profile = chat.persona_profile(persona)
     rng = random.Random(20260928)
     total = len(cases) * len(budgets)
     print(f"[sweep] {len(cases)} questions x {len(budgets)} budgets = {total} turns; {len(done)} already done", flush=True)
@@ -138,7 +137,7 @@ def run_turns(args, chat, setup, cases: list[dict], budgets: list[int]) -> None:
                     try:
                         with contextlib.redirect_stdout(io.StringIO()):
                             chat.run_turn(case["question"], reader=reader, llm=llm, session=session, args=settings,
-                                          persona=persona, profile=profile)
+                                          persona=persona)
                         seconds = time.perf_counter() - started
                         break
                     except Exception as exc:
@@ -156,9 +155,10 @@ def run_turns(args, chat, setup, cases: list[dict], budgets: list[int]) -> None:
                        "reviewed": bool(session.report and session.report.reviewed),
                        "problems": len(session.report.problems) if session.report else 0,
                        "issues": dict(session.report.issues) if session.report else {},
-                       "second_pass": bool(session.report and session.report.second_pass),
+                       "revised": bool(session.report and session.report.revised),
+                       "replaced": session.report.replaced if session.report else 0,
                        "dropped": session.report.dropped if session.report else 0,
-                       "mended": session.report.mended if session.report else 0,
+                       "task": metrics.get("task"),
                        "draft": session.draft, "check": session.report.stages if session.report else [],
                        "evidence": session.pack.render() if session.pack and session.pack.items else ""}
                 with args.out.open("a", encoding="utf-8") as handle:

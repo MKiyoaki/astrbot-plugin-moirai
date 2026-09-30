@@ -15,14 +15,15 @@ import time
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 import httpx
 
-from core.canon.gateway import CheckReport, EvidencePack, Memory, check_reply, tidy
+from core.canon.gateway import CIRCLED, CheckReport, EvidencePack, Memory, check_reply
 from core.canon.lexical import terms
 from core.canon.assembly import EvidenceSettings
 from core.canon.packing import CHANNEL_LABEL, clip, estimate_tokens, fill
-from core.canon.query import GENERIC_CHARS, plan_turn, route
+from core.canon.query import GENERIC_CHARS, plan_turn, route, task_of
 from core.canon.reader import CanonReader
 from core.canon.recall import PROBE_TOOL, TURN_BUDGET, VERIFY_EXTRA, CanonRecall, present_phrase, recall_tool
 
@@ -38,24 +39,25 @@ DEFAULT_DB = next((path for path in (V11_DB, FULL_DB, SAMPLE100_DB, LATEST_DB, T
 DEFAULT_PERSONA = ROOT / "devtools/canon/amiya_persona.txt"
 DEFAULT_QUESTIONS = ROOT / ".dev_data/canon/eval/retrieval-200-v1.jsonl"
 TRACE_DIR = ROOT / ".dev_data/canon/traces"
-ISSUE_LABEL = {"contradicted": "矛盾", "uncovered": "缺依据"}
+ISSUE_LABEL = {"entity": "记忆外的名字", "meta": "出戏", "quote": "引号", "number": "数字", "quantity": "说过头",
+               "stale": "旧事说成现在", "denial": "否认记得的事", "order": "先后", "causal": "因果",
+               "closing": "客套收尾"}
+TASK_LABEL = {"recount": "讲经过", "lookup": "查档案", "fact": "问事实", "reason": "问原因"}
 MAX_TOOL_ROUNDS = 2
 FALLBACK = "嗯……这件事我记不太清了。"
-WRAP_UP = "（回忆次数已用完，不要再调用工具；只根据上面回忆起的内容直接回答，没有的就说记不清。）"
+WRAP_UP = "（回忆次数已用完，不要再调用工具；只根据[你的记忆]直接回答。）"
 RETRY_NOTE = "请直接用中文回答，不要输出任何工具调用。"
 TOOL_MARKUP = re.compile(r"<[｜|]+\s*DSML|<tool_call>|<function_calls>|<[｜|]tool[▁_ ]calls?[▁_ ]begin")
 MODEL_TYPE_ALIASES = {"oai": "openai"}
 OUTPUT_RULES = (
     "[回复要求]\n"
-    "· 先回应博士说的话；自然交流时可以顺势问一句，不要用反问代替回答。拿不准过去的事实时说清楚哪部分记不清。\n"
+    "· 先回应博士说的话；自然交流时可以顺势问一句，不要用反问代替回答。\n"
     "· 不要说出原作、剧情、章节、资料、编号、检索、数据库这类词。\n"
-    "· 讲到过去的具体经历时，只说回忆起的内容，不添加其中没有的动作、神情、情绪、数字或原因；过去的事要说成过去。\n"
-    "· 回答原因要说明有依据的动机或目的；材料只有经过时，不要把经过冒充原因。"
-    "\n· 先想清楚对方这一轮真正想聊的事，再直接回答。记忆是依据，不是必须逐条复述的清单。"
-    "通常先说重点，再选一两件必要的事说明；需要梳理一段经过时，用一段话讲清主要经过。不要展示回答提纲。"
-    "\n· 延续本次交流，避免重复已经讲过的经历和同一句关心。不要凭几句话断定博士情绪反常，"
-    "也不要编造博士平时的习惯。可以表达此刻的感受、立场和疑问，不必每轮都用问题收尾。"
-    "\n· 对未来的判断只能基于你知道的事，并明确是判断；不知情的事件不能靠加上可能、记不清或不确定来透露。"
+    "· 讲过去的事只用[你的记忆]里有的内容，不添加其中没有的动作、神情、情绪、数字或原因；过去的事说成过去。\n"
+    "· 记忆里有的直接说，不要在开头或结尾声明记不清、需要时间或给不了全部；问到的事记忆里确实没有，只在那一处说一句没印象。"
+    "说完就停，不要用“如果您还想……我可以……”收尾。\n"
+    "· 延续本次交流，避免重复已经讲过的经历和同一句关心。不要凭几句话断定博士情绪反常，也不要编造博士平时的习惯。\n"
+    "· 对未来的判断只能基于你知道的事，并明确是判断；不知情的事件不能靠加上可能、记不清或不确定来透露。"
 )
 TIME_RULE = "\n· 说到事情发生的时间，照记忆括号里的说法，用某件大事期间、之前或之后来讲，不要说出年份、月份或日期。"
 ARCHIVE_RULE = ("\n· 需要某人的出身、种族、生日、履历、体检、病情或作战情报时，调用 operator_archive；"
@@ -84,16 +86,6 @@ ARCHIVE_SECTIONS = 2
 ARCHIVE_CHARS = 600
 
 
-def persona_profile(persona: str) -> str:
-    rows = []
-    for line in persona.splitlines():
-        key, sep, value = line.partition("|")
-        key, value = key.strip(), value.strip()
-        if sep and key and value and len(key) <= 24 and key not in ("项目", "特点", "助词"):
-            rows.append(f"{key}：{value}")
-    return "\n".join(rows) or persona
-
-
 RECALL_POLICY = (
     "[回忆方式]\n先判断这句话需不需要回忆原作：\n"
     "· 只有明显不涉及过去经历的话才不需要回忆：问候、闲聊、此刻的感受、对博士的回应，以及本次对话里说过的事。"
@@ -106,27 +98,80 @@ RECALL_POLICY = (
     "别人现在的伤亡、下落、身份或阵营变化这类重大状态，只说你最后知道的情况。"
 )
 MEMORY_NOTE = (
-    "以下是这一轮回忆起的片段。括号里是事情发生的时间，标着“最近”的才是接近现在的事。"
-    "说到别人现在或最近的情况，只能依据标着“最近”的片段；更早的事要说成当时的事，"
-    "例如“我最后知道……是在……的时候”。排列不代表事件先后；有〔先后〕一行时以它为准，否则以括号里的时间为准；"
-    "两者都排不出、也没有原文依据时，不用随后连接两件事。两件事之间的因果没有原话依据时，说成你自己的判断，例如“在我看来……”。"
-    "不要把概括写成原话引号。标为不知情的事不要说成亲历。编号只供你对照，不要说出来。"
+    "以下是你这一轮想起的事，编号就是发生的先后；标着“先后不明”的不要和别的事排先后。"
+    "括号里是时间和你怎么知道的；标着“最近”的才是接近现在的事，更早的事说成当时的事。"
+    "摘要里博士没说出口的想法不是你能知道的。编号和括号只供你对照，不要说出来。"
+)
+STYLE = {
+    "recount": ("[讲法]\n这一轮是在讲一段经过，不受三句的限制，用一段话讲清楚，约 150–300 字：先一句点出是哪件事，"
+                "再按编号顺序讲起因、经过和结果，一个编号最多一两句，不重要的可以跳过。编号之间用“后来”“接着”“到……的时候”连接；"
+                "只有〔因果〕一行列出的两件事之间才能说“所以”“因此”，其他地方要说原因就说成“在我看来”。"
+                "最后可以用一句说说你现在的感受。"),
+    "fact": ("[讲法]\n先直接回答：问了几项就答几项，每一项都说到；再用一两句交代当时的情况。说两件事的先后，以编号为准。"),
+    "reason": ("[讲法]\n这一轮在问原因：先直接说原因，也就是记忆里明说的动机、目的或当时说出口的理由，问了几项就答几项；"
+               "再用一两句交代当时的情况。记忆里只有经过、没有明说原因时，不要把经过当成原因，说成你自己的判断，例如“在我看来……”。"),
+    "lookup": ("[讲法]\n这一轮是在转述档案：说成“档案上写着……”，把博士要的内容说清楚，不受三句的限制；"
+               "档案里没写的，就说档案里没写。"),
+}
+
+
+SKELETONS = {
+    "recount": (("起因", "为什么、在哪里、有谁"), ("经过", "按先后的关键时刻"), ("结果", "最后怎样收场"), ("感受", "你此刻怎么看")),
+}
+OUTLINE_NOTE = (
+    "[先想后说]\n先以你自己的身份想一想博士想知道什么，然后分两步写。\n"
+    "第一步，在<提纲>和</提纲>之间，按下面几块逐行写：每行写块名，后面只写能用上的记忆编号（例如②④），"
+    "再用不超过八个字提示用它讲什么；这块在记忆里找不到，就只写块名和“无”。不要写整句概括。"
+    "记忆编号就是发生先后，起因通常在编号靠前的几条，结果通常在编号最靠后的几条。\n{blocks}\n"
+    "第二步，在<回答>和</回答>之间对博士说话：按提纲的块顺序，把每块所引记忆里的具体人、动作、原话要点讲出来，"
+    "写“无”的块跳过；不要提到块名、提纲和编号。"
 )
 
 
-def knowledge(pack: EvidencePack, tools: bool) -> str:
+def outline_note(task: str) -> str:
+    return OUTLINE_NOTE.format(blocks="\n".join(f"{name}：（{hint}）" for name, hint in SKELETONS[task]))
+
+
+def between(text: str, start: str, end: str) -> str:
+    head = text.find(start)
+    if head < 0:
+        return ""
+    tail = text.find(end, head + len(start))
+    return text[head + len(start): tail if tail >= 0 else len(text)].strip()
+
+
+def spoken(draft: str) -> tuple[str, str]:
+    """The reply the Doctor hears and the outline the model wrote for itself; a reply without tags is all speech."""
+    outline, answer = between(draft, "<提纲>", "</提纲>"), between(draft, "<回答>", "</回答>")
+    if not answer:
+        close = draft.find("</提纲>")
+        answer = draft[close + len("</提纲>"):].strip() if close >= 0 else draft.strip()
+    return answer, outline
+
+
+def empty_blocks(outline: str, task: str) -> list[tuple[str, str]]:
+    """Blocks the model marked 无: the parts of the answer its memories lack, for one targeted recall each."""
+    missing = []
+    for name, hint in SKELETONS.get(task, ()):
+        line = next((row.strip() for row in outline.splitlines() if row.strip().startswith(name)), "")
+        rest = line[len(name):].strip("：: ")
+        if rest.startswith("无") and not any(mark in rest for mark in CIRCLED):
+            missing.append((name, hint))
+    return missing
+
+
+def knowledge(pack: EvidencePack, tools: bool, task: str = "fact", outline: bool = False) -> str:
     if pack.items:
-        return "\n".join(("[你的记忆]", MEMORY_NOTE,
-                          "摘要中可能夹有博士未说出口的想法或感受；那不是你能直接回忆的见闻，只转述听见的台词和看见的行动。",
-                          pack.render(), *filter(None, (pack.order_note(),))))
-    return RECALL_POLICY if tools else "[你的记忆]\n本轮没有调出记忆。讲到原作里的具体事件时，说记不清就好。"
+        style = STYLE.get(task, STYLE["fact"]) + ("\n\n" + outline_note(task) if outline and task in SKELETONS else "")
+        return "\n".join(("[你的记忆]", MEMORY_NOTE, pack.render(), "", style))
+    return RECALL_POLICY if tools else "[你的记忆]\n本轮没有调出记忆。讲到原作里的具体事件时，说没印象就好。"
 
 
 def build_system(persona: str, doctor: bool, pack: EvidencePack, tools: bool, archives: bool = False,
-                 anchored: bool = False) -> str:
+                 anchored: bool = False, task: str = "fact", outline: bool = False) -> str:
     identity = "当前对话者是博士。" if doctor else "当前对话者的博士身份未确认，不要自行认定。"
     rules = OUTPUT_RULES + (TIME_RULE if anchored else "") + (ARCHIVE_RULE if tools and archives else "")
-    return "\n\n".join((persona, identity, knowledge(pack, tools), rules))
+    return "\n\n".join((persona, identity, knowledge(pack, tools, task, outline), rules))
 
 
 def _model_settings(model_type: str | None) -> tuple[str, str, str, float]:
@@ -247,7 +292,8 @@ class Session:
     metrics: dict = field(default_factory=dict)
     active_history: list[dict[str, str]] = field(default_factory=list)
     draft: str = ""
-    order: str = ""
+    outline: str = ""
+    task: str = "fact"
 
 
 def conversation_history(history: list[dict], query: str, budget: int = 5000) -> list[dict]:
@@ -290,16 +336,21 @@ def _tool_args(call: dict) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def generate(llm: ModelClient, session: Session, system: str, query: str,
+def generate(llm: ModelClient, session: Session, system: str | Callable[[], str], query: str,
              tools: list[dict], handlers: dict, temperature: float) -> tuple[str, int]:
-    """Let the model call its tools on its own; tool rounds stay out of the saved history."""
-    messages = [{"role": "system", "content": system}, *session.active_history,
-                {"role": "user", "content": query}]
+    """Let the model call its tools on its own; tool rounds stay out of the saved history.
+
+    A callable system prompt is rebuilt before every request, so memories a tool just added appear once, in the
+    prompt, rather than again in each tool result.
+    """
+    compose = system if callable(system) else (lambda: system)
+    messages = [{"role": "system", "content": ""}, *session.active_history, {"role": "user", "content": query}]
     calls = rounds = 0
     retried_empty = False
     while True:
         offer = session.tools and rounds < MAX_TOOL_ROUNDS
         wrap_up = bool(session.tools and tools and not offer)
+        messages[0] = {"role": "system", "content": compose()}
         if wrap_up and messages[-1]["role"] == "tool" and WRAP_UP not in messages[-1]["content"]:
             messages[-1] = {**messages[-1], "content": f"{messages[-1]['content']}\n{WRAP_UP}"}
         try:
@@ -309,7 +360,7 @@ def generate(llm: ModelClient, session: Session, system: str, query: str,
                 except ToolsRejected:
                     message = llm.chat(messages, temperature, None)
             else:
-                message = llm.chat(messages, temperature, tools if offer else None)
+                message = llm.chat(messages, temperature, tools if offer and tools else None)
         except ToolsRejected as exc:
             session.tools = False
             print(f"[canon] 接口不接受工具调用，本次会话改为不带工具：{exc}")
@@ -335,8 +386,11 @@ def generate(llm: ModelClient, session: Session, system: str, query: str,
 
 
 def supplement_recall(reader: CanonReader, recall: CanonRecall, query: str, doctor: bool) -> bool:
-    """Safety net: when the model recalled nothing, a story question is still recalled once, as the local router reads it."""
-    if any(entry["tool"] == "canon_recall" for entry in recall.log):
+    """Safety net: when the model recalled nothing, a story question is still recalled once, as the local router reads it.
+
+    An archive answers only an archive request; a story question the model sent to the archive is still recalled.
+    """
+    if any(entry["tool"] == "canon_recall" for entry in recall.log) or (recall.task == "lookup" and recall.pack.items):
         return False
     plan = route(reader, plan_turn(reader, query, None, None), query, doctor)
     if plan.lane not in ("canon", "status"):
@@ -351,10 +405,29 @@ def supplement_recall(reader: CanonReader, recall: CanonRecall, query: str, doct
     return bool(recall.pack.items)
 
 
+def archive_names(reader: CanonReader, query: str) -> list[str]:
+    """Names in the question that have an archive; a titled mention such as 某某医生 falls back to the name it holds.
+
+    A name the entity table lacks is still found by the archive's own name.
+    """
+    names = []
+    for name in reader.entities_in(query):
+        candidates = (name, *sorted((other for other in reader.entity_type if 2 <= len(other) < len(name)
+                                     and other in name), key=len, reverse=True))
+        found = next((candidate for candidate in candidates if reader.archive_ids(candidate)), None)
+        if found:
+            names.append(found)
+    if not names:
+        titles = {row[0] for row in reader.db.execute("SELECT name FROM archives") if row[0]}
+        names = sorted((title for title in titles if title in query), key=len, reverse=True)
+    return list(dict.fromkeys(names))
+
+
 def tier_label(log: list[dict]) -> str:
     recalls = [entry for entry in log if entry["tool"] == "canon_recall"]
+    archives = [entry for entry in log if entry["tool"] == "operator_archive"]
     if not recalls:
-        return "档位：不召回"
+        return "档位：查档案（" + "、".join(entry["name"] for entry in archives) + "）" if archives else "档位：不召回"
     tier = "深度探索" if any(entry["depth"] == "deep" for entry in recalls) else "轻量召回"
     paths = "、".join(f"{entry['path']}「{entry['subject'] or entry['query'][:12]}」" for entry in recalls)
     return f"档位：{tier}（{paths}）"
@@ -362,36 +435,23 @@ def tier_label(log: list[dict]) -> str:
 
 def trace_line(session: Session, calls: int) -> str:
     report = session.report
-    parts = [tier_label(session.recall_log)]
+    parts = [tier_label(session.recall_log), f"讲法：{TASK_LABEL.get(session.task, session.task)}"]
     if session.tool_queries:
         parts.append("调用工具：" + "、".join(session.tool_queries))
     if report.refetched:
         parts.append("按回复补查：" + "、".join(report.refetched))
     if report.reviewed:
-        parts.append("核验：" + ("无效结果，按无依据处理" if report.review_failed
-                                else issue_counts(report) if report.problems else "通过"))
-    if report.looked_up:
-        parts.append(f"按句补查 {report.looked_up} 句，{report.found} 句找到新记忆")
-    if report.rewrote:
-        parts.append(f"改写提问或出戏句 {report.rewrote} 句")
+        parts.append("对齐：" + (issue_counts(report) if report.issues else "通过"))
     if report.revised:
-        parts.append("已修订")
-    if report.second_pass:
-        parts.append("复核未过的句子已二次修订")
-    if report.rechecked:
-        parts.append("已复核修订句")
+        parts.append("已定点修补")
+    if report.replaced:
+        parts.append(f"换回记忆原句 {report.replaced} 句")
     if report.dropped:
-        parts.append(f"修订后又删去 {report.dropped} 句")
-    if report.mended:
-        parts.append(f"删句后补接 {report.mended} 处")
-    if report.questions_removed:
-        parts.append(f"删去结尾提问 {report.questions_removed} 句")
-    if report.meta_removed:
-        parts.append(f"删去出戏句 {report.meta_removed} 句")
+        parts.append(f"去掉无依据句 {report.dropped} 句")
     parts.append(f"模型调用 {calls} 次")
     if session.metrics:
         parts.append(f"证据 {session.metrics['evidence_tokens']}/{session.metrics['evidence_budget']} token（估算"
-                     + ("，含核验补查" if session.metrics["evidence_tokens"] > session.metrics["evidence_budget"] else "")
+                     + ("，含补查" if session.metrics["evidence_tokens"] > session.metrics["evidence_budget"] else "")
                      + "）")
         parts.append(f"本轮 {session.metrics['seconds']:.1f}s")
         if session.metrics.get("prompt_tokens") is not None:
@@ -400,15 +460,16 @@ def trace_line(session: Session, calls: int) -> str:
 
 
 def issue_counts(report: CheckReport) -> str:
-    counts = [(label, sum(status == kind for status in report.issues.values())) for kind, label in ISSUE_LABEL.items()]
-    other = len(report.problems) - sum(count for _, count in counts)
-    return "、".join(f"{label} {count} 句" for label, count in (*counts, ("其他", other)) if count)
+    counts: dict[str, int] = {}
+    for kind in report.issues.values():
+        counts[kind] = counts.get(kind, 0) + 1
+    return "、".join(f"{ISSUE_LABEL.get(kind, kind)} {count} 句" for kind, count in counts.items())
 
 
 def problem_lines(report: CheckReport) -> list[str]:
     return [f"第 {index} 句「{report.sentences[index - 1].strip()}」："
-            + (f"[{ISSUE_LABEL[report.issues[index]]}] " if index in report.issues else "") + reason
-            for index, reason in sorted(report.problems.items())]
+            + (f"[{ISSUE_LABEL.get(report.issues[index], report.issues[index])}] " if index in report.issues else "")
+            + reason for index, reason in sorted(report.problems.items())]
 
 
 def write_trace(path: Path, row: dict) -> None:
@@ -432,7 +493,7 @@ def print_sources(session: Session) -> None:
 
 
 def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, session: Session,
-             args: argparse.Namespace, persona: str, profile: str) -> None:
+             args: argparse.Namespace, persona: str) -> None:
     started = time.perf_counter()
     request_offset = len(getattr(llm, "request_metrics", []))
     session.active_history = conversation_history(session.history, query)
@@ -442,8 +503,9 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
     evidence, pack = recall.evidence, recall.pack
     session.pack, session.report, session.recall_log = pack, None, recall.log
     session.tool_queries = []
+    session.task = recall.task = task_of(query)
     if args.dry_run or llm is None:
-        print("  由模型决定是否回忆；范围探查结果：")
+        print(f"  讲法：{TASK_LABEL[session.task]}；由模型决定是否回忆；范围探查结果：")
         print(recall.probe(query))
         return
 
@@ -469,7 +531,7 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
         while low <= high:
             size = (low + high) // 2
             summary = f"{source}：{clip(body, size)}"
-            item = pack.add(key, source, "archive", summary, (), prefix="A")
+            pack.add(key, source, "archive", summary, (), prefix="A")
             fits = estimate_tokens(pack.render()) <= evidence.budget
             pack.pop()
             if fits:
@@ -481,10 +543,12 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
             return None
         return pack.add(key, source, "archive", f"{source}：{clip(body, best)}", (), prefix="A")
 
-    def archive(arguments: dict) -> str:
+    def archive(arguments: dict, direct: bool = False) -> str:
         name = str(arguments.get("name", "")).strip()[:40]
         section = str(arguments.get("section", "")).strip()[:20]
-        session.tool_queries.append(f"档案「{name or '空'}" + (f"·{section}" if section else "") + "」")
+        session.tool_queries.append(f"档案「{name or '空'}" + (f"·{section}" if section else "") + "」"
+                                    + ("（直接查）" if direct else ""))
+        recall.log.append({"tool": "operator_archive", "name": name, "section": section, "direct": direct})
         ids = reader.archive_ids(name)
         if not ids:
             return f"罗德岛档案里没有找到“{name}”。"
@@ -507,77 +571,76 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
                     added.append(item)
             notes.append(f"{rows[0]['name']}的{ARCHIVE_KIND.get(rows[0]['kind'], '档案')}可查的段："
                          f"{clip('、'.join(titles), 80)}")
-        body = pack.render(added) if added else "本轮证据预算已满，或档案没有可加入的内容。"
-        return body + "\n" + "\n".join(notes)
-
-    def messages() -> list[dict]:
-        system = build_system(persona, args.doctor, pack, False, anchored=bool(reader.placing))
-        return [{"role": "system", "content": system}, *session.active_history,
-                {"role": "user", "content": query}]
+        head = (f"查到 {len(added)} 段，已放进[你的记忆]。" if added
+                else "本轮证据预算已满，或档案没有可加入的内容。")
+        return head + "\n" + "\n".join(notes)
 
     def refetch(names: list[str]) -> int:
+        ceiling = evidence.budget + VERIFY_EXTRA
         known = reader.topic_mentions(pack.render())
         identity_hits = [reader.identity_hit(name, prior) for name in names for prior in known]
-        linked = fill(pack, [hit for hit in identity_hits if hit], None,
-                      evidence.budget, total_budget=evidence.budget)
-        return len(linked) + len(evidence.fetch(" ".join(names)))
-
-    def sources() -> str:
-        said = [m["content"] for m in session.active_history if m["role"] == "user"] + [query]
-        dialogue = [*session.active_history, {"role": "user", "content": query}]
-        identity = ("[对话者]\n当前对话者是博士；[资料]里的“对方（博士）”就是当前对话者。" if args.doctor else
-                    "[对话者]\n当前对话者不是博士；[资料]里的“博士”是另一个人，与博士有关的经历不算和当前对话者的共同经历。")
-        parts = [identity, "", "[资料]", pack.render() or "（本轮没有资料）", *filter(None, (pack.order_note(),))]
-        parts += ["", "[人设档案]", profile or "（无）", "", "[对话者本次说过的话]",
-                  *(f"· {text}" for text in said), "", "[本次对话记录]",
-                  "以下只证明本次谁说过什么，不证明所说的世界事实为真。",
-                  *(f"C{i} {'对话者' if m['role'] == 'user' else '阿米娅'}：{m['content']}"
-                    for i, m in enumerate(dialogue, 1))]
-        return "\n".join(parts)
+        linked = fill(pack, [hit for hit in identity_hits if hit], None, VERIFY_EXTRA, total_budget=ceiling)
+        return len(linked) + len(evidence.fetch(" ".join(names), budget=VERIFY_EXTRA, ceiling=ceiling))
 
     archives = reader.has_archives
+    anchored = bool(reader.placing)
+    direct = archive_names(reader, query) if session.task == "lookup" and archives else []
+    for name in direct[:2]:
+        archive({"name": name}, direct=True)
+    offer = session.tools and not pack.items
+
+    think = session.task in SKELETONS
+
+    def system() -> str:
+        return build_system(persona, args.doctor, pack, offer, archives, anchored, session.task, think)
+
+    def messages(outline: bool = False) -> list[dict]:
+        return [{"role": "system", "content": build_system(persona, args.doctor, pack, False, archives, anchored,
+                                                          session.task, outline)},
+                *session.active_history, {"role": "user", "content": query}]
+
     now = present_phrase(reader)
     tools = [PROBE_TOOL, recall_tool(now), *([ARCHIVE_TOOL] if archives else [])]
     handlers = {"canon_probe": probe, "canon_recall": remember, "operator_archive": archive}
-    system = build_system(persona, args.doctor, pack, session.tools, archives, anchored=bool(reader.placing))
-    draft, calls = generate(llm, session, system, query, tools if session.tools else [], handlers,
-                            args.temperature)
-    if session.tools and supplement_recall(reader, recall, query, args.doctor):
+    draft, calls = generate(llm, session, system, query, tools if offer else [], handlers, args.temperature)
+    if offer and supplement_recall(reader, recall, query, args.doctor):
         session.tool_queries.append("兜底补召回")
-        draft, calls = llm.complete(messages(), args.temperature) or draft, calls + 1
-    session.draft = draft
+        draft, calls = llm.complete(messages(think), args.temperature) or draft, calls + 1
+    reply, outline = spoken(draft)
+    gaps = empty_blocks(outline, session.task) if think and pack.items else []
+    if gaps:
+        before = len(pack.items)
+        for _, hint in gaps[:2]:
+            recall.recall(f"{query} {hint}", "event", "", "light")
+        session.tool_queries.append("按提纲补查：" + "、".join(name for name, _ in gaps[:2]))
+        if len(pack.items) > before:
+            draft, calls = llm.complete(messages(True), args.temperature) or draft, calls + 1
+            reply, outline = spoken(draft)
+    session.draft, session.outline = draft, outline
     if reader.retrieval and any(entry["tool"] == "canon_recall" for entry in recall.log):
         trace = reader.retrieval.last_trace
         print(f"[retrieval] {reader.retrieval.mode}；{'降级' if trace.get('degraded') else '就绪'}；"
               f"{trace.get('seconds', 0):.3f}s")
     if pack.items:
+        said = [message["content"] for message in session.active_history if message["role"] == "user"] + [query]
+        heard = "\n".join(message["content"] for message in [*session.active_history, {"content": query}])
         answer, report = check_reply(
-            draft, complete=llm.complete, messages=messages, pack=pack,
-            find_entities=reader.entities_in, refetch=refetch, sources=sources,
-            force_review=True, temperature=args.temperature,
-            allow_questions=False, fallback=FALLBACK,
-            coherent_revision=True, retry_review=True,
-            conversation_ids={f"C{i}" for i in range(1, len(session.active_history) + 2)},
-            profile=reader.profile,
-            long_answer=any(entry.get("depth") == "deep" for entry in recall.log),
-            lookup=lambda sentence: evidence.fetch(sentence, budget=VERIFY_EXTRA,
-                                                   ceiling=evidence.budget + VERIFY_EXTRA),
-        )
+            reply, complete=llm.complete, messages=messages, pack=pack, find_entities=reader.entities_in,
+            refetch=refetch, temperature=args.temperature, fallback=FALLBACK, profile=reader.profile,
+            task=session.task, allowed=[name for text in said for name in reader.entities_in(text)], heard=heard)
     else:
-        answer, questions, meta = tidy(draft, allow_questions=False, profile=reader.profile)
-        answer, report = answer or FALLBACK, CheckReport(questions_removed=questions, meta_removed=meta)
+        answer, report = reply or FALLBACK, CheckReport()
     request_metrics = getattr(llm, "request_metrics", [])[request_offset:]
     usage = {key: sum(row[key] for row in request_metrics) if request_metrics and
              all(row[key] is not None for row in request_metrics) else None
              for key in ("prompt_tokens", "completion_tokens")}
     session.report = report
-    session.order = pack.order_note()
     session.metrics = {"seconds": round(time.perf_counter() - started, 3),
                        "calls": calls + report.calls,
                        "history_tokens": sum(estimate_tokens(m["content"]) for m in session.active_history),
                        "evidence_tokens": estimate_tokens(pack.render()) if pack.items else 0,
                        "evidence_budget": args.token_budget,
-                       "tier": tier_label(recall.log), "recalls": list(recall.log),
+                       "tier": tier_label(recall.log), "task": session.task, "recalls": list(recall.log),
                        **usage,
                        "first_response_seconds": request_metrics[0]["seconds"] if request_metrics else None,
                        "expansion_candidates": reader.last_expansion_trace.get("candidates", 0)}
@@ -588,13 +651,13 @@ def run_turn(query: str, *, reader: CanonReader, llm: ModelClient | None, sessio
     if getattr(args, "trace", None):
         write_trace(args.trace, {
             "at": time.strftime("%Y-%m-%dT%H:%M:%S"), "db": str(getattr(args, "db", "")),
-            "model": getattr(llm, "model", None), "query": query, "history": session.active_history,
-            "tools": session.tool_queries, "recalls": recall.log,
+            "model": getattr(llm, "model", None), "query": query, "task": session.task,
+            "history": session.active_history, "tools": session.tool_queries, "recalls": recall.log,
             "evidence": [{"eid": item.eid, "event_id": item.event_id, "channel": item.channel,
                           "source": item.source, "when": reader.time_label(item.event_id),
                           "said": reader.time_phrase(item.event_id)}
                          for item in pack.items],
-            "evidence_text": pack.render(), "order": session.order, "draft": draft, "check": report.stages,
+            "evidence_text": pack.render(), "draft": draft, "outline": session.outline, "check": report.stages,
             "problems": {str(index): {"sentence": report.sentences[index - 1].strip(), "reason": reason,
                                       "status": report.issues.get(index, "")}
                          for index, reason in sorted(report.problems.items())},
@@ -705,7 +768,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.question is None:
         print("输入 /quit 退出，/clear 清空内存中的对话，/sources 查看上一轮的路线、记忆和核验。")
     session = Session(tools=not args.no_tools)
-    profile = persona_profile(persona)
     try:
         while True:
             try:
@@ -731,8 +793,7 @@ def main(argv: list[str] | None = None) -> int:
                     break
                 continue
             try:
-                run_turn(query, reader=reader, llm=llm, session=session, args=args,
-                         persona=persona, profile=profile)
+                run_turn(query, reader=reader, llm=llm, session=session, args=args, persona=persona)
             except (sqlite3.Error, httpx.HTTPError, KeyError, ValueError, RuntimeError) as exc:
                 print(f"[canon] 本轮失败：{exc}", file=sys.stderr)
                 if args.question is not None:

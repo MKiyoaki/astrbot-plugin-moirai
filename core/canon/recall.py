@@ -2,7 +2,9 @@
 
 The model decides whether a turn needs recall at all, how deep to go and which path fits; this module
 only retrieves deterministically. Every recall in a turn draws on one evidence budget, which never widens
-on its own, so the budget is a real upper bound on the source text the model reads.
+on its own, so the budget is a real upper bound on the source text the model reads. Recalled memories go
+into the turn's evidence pack, which the prompt shows once in story order; a tool result only reports what
+was added, so the same text is never sent twice.
 """
 from __future__ import annotations
 
@@ -11,17 +13,16 @@ from collections import Counter
 
 from .assembly import EvidenceAssembler, EvidenceSettings
 from .gateway import EvidencePack, Memory
-from .packing import (estimate_tokens, fill, fill_overview, fill_story_adaptive, overview_tool_result,
-                      rank_reason_hits)
+from .packing import (estimate_tokens, fill, fill_overview, fill_story_adaptive, rank_reason_hits,
+                      result_line)
 from .query import TurnPlan
 from .reader import CanonReader, fact_search
 
 PATHS = ("event", "reason", "impression", "arc", "latest", "timeline", "recent")
 TURN_BUDGET = 2000
 VERIFY_EXTRA = 400
-DEEP_NOTE = "（这是一段需要梳理的经过：这一轮不受三句的限制，用一段话讲清主要经过，约 150–300 字，不逐条复述。）"
-CAUSAL_NOTE = ("（这是一段前因后果：这一轮不受三句的限制，用一段话按先后讲清，约 150–300 字：先说起点，"
-               "再说两三个关键转折，最后说结果；只挑必要的事，不逐条复述。两件事之间的因果没有原话依据时，说成你自己的判断。）")
+WINDOW_BEFORE = 2
+WINDOW_AFTER = 6
 DEPTHS = ("light", "deep")
 PROBE_NAMES = 3
 PROBE_COLLECTIONS = 3
@@ -97,7 +98,7 @@ class CanonRecall:
         self.evidence = EvidenceAssembler(reader, TurnPlan("canon", (), None, ""), settings)
         self.log: list[dict] = []
         self._entity_ids: dict[str, int] | None = None
-        self._known: set[str] | None = None
+        self.task = "fact"
         self._axis: list[dict] | None = None
 
     @property
@@ -111,11 +112,7 @@ class CanonRecall:
         return max(0, self.settings.token_budget - self.used())
 
     def known_events(self) -> set[str]:
-        if self._known is None:
-            self._known = {row[0] for row in self.reader.db.execute(
-                f"SELECT event_id FROM {self.reader.views} WHERE character=? AND channel!='unstated'",
-                (self.reader.character,))}
-        return self._known
+        return self.reader.known_set()
 
     def entity_ids(self) -> dict[str, int]:
         if self._entity_ids is None:
@@ -159,48 +156,46 @@ class CanonRecall:
         if not query and not subject:
             return "没有指定要回忆的内容。"
         if room <= 0:
-            return "这一轮能想起的内容已经到上限；只根据上面已有的记忆回答，没有的就说记不清。"
-        if deep or path == "reason":
-            self.pack.ordered = True
+            return "这一轮能想起的内容已经到上限；只根据[你的记忆]回答。"
         share = room
         cap = self.used() + share
-        added, body = self._fetch(query or subject, path, subject, deep, share, cap)
+        added = self._fetch(query or subject, path, subject, deep, share, cap)
         entry.update(added=len(added), tokens_after=self.used())
         if not added:
             if self.pack.items:
-                return "没有想起新的相关的事；只根据上面已有的记忆回答，没有的就说记不清。"
+                return "没有想起新的相关的事；只根据[你的记忆]回答。"
             return ("没有想起相关的事。可以换一个更具体的人物、地点或组织的名字，或者不填 subject 再回忆一次；"
-                    "仍然想不起来就说记不清。")
-        note = CAUSAL_NOTE if deep and path == "reason" else DEEP_NOTE if deep else ""
-        return "\n".join(part for part in (note, body, self.pack.order_note()) if part)
+                    "仍然想不起来，就说这件事没印象。")
+        return f"想起了 {len(added)} 段，已按发生先后编号放进[你的记忆]。"
 
     def _focus(self, subject: str) -> str | None:
         """Only a known entity name narrows a search; any other text is left to the query itself."""
         return subject if subject in self.reader.entity_type else None
 
-    def _fetch(self, text: str, path: str, subject: str, deep: bool, share: int,
-               cap: int) -> tuple[list[Memory], str]:
+    def _fetch(self, text: str, path: str, subject: str, deep: bool, share: int, cap: int) -> list[Memory]:
         reader, settings, pack = self.reader, self.settings, self.pack
         focus = self._focus(subject)
+        if self.task == "recount" and path in ("event", "reason", "arc"):
+            hits, episode = fact_search(reader, text, top_k=settings.top_k, evidence_lines=settings.evidence_lines,
+                                        doctor=settings.doctor, focus_person=focus)
+            if deep or path == "arc":
+                return self._storyline(text, hits, episode, cap)
+            return self._incident(hits, episode, cap)
         if path in ("arc", "impression"):
             hits, trace = reader.overview_search(
                 text, doctor=settings.doctor, evidence_lines=min(4 if path == "arc" else 2, settings.evidence_lines),
                 personal=path == "impression", story=path == "arc" and deep)
             if path == "arc" and deep and not pack.items:
-                added, _ = fill_story_adaptive(pack, hits, cap, widen=False)
-            else:
-                added = fill_overview(pack, hits, cap)
-            return added, overview_tool_result(pack, added, trace, cap) if added else ""
+                return fill_story_adaptive(pack, hits, cap, widen=False)[0]
+            return fill_overview(pack, hits, cap)
         if path == "latest" and (hits := self._latest_of(subject)):
-            added = fill(pack, hits, None, share, total_budget=cap)
-            return added, pack.render(added)
+            return fill(pack, hits, None, share, total_budget=cap)
         if path == "latest":
             hits, _ = reader.search(subject if focus else text, top_k=24, evidence_lines=settings.evidence_lines,
                                     doctor=settings.doctor, focus_person=focus, known_only=True)
             hits = sorted(hits, key=lambda hit: (reader.times.get(hit.event_id, (float("-inf"),))[0], hit.position),
                           reverse=True)[:settings.top_k]
-            added = fill(pack, hits, None, share, total_budget=cap)
-            return added, pack.render(added)
+            return fill(pack, hits, None, share, total_budget=cap)
         if path in ("timeline", "recent") and reader.now:
             return self._timeline(text, subject, share, cap, recent=path == "recent")
         reason = path == "reason"
@@ -213,8 +208,39 @@ class CanonRecall:
             seen = {hit.event_id for hit in hits}
             context = [hit for hit in reader.expand_context(hits[:2], text, limit=3) if hit.event_id not in seen]
             hits = [*hits[:2], *context, *hits[2:]]
-        added = fill(pack, hits, episode, share, total_budget=cap)
-        return added, pack.render(added)
+        return fill(pack, hits, episode, share, total_budget=cap)
+
+    def _storyline(self, text: str, hits: list, episode: str | None, cap: int) -> list[Memory]:
+        """A longer account: the anchor in full, then the story's source-ordered outline to its end, one line each.
+
+        The incident window stops where the anchor's scene stops; an account that runs across chapters needs the
+        skeleton through to the outcome, with the anchor as the one part told in detail.
+        """
+        reader, pack = self.reader, self.pack
+        known = [hit for hit in hits if hit.channel != "unstated" and hit.event_id not in pack]
+        added = fill(pack, known[:1], episode, cap, total_budget=cap) if known else []
+        outline, _ = reader.overview_search(text, doctor=self.settings.doctor, evidence_lines=0, personal=False,
+                                            story=True)
+        beats = [result_line(hit) for hit in outline if hit.event_id not in pack]
+        return added + fill(pack, beats, None, cap, total_budget=cap)
+
+    def _incident(self, hits: list, episode: str | None, cap: int) -> list[Memory]:
+        """A recount's evidence: the anchor in full, then its scene's known neighbours and the other hits as beats.
+
+        The anchor keeps its summary, source lines and scene recollection; every other event gives one line, its
+        title and closing sentence, so the whole incident fits where five full events used to.
+        """
+        reader, pack = self.reader, self.pack
+        known = [hit for hit in hits if hit.channel != "unstated" and hit.event_id not in pack]
+        if not known:
+            return []
+        anchor = known[0]
+        added = fill(pack, [anchor], episode, cap, total_budget=cap)
+        run = reader.scene_run(anchor.event_id, before=WINDOW_BEFORE, after=WINDOW_AFTER)
+        neighbours = [hit for hit in (reader.hit(event, 0) for event in run if event != anchor.event_id) if hit]
+        others = [hit for hit in known[1:] if hit.event_id not in run]
+        beats = [result_line(hit) for hit in (*neighbours, *others) if hit.event_id not in pack]
+        return added + fill(pack, beats, None, cap, total_budget=cap)
 
     def _latest_of(self, subject: str) -> list:
         """A named subject's newest known, dated events up to now, taken from its entity links."""
@@ -266,7 +292,7 @@ class CanonRecall:
         mark = "→ " if anchors & {event[2] for event in group["events"]} else "· "
         return f"{mark}{group['label']} " + (f"{group['story']}：" if group["story"] else "") + topics
 
-    def _timeline(self, text: str, subject: str, share: int, cap: int, *, recent: bool) -> tuple[list[Memory], str]:
+    def _timeline(self, text: str, subject: str, share: int, cap: int, *, recent: bool) -> list[Memory]:
         reader, settings, pack, axis = self.reader, self.settings, self.pack, self.axis()
         if recent:
             chosen = axis[-RECENT_ROWS:]
@@ -283,7 +309,7 @@ class CanonRecall:
             where = [index for index, group in enumerate(axis)
                      if anchors & {event[2] for event in group["events"]}]
             if not where:
-                return [], ""
+                return []
             window = sorted({near for index in where for near in range(index - AXIS_NEIGHBOURS, index + AXIS_NEIGHBOURS + 1)
                              if 0 <= near < len(axis)})
             chosen = [axis[index] for index in window]
@@ -302,7 +328,7 @@ class CanonRecall:
             axis_item = None
             rows.pop(0 if recent or not rows[0].startswith("→") else -1)
         if axis_item is None:
-            return [], ""
+            return []
         room = cap - estimate_tokens(pack.render())
         added = fill(pack, hits, None, room, total_budget=cap) if room > 0 else []
-        return [axis_item, *added], pack.render([axis_item, *added])
+        return [axis_item, *added]

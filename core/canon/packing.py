@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import math
 import re
 from dataclasses import dataclass, replace
 
-from .character import AMIYA
-from .gateway import EvidencePack, Memory
+from .gateway import EvidencePack, Memory, full_sentences
 
 
 CHANNEL_LABEL = {
@@ -43,16 +41,10 @@ def clip(text: str, limit: int) -> str:
     return text[:limit] + ("……" if len(text) > limit else "")
 
 
-_PRIVATE_PLAYER = re.compile(
-    rf"(?:{re.escape(AMIYA.player_placeholder)}|{AMIYA.player})[^，。！？]{{0,12}}"
-    r"(?:感到|感觉|觉得|意识到|直觉|心里|不由自主|无法准确判断)"
-)
-
-
-def visible_summary(summary: str) -> str:
-    """Leave unspoken Doctor thoughts out of Amiya's injected memory summaries."""
-    return "".join(part for part in re.split(r"(?<=[。！？])", summary)
-                   if not _PRIVATE_PLAYER.search(part)).strip()
+def result_line(hit: Hit) -> Hit:
+    """One storyline beat: the event's title and its summary's closing sentence, which states the outcome."""
+    sentences = full_sentences(hit.summary)
+    return replace(hit, summary=clip(hit.topic + "：" + (sentences[-1] if sentences else ""), 90), evidence=())
 
 
 def fill(pack: EvidencePack, hits: list[Hit], episode: str | None, budget: int,
@@ -65,7 +57,7 @@ def fill(pack: EvidencePack, hits: list[Hit], episode: str | None, budget: int,
             continue
         lines = list(hit.evidence)
         note = episode if index == 0 and episode else ""
-        summary = visible_summary(hit.summary)
+        summary = hit.summary
         if summary_limit is not None:
             summary = clip(summary, summary_limit)
         while True:
@@ -124,7 +116,7 @@ def fill_overview(pack: EvidencePack, hits: list[Hit], budget: int) -> list[Memo
             continue
         for summary_limit, line_limit, line_count in ((65, 85, 2), (50, 65, 2),
                                                        (55, 85, 1), (40, 55, 1)):
-            summary = clip(hit.topic + "：" + visible_summary(hit.summary), summary_limit)
+            summary = clip(hit.topic + "：" + hit.summary, summary_limit)
             lines = tuple((speaker, clip(text, line_limit))
                           for _, speaker, text in hit.evidence[:line_count])
             item = pack.add(hit.event_id, hit.anchor, hit.channel, summary, lines)
@@ -167,7 +159,7 @@ def fill_story_adaptive(pack: EvidencePack, hits: list[Hit], budget: int,
         if hit.event_id in pack:
             continue
         summary = _story_source(hit.anchor) + "｜" + clip(
-            hit.topic + "：" + visible_summary(hit.summary), 40)
+            hit.topic + "：" + hit.summary, 40)
         pack.add(hit.event_id, hit.anchor, hit.channel, summary, ())
         if estimate_tokens(pack.render()) > outline_cap:
             pack.pop()
@@ -190,30 +182,3 @@ def fill_story_adaptive(pack: EvidencePack, hits: list[Hit], budget: int,
                 blocked.add(item.event_id)
     effective = cap if estimate_tokens(pack.render()) > budget else budget
     return pack.items[:], effective
-
-
-def overview_tool_result(pack: EvidencePack, added: list[Memory], trace: dict,
-                         budget: int) -> str:
-    """Return bounded, source-linked tool evidence without claiming complete coverage."""
-    while added:
-        entries = []
-        for item in added:
-            keys = trace.get("source_lines", {}).get(item.event_id, ())
-            entries.append({
-                "ref": item.eid, "event_id": item.event_id,
-                "channel": CHANNEL_LABEL.get(item.channel, item.channel),
-                "summary": item.summary,
-                "lines": [{"line_key": key, "speaker": speaker, "text": body}
-                          for key, (speaker, body) in zip(keys, item.lines)],
-            })
-        result = json.dumps({
-            "scope": trace.get("scope"), "coverage": "代表性片段，不能据此断言完整或跨篇章时序",
-            "evidence": entries,
-        }, ensure_ascii=False, separators=(",", ":"))
-        if estimate_tokens(result) <= budget:
-            return result
-        if pack.items[-1] is not added[-1]:
-            raise RuntimeError("Overview evidence pack changed while rendering a tool result")
-        pack.pop()
-        added.pop()
-    return "没有想起新的相关经历；现有证据可能只覆盖部分情节。"
