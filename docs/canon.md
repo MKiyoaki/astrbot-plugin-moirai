@@ -47,7 +47,7 @@ Bot 试跑用的库原定为本机 `.dev_data/canon/v7/20/api/20260924-045430-kc
 
 1. 终端原型的检索和装填逻辑已迁进 `core/canon`（v1.2.18.sub）。先按 [canon 运行时结构](canon-runtime-architecture.md) 定下线程模型和待决问题，再以 `EvidenceAssembler` 完成 B6 检索、B7 Bot 路径、B9 生命周期。
    - **B7 沿用终端逻辑**（2026-09-30 用户决定）：模型按档位自己调用 `canon_probe`、`canon_recall`、`operator_archive`，档位分不召回、轻量召回、深度探索、查档案；召回过的轮次在生成后做逐句对齐检查和定点修补。不再采用“生成前把证据块注入提示词”。
-   - **Core 协议已扩展**：Core v0.8.0 新增 Generation Protocol v1（Event Protocol v1 不变），扩展可以向宿主模型提供工具，并在回复生成后、`after_generation` 之前审稿替换。审稿要在回复发出前完成，所以 AstrBot 必须关闭流式输出，Core 不做流式兼容。Moirai v1.2.33.sub 的 `core/adapters/core_canon.py` 接入。宿主的系统提示词在工具轮之间不能重建，所以召回后的[你的记忆]块随工具结果返回，这是 Bot 路径和终端唯一的结构差别。
+   - **Core 协议已扩展**：Core v0.8.0 新增 Generation Protocol v1（Event Protocol v1 不变），扩展可以向宿主模型提供工具，并在回复生成后、`after_generation` 之前审稿替换。审稿要在回复发出前完成，所以 AstrBot 必须关闭流式输出，Core 不做流式兼容。Moirai v1.2.33.sub 的 `core/adapters/core_canon.py` 接入。宿主的系统提示词在工具轮之间不能重建，所以召回后的[你的记忆]块随工具结果返回，这是 Bot 路径和终端唯一的结构差别。v1.2.34.sub 起，同一轮第二次召回只返回新想起的事，并写明它们排在已给出的哪件事前后，不再整块重发。
    - 工作区的 `scripts/fullflow_test.py` 默认走真实 Core 路径（脚本当宿主，跑工具循环）；`--path terminal` 保留终端路径作对照。之后先接入 B8 的 `/mrm canon status` 和 `/mrm canon test`，便于检查实际命中与渲染结果。保持 canon 默认关闭，只让显式映射的人格桶使用。加入相应 B10 离线测试，覆盖检索降级、token 预算、博士称呼、时间过滤、`clear_namespace` 之后的注入以及 canon 故障不影响原有记忆。
 2. 在启用 Core Event Protocol v1 的 AstrBot 中，把试跑库映射到阿米娅人格桶，用同一批问题先看 `/mrm canon test` 的事件、分数、证据，再看真实回复和实际注入块。分别检查范围内的剧情、试跑库范围之外的话题、博士身份开关、时间点过滤、重复提问及 canon 不可用时的降级。范围外问题要分别记录“没有命中 canon”和“Bot 最终怎样回答”：模型自带知识也可能回答，不等于 canon 泄漏。
 3. 记录错误命中、漏召回、错误渠道、原文证据不贴题和回答中的身份混淆，用户审阅后决定是否需要调整检索、渲染或抽取。确认试跑可用，再完成 B8 后台全库导入与其余 B10 测试，并按原规格验收当前 story_pack 的全部场景。当前包的 `manifest.json` 记录 618 个场景；规格中的 622 是旧规模，导入数量以当次包为准。
@@ -81,7 +81,7 @@ Moirai core/canon（M1，已实现）
     → 不召回：直接回答
     → 轻量召回 / 深度探索 / 查档案：Core 把工具调用转给 CanonTurn（CanonRecall / EvidenceAssembler）
        → 检索：向量 + 事件文本 + 原文台词 + 实体四路加权 RRF；角色不知情（unstated）的事件只作导航，不注入
-       → 证据按先后编号放进[你的记忆]，随工具结果返回（终端是每次请求前重建系统提示词）
+       → 证据按先后编号放进[你的记忆]，随工具结果返回；之后的召回只返回新想起的事（终端是每次请求前重建系统提示词）
   Core review（after_generation 之前）→ 兜底补召回、提纲缺块补查、逐句对齐检查，有问题才定点修补一次
     → 回复有变化时替换（AstrBot 需关闭流式输出）
   Core after_generation → Moirai 把审稿后的回复写回聊天记忆（回写污染见运行时结构的待决问题 5）

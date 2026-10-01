@@ -1,5 +1,32 @@
 # CHANGELOG
 
+## [v1.2.34.sub] — 2026-10-01
+
+### canon 第二次召回只发新想起的事；聊天记忆抽取没等到模型时稍后重试
+
+- 起因：v1.2.33.sub 在真实 Core 路径上的全流程复测中，“canon + 记忆”组的输入 token 多了 13%：同一轮第二次召回把整个[你的记忆]块又发了一遍。同一次复测里，第 2 段对话的记忆抽取超时 3 次后退回规则摘要，丢了“红烧肉”，个人题从 6 分掉到 4 分。两项改法均于 2026-10-01 经用户逐项确认。
+- `core/canon/gateway.py`：
+  - `EvidencePack` 新增 `labels()`，返回每条记忆当前的编号。
+  - 新增 `render_new(shown)`，只渲染还没给模型看过的记忆。新事件标作“新1”“新2”……（整轮连续编号），括号里写明它排在已给出的哪件事之后、之前或之间；“先后不明”和档案保持原有标记；〔因果〕行只保留涉及新事件的对。
+  - `_block` 增加可选的位置标签。
+- `core/canon/turn.py`：
+  - `CanonTurn` 用 `shown` 记下模型已看到的编号；`block()` 生成 canon 块时同步记下。
+  - `tool_text` 第一次补到记忆时仍返回整块，之后只返回 `ADDED_NOTE` 加新增部分。
+  - 终端、审稿时的修补提示和逐句核对都仍按整个证据包渲染，不受影响。
+- `core/extractor/extractor.py`：
+  - 新增 `ModelUnavailable`：抽取、JSON 修复或分段提炼的模型调用在原有的调用内重试后仍超时或报错时抛出。
+  - `__call__` 收到 `ModelUnavailable` 时，这段对话先等待，再重新抽取，最多重试 `extractor_requeue_attempts` 次（默认 2），间隔 `extractor_requeue_delay_seconds` 秒（默认 60）；只有最后一次才退回规则摘要。
+  - 模型回了内容但解析失败时，照旧先做 JSON 修复，再退回规则摘要，不重试整段。`llm` 和 `semantic` 两种策略都适用。
+  - 等待中的对话不算进行中的抽取，不会拖住 [Eval] 批处理。
+  - 新增 `drain_requeued()`：插件关闭时，仍在等待的对话立即按规则摘要写入，不会丢失。
+- `core/config.py`：`ExtractorConfig` 新增 `requeue_attempts`、`requeue_delay_seconds`，分别读取上面两个配置键（与 `extractor_llm_timeout_seconds` 一样不在 WebUI 配置页显示）。
+- `core/plugin_initializer.py`：`teardown` 在 `drain_evals` 之前调用 `drain_requeued`。
+- 文档：`docs/canon.md`、`docs/canon-runtime-architecture.md` 补充第二次召回的返回方式。
+- 测试：
+  - 本地 `tests/test_canon_generation.py` 新增 2 项：只渲染新记忆并标位置，以及第二次工具结果只带新记忆。
+  - `tests/test_event_summary.py` 新增 5 项：超时一次后由模型抽取成功；只在最后一次退回规则摘要；解析失败立即退回；关闭时等待中的对话按规则摘要写入；两个配置键的读取。
+  - Moirai 离线测试 376 项通过（1 项跳过），工作区联合检查 28 项通过，全流程自检 2 项通过。
+
 ## [v1.2.33.sub] — 2026-10-01
 
 ### canon 接入 Core Generation Protocol v1：Bot 路径由模型调用工具，回复生成后审稿

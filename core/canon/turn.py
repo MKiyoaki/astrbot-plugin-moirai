@@ -18,6 +18,8 @@ from .recall import PROBE_TOOL, VERIFY_EXTRA, CanonRecall, present_phrase, recal
 MAX_TOOL_ROUNDS = 2
 FALLBACK = "嗯……这件事我记不太清了。"
 WRAP_UP = "（回忆次数已用完，不要再调用工具；只根据[你的记忆]直接回答。）"
+ADDED_NOTE = ("[你的记忆·接着想起的]\n这是这一轮又想起的事，接在前面的[你的记忆]后面看，前面的不再重复。"
+              "新想起的事标作“新1”“新2”，按发生先后编号，括号里写着它排在前面哪件事的前后。编号和括号只供你对照，不要说出来。")
 OUTPUT_RULES = (
     "[回复要求]\n"
     "· 先回应博士说的话；自然交流时可以顺势问一句，不要用反问代替回答。\n"
@@ -215,6 +217,7 @@ class CanonTurn:
         self.think = self.task in SKELETONS
         self.offer = False
         self.executed = 0
+        self.shown: dict[str, str] = {}
         self.draft = self.outline = ""
 
     def start(self) -> None:
@@ -313,6 +316,7 @@ class CanonTurn:
 
     def block(self) -> str:
         """The canon part of a host system prompt that stays fixed for the whole tool loop."""
+        self.shown = self.pack.labels()
         return build_block(self.doctor, self.pack, self.offer, self.archives, self.anchored, self.task, self.think)
 
     def messages(self, outline: bool = False) -> list[dict]:
@@ -323,8 +327,9 @@ class CanonTurn:
     def tool_text(self, name: str, arguments: dict) -> str:
         """A tool result for a host with a fixed system prompt: the memories travel with the result.
 
-        A second recall repeats the whole memory block, renumbered in story order. Executions are capped at the
-        terminal's tool rounds; later calls get the wrap-up note.
+        The first result with memories carries the whole memory block; a later one carries only the memories not
+        yet shown, placed among those already shown, since earlier results stay in the host's conversation.
+        Executions are capped at the terminal's tool rounds; later calls get the wrap-up note.
         """
         handler = self.handlers.get(name)
         if handler is None:
@@ -336,7 +341,11 @@ class CanonTurn:
         result = handler(arguments if isinstance(arguments, dict) else {})
         if len(self.pack.items) == before:
             return result
-        return f"{result}\n\n{knowledge(self.pack, False, self.task, self.think)}"
+        if not self.shown:
+            self.shown = self.pack.labels()
+            return f"{result}\n\n{knowledge(self.pack, False, self.task, self.think)}"
+        added, self.shown = self.pack.render_new(self.shown)
+        return f"{result}\n\n{ADDED_NOTE}\n{added}"
 
     def settle(self, draft: str, complete: Callable[[list[dict], float], str], temperature: float, *,
                supplement: Callable = supplement_recall) -> tuple[str, int]:

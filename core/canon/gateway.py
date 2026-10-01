@@ -227,14 +227,14 @@ class EvidencePack:
             return "我"
         return self.doctor_label if self.doctor_present and speaker.startswith(self.profile.player) else speaker
 
-    def _block(self, label: str, item: Memory, unplaced: bool) -> str:
+    def _block(self, label: str, item: Memory, unplaced: bool, place: str = "") -> str:
         if item.eid.startswith("A"):
             head = f"〔档案〕{self.voice(item.summary)}"
         elif item.eid.startswith("T"):
             head = f"〔时间轴〕{item.summary}"
         else:
             when = self.when(item.event_id) if self.when else ""
-            tags = [part for part in (when, self.channels.get(item.channel, self.channels["unstated"]),
+            tags = [part for part in (place, when, self.channels.get(item.channel, self.channels["unstated"]),
                                       "先后不明" if unplaced else "") if part]
             head = f"{label}（{'·'.join(tags)}）{self.voice(item.summary)}"
         out = [head, *(f"  「{self._speaker(speaker)}：{body}」" for speaker, body in item.lines)]
@@ -275,6 +275,47 @@ class EvidencePack:
             if pairs:
                 out.append("〔因果〕原文明说前一件促成了后一件：" + "、".join(pairs))
         return "\n".join(out)
+
+    def labels(self) -> dict[str, str]:
+        return {beat.item.eid: beat.label for beat in self.beats()}
+
+    def render_new(self, shown: dict[str, str]) -> tuple[str, dict[str, str]]:
+        """Only the memories a reader has not seen, for a conversation where the earlier render stays in view.
+
+        A new event is labelled 新n and placed between the labels already shown; the causal line keeps only the
+        pairs that involve a new event. Returns the text and the labels now shown.
+        """
+        beats = self.beats()
+        seen = dict(shown)
+        count = sum(1 for label in shown.values() if label.startswith("新"))
+        placed = [beat for beat in beats if beat.rank is not None]
+        out, fresh = [], set()
+        for beat in beats:
+            if beat.item.eid in shown:
+                continue
+            fresh.add(beat.item.eid)
+            if not beat.item.eid.startswith("E"):
+                seen[beat.item.eid] = beat.label
+                out.append(beat.text)
+                continue
+            count += 1
+            label = f"新{count}"
+            seen[beat.item.eid] = label
+            place = ""
+            if beat.rank is not None:
+                index = placed.index(beat)
+                before = next((shown[b.item.eid] for b in reversed(placed[:index]) if b.item.eid in shown), "")
+                after = next((shown[b.item.eid] for b in placed[index + 1:] if b.item.eid in shown), "")
+                place = (f"排在{before}和{after}之间" if before and after else f"排在{before}之后" if before
+                         else f"排在{after}之前" if after else "")
+            out.append(self._block(label, beat.item, beat.label == "※", place))
+        ranked = {beat.item.event_id: seen[beat.item.eid] for beat in placed}
+        new_events = {beat.item.event_id for beat in placed if beat.item.eid in fresh}
+        pairs = sorted(f"{ranked[a]}→{ranked[b]}" for a, b in self.licensed()
+                       if a in ranked and b in ranked and (a in new_events or b in new_events))
+        if pairs:
+            out.append("〔因果〕原文明说前一件促成了后一件：" + "、".join(pairs))
+        return "\n".join(out), seen
 
     def mentions(self, name: str) -> bool:
         return bool(_norm(name)) and _norm(name) in _norm(self.render())

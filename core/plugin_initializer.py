@@ -731,6 +731,10 @@ class PluginInitializer:
             await self.router.flush_all()
         if getattr(self, "extractor", None) is not None:
             try:
+                await self.extractor.drain_requeued()
+            except Exception:
+                pass
+            try:
                 await self.extractor.drain_evals()
             except Exception:
                 pass

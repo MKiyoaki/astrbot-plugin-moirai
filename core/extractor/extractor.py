@@ -146,6 +146,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class ModelUnavailable(Exception):
+    """The model gave no answer after the in-call retries; the window can wait and be extracted again."""
+
+
 class EventExtractor:
     """Fills Event.topic / chat_content_tags / salience / confidence via LLM,
     then stores the embedding for vector search.
@@ -222,6 +226,11 @@ class EventExtractor:
         self._eval_worker: asyncio.Task | None = None
         self._eval_batch_size: int = 10
         self._eval_queue_max: int = 500
+        self._requeue_attempts = max(0, int(getattr(cfg, "requeue_attempts", 2)))
+        self._requeue_delay = max(0.0, float(getattr(cfg, "requeue_delay_seconds", 60.0)))
+        self._closing = False
+        self._wakes: dict[asyncio.Task, asyncio.Event] = {}
+        self._requeued: set[asyncio.Task] = set()
 
         from ..utils.cache import TTLCache
         self._frequent_tags_cache: TTLCache[list[str]] = TTLCache(ttl=60.0)
@@ -255,15 +264,65 @@ class EventExtractor:
                 logger.debug("[EventExtractor] tag seed upsert failed for %s: %s", tag, exc)
 
     async def __call__(self, window: MessageWindow) -> None:
-        """on_event_close callback: extract the window, then queue its [Eval] pass."""
-        self._active_extractions += 1
-        try:
-            await self._process_window(window)
-        finally:
-            self._active_extractions -= 1
-            self._kick_eval_worker()
+        """on_event_close callback: extract the window, then queue its [Eval] pass.
 
-    async def _process_window(self, window: MessageWindow) -> None:
+        When the model gives no answer, the window waits and is extracted again, up to the requeue attempts; only
+        the last attempt falls back to the rule summary, so a slow model does not cost the window its details.
+        A waiting window is not an active extraction, and teardown writes it at once with the rule summary.
+        """
+        task = asyncio.current_task()
+        attempt = 0
+        try:
+            while True:
+                final = attempt >= self._requeue_attempts
+                self._active_extractions += 1
+                try:
+                    await self._process_window(window, defer=not final and not self._closing,
+                                               rule_only=attempt > 0 and self._closing)
+                    return
+                except ModelUnavailable as exc:
+                    logger.warning(
+                        "[EventExtractor] %s got no answer; window waits %.0fs before attempt %d/%d "
+                        "(session=%s, message_count=%d)",
+                        exc, self._requeue_delay, attempt + 2, self._requeue_attempts + 1,
+                        window.session_id, window.message_count,
+                    )
+                finally:
+                    self._active_extractions -= 1
+                    self._kick_eval_worker()
+                attempt += 1
+                if task is not None:
+                    self._requeued.add(task)
+                await self._wait(task)
+        finally:
+            if task is not None:
+                self._requeued.discard(task)
+
+    async def _wait(self, task: asyncio.Task | None) -> None:
+        if self._closing:
+            return
+        wake = asyncio.Event()
+        if task is not None:
+            self._wakes[task] = wake
+        try:
+            await asyncio.wait_for(wake.wait(), timeout=self._requeue_delay)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            if task is not None:
+                self._wakes.pop(task, None)
+
+    async def drain_requeued(self) -> None:
+        """Write every window still waiting for the model with the rule summary; called on teardown."""
+        self._closing = True
+        for wake in tuple(self._wakes.values()):
+            wake.set()
+        current = asyncio.current_task()
+        tasks = [task for task in tuple(self._requeued) if task is not current]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _process_window(self, window: MessageWindow, *, defer: bool = False, rule_only: bool = False) -> None:
         """Partition, distill/extract, persist, then index vector.
 
         Both strategies share the same post-partition pipeline:
@@ -312,7 +371,8 @@ class EventExtractor:
         if self._strategy == "llm":
             # One batch call: LLM handles both splitting and field extraction.
             async with performance_timer("extraction"):
-                batch_results = await self._extract_batch(window, existing_tags=steering_tags)
+                batch_results = await self._extract_batch(window, existing_tags=steering_tags,
+                                                          defer=defer, rule_only=rule_only)
                 if len(batch_results) == 1 and window.messages:
                     batch_results[0]["start_idx"] = 0
                     batch_results[0]["end_idx"] = len(window.messages) - 1
@@ -331,6 +391,8 @@ class EventExtractor:
                     res = await self._distill(
                         sub_messages,
                         existing_tags=steering_tags,
+                        defer=defer,
+                        rule_only=rule_only,
                     )
                 return (part.indices, res)
 
@@ -338,6 +400,9 @@ class EventExtractor:
                 *[_distill_part(p) for p in partitions],
                 return_exceptions=True,
             )
+            unavailable = next((o for o in distill_outcomes if isinstance(o, ModelUnavailable)), None)
+            if unavailable is not None:
+                raise unavailable
             for outcome in distill_outcomes:
                 if isinstance(outcome, BaseException):
                     logger.warning("[EventExtractor] distill partition failed: %s", outcome)
@@ -785,7 +850,25 @@ class EventExtractor:
         assert last_exc is not None
         raise last_exc
 
-    async def _extract_batch(self, window: MessageWindow, existing_tags: list[str] | None = None) -> list[dict]:
+    async def _ask(self, coro_factory, task_name: str, defer: bool) -> tuple[object, int]:
+        try:
+            return await self._call_llm_with_retry(coro_factory, task_name)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            if defer:
+                raise ModelUnavailable(task_name) from exc
+            raise
+
+    async def _extract_batch(self, window: MessageWindow, existing_tags: list[str] | None = None, *,
+                             defer: bool = False, rule_only: bool = False) -> list[dict]:
+        if rule_only:
+            logger.warning(
+                "[EventExtractor] event fell back to rule extraction: reason=teardown_after_no_answer, "
+                "session=%s, message_count=%d",
+                window.session_id, window.message_count,
+            )
+            return fallback_extraction(window)
         provider = self._provider_getter()
         if provider is None:
             _warn_no_provider()
@@ -805,9 +888,9 @@ class EventExtractor:
         fallback_reason = "parse_error"
         retries_used = 0
         try:
-            resp, retries_used = await self._call_llm_with_retry(
+            resp, retries_used = await self._ask(
                 lambda: provider.text_chat(prompt=prompt, system_prompt=system_prompt),
-                task_name="extraction",
+                "extraction", defer,
             )
             result = parse_llm_output(
                 _response_text(resp),
@@ -830,9 +913,9 @@ class EventExtractor:
                 "必须包含 topic、summary、chat_content_tags、salience、confidence。\n\n"
                 f"{raw_text[:2500]}"
             )
-            repair_resp, _ = await self._call_llm_with_retry(
+            repair_resp, _ = await self._ask(
                 lambda: provider.text_chat(prompt=repair_prompt, system_prompt="你只负责修复 JSON。"),
-                task_name="extraction_repair",
+                "extraction_repair", defer,
             )
             result = parse_llm_output(
                 _response_text(repair_resp),
@@ -849,6 +932,8 @@ class EventExtractor:
                 window.message_count,
                 _response_text(repair_resp)[:240],
             )
+        except ModelUnavailable:
+            raise
         except asyncio.TimeoutError:
             fallback_reason = "timeout"
             logger.warning(
@@ -868,10 +953,11 @@ class EventExtractor:
         )
         return fallback_extraction(window)
 
-    async def _distill(self, messages: list, existing_tags: list[str] | None = None) -> dict:
+    async def _distill(self, messages: list, existing_tags: list[str] | None = None, *,
+                       defer: bool = False, rule_only: bool = False) -> dict:
         """Call LLM to summarize a specific cluster of messages."""
         provider = self._provider_getter()
-        if provider is None:
+        if provider is None or rule_only:
             return fallback_single_extraction(messages)
 
         system_prompt = select_event_system_prompt(self._distillation_system_prompt, has_bot_persona=False)
@@ -880,13 +966,15 @@ class EventExtractor:
             existing_tags=existing_tags,
         )
         try:
-            resp, _ = await self._call_llm_with_retry(
+            resp, _ = await self._ask(
                 lambda: provider.text_chat(prompt=prompt, system_prompt=system_prompt),
-                task_name="distillation",
+                "distillation", defer,
             )
             result = parse_single_item(_response_text(resp), has_bot_persona=False)
             if result is not None:
                 return result
+        except ModelUnavailable:
+            raise
         except Exception as exc:
             logger.warning("[EventExtractor] LLM distillation failed: %s", exc)
 

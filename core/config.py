@@ -338,6 +338,8 @@ class ExtractorConfig:
     llm_timeout: float = 30.0
     llm_max_retries: int = 2
     llm_timeout_growth: float = 1.5
+    requeue_attempts: int = 2
+    requeue_delay_seconds: float = 60.0
     system_prompt: str = DEFAULT_EXTRACTOR_SYSTEM_PROMPT
     distillation_system_prompt: str = DEFAULT_DISTILLATION_SYSTEM_PROMPT
     strategy: str = "llm"  # "llm" or "semantic"
@@ -717,6 +719,8 @@ class PluginConfig:
                 min(40, self._int("context_window_size", 50)),
             ),
             llm_timeout=self._float("extractor_llm_timeout_seconds", 30.0),
+            requeue_attempts=self._int("extractor_requeue_attempts", 2),
+            requeue_delay_seconds=self._float("extractor_requeue_delay_seconds", 60.0),
             system_prompt=custom_prompt or DEFAULT_EXTRACTOR_SYSTEM_PROMPT,
             distillation_system_prompt=custom_distill_prompt or DEFAULT_DISTILLATION_SYSTEM_PROMPT,
             strategy=self._str("extraction_strategy", "llm"),
