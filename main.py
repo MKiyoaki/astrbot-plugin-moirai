@@ -81,6 +81,7 @@ class MoiraiPlugin(Star):
             _PLUGIN_VERSION,
             self._core_available,
             recall=lambda: self._initializer.recall if self._initializer else None,
+            canon=lambda: self._initializer.canon if self._initializer else None,
         )
 
     @property

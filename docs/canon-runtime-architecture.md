@@ -15,23 +15,23 @@
 | 结构扩展与综述 | `context.py` 的 `expand_events`、`overview.py`；`CanonReader.overview_search`、`expand_context` | |
 | 证据装填与预算 | `core/canon/packing.py`：`Hit`、`fill*`、`rank_reason_hits`、`result_line`、`estimate_tokens`；`recall.py` 的 `CanonRecall._incident`（讲经过的事件窗口）；`gateway.py` 的 `EvidencePack` | 预算常量仍直接写在 `fill_*` 里。`EvidencePack.render` 按 `CanonReader.sequence` 编号、换成第一人称，并列出 `CanonReader.causal_links` 的因果许可 |
 | 调度 | `core/canon/assembly.py`：`EvidenceAssembler`、`EvidenceSettings` | 一轮一个实例，持有证据包和本轮预算；首轮预取、`canon_recall` / `canon_overview` 工具和近况事实块都经过它。自适应装填放宽的预算对之后的工具调用可见 |
-| 提示词与工具 | `run_canon_chat.py` 的 `knowledge`、`build_system`、`OUTPUT_RULES`、`MEMORY_NOTE`、`STYLE`（[讲法]）、三个工具 schema 与回调、`archive_names`；`query.py` 的 `task_of` | 系统提示词每次请求前重建，工具结果只回一行说明。查档案由代码直接取。`run_turn` 可带入宿主侧的 `memory_block`（普通记忆），只给模型看，不参与路由和检查。Bot 路径沿用工具调用，见待决问题 4 |
+| 提示词、工具与收尾 | `core/canon/turn.py`：`CanonTurn`（三个工具回调、档案直查、`system` / `block` / `messages`、`tool_text`、`settle`、`check`），以及 `knowledge`、`build_block`、`build_system`、`OUTPUT_RULES`、`MEMORY_NOTE`、`STYLE`（[讲法]）、`archive_names`、`supplement_recall`；`query.py` 的 `task_of` | 终端和 Bot 共用。终端每次请求前重建系统提示词，工具结果只回一行说明；Bot 的系统提示词在工具轮之间不变，`tool_text` 把[你的记忆]块随结果返回，执行次数上限为 `MAX_TOOL_ROUNDS`。`run_turn` 可带入宿主侧的 `memory_block`（普通记忆），只给模型看，不参与路由和检查 |
 | 生成 | `run_canon_chat.py` 的 `generate`、`ModelClient`（httpx，同步）、`Session`、`conversation_history` | |
 | 检查 | `core/canon/gateway.py` 的 `align`、`inspect`、`check_reply`、`beat_line` | 检查本身不调模型：逐句对到证据，按结构标出问题；有问题才调一次模型定点修补，修补后仍有问题的句子换成对上的记忆原句。`CheckReport.stages` 记录对齐、修补和替换，供 `--trace` 和评测写出 |
 | 时间事实 | `core/canon/temporal.py` 的 `resolve`；`CanonReader.fact_context` | |
 | 世界日历 | `core/canon/calendar.py`（离线定坐标，`calendar-apply` 写 `event_times`）；`CanonReader.times`、`now`、`time_label`；`recall.py` 的 `timeline` / `recent` 路径 | 只存坐标，外部年表正文不入库；运行时只读 |
 | 时间说法 | `core/canon/anchors.py`（锚点的范围选择、归属与定位措辞）；锚点表在 `character.py` 的 `ANCHORS`；`CanonReader.time_phrase`、`now_phrase`；`recall.py` 的 `present_phrase` | 给模型看的时间用大事件说，日历只在底下排序；证据包的 `when` 接 `time_phrase` |
 | 评测 | `devtools/canon/retrieval.py`、`dialogue_eval.py`、`budget_sweep.py`、`fact_focus.py`；终端 `--trace` | 检索评测经 `EvidenceAssembler` 组包；只从终端导入默认库路径 `DEFAULT_DB`。`dialogue_eval.py` 仍整体运行终端的代码快照 |
-| 插件侧 | `core/config.py` 的 `get_canon_config`、`core/canon/config.py` 的 `CanonConfig` | 只有配置；`event_handler` 没有调用 canon |
+| 插件侧 | `core/adapters/core_canon.py` 的 `CanonGeneration`；`core/adapters/core_events.py` 的 `generation_v1` / `on_generation_v1`；`core/plugin_initializer.py` 的 `_open_canon`；配置在 `get_canon_config` / `CanonConfig` | Core Generation Protocol v1 的参与方：`before_generation` 注入 canon 块，`offer` 提供工具，`tool` 转给 `CanonTurn`，`review` 在 `after_generation` 之前审稿。读库和审稿里的模型调用都在一个工作线程上排队执行。插件里暂时只有词法检索 |
 
 测试（本机的 `tests/`）直接从 `core/canon` 导入，只有 `conversation_history` 仍从终端导入。
 
 ## 已知的结构问题
 
-1. **读取对象不能跨线程共用。** `CanonReader` 持有一个默认 `check_same_thread` 的 sqlite 连接，不能交给线程池里的另一个线程使用；`search`、`overview_search`、`expand_context` 还把 trace 写在实例属性（`last_channels`、`last_overview_trace`、`last_expansion_trace`）上，`CanonRetrieval.last_trace` 也一样，多个对话共用一个实例时会互相覆盖。终端和评测是单线程、一轮接一轮，没有问题；Bot 接入（B6）前要定线程模型，例如每线程一个连接、内存索引共享、trace 改为每轮的对象。
+1. **读取对象不能跨线程共用。** `CanonReader` 持有一个默认 `check_same_thread` 的 sqlite 连接，不能交给线程池里的另一个线程使用；`search`、`overview_search`、`expand_context` 还把 trace 写在实例属性（`last_channels`、`last_overview_trace`、`last_expansion_trace`）上，`CanonRetrieval.last_trace` 也一样，多个对话共用一个实例时会互相覆盖。终端和评测是单线程、一轮接一轮，没有问题。Bot 路径（v1.2.33.sub）暂时用一个工作线程：`CanonGeneration` 的读库、工具和审稿（含修补的模型调用）都在这个线程上排队执行，多个对话会互相等待；Core 对单次调用超时后，线程上的工作仍会做完。并发多个对话时，再改为每线程一个连接、内存索引共享、trace 改为每轮的对象。
 2. **索引有两套。** 向量：库内 `event_vec`（`import --embed` 写入）和构建目录旁的派生索引（终端实际用的）。全文：库内 trigram 表 `events_fts` / `beats_fts` 和启动时建的内存 BM25（终端实际用的）。
 3. **融合有两套。** canon 用加权 RRF（k=10，四路权重不同），Moirai 原有记忆用 `core/retrieval/rrf.py` 的等权 RRF（k=60）。
-4. **预算互不知晓。** 终端的证据预算、插件配置 `canon_token_budget` 和原有 memory 块的预算各自独立（数字见 [canon 终端试聊](canon-terminal.md) 的“证据预算”）。
+4. **预算互不知晓。** 终端的证据预算、插件配置 `canon_token_budget`（v1.2.33.sub 起默认 2000，与终端一致）和原有 memory 块的预算各自独立（数字见 [canon 终端试聊](canon-terminal.md) 的“证据预算”）。
 5. **证据包每轮重建。** 工具往返不写入历史，上一轮用过的证据在下一轮就没有了；追问只能靠 `focus` / `topics` 重新检索，检查也看不到上一轮的依据。
 6. **同步和异步混用。** 读取与生成是同步的（sqlite3、httpx），插件和 `CanonStore` 是异步的。
 7. **已写入但没用上的数据。** `cognitions`（逐场景的人物态度）和 V11 的 `view_access` 都已入库，运行时没有读取。
@@ -89,9 +89,8 @@ Bot 路径上的 canon 工具回调应复用终端的 `CanonRecall` / `EvidenceA
 3. **Bot 的预算**：插件默认值和终端基础值该取哪个；canon 块和原有 memory 块怎样分配名额。2026-09-30 全数据流测试暂时分开计：普通记忆 800，canon 每轮 2,000。是否共用一份，按测试数据再定；普通记忆的窗口大小另行测试。
 4. **Bot 里怎样召回和检查**（2026-09-30 已定方向）：Bot 沿用终端逻辑，不采用“生成前注入证据块”。
    - 模型通过工具调用选档位：不召回、轻量召回、深度探索、查档案。召回过的轮次做逐句对齐检查和定点修补。
-   - Core Event Protocol v1 缺两样能力：一是扩展声明工具，由 Core 交给宿主、再把执行转回扩展（现在只有 `before_tool` 观察和合成的 `tool_pair`）；二是替换最终回复（现在只有 prompt 文本块和 `reply_prefix`）。
-   - 这两项都是 Core 仓库的协议扩展，需要走 Core 的 TODO 批准。Moirai 不改用 AstrBot 自己的工具注册，以免绑死宿主。
-   - 在此之前，工作区的 `scripts/fullflow_test.py` 在测试框架里模拟宿主的工具循环。
+   - 2026-10-01 已实现：Core v0.8.0 的 Generation Protocol v1 提供扩展声明工具（Core 交给宿主，执行转回扩展）和审稿替换回复两项能力，Event Protocol v1 不变；Moirai v1.2.33.sub 接入。Moirai 不改用 AstrBot 自己的工具注册，以免绑死宿主。
+   - 工作区的 `scripts/fullflow_test.py` 默认走这条真实 Core 路径，脚本当宿主跑工具循环；`--path terminal` 保留终端路径作对照。
 5. **聊天记忆污染**：Bot 说出的剧情内容会被 Moirai 的事件抽取器写进聊天记忆，之后作为“我们聊过的事”召回时会绕过 gateway。需要在抽取或召回时标注这类内容的来源。2026-09-30 用户决定先观察：全数据流测试记录哪些聊天记忆事件是由阿米娅的剧情回答构成的，以及它们之后是否又被注入。
 6. **跨轮工作记忆**：是否保留最近几轮的证据 ID，下一轮以压缩形式带回，供追问和检查使用。
 7. **未用数据**：`cognitions`、`view_access` 是否进入检索或注入；进入前需要审阅。

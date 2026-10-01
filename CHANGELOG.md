@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## [v1.2.33.sub] — 2026-10-01
+
+### canon 接入 Core Generation Protocol v1：Bot 路径由模型调用工具，回复生成后审稿
+
+- 起因：Core v0.8.0 新增 Generation Protocol v1（与 Event Protocol v1 并列，后者不变）。扩展可以在一次生成里向宿主模型提供工具，并在回复生成后审稿、替换回复。审稿要在回复发出前完成，所以 AstrBot 必须关闭流式输出；Core 不做流式兼容。canon 的 Bot 路径按 2026-09-30 的决定沿用终端逻辑，这一版把它接上。
+- `core/canon/turn.py`（新增）：把终端 `run_turn` 里一轮 canon 的状态和步骤移成 `CanonTurn`，终端和 Bot 路径共用。
+  - 包括：讲法判断、档案直查、`canon_probe` / `canon_recall` / `operator_archive` 三个工具、按回复补查、系统提示和修补用的消息；
+  - 收尾分两步：`settle` 做兜底补召回和提纲缺块补查，`check` 调 `check_reply`。
+  - 提示词常量和 `spoken`、`empty_blocks`、`supplement_recall`、`archive_names`、`tier_label` 也移到这里；`run_canon_chat.py` 重新导出这些名字。终端的输出、预算和调用次数不变。
+- Bot 路径与终端的差别，都是宿主决定的：
+  - 宿主的工具循环里，系统提示不能在工具轮之间重建。所以召回后的 `[你的记忆]` 块（状态行、记忆说明、按先后编号的证据、讲法）随工具结果返回；同一轮第二次召回，会把整个块重新发一遍。回忆方式、身份和回复要求放在系统提示的 `canon` 块里，在 `before_generation` 注入。
+  - 每轮工具最多执行 `MAX_TOOL_ROUNDS`（2）次，之后的调用只收到收尾提示。
+- `core/adapters/core_canon.py`（新增）：`CanonGeneration` 实现 Generation Protocol 的参与方。
+  - Core 人格作用域先映射到人格桶，再按 `canon_persona_map` 找到原作角色；角色和数据库不一致时不参与。每个生成请求保留一个 `CanonTurn`，最多 256 个、15 分钟。
+  - `offer` 在需要时提供三个工具；每个 canon 人格的回复都审稿。审稿按请求快照重建修补用的消息：宿主人设去掉 `canon` 块，加上上下文和含普通记忆的用户消息。
+  - 读库和审稿里的模型调用都在同一个工作线程上执行，因为 canon 数据库连接只能在打开它的线程使用。
+  - 只有宿主读取过声明（说明它支持该协议）后才注入 `canon` 块，旧版 Core 下不会让模型去调用不存在的工具。
+- `core/adapters/core_events.py`：`MoiraiCoreProvider` 新增 `generation_v1()` 和 `on_generation_v1()`，事件订阅增加 `canon` 块标记。
+  - `before_generation` 在普通记忆的贡献之后追加 canon 块；canon 出错只记日志，普通记忆照常注入。
+  - 没有 canon 服务时，声明既没有工具也不审稿，Core 不会调用。
+- `core/plugin_initializer.py`、`main.py`：`canon_enabled` 打开、人格映射有效、数据库存在时，才在工作线程上打开 canon 库。默认关闭，现有安装不受影响。
+  - 插件里暂时只有词法检索；混合检索需要先把向量索引桥接从 devtools 移进 core，推迟。
+  - 修补调用使用该会话自己的聊天模型。
+- `_conf_schema.json`、`core/config.py`、`core/canon/config.py`、中英文 i18n：`canon_token_budget` 默认值从 600 改为 2000，`canon_evidence_lines` 从 3 改为 4，与终端预算扫描锚定的值一致。canon 以前在插件里没有调用路径，所以已有行为不变。
+- 测试：
+  - 本地新增 `tests/test_canon_generation.py`（12 项，覆盖声明、canon 块、工具与上限、审稿去提纲、兜底补召回、未映射人格、provider 接线和 canon 出错的隔离）。Moirai 离线测试 369 项通过，原有终端工具轮测试不改一行即通过。
+  - 工作区联合检查新增经 Core 协调器的 canon 工具与审稿测试，并在开启 canon 的情况下重跑全部事件测试，共 28 项通过。
+
 ## [v1.2.32.sub] — 2026-09-30
 
 ### 修复 v1.2.31 的召回回归：检索器没有 backend 时注入被静默吞掉

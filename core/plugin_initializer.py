@@ -138,6 +138,7 @@ class PluginInitializer:
         self.plugin_routes = None
         self.webui_error: str | None = None
         self.category_classifier = None
+        self.canon = None
 
     @property
     def cfg(self) -> PluginConfig:
@@ -254,6 +255,8 @@ class PluginInitializer:
             raw_message_repo=raw_message_repo,
             persona_group_repo=persona_group_repo,
         )
+
+        await self._open_canon(cfg, data_dir)
 
         ipc_cfg = cfg.get_ipc_config()
         big_five_buffer: BigFiveBuffer | None = None
@@ -673,6 +676,34 @@ class PluginInitializer:
         report.append(get_string("cmd.init.model", lang).format(name="LLM", model=llm_info))
         
         astrbot_logger.info("\n".join(report))
+
+    async def _open_canon(self, cfg: PluginConfig, data_dir: Path) -> None:
+        """Canon story memory for Core's generation path; off unless enabled with a valid persona map and a DB."""
+        canon_cfg = cfg.get_canon_config()
+        if not canon_cfg.enabled:
+            return
+        if canon_cfg.persona_map_error or not canon_cfg.persona_map:
+            astrbot_logger.warning("[%s] canon 未启用：人格映射为空或无效（%s）", _PLUGIN_NAME,
+                                   canon_cfg.persona_map_error or "空")
+            return
+        db_path = canon_cfg.resolve_db_path(data_dir)
+        if not db_path.is_file():
+            astrbot_logger.warning("[%s] canon 未启用：找不到数据库 %s", _PLUGIN_NAME, db_path)
+            return
+        from .adapters.core_canon import CanonGeneration, host_complete_for
+        from .canon.reader import CanonReader
+
+        try:
+            self.canon = await CanonGeneration.open(
+                lambda: CanonReader(db_path), canon_cfg.persona_map,
+                host_complete_for(self._context, asyncio.get_running_loop()),
+                top_k=canon_cfg.top_k, evidence_lines=canon_cfg.evidence_lines,
+                token_budget=canon_cfg.token_budget)
+        except Exception as exc:
+            astrbot_logger.warning("[%s] canon 数据库无法打开：%s", _PLUGIN_NAME, exc)
+            return
+        self._exit_stack.callback(self.canon.close)
+        astrbot_logger.info("[%s] canon 已就绪：%s（词法检索）", _PLUGIN_NAME, db_path)
 
     def _ensure_pages_built(self) -> None:
         """Auto-build the frontend if pages/moirai/index.html is missing."""

@@ -115,7 +115,7 @@ moirai canon test
   - 16 条幻觉里有 7 条是在场或收到过汇报却说“没收到”“不在场”。剧情题里 33/162 次回答以“记不清”收尾，平均 0.11 分。模型选择不召回的 9 次剧情题全是 0 分。综述题在各档只有 0.1–0.4。
 
   结论：每轮预算锚定在 2000。之后的准确度问题出在检索命中、错误否认知情和不召回，不在预算。原始结果和汇总放在构建目录的 `canon.sweep/` 下，图表见机制说明页。
-- 插件配置里的 `canon_token_budget`（默认 600）是给尚未实现的 B7 注入路径准备的，两者的关系还没确定，见 [canon 运行时结构](canon-runtime-architecture.md)。
+- 插件配置里的 `canon_token_budget` 从 v1.2.33.sub 起默认 2000，与终端一致，由经 Core Generation Protocol v1 的 Bot 路径使用；`canon_evidence_lines` 默认 4。见 [canon 运行时结构](canon-runtime-architecture.md)。
 
 ## 检索
 

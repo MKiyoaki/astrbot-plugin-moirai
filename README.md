@@ -29,7 +29,7 @@ Made with ♥ by MKiyoaki & Gariton
 
 Core 的可选只读 `moirai.chat_memory.recall` 能力可按已绑定人格与私聊/群聊范围提供现有聊天事件的历史事实，不依赖 Oedipus；其权限和数据形状见 [Core 记忆上下文读取](docs/core-memory-context.md)。
 
-原作剧情记忆 canon 默认关闭。目前完成了 M1：用命令行把 Arknights-Texts 导出的 story_pack 抽取成独立的 `canon.sqlite`，并提供抽取基准；本地 `moirai canon build` 可增量构建全库事件与待审阅的时间事实候选。抽取默认用 `canon-extract-v10`，`canon-extract-v11` 是可选试验。检索和注入还没有接入 Bot；临时终端试聊 `moirai canon test` 以只读方式预览检索、时间事实判断与回复核验，不影响普通记忆和 Core 协议。状态、命令和各份文档的分工见 [canon：原作剧情记忆](docs/canon.md)。
+原作剧情记忆 canon 默认关闭。目前完成了 M1：用命令行把 Arknights-Texts 导出的 story_pack 抽取成独立的 `canon.sqlite`，并提供抽取基准；本地 `moirai canon build` 可增量构建全库事件与待审阅的时间事实候选。抽取默认用 `canon-extract-v10`，`canon-extract-v11` 是可选试验。Bot 路径（v1.2.33.sub）经 Core v0.8.0 的 Generation Protocol v1 接入：模型按需调用 canon 工具，回复生成后逐句核验、必要时定点修补（需要关闭 AstrBot 的流式输出）；打开 `canon_enabled` 并配置 `canon_persona_map` 后才启用，插件里暂时只有词法检索。临时终端试聊 `moirai canon test` 以只读方式预览检索、时间事实判断与回复核验，和 Bot 路径共用同一套回合逻辑。状态、命令和各份文档的分工见 [canon：原作剧情记忆](docs/canon.md)。
 
 旧 `bot_persona_name_override` 不再决定事件归属，也不会自动迁移为全局覆盖。已有数据桶和记忆会话键保持原样；缺失映射不会退化成所有人格查询。FTS 与向量检索在截取候选前应用人格及会话范围过滤，候选名额仅用于当前作用域。宿主事件对象兼容、文本规范化及 synthetic tool-call 降级移入 Core，Moirai 保留窗口结算、检索、抽取、存储与调试内容生成。
 

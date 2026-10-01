@@ -1057,15 +1057,15 @@
             "canon_token_budget": {
                 "description": "canon 块 token 上限",
                 "type": "int",
-                "hint": "原作剧情块单独计算的 token 预算，不占用聊天记忆的预算。",
-                "default": 600,
+                "hint": "每轮所有原作回忆合计的原文上限，不占用聊天记忆的预算。默认 2000，与终端按预算扫描锚定的值一致。",
+                "default": 2000,
                 "level": "advanced"
             },
             "canon_evidence_lines": {
                 "description": "每个事件的证据行数",
                 "type": "int",
-                "hint": "每个事件附带的原文行数上限。",
-                "default": 3,
+                "hint": "每个事件附带的原文行数上限。默认 4，与终端一致。",
+                "default": 4,
                 "level": "advanced"
             },
             "canon_time_filter": {

@@ -25,8 +25,8 @@ class CanonConfig:
     persona_map: dict[str, CanonPersona] = field(default_factory=dict)
     persona_map_error: str | None = None
     top_k: int = 5
-    token_budget: int = 600
-    evidence_lines: int = 3
+    token_budget: int = 2000
+    evidence_lines: int = 4
     time_filter: bool = False
     extract_concurrency: int = 2
     extract_timeout: int = 300

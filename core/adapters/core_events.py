@@ -1,9 +1,14 @@
-"""Core Event Protocol v1 provider and Moirai-owned legacy scope mappings."""
+"""Core Event and Generation Protocol v1 provider and Moirai-owned legacy scope mappings."""
 
 from __future__ import annotations
 
 import json
+import logging
 from typing import Callable
+
+from .core_canon import BLOCK as CANON_BLOCK, NO_TURN
+
+logger = logging.getLogger(__name__)
 
 
 class InjectionDraft:
@@ -35,10 +40,10 @@ class InjectionDraft:
 class MoiraiCoreProvider:
     def __init__(self, handler: Callable, scopes: Callable, version: str,
                  core_available: Callable = lambda: True,
-                 *, recall: Callable = lambda: None) -> None:
+                 *, recall: Callable = lambda: None, canon: Callable = lambda: None) -> None:
         self._handler, self._scopes = handler, scopes
         self.version, self._core_available = version, core_available
-        self._recall = recall
+        self._recall, self._canon = recall, canon
 
     def _mapping(self) -> dict[str, str]:
         raw = self._scopes()
@@ -65,8 +70,26 @@ class MoiraiCoreProvider:
                 "blocks": [{"id": "memory", "start": "<!-- EM:MEMORY:START -->",
                             "end": "<!-- EM:MEMORY:END -->"},
                            {"id": "soul", "start": "<!-- EM:SOUL:START -->",
-                            "end": "<!-- EM:SOUL:END -->"}],
+                            "end": "<!-- EM:SOUL:END -->"}, dict(CANON_BLOCK)],
                 "tool_prefix": "em_recall_", "timeout_seconds": 10.0}
+
+    def generation_v1(self) -> dict:
+        """Canon tools and reply review; without a canon service the declaration offers nothing."""
+        canon = self._canon()
+        if canon is None:
+            return {"version": "1", "tools": [], "review": False, "timeout_seconds": 10.0}
+        return canon.declaration()
+
+    async def on_generation_v1(self, call: dict) -> dict:
+        canon = self._canon()
+        kind = call.get("kind") if isinstance(call, dict) else None
+        if canon is not None and self._core_available():
+            return await canon.on_generation(call, self._bucket(call.get("event") or {}))
+        if kind == "offer":
+            return {"version": "1", "kind": "offer", "tools": [], "review": False}
+        if kind == "tool":
+            return {"version": "1", "kind": "tool", "text": NO_TURN}
+        return {"version": "1", "kind": "review", "action": "keep"}
 
     async def health_v1(self) -> dict:
         try:
@@ -145,13 +168,25 @@ class MoiraiCoreProvider:
             raise RuntimeError("Core event dependency or Moirai handler is unavailable.")
         if event.get("version") != "1" or not isinstance(event.get("persona"), dict):
             raise ValueError("A concrete Core persona context is required.")
-        scope = event["persona"]["scope"]
-        if not scope.get("runtime_persona_id"):
-            raise ValueError("A runtime persona is required.")
-        bucket = self._mapping().get(scope.get("extension_scopes", {}).get("moirai"))
+        bucket = self._bucket(event)
         if bucket is None:
             raise ValueError("The Moirai scope has no explicit legacy bucket mapping.")
-        return {"version": "1", "contributions": await handler.handle_core_event(event, bucket)}
+        contributions = await handler.handle_core_event(event, bucket)
+        canon = self._canon()
+        if canon is not None and event.get("stage") == "before_generation":
+            try:
+                contributions = [*contributions, *await canon.before_generation(event, bucket)]
+            except Exception:
+                logger.warning("[Moirai] canon turn could not start; this reply goes without canon",
+                               exc_info=True)
+        return {"version": "1", "contributions": contributions}
+
+    def _bucket(self, event: dict) -> str | None:
+        persona = event.get("persona")
+        scope = persona.get("scope") if isinstance(persona, dict) else None
+        if not isinstance(scope, dict) or not scope.get("runtime_persona_id"):
+            raise ValueError("A runtime persona is required.")
+        return self._mapping().get((scope.get("extension_scopes") or {}).get("moirai"))
 
     @staticmethod
     def _error(code: str, message: str) -> dict:

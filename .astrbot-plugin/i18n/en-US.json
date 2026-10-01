@@ -868,19 +868,19 @@
     },
     "canon.canon_token_budget": {
       "description": "Canon block token budget",
-      "hint": "Separate token budget for the canon block; it does not share the chat memory budget."
+      "hint": "Total source text for all canon recalls in one turn; separate from the chat memory budget. Default 2000, the value the terminal's budget sweep anchored."
     },
     "canon_token_budget": {
       "description": "Canon block token budget",
-      "hint": "Separate token budget for the canon block; it does not share the chat memory budget."
+      "hint": "Total source text for all canon recalls in one turn; separate from the chat memory budget. Default 2000, the value the terminal's budget sweep anchored."
     },
     "canon.canon_evidence_lines": {
       "description": "Evidence lines per event",
-      "hint": "Maximum source lines attached to each event."
+      "hint": "Maximum source lines attached to each event. Default 4, as in the terminal."
     },
     "canon_evidence_lines": {
       "description": "Evidence lines per event",
-      "hint": "Maximum source lines attached to each event."
+      "hint": "Maximum source lines attached to each event. Default 4, as in the terminal."
     },
     "canon.canon_time_filter": {
       "description": "Filter by role-play time point",
