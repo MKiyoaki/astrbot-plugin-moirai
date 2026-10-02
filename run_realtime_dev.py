@@ -325,6 +325,79 @@ def _resume_requested() -> bool:
     return ans not in ("n", "no")
 
 
+def _continue_requested() -> bool:
+    """--continue finishes an interrupted fresh build in place instead of archiving it."""
+    if "--continue" not in sys.argv:
+        return False
+    if "--fresh" in sys.argv or "--resume" in sys.argv:
+        raise SystemExit("Choose one of --fresh, --resume and --continue.")
+    if not REALTIME_DB.exists():
+        raise SystemExit("--continue needs the interrupted build's realtime database.")
+    return True
+
+
+def _completed_event_prefixes(directory: Path) -> set[str]:
+    """Event-ID prefixes whose windows finished every post-persistence step, read from earlier run logs."""
+    line = re.compile(r"window extracted:.*?ids=\[([^\]]*)\]")
+    prefixes: set[str] = set()
+    for log in sorted(directory.glob("run_*.log")):
+        for match in line.finditer(log.read_text(encoding="utf-8", errors="ignore")):
+            prefixes.update(re.findall(r"'([0-9a-f]+)'", match.group(1)))
+    return prefixes
+
+
+class _ContinueState:
+    """What an interrupted build stored: raw messages by content hash, event links and finished windows."""
+
+    def __init__(self, known: dict[str, str], links: dict[str, str], completed: set[str]) -> None:
+        self.known = known
+        self.links = links
+        self.completed = completed
+
+    def classify(self, window) -> tuple[str, dict[str, list[str]]]:
+        """Map a rebuilt window onto stored IDs; return extract, social (with pending events) or done."""
+        for message in window.messages:
+            message.message_id = self.known.get(message.content_hash, message.message_id)
+        stored = [m.message_id for m in window.messages if m.content_hash in self.known]
+        linked = [mid for mid in stored if mid in self.links]
+        if not linked:
+            return "extract", {}
+        if len(linked) != len(stored):
+            raise RuntimeError(
+                f"Window starting {window.start_time} links {len(linked)} of {len(stored)} stored messages; "
+                "--continue only resumes builds whose windows are wholly extracted or untouched.")
+        events: dict[str, list[str]] = {}
+        for mid in linked:
+            events.setdefault(self.links[mid], []).append(mid)
+        pending = {eid: mids for eid, mids in events.items() if eid[:8] not in self.completed}
+        return ("social" if pending else "done"), pending
+
+
+class _KnownRawMessageFilter:
+    """Raw-message writer facade that leaves messages the interrupted build stored untouched."""
+
+    def __init__(self, writer, known_hashes) -> None:
+        self._writer = writer
+        self._known = known_hashes
+        self.written = 0
+
+    async def enqueue(self, message) -> bool:
+        if message.content_hash in self._known:
+            return True
+        self.written += 1
+        return await self._writer.enqueue(message)
+
+    def __getattr__(self, name):
+        return getattr(self._writer, name)
+
+
+class _NoDriftEncoder:
+    """Router-side encoder for --continue: no per-message vectors, so no drift and identical windows."""
+
+    async def encode_batch(self, texts: list[str]) -> list[list[float]]:
+        return []
+
+
 def _load_eval_setting() -> bool:
     if not REALTIME_SETTINGS.exists():
         print("[Dev] 旧会话没有评价开关记录；保留历史事件，本次重新提取默认关闭评价。")
@@ -399,26 +472,27 @@ def _prepare_realtime_archive() -> None:
         raise RuntimeError("SQLite sidecars remain after checkpoint; refusing to archive the realtime database.")
 
 
-def _archive_step(resume: bool) -> None:
+def _archive_step(resume: bool, keep_db: bool = False) -> None:
     """Back up existing DB files and relocate the summary dir before injection.
 
     When resuming, realtime_test.db is left untouched (it will be opened
     directly) and any stashed realtime_groups/ from the previous session is
     moved back into groups/ so the WebUI serves last session's summaries.
+    ``keep_db`` (--continue) builds like a fresh run but keeps the interrupted database.
     """
     global _archived_groups
 
-    if not resume:
+    if not resume and not keep_db:
         _prepare_realtime_archive()
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    if not resume and REALTIME_DB.exists():
+    if not resume and not keep_db and REALTIME_DB.exists():
         dest = ARCHIVE_DIR / f"realtime_test_stale_{ts}.db"
         shutil.move(str(REALTIME_DB), str(dest))
         print(f"[Archive] Moved stale realtime_test.db → {dest.name}")
-    elif resume:
-        print(f"[Archive] Resuming — keeping existing realtime_test.db in place.")
+    elif resume or keep_db:
+        print(f"[Archive] {'Resuming' if resume else 'Continuing'} — keeping existing realtime_test.db in place.")
 
     if DATAFLOW_DB.exists():
         dest = ARCHIVE_DIR / f"dataflow_test_{ts}.db"
@@ -714,13 +788,14 @@ async def main() -> None:
     print("=" * 70)
     print("  REALTIME DEV TEST  |  EVENT_MODE:", _EVENT_MODE.upper(), " |  LLM:", LLM_MODEL)
     print("=" * 70)
-    resume = _resume_requested()
-    print(f"  MODE: {'RESUME (skip rebuild)' if resume else 'FRESH BUILD'}")
+    continuing = _continue_requested()
+    resume = False if continuing else _resume_requested()
+    print(f"  MODE: {'RESUME (skip rebuild)' if resume else 'CONTINUE INTERRUPTED BUILD' if continuing else 'FRESH BUILD'}")
     print(f"  DATA: {MOCK_DATA_PATH}")
     print(f"  DIR : {DEV_DATA}  |  PERSONA: {MOCK_PERSONA_PATH.name} → (internal, {BOT_PHYSICAL_ID})")
     print(f"  LLM : {_MODEL_TYPE}:{LLM_MODEL}  |  concurrency {_LLM_CONCURRENCY}")
     messages = _preflight(quiet=True) if not resume else []
-    _archive_step(resume)
+    _archive_step(resume, keep_db=continuing)
 
     # Step 2: Imports (lazy, inside main — same pattern as run_dataflow_dev.py)
     from core.utils.llm import SimpleLLMClient, MockProviderBridge  # noqa: F401 (SimpleLLMClient kept for reference)
@@ -1006,7 +1081,12 @@ async def main() -> None:
 
         if not resume:
             # ── 模拟 Persona 选项 ──────────────────────────────────────────
-            if "--eval-persona" in sys.argv:
+            if continuing:
+                use_mock_persona = _load_eval_setting()
+                if ("--eval-persona" in sys.argv and not use_mock_persona) or (
+                        "--no-eval-persona" in sys.argv and use_mock_persona):
+                    raise SystemExit("--continue keeps the interrupted build's persona-evaluation setting.")
+            elif "--eval-persona" in sys.argv:
                 use_mock_persona = True
             elif "--no-eval-persona" in sys.argv:
                 use_mock_persona = False
@@ -1019,19 +1099,21 @@ async def main() -> None:
                 import time as _time
                 from core.domain.models import Persona as _Persona
                 _persona_name, _persona_desc = _load_mock_persona(MOCK_PERSONA_PATH)
-                _mock_persona = _Persona(
-                    uid=f"bot_internal_{BOT_PHYSICAL_ID}",
-                    bound_identities=[("internal", BOT_PHYSICAL_ID)],
-                    primary_name=_persona_name,
-                    persona_attrs={"description": _persona_desc},
-                    confidence=0.9,
-                    created_at=_time.time(),
-                    last_active_at=_time.time(),
-                )
-                await persona_repo.upsert(_mock_persona)
-                print("[Dev] persona 已植入。")
+                if not continuing:
+                    _mock_persona = _Persona(
+                        uid=f"bot_internal_{BOT_PHYSICAL_ID}",
+                        bound_identities=[("internal", BOT_PHYSICAL_ID)],
+                        primary_name=_persona_name,
+                        persona_attrs={"description": _persona_desc},
+                        confidence=0.9,
+                        created_at=_time.time(),
+                        last_active_at=_time.time(),
+                    )
+                    await persona_repo.upsert(_mock_persona)
+                    print("[Dev] persona 已植入。")
 
-            _save_eval_setting(use_mock_persona)
+            if not continuing:
+                _save_eval_setting(use_mock_persona)
             extractor_cfg = cfg.get_extractor_config()
             extractor_cfg.persona_influenced_summary = use_mock_persona
 
@@ -1055,15 +1137,38 @@ async def main() -> None:
             )
 
             extraction_futures: list[asyncio.Task] = []
+            social_futures: list[asyncio.Task] = []
 
             async def cancel_extractions():
-                for task in extraction_futures:
+                for task in extraction_futures + social_futures:
                     if not task.done():
                         task.cancel()
-                await asyncio.gather(*extraction_futures, return_exceptions=True)
+                await asyncio.gather(*extraction_futures, *social_futures, return_exceptions=True)
             retrieval_stack.push_async_callback(cancel_extractions)
 
+            continue_state = None
+            window_kinds: dict[str, int] = {}
+            router_writer = raw_message_writer
+            if continuing:
+                async with db.execute("SELECT content_hash, message_id FROM raw_messages") as cur:
+                    known = {row[0]: row[1] for row in await cur.fetchall()}
+                async with db.execute("SELECT message_id, event_id FROM event_messages") as cur:
+                    links = {row[0]: row[1] for row in await cur.fetchall()}
+                continue_state = _ContinueState(known, links, _completed_event_prefixes(DEV_DATA))
+                router_writer = _KnownRawMessageFilter(raw_message_writer, known)
+                print(f"[Continue] stored raw messages={len(known)}, linked={len(links)}, "
+                      f"finished event prefixes from earlier logs={len(continue_state.completed)}")
+
             async def on_event_close(window):
+                if continue_state is not None:
+                    kind, pending = continue_state.classify(window)
+                    window_kinds[kind] = window_kinds.get(kind, 0) + 1
+                    if kind == "social":
+                        events = [(await event_repo.get(eid), mids) for eid, mids in pending.items()]
+                        social_futures.append(asyncio.create_task(extractor.rerun_social_analysis(
+                            window, [(event, mids) for event, mids in events if event is not None])))
+                    if kind != "extract":
+                        return
                 task = asyncio.create_task(extractor(window))
                 extraction_futures.append(task)
 
@@ -1072,9 +1177,9 @@ async def main() -> None:
                 identity_resolver=resolver,
                 detector=detector,
                 context_manager=context_manager,
-                encoder=encoder,
+                encoder=_NoDriftEncoder() if continuing else encoder,
                 on_event_close=on_event_close,
-                raw_message_writer=raw_message_writer,
+                raw_message_writer=router_writer,
             )
 
             # ── Phase 1: Message ingestion ──────────────────────────────────────
@@ -1089,6 +1194,10 @@ async def main() -> None:
             await raw_message_writer.flush_once()
             print(
                 f"[Phase 1] Done. {len(extraction_futures)} extraction task(s) queued.")
+            if continuing:
+                print(f"[Continue] windows: {window_kinds.get('done', 0)} finished, "
+                      f"{window_kinds.get('social', 0)} social re-run, {window_kinds.get('extract', 0)} to extract; "
+                      f"raw messages newly written={router_writer.written}")
 
             # ── Phase 2: Wait for LLM extraction ───────────────────────────────
             if extraction_futures:
@@ -1106,6 +1215,19 @@ async def main() -> None:
                 await extractor.drain_categories()
             else:
                 print("\n[Phase 2] No extraction tasks queued.")
+
+            if continuing:
+                if social_futures:
+                    print(f"[Continue] Waiting for {len(social_futures)} social re-run(s) ...")
+                    for fut in asyncio.as_completed(social_futures):
+                        try:
+                            await fut
+                        except Exception as exc:
+                            raise RuntimeError(f"Social re-run failed; build stopped: {exc}") from exc
+                missing = await extractor.queue_missing_evals(await event_repo.list_all(limit=1_000_000))
+                print(f"[Continue] {missing} event(s) without a generated [Eval] queued ...")
+                await extractor.drain_evals()
+                await extractor.drain_categories()
 
             # ── Phase 3: Persona synthesis (writes big_five + big_five_evidence) ──
             print("\n[Phase 3] Running persona synthesis ...")

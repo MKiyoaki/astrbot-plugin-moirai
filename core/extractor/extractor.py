@@ -31,7 +31,7 @@ from .persona_context import (
     resolve_bot_persona_context,
 )
 from .prompts import build_user_prompt, build_distillation_prompt
-from .summary import strip_evals
+from .summary import evals_complete, strip_evals
 from .segmentation import SEGMENTATION_PROMPT, MemorySegment, merge_segments, paginate_segment, parse_segments
 from ..retrieval.segments import index_segments
 from ..utils.model_retry import ModelOutputError, retry_model_call
@@ -563,10 +563,11 @@ class EventExtractor:
     # ── Deferred [Eval] annotation ────────────────────────────────────────────
 
     def _enqueue_evals(self, bot_persona_desc: str, events: list) -> None:
+        """Queue events for the deferred [Eval] pass; strict replay never drops one at the cap."""
         if self._eval_queue is None:
             self._eval_queue = asyncio.Queue()
         for event in events:
-            if self._eval_queue.qsize() >= self._eval_queue_max:
+            if not self._retry_until_success and self._eval_queue.qsize() >= self._eval_queue_max:
                 logger.warning(
                     "[EventExtractor] eval queue full (%d); skipping [Eval] for %s",
                     self._eval_queue_max, event.event_id[:8],
@@ -574,6 +575,44 @@ class EventExtractor:
                 continue
             self._eval_queue.put_nowait((event.event_id, bot_persona_desc))
         self._ensure_eval_worker()
+
+    async def queue_missing_evals(self, events: list) -> int:
+        """Queue the [Eval] pass for persisted events whose summary lacks a generated aside."""
+        if not self._persona_influenced_summary or self._provider_getter() is None:
+            return 0
+        by_desc: dict[str, list] = {}
+        for event in events:
+            if evals_complete(event.summary or ""):
+                continue
+            name = event.bot_persona_name
+            desc = None
+            if name:
+                desc = await self._lookup_persona_description(name) or name
+            else:
+                name, desc = await self._get_bot_persona()
+            if desc:
+                by_desc.setdefault(desc, []).append(event)
+        for desc, group in by_desc.items():
+            self._enqueue_evals(desc, group)
+        return sum(len(group) for group in by_desc.values())
+
+    async def rerun_social_analysis(self, window: MessageWindow, events: list[tuple[Event, list[str]]]) -> None:
+        """Repeat the per-event social analysis for persisted events, given each event's message IDs."""
+        if not self._ipc_enabled:
+            return
+        by_id = {message.message_id: message for message in window.messages}
+        tasks = []
+        for event, message_ids in events:
+            sub_messages = [by_id[mid] for mid in message_ids if mid in by_id]
+            if not sub_messages:
+                continue
+            tasks.append(self._run_ipc_analysis(
+                event,
+                dataclasses.replace(window, messages=sub_messages, start_time=sub_messages[0].timestamp,
+                                    last_message_time=sub_messages[-1].timestamp),
+            ))
+        if tasks:
+            await asyncio.gather(*tasks)
 
     def _ensure_eval_worker(self) -> None:
         if self._eval_queue is None:
@@ -834,7 +873,7 @@ class EventExtractor:
             return await retry_model_call(
                 coro_factory, task_name=task_name, strict=True, minimum=self._retry_delay,
                 timeout=timeout if timeout is not None else self._llm_timeout,
-                manager=self._llm_manager, validate=validate,
+                manager=self._llm_manager, validate=validate, timeout_growth=self._llm_timeout_growth,
             )
         attempts = self._llm_max_retries + 1
         timeout = float(self._llm_timeout)

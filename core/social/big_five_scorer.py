@@ -151,15 +151,17 @@ class BigFiveBuffer(BoundedKeysMixin):
         self._pending_tasks: dict[str, asyncio.Task] = {}
 
     def _on_evict(self, key: object) -> None:
-        """LRU eviction: clean up all per-uid state."""
+        """LRU eviction: clean up all per-uid state.
+
+        A pending scoring task is released, not cancelled: extraction windows await it,
+        and cancelling it would raise CancelledError inside their event processing.
+        """
         uid = str(key)
         self._counters.pop(uid, None)
         self._texts.pop(uid, None)
         self._cache.pop(uid, None)
         self._evidence.pop(uid, None)
-        task = self._pending_tasks.pop(uid, None)
-        if task and not task.done():
-            task.cancel()
+        self._pending_tasks.pop(uid, None)
 
     def add_message(self, uid: str, text: str) -> None:
         self._touch(uid)  # register / refresh LRU order; evicts oldest if over cap
@@ -218,12 +220,15 @@ class BigFiveBuffer(BoundedKeysMixin):
     async def _run_score(
         self, uid: str, context: str, provider_getter: Callable, llm_manager: LLMTaskManager | None = None
     ) -> None:
+        current = asyncio.current_task()
         try:
             vector = await self._scorer.score(context, provider_getter, llm_manager)
-            self._cache[uid] = vector
+            if self._pending_tasks.get(uid) is current:
+                self._cache[uid] = vector
             logger.debug("[BigFiveBuffer] scored uid=%s → %s", uid[:8], vector)
         finally:
-            self._pending_tasks.pop(uid, None)
+            if self._pending_tasks.get(uid) is current:
+                self._pending_tasks.pop(uid, None)
 
     def evict(self, uid: str) -> None:
         """Remove all state for a uid (called when session expires)."""

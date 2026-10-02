@@ -43,16 +43,33 @@ def retry_delay(exc: Exception, attempt: int, minimum: float = 2.0) -> float:
     return max(minimum, min(minimum * 2 ** min(attempt, 6), 60.0), server_delay)
 
 
+STUCK_EVERY = 8
+STUCK_SECONDS = 300.0
+
+
 async def retry_model_call(factory, *, task_name: str, strict: bool = False,
                            max_retries: int = 0, minimum: float = 2.0,
-                           timeout: float | None = None, manager=None, validate=None):
-    attempt = 0
+                           timeout: float | None = None, manager=None, validate=None,
+                           timeout_growth: float = 1.5, timeout_cap: float = 300.0):
+    """Retry a model call; each timeout widens the next attempt's limit up to ``timeout_cap``.
+
+    In strict mode a retryable failure is retried until it succeeds, so a request that always needs more
+    than the first limit still finishes; a request still failing after ``STUCK_EVERY`` attempts or
+    ``STUCK_SECONDS`` of attempts and retry delays is reported loudly in the log without falling back.
+    Time spent queued for a shared model slot is not counted, so a backlog alone never looks stuck.
+    """
+    attempt, limit, spent, reported = 0, timeout, 0.0, False
     while True:
         try:
-            async def request():
-                if timeout is None:
-                    return await factory()
-                return await asyncio.wait_for(factory(), timeout)
+            async def request(limit=limit):
+                nonlocal spent
+                began = time.monotonic()
+                try:
+                    if limit is None:
+                        return await factory()
+                    return await asyncio.wait_for(factory(), limit)
+                finally:
+                    spent += time.monotonic() - began
             result = await manager.run(request, task_name=task_name) if manager else await request()
             if validate is not None:
                 validate(result)
@@ -63,12 +80,19 @@ async def retry_model_call(factory, *, task_name: str, strict: bool = False,
             if not strict and attempt >= max_retries:
                 raise
             delay = retry_delay(exc, attempt, minimum)
-            logger.warning("[ModelRetry] task=%s attempt=%d retry_in=%.2fs reason=%s error=%s",
-                           task_name, attempt + 1, delay, type(exc).__name__, str(exc) or repr(exc))
+            logger.warning("[ModelRetry] task=%s attempt=%d retry_in=%.2fs timeout=%s reason=%s error=%s",
+                           task_name, attempt + 1, delay, limit, type(exc).__name__, str(exc) or repr(exc))
+            if limit is not None and isinstance(exc, (TimeoutError, asyncio.TimeoutError)) and limit < timeout_cap:
+                limit = min(timeout_cap, limit * max(1.0, timeout_growth))
+            attempt += 1
+            if attempt % STUCK_EVERY == 0 or (spent >= STUCK_SECONDS and not reported):
+                reported = reported or spent >= STUCK_SECONDS
+                logger.warning("[ModelRetry] STILL RETRYING task=%s attempts=%d retrying_for=%.0fs next_timeout=%s last=%s",
+                               task_name, attempt, spent, limit, type(exc).__name__)
             if manager and hasattr(manager, "defer_requests"):
                 manager.defer_requests(delay)
             await asyncio.sleep(delay)
-            attempt += 1
+            spent += delay
 
 
 async def model_response(provider, manager, cfg, *, prompt: str, system_prompt: str,

@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [v1.2.37.sub] — 2026-10-02
+
+### 中断回放续跑与严格回放补全
+
+- `core/utils/model_retry.py`：严格重试时，每次超时后，下一次的时限乘以 `extractor_llm_timeout_growth`（默认 1.5），最多放宽到 300 秒。原先时限固定为 30 秒，本来就需要更久的窗口会每次超时、永远重试，3 个并发名额全部卡住时整个回放就会停住。同一请求每重试 8 次，或请求本身加重试等待累计满 5 分钟，日志会打一条 `STILL RETRYING`，仍然不退回兜底；排队等模型名额的时间不计入，积压本身不会误报。本地新增 `tests/test_model_retry.py` 5 项。
+- `core/social/big_five_scorer.py`：`BigFiveBuffer` 跟踪的用户超过上限（500）被 LRU 挤出时，不再取消该用户仍在排队的打分任务，只释放引用；旧任务完成后只在仍是当前任务时写缓存、清登记。原先取消会把 `CancelledError` 抛进正在等它的抽取窗口：ch0–17 回放（974 名说话人）在 2026-10-02 11:31 因此整体中断。本地新增 `tests/test_big_five_buffer.py` 2 项，旧代码下两项均报错。
+- `run_realtime_dev.py`：新增 `--continue`，在原库上续跑中断的 `--fresh` 构建：按内容哈希沿用已存原始消息的编号、只补写缺失的原始消息；路由不再逐条算向量，窗口与中断前一致；无链接的窗口照常抽取，全部链接的窗口不重抽，其中早先日志里没有 `window extracted` 记录的事件重跑人物关系分析；部分链接的窗口直接停下；抽取后把摘要缺少已生成 [Eval] 的事件补进评价队列。`core/extractor/extractor.py` 新增 `queue_missing_evals`、`rerun_social_analysis`；严格回放下 [Eval] 队列不再在 500 条上限处丢弃（插件默认不变）。`core/extractor/summary.py` 新增 `evals_complete`。本地新增 `tests/test_replay_continue.py` 11 项。
+
 ## [v1.2.36.sub] — 2026-10-02
 
 ### LLM 记忆分段、长窗口完整整理与后台补向量

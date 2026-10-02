@@ -29,6 +29,8 @@ This check passed on 2026-10-02. The effective model was KCL `arc:chat`, with th
 The replay never trades quality for speed when a service is slow or throttled. It turns on retry-until-success for segmentation, extraction, embedding, persona synthesis and group summaries; ordinary plugin defaults stay unchanged.
 - **Retries:** a retryable failure waits at least two seconds, then doubles up to 60 seconds and honours `Retry-After`, and tries again. Retryable failures are HTTP 408/409/425/429/5xx, timeouts, transport errors and unusable model output. It never writes a whole-window or rule-summary fallback.
 - **Permanent errors stop the run:** a configuration error or a non-retryable HTTP status.
+- **Timeouts:** each timeout multiplies the next attempt's limit by the extractor's timeout growth (default 1.5), up to 300 seconds, so a request that always needs longer still finishes.
+- **Stuck requests:** a request still failing after 8 attempts, or after 5 minutes of attempts and retry delays, logs `STILL RETRYING` and keeps retrying; watch the log for that line. Time spent queued for one of the shared model slots does not count, so a backlog alone does not trigger it.
 - **Pacing:** chat requests are spaced at `MODEL_REQUEST_INTERVAL_MS`, which must be above 1,000 and defaults to 2,000. Embedding request and retry intervals are raised to at least 2,000 ms.
 - **Log:** stdout and stderr are also written to `<dev-data>/run_<timestamp>.log`, or to `--log-file`.
 - **Outside the replay:** tasks started by hand from the WebUI keep the plugin defaults.
@@ -42,6 +44,21 @@ The persona question remains interactive. Add `--eval-persona` to enable indepen
 `--query` changes the memory comparison question; `--group-id` changes its group, defaulting to the first group in the selected input. The fixed legacy group-chat benchmark can be disabled with `--set RECALL_BENCHMARK_ENABLED=False`, as above. No benchmark scoring result is implied by these options.
 
 Runtime overrides leave `run_config.py` unchanged. The new extraction overrides are `EXTRACTION_LLM_SEGMENTATION`, `EXTRACTION_SEGMENTATION_MESSAGES_PER_SEGMENT`, `EXTRACTION_SEGMENTATION_TIMEOUT_SECONDS`, `BOUNDARY_TOPIC_DRIFT_AUTO_CALIBRATION` and `BOUNDARY_TOPIC_DRIFT_PERCENTILE`. Their defaults match the plugin configuration. Existing retrieval overrides retain their names.
+
+## Continue an interrupted build
+
+Replace `--fresh` with `--continue` to finish an interrupted fresh build in place. The database stays where it is and is not archived. The persona-evaluation setting saved by the interrupted run applies, so `--eval-persona` may be repeated but not contradicted. The run replays every message through the same router and handles each window as follows:
+
+- **Stored messages:** a message the interrupted build already stored keeps its message ID. It is recognised by its content hash and is not written again; only messages missing from `raw_messages` are written.
+- **Router vectors:** the router computes no per-message vectors. Drift therefore cannot close a window, and the windows match the interrupted build whenever drift never fired there. In a fast replay it cannot fire, because the drift vectors arrive after their windows have closed.
+- **Untouched windows:** a window none of whose stored messages links to an event is extracted normally.
+- **Extracted windows:** a window whose stored messages all link to events is not extracted again. Its events finished post-processing only if their ID prefixes appear on a `window extracted` line in an earlier `run_*.log` of the same directory. For events without such a line, the per-event social analysis (big-five scoring and orientation) runs again.
+- **Partly linked windows:** the run stops before guessing.
+- **Missing asides:** after extraction, every event whose summary lacks a generated `[Eval]` aside in some topic is queued for the deferred pass. TypeSafe classification uses its existing backfill.
+
+Strict replay never drops a deferred `[Eval]` at the plugin's 500-item queue cap. Ordinary plugin runs keep the cap.
+
+On 2026-10-02 the interrupted ch0–17 build was dry-run offline against a copy of its database, with no model calls. It rebuilt the original 1,295 windows. Of these, 343 were finished, 356 needed the social re-run for 708 events and 596 were untouched. Three source messages had never been stored, and no window was partly linked.
 
 ## Restarting a WAL database safely
 

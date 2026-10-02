@@ -77,6 +77,22 @@ def apply_evals(summary: str, evals: list[str]) -> str:
     return normalize_summary(" | ".join(merged), has_bot_persona=True)
 
 
+def evals_complete(summary: str) -> bool:
+    """Return whether every topic segment carries a generated, non-placeholder [Eval] aside."""
+    parts = [part.strip() for part in _TOPIC.split(clean_summary_text(summary or "")) if part.strip()]
+    if not parts:
+        return False
+    for part in parts:
+        fields = list(_FIELD.finditer(part))
+        notes = [
+            part[match.end():fields[i + 1].start() if i + 1 < len(fields) else len(part)].strip()
+            for i, match in enumerate(fields) if match.group(1).title() == "Eval"
+        ]
+        if not any(note and note != "未生成评价" for note in notes):
+            return False
+    return True
+
+
 def strip_evals(summary: str) -> str:
     """Return the summary with every [Eval] aside removed (fact-only text)."""
     return normalize_summary(summary, has_bot_persona=False)
