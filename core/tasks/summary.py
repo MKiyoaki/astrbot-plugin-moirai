@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, TYPE_CHECKING
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from ..managers.llm_manager import LLMTaskManager
 
 from ..domain.models import INTERNAL_PLATFORM
+from ..utils.model_retry import ModelOutputError, model_response
 from ..utils.i18n import get_string, LANG_ZH
 from .summary_paths import summary_path
 
@@ -223,6 +225,34 @@ def _format_mood_json(
     )
 
 
+def _validate_summary_response(response, kind):
+    raw = response.completion_text.strip()
+    if kind == "topic":
+        if not raw:
+            raise ModelOutputError("Summary returned empty text")
+        return
+    if raw.startswith("```"):
+        raw = "\n".join(raw.splitlines()[1:-1])
+    try:
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            raise ValueError("Expected a summary object")
+        if kind == "unified":
+            if not isinstance(value.get("summary"), str) or not value["summary"].strip():
+                raise ValueError("Missing summary text")
+            value = value.get("mood")
+        if not isinstance(value, dict) or value.get("orientation") not in {
+            "affinity", "active", "dominant", "arrogant", "cold", "withdrawn", "submissive", "deferential",
+        } or not isinstance(value.get("positions"), dict):
+            raise ValueError("Invalid mood structure")
+        for key in ("benevolence", "power"):
+            number = value.get(key)
+            if type(number) not in (int, float) or not math.isfinite(number) or not -1 <= number <= 1:
+                raise ValueError("Invalid mood coordinates")
+    except (ValueError, TypeError) as exc:
+        raise ModelOutputError("Summary returned unusable JSON") from exc
+
+
 async def _build_mood_section_llm(
     events: list[Event],
     uid_to_name: dict[str, str],
@@ -250,18 +280,10 @@ async def _build_mood_section_llm(
     prompt = f"对话事件列表：\n{event_lines}\n\n参与者UID列表：{', '.join(participants)}\n请输出群体情感动态JSON。"
 
     try:
-        if llm_manager:
-            resp = await llm_manager.run(
-                asyncio.wait_for,
-                provider.text_chat(prompt=prompt, system_prompt=cfg.mood_prompt),
-                timeout=cfg.llm_timeout,
-                task_name="summary"
-            )
-        else:
-            resp = await asyncio.wait_for(
-                provider.text_chat(prompt=prompt, system_prompt=cfg.mood_prompt),
-                timeout=cfg.llm_timeout,
-            )
+        resp = await model_response(
+            provider, llm_manager, cfg, prompt=prompt, system_prompt=cfg.mood_prompt,
+            task_name="summary", validate=lambda response: _validate_summary_response(response, "mood"),
+        )
         raw = resp.completion_text.strip()
         # Strip markdown code block if present
         if raw.startswith("```"):
@@ -270,6 +292,8 @@ async def _build_mood_section_llm(
         data = json.loads(raw)
         return _format_mood_json(data, uid_to_name, participants, lang)
     except (asyncio.TimeoutError, json.JSONDecodeError, Exception) as exc:
+        if cfg.retry_until_success:
+            raise
         logger.warning(f"[{_MODULE_NAME}] mood LLM failed: %s", exc)
         return get_string("summary.mood_failed", lang)
 
@@ -320,18 +344,10 @@ async def _generate_summary_for_group(
             f"{get_string('summary.word_limit_hint', lang)}"
         )
         try:
-            if llm_manager:
-                resp = await llm_manager.run(
-                    asyncio.wait_for,
-                    provider.text_chat(prompt=prompt, system_prompt=cfg.unified_prompt),
-                    timeout=cfg.llm_timeout,
-                    task_name="summary"
-                )
-            else:
-                resp = await asyncio.wait_for(
-                    provider.text_chat(prompt=prompt, system_prompt=cfg.unified_prompt),
-                    timeout=cfg.llm_timeout,
-                )
+            resp = await model_response(
+                provider, llm_manager, cfg, prompt=prompt, system_prompt=cfg.unified_prompt,
+                task_name="summary", validate=lambda response: _validate_summary_response(response, "unified"),
+            )
             raw = resp.completion_text.strip()
             if raw.startswith("```"):
                 raw = raw.split("\n", 1)[1] if "\n" in raw else raw
@@ -345,6 +361,8 @@ async def _generate_summary_for_group(
             else:
                 mood_text = get_string("summary.mood_failed", lang)
         except Exception as exc:
+            if cfg.retry_until_success:
+                raise
             logger.warning(f"[{_MODULE_NAME}] unified LLM failed for group %r: %s", group_label, exc)
             # Fallback to separate calls if unified fails
             topic_text = get_string("summary.failed", lang)
@@ -359,20 +377,14 @@ async def _generate_summary_for_group(
             f"{get_string('summary.word_limit_hint', lang)}"
         )
         try:
-            if llm_manager:
-                resp = await llm_manager.run(
-                    asyncio.wait_for,
-                    provider.text_chat(prompt=topic_prompt, system_prompt=cfg.system_prompt),
-                    timeout=cfg.llm_timeout,
-                    task_name="summary"
-                )
-            else:
-                resp = await asyncio.wait_for(
-                    provider.text_chat(prompt=topic_prompt, system_prompt=cfg.system_prompt),
-                    timeout=cfg.llm_timeout,
-                )
+            resp = await model_response(
+                provider, llm_manager, cfg, prompt=topic_prompt, system_prompt=cfg.system_prompt,
+                task_name="summary", validate=lambda response: _validate_summary_response(response, "topic"),
+            )
             topic_text = resp.completion_text.strip()
         except Exception:
+            if cfg.retry_until_success:
+                raise
             topic_text = get_string("summary.failed", lang)
 
         if cfg.mood_source == "impression_db" and impression_repo:
@@ -456,6 +468,8 @@ async def _write_scope_summary(
         )
         return True
     except Exception as exc:
+        if cfg.retry_until_success:
+            raise
         logger.warning(
             "[%s] failed for scope %r (persona=%r): %s", _MODULE_NAME, label, persona, exc,
         )

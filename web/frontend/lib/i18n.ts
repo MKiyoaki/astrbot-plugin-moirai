@@ -247,6 +247,9 @@ export const zh = {
     backToSpindles: '返回卷轴',
     unspooled: 'UNSPOOLED',
     knotPrefix: 'KNOT',
+    prevPage: '上一页',
+    nextPage: '下一页',
+    pageRange: '第 {from}–{to} 条，共 {total} 条',
     legend: {
       event: '事件',
       locked: '锁定',
@@ -1214,6 +1217,9 @@ export const ja = {
     backToSpindles: '巻軸へ戻る',
     unspooled: 'UNSPOOLED',
     knotPrefix: 'KNOT',
+    prevPage: '前のページ',
+    nextPage: '次のページ',
+    pageRange: '{total} 件中 {from}–{to} 件',
     legend: {
       event: 'イベント',
       locked: 'ロック',
@@ -2159,6 +2165,9 @@ export const en = {
     backToSpindles: 'Back to spindles',
     unspooled: 'UNSPOOLED',
     knotPrefix: 'KNOT',
+    prevPage: 'Previous page',
+    nextPage: 'Next page',
+    pageRange: '{from}–{to} of {total}',
     legend: {
       event: 'Event',
       locked: 'Locked',

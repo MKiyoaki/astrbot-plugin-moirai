@@ -295,6 +295,20 @@ class EventRepository(ABC):
         """Look up an event by its integer rowid (the integer primary key)."""
         ...
 
+    async def upsert_segment_vectors(
+        self, event_id: str, identity: str, items: list[tuple[int, str, list[float]]]
+    ) -> None:
+        """Replace an event's per-segment embeddings: (ordinal, text_hash, vector) under an encoder identity.
+
+        Default is a no-op; repositories without vector storage keep injection on its lexical pick.
+        """
+
+    async def get_segment_vectors(
+        self, event_ids: list[str], identity: str
+    ) -> dict[str, dict[int, tuple[str, list[float]]]]:
+        """Return {event_id: {ordinal: (text_hash, vector)}} for the given identity; empty by default."""
+        return {}
+
     async def upsert_vector(self, event_id: str, embedding: list[float]) -> None:
         """Store the vector embedding for an event.
 

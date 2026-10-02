@@ -1,3 +1,4 @@
+"""Shared model concurrency, request pacing and call accounting."""
 import asyncio
 import logging
 import time
@@ -16,8 +17,13 @@ class LLMTaskManager:
     for all background LLM calls (extraction, synthesis, summary, etc.).
     """
     
-    def __init__(self, concurrency: int = 2):
+    def __init__(self, concurrency: int = 2, request_interval_seconds: float = 0.0):
+        if concurrency < 1 or request_interval_seconds < 0:
+            raise ValueError("Model concurrency must be positive and request interval nonnegative")
         self._semaphore = asyncio.Semaphore(concurrency)
+        self._request_interval = request_interval_seconds
+        self._pacing_lock = asyncio.Lock()
+        self._next_request = 0.0
         self._active_tasks = 0
         self._total_calls = 0
         self._failed_calls = 0
@@ -72,6 +78,10 @@ class LLMTaskManager:
             The result of the coroutine.
         """
         async with self._semaphore:
+            async with self._pacing_lock:
+                while self._next_request > time.monotonic():
+                    await asyncio.sleep(self._next_request - time.monotonic())
+                self._next_request = time.monotonic() + self._request_interval
             self._active_tasks += 1
             self._total_calls += 1
             start = time.time()
@@ -119,6 +129,10 @@ class LLMTaskManager:
                 raise
             finally:
                 self._active_tasks -= 1
+
+    def defer_requests(self, seconds: float) -> None:
+        """Share provider cooldown with every queued model task."""
+        self._next_request = max(self._next_request, time.monotonic() + seconds)
 
     def get_token_usage(self) -> Dict[str, Dict[str, int]]:
         """Returns aggregated token usage per task name."""

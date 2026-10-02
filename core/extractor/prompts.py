@@ -37,7 +37,7 @@ def build_user_prompt(
     existing_tags: list[str] | None = None,
 ) -> str:
     """Format the conversation window into a user prompt."""
-    messages = window.messages[-max_messages:]
+    messages = window.messages[-max_messages:] if max_messages > 0 else window.messages
     duration_min = math.ceil(window.duration_seconds / 60)
 
     uid_label = _assign_unique_labels(messages)

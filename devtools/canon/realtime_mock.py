@@ -68,6 +68,24 @@ def sender(line: dict, bot_display: str, bot_aliases: set[str], narration: str, 
     return "user", *NARRATOR
 
 
+def load_keyed(paths: list[Path], label: str) -> dict:
+    keyed = {}
+    for path in paths:
+        for entry in json.loads(path.read_text(encoding="utf-8")):
+            if entry["line_key"] in keyed:
+                raise SystemExit(f"{label} 包含重复 line_key：{entry['line_key']}")
+            keyed[entry["line_key"]] = entry
+    return keyed
+
+
+def map_identity(paths: list[Path]):
+    names = [path.name for path in paths]
+    digests = [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
+    if len(paths) == 1:
+        return names[0], digests[0]
+    return names, digests
+
+
 def build(args) -> tuple[list[dict], list[dict], dict]:
     lo, hi = parse_chapters(args.chapters)
     scenes = load_scenes(args.pack, args.tier)
@@ -86,17 +104,15 @@ def build(args) -> tuple[list[dict], list[dict], dict]:
     if args.dialogue_only:
         if not args.speaker_map or not args.visibility_map:
             raise SystemExit("dialogue-only 需要 --speaker-map 和 --visibility-map")
-        entries = json.loads(args.visibility_map.read_text(encoding="utf-8"))
-        visibility = {entry["line_key"]: entry for entry in entries}
-        if len(visibility) != len(entries):
-            raise SystemExit("visibility-map 包含重复 line_key")
+        visibility = load_keyed(args.visibility_map, "visibility-map")
     rule_counts = {}
     action_counts = {}
     if args.speaker_map:
-        entries = json.loads(args.speaker_map.read_text(encoding="utf-8"))
-        overrides = {entry["line_key"]: entry for entry in entries}
-        if len(overrides) != len(entries):
-            raise SystemExit("speaker-map 包含重复 line_key")
+        overrides = load_keyed(args.speaker_map, "speaker-map")
+    excluded = set(args.exclude_scene or ())
+    unknown = excluded - {scene["scene_key"] for scene in scenes}
+    if unknown:
+        raise SystemExit(f"exclude-scene 不存在：{sorted(unknown)}")
     end_pos = None
     if args.end_scene:
         matches = [scene["narrative_pos"] for scene in scenes if scene["scene_key"] == args.end_scene]
@@ -107,7 +123,8 @@ def build(args) -> tuple[list[dict], list[dict], dict]:
     slot = 0
     for index, scene in enumerate(scenes):
         selected = (scene["chapter_no"] is not None and lo <= scene["chapter_no"] <= hi
-                    and (end_pos is None or scene["narrative_pos"] <= end_pos))
+                    and (end_pos is None or scene["narrative_pos"] <= end_pos)
+                    and scene["scene_key"] not in excluded)
         if selected:
             chosen.append(scene["scene_key"])
         for line in scene["lines"]:
@@ -191,17 +208,17 @@ def build(args) -> tuple[list[dict], list[dict], dict]:
         "first": messages[0]["time"],
         "last": messages[-1]["time"],
     }
+    if excluded:
+        manifest["excluded_scenes"] = sorted(excluded)
     if overrides is not None:
-        manifest["speaker_map"] = args.speaker_map.name
-        manifest["speaker_map_sha256"] = hashlib.sha256(args.speaker_map.read_bytes()).hexdigest()
+        manifest["speaker_map"], manifest["speaker_map_sha256"] = map_identity(args.speaker_map)
         manifest["rule_counts"] = rule_counts
         manifest["action_counts"] = action_counts
         if args.end_scene:
             manifest["end_scene"] = args.end_scene
     if args.dialogue_only:
         manifest["replay_mode"] = "public_dialogue"
-        manifest["visibility_map"] = args.visibility_map.name
-        manifest["visibility_map_sha256"] = hashlib.sha256(args.visibility_map.read_bytes()).hexdigest()
+        manifest["visibility_map"], manifest["visibility_map_sha256"] = map_identity(args.visibility_map)
         manifest["excluded_counts"] = excluded_counts
         tag_counts = {}
         for entry in visibility.values():
@@ -236,10 +253,11 @@ def main(argv=None):
     parser.add_argument("--scene-gap-minutes", type=int, default=45, help="须大于断窗间隔 30 分钟")
     parser.add_argument("--narration", choices=("narrator", "drop"), default="narrator")
     parser.add_argument("--persona", type=Path, default=DEFAULT_PERSONA)
-    parser.add_argument("--speaker-map", type=Path)
-    parser.add_argument("--visibility-map", type=Path)
+    parser.add_argument("--speaker-map", type=Path, action="append", help="可重复传入，line_key 不得重复")
+    parser.add_argument("--visibility-map", type=Path, action="append", help="可重复传入，line_key 不得重复")
     parser.add_argument("--dialogue-only", action="store_true")
     parser.add_argument("--end-scene", help="包含指定场景，排除统一时间线中其后的场景")
+    parser.add_argument("--exclude-scene", action="append", help="排除指定场景，其余场景时间戳不变；可重复传入")
     args = parser.parse_args(argv)
     if args.scene_gap_minutes <= 30:
         parser.error("--scene-gap-minutes 须大于 30，否则相邻场景会并进同一个窗口")

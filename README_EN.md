@@ -27,7 +27,7 @@ Highlights:
 
 - **Visualised memory management**: 7 WebUI pages covering the full data lifecycle — event timeline, interactive social graph, narrative summary reader, hybrid recall debugger, persona library, and live statistics. All data is browsable and editable in-browser.
 - **Highly configurable**: 70+ config keys; each subsystem (social graph, summaries, Soul Layer, VCM) can be toggled independently. Retrieval strategy, event boundary thresholds, and decay rates are all tunable per deployment.
-- **Memory recall costs zero extra LLM calls**: Retrieving and injecting memory on every message requires no LLM calls — no added API cost, no added latency. BM25 keyword search (Chinese indexed as adjacent character pairs plus single characters, no segmenter dependency) and vector semantic search run in parallel, fused via RRF; each recalled event then contributes the summary segments that best match the message, within a configurable token budget.
+- **Memory recall costs zero extra LLM calls**: Retrieving and injecting memory on every message requires no LLM calls — no added API cost, no added latency. BM25 keyword search (Chinese indexed as adjacent character pairs plus single characters, no segmenter dependency) and vector semantic search run in parallel, fused via RRF; the summary segments of the recalled events are then ranked together by meaning (each segment is embedded at extraction time and the query vector from search is reused, so no extra request; plus a small weight for shared rare terms) and injected within a configurable token budget. Without embeddings, each event contributes the segments sharing the most terms with the message.
 - **Graceful degradation**: Falls back to BM25 when the embedding model is unavailable. Social graph, summaries, and Soul Layer are fully isolated — a failure in one module does not affect the memory injection hot path.
 
 ---
@@ -150,6 +150,8 @@ The WebUI uses two-tier auth: **Login** (password at `data_dir/.webui_password`)
 | WebUI Panel | `webui_enabled` | ✅ on |
 | Semantic Search | `embedding_enabled` | ✅ on |
 | Topic Drift Detection | `boundary_topic_drift_enabled` | ✅ on |
+| LLM Memory Segmentation | `extraction_llm_segmentation` | ✅ on (llm strategy only) |
+| Self-Calibrating Drift Threshold | `boundary_topic_drift_auto_calibration` | ✅ on |
 | Persona-Influenced Summaries | `persona_influenced_summary` | ✅ on |
 | Social Graph (IPC) | `relation_enabled` | ✅ on |
 | Group Summaries | `summary_enabled` | ✅ on |
@@ -178,7 +180,13 @@ The parameters below have the most impact on memory quality; defaults are approp
 |-----|---------|-------------|
 | `boundary_time_gap_minutes` | `30` | Idle time threshold to close an event window |
 | `boundary_max_messages` | `50` | Hard cap on messages per event |
-| `boundary_topic_drift_threshold` | `0.6` | Cosine distance threshold for topic drift (lower = more sensitive) |
+| `boundary_topic_drift_threshold` | `0.6` | Cold-start cosine distance threshold; also used when calibration is disabled |
+| `boundary_topic_drift_percentile` | `85` | After 64 valid checks, percentile of up to 512 recent distances; resets on model changes |
+| `extraction_segmentation_messages_per_segment` | `12` | Message ratio limiting unit count; units shorter than four messages are merged |
+| `extraction_segmentation_timeout_seconds` | `30` | Boundary-call timeout; failure preserves the whole window and still paginates |
+| `extractor_context_messages` | `40` | Messages per extraction page; all messages are processed, `0` disables pagination |
+
+LLM extraction first chooses conservative memory units, keeping follow-ups, reactions and brief digressions together. Long units are divided into balanced pages, with the previous page's factual summary supplied as background. Missing segment vectors fall back to the previous injection formatter while a bounded background queue fills them; injection reads stored vectors and the cached query vector without issuing embedding requests. See [memory segmentation](docs/memory-segmentation.md) for failure handling and validation limits.
 
 **Embedding (API mode)**
 
@@ -223,6 +231,8 @@ The local model is downloaded from HuggingFace on first start and may time out o
 
 ## Technical Architecture (Developers)
 
+Use `run_realtime_dev.py` for local dialogue replay. See [local replay](docs/local-replay.md) for the prepared ch0–17 dataset command, the no-call `--check`, persona options and resume behaviour. Before archiving, `--fresh` checkpoints WAL and requires exclusive database access; close earlier runners and read-only monitoring connections before rebuilding. This tool runs Moirai's standalone development composition; the workspace verifies Core protocols separately.
+
 ### Three-Axis Memory Model
 
 | Axis | Entity | Description |
@@ -264,7 +274,7 @@ AstrBot Message Stream
 | Trigger | Task | LLM Calls |
 |---------|------|-----------|
 | Per message (hot path) | Retrieval + injection | **0** |
-| Per event close | Core extraction | **1** |
+| Per window close (background) | Memory segmentation + extraction | **0–1 boundary calls + 1 per page** (excluding retries, JSON repair and deferred evaluation) |
 | Per event (social) | Big Five scoring | **0** (unified extraction hit) or **1** |
 | Weekly | Persona synthesis | **1 per active user** |
 | Daily/Weekly | Group summary | **≤ 2 per active group** |

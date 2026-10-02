@@ -9,6 +9,7 @@ import re
 import time
 from collections import Counter
 from typing import Callable, TYPE_CHECKING
+from ..utils.model_retry import ModelOutputError, model_response
 
 if TYPE_CHECKING:
     from ..config import SynthesisConfig
@@ -98,18 +99,20 @@ async def _synthesize_one_persona(
     )
 
     try:
-        if llm_manager:
-            resp = await llm_manager.run(
-                asyncio.wait_for,
-                provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
-                timeout=cfg.llm_timeout,
-                task_name="synthesis",
+        def validate(response):
+            value = _safe_parse(response.completion_text)
+            if not isinstance(value, dict):
+                raise ModelOutputError("Synthesis returned invalid JSON")
+            meaningful = bool(value.get("description") or value.get("speaking_style") or value.get("style_quotes"))
+            meaningful = meaningful or isinstance(value.get("big_five"), dict) and any(
+                type(value["big_five"].get(key)) in (int, float) for key in ("O", "C", "E", "A", "N")
             )
-        else:
-            resp = await asyncio.wait_for(
-                provider.text_chat(prompt=prompt, system_prompt=cfg.persona_system_prompt),
-                timeout=cfg.llm_timeout,
-            )
+            if not meaningful:
+                raise ModelOutputError("Synthesis returned no usable attributes")
+        resp = await model_response(
+            provider, llm_manager, cfg, prompt=prompt, system_prompt=cfg.persona_system_prompt,
+            task_name="synthesis", validate=validate,
+        )
         parsed = _safe_parse(resp.completion_text)
         if parsed is None:
             logger.warning("[%s] unparseable response for %s", log_prefix, persona.uid)
@@ -192,8 +195,12 @@ async def _synthesize_one_persona(
         return True
 
     except asyncio.TimeoutError:
+        if cfg.retry_until_success:
+            raise
         logger.warning("[%s] timeout for persona %s", log_prefix, persona.uid)
     except Exception as exc:
+        if cfg.retry_until_success:
+            raise
         logger.warning("[%s] failed for persona %s: %s", log_prefix, persona.uid, exc)
     return False
 

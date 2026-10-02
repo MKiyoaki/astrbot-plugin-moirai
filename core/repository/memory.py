@@ -121,6 +121,7 @@ class InMemoryPersonaGroupRepository(PersonaGroupRepository):
 class InMemoryEventRepository(EventRepository):
     def __init__(self) -> None:
         self._store: dict[str, Event] = {}
+        self._segments: dict[str, tuple[str, dict[int, tuple[str, list[float]]]]] = {}
         # Canonical tag bookkeeping — no vectors, but the df promotion gate is
         # mirrored so behaviour matches the SQLite repo.
         self._canonical_df: dict[str, int] = {}
@@ -248,7 +249,19 @@ class InMemoryEventRepository(EventRepository):
         if event_id not in self._store:
             return False
         del self._store[event_id]
+        self._segments.pop(event_id, None)
         return True
+
+    async def upsert_segment_vectors(
+        self, event_id: str, identity: str, items: list[tuple[int, str, list[float]]]
+    ) -> None:
+        self._segments[event_id] = (identity, {o: (h, list(v)) for o, h, v in items})
+
+    async def get_segment_vectors(
+        self, event_ids: list[str], identity: str
+    ) -> dict[str, dict[int, tuple[str, list[float]]]]:
+        return {e: dict(self._segments[e][1]) for e in event_ids
+                if e in self._segments and self._segments[e][0] == identity}
 
     async def update_salience(self, event_id: str, new_salience: float) -> bool:
         if event_id not in self._store:

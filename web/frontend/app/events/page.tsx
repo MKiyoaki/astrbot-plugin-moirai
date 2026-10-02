@@ -12,6 +12,7 @@ import { PageHeader } from '@/components/layout/page-header'
 import { SpindleGrid } from '@/components/events/spindle-grid'
 import { EventThread } from '@/components/events/event-thread'
 import { DetailPanel } from '@/components/events/detail-panel'
+import { ThreadPager } from '@/components/events/thread-pager'
 import {
   CreateEventDialog, EditEventDialog, RecycleBinDialog, ArchiveEventsDialog, type EventFormData,
 } from '@/components/events/event-dialogs'
@@ -24,6 +25,9 @@ import { getStored, removeStored } from '@/lib/safe-storage'
 import { buildSpindleCards, eventGroupId } from '@/lib/events-aggregator'
 import * as api from '@/lib/api'
 import { DateRange } from 'react-day-picker'
+
+// One thread page; a group with more events than this is paged instead of drawn whole.
+const THREAD_PAGE_SIZE = 200
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
@@ -47,6 +51,8 @@ export default function EventsPage() {
   const [detailEvent, setDetailEvent]         = useState<api.ApiEvent | null>(null)
   const [isRefreshing, setIsRefreshing]       = useState(false)
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null)
+  const [threadPage, setThreadPage]           = useState({ key: '', index: 0 })
+  const [pageTargetId, setPageTargetId]       = useState<string | null>(null)
 
   // CRUD dialogs
   const [createOpen, setCreateOpen]           = useState(false)
@@ -102,6 +108,7 @@ export default function EventsPage() {
           const ev = app.rawEvents.find(e => e.id === focusId)
           if (ev) {
             setExpandedGroupId(eventGroupId(ev))
+            setPageTargetId(ev.id)
           }
         }
         if (highlightRaw) {
@@ -112,6 +119,7 @@ export default function EventsPage() {
             const ev = app.rawEvents.find(e => ids.includes(e.id))
             if (ev) {
               setExpandedGroupId(eventGroupId(ev))
+              setPageTargetId(ev.id)
             }
           } catch {}
         }
@@ -162,6 +170,33 @@ export default function EventsPage() {
       .filter(ev => eventGroupId(ev) === expandedGroupId)
       .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
   }, [filtered, expandedGroupId])
+
+  // ── Thread paging ──────────────────────────────────────────────────────────
+  // The page resets whenever the spindle or the filters change; a jump target
+  // (focus restore, axis selection) moves to the page that contains it.
+
+  const threadPageKey = [
+    expandedGroupId ?? '',
+    deferredSearch,
+    dateRange?.from?.getTime() ?? '',
+    dateRange?.to?.getTime() ?? '',
+    [...activeTags].sort().join('\n'),
+  ].join('|')
+  const threadPageCount = Math.max(1, Math.ceil(threadEvents.length / THREAD_PAGE_SIZE))
+  let nextThreadPage = threadPage.key === threadPageKey ? threadPage : { key: threadPageKey, index: 0 }
+  if (pageTargetId !== null) {
+    const targetIdx = threadEvents.findIndex(ev => ev.id === pageTargetId)
+    setPageTargetId(null)
+    if (targetIdx >= 0) nextThreadPage = { key: threadPageKey, index: Math.floor(targetIdx / THREAD_PAGE_SIZE) }
+  }
+  if (nextThreadPage !== threadPage) setThreadPage(nextThreadPage)
+  const threadPageIndex = Math.min(nextThreadPage.index, threadPageCount - 1)
+  const pagedThreadEvents = useMemo(
+    () => threadPageCount > 1
+      ? threadEvents.slice(threadPageIndex * THREAD_PAGE_SIZE, (threadPageIndex + 1) * THREAD_PAGE_SIZE)
+      : threadEvents,
+    [threadEvents, threadPageCount, threadPageIndex]
+  )
 
   const axisEvents = useMemo(() => {
     if (!detailEvent) return currentSpindle?.events ?? []
@@ -329,6 +364,16 @@ export default function EventsPage() {
 
       <TimeGapSelector value={timeGap} onChange={setTimeGap} />
 
+      {expandedGroupId && threadPageCount > 1 && (
+        <ThreadPager
+          page={threadPageIndex}
+          pageCount={threadPageCount}
+          pageSize={THREAD_PAGE_SIZE}
+          total={threadEvents.length}
+          onChange={index => setThreadPage({ key: threadPageKey, index })}
+        />
+      )}
+
       <div className="h-4 w-px bg-border mx-1 hidden sm:block" />
 
       <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2" onClick={openArchiveBin}>
@@ -418,7 +463,8 @@ export default function EventsPage() {
           <>
             <div className="flex flex-1 flex-col overflow-hidden">
               <EventThread
-                events={threadEvents}
+                key={threadPageIndex}
+                events={pagedThreadEvents}
                 timeGap={timeGap}
                 highlightIds={highlightIds}
                 onEventClick={setDetailEvent}
@@ -441,7 +487,7 @@ export default function EventsPage() {
               onLockToggle={handleLockToggle}
               onArchive={handleArchive}
               onReextract={handleReextract}
-              onSelect={setDetailEvent}
+              onSelect={ev => { setDetailEvent(ev); setPageTargetId(ev.id) }}
             />
           </>
         )}

@@ -10,6 +10,8 @@ Boundary signals:
 from __future__ import annotations
 
 import logging
+import math
+from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -32,6 +34,10 @@ class BoundaryConfig:
     drift_threshold: float = 0.6
     drift_min_messages: int = 20
     drift_check_interval: int = 5
+    drift_auto_calibration: bool = True
+    drift_percentile: float = 85.0
+    drift_calibration_min_samples: int = 64
+    drift_calibration_history: int = 512
 
 
 class EventBoundaryDetector:
@@ -42,6 +48,8 @@ class EventBoundaryDetector:
     ) -> None:
         self.config = config or BoundaryConfig()
         self._encoder = encoder
+        self._drift_distances: deque[float] = deque(maxlen=max(1, self.config.drift_calibration_history))
+        self._drift_identity: object = None
 
     def should_close(
         self, window: MessageWindow, now: float
@@ -90,24 +98,31 @@ class EventBoundaryDetector:
             return False
             
         # Optimization: Only check drift every N messages
-        if (window.message_count - self.config.drift_min_messages) % self.config.drift_check_interval != 0:
+        if (window.message_count - self.config.drift_min_messages) % max(1, self.config.drift_check_interval) != 0:
             return False
 
         try:
-            # Cosine Similarity between centroid and new message
-            import math
-            def cosine_similarity(v1, v2):
-                dot = sum(a*b for a, b in zip(v1, v2))
-                norm1 = math.sqrt(sum(a*a for a in v1))
-                norm2 = math.sqrt(sum(a*a for a in v2))
-                if norm1 == 0 or norm2 == 0: return 0
-                return dot / (norm1 * norm2)
-            
-            sim = cosine_similarity(window.centroid, new_vec)
-            drift = 1.0 - sim
-            
-            if drift > self.config.drift_threshold:
-                logger.info("[BoundaryDetector] topic drift detected: %.3f (threshold: %.2f)", drift, self.config.drift_threshold)
+            if len(window.centroid) != len(new_vec) or not all(math.isfinite(v) for v in window.centroid + new_vec):
+                return False
+            norm = math.sqrt(sum(v * v for v in window.centroid) * sum(v * v for v in new_vec))
+            if not norm:
+                return False
+            from ..retrieval.segments import identity_key
+            identity = (id(self._encoder), identity_key(self._encoder), len(new_vec))
+            if identity != self._drift_identity:
+                self._drift_distances.clear()
+                self._drift_identity = identity
+            drift = max(0.0, min(2.0, 1.0 - sum(a * b for a, b in zip(window.centroid, new_vec)) / norm))
+            threshold = self.config.drift_threshold
+            minimum = max(1, min(self.config.drift_calibration_min_samples, self._drift_distances.maxlen))
+            if self.config.drift_auto_calibration and len(self._drift_distances) >= minimum:
+                values = sorted(self._drift_distances)
+                percentile = max(0.0, min(100.0, self.config.drift_percentile))
+                threshold = values[math.ceil(percentile / 100 * (len(values) - 1))]
+            self._drift_distances.append(drift)
+            if drift > threshold:
+                logger.info("[BoundaryDetector] topic drift detected: %.3f (threshold: %.3f, samples: %d)",
+                            drift, threshold, len(self._drift_distances))
                 return True
         except Exception as exc:
             logger.debug("[BoundaryDetector] drift check failed: %s", exc)

@@ -315,7 +315,7 @@
             "extractor_context_messages": {
                 "description": "提取器上下文消息数",
                 "type": "int",
-                "hint": "事件提取时 LLM prompt 中最多包含的历史消息条数。越大 prefill 越慢、越吃 KV 显存。不设置时取 min(40, context_window_size)。",
+                "hint": "每次事件整理最多包含的消息数；超长段均分分页，后一页带前页摘要作背景，所有消息都会处理。0 表示不分页。不设置时取 min(40, context_window_size)。",
                 "default": 40,
                 "level": "advanced"
             },
@@ -612,7 +612,7 @@
             "boundary_topic_drift_threshold": {
                 "description": "🌊余弦距离阈值",
                 "type": "float",
-                "hint": "0–1 之间的余弦距离值，超过此值时触发话题切换检测（需启用向量检索）",
+                "hint": "自动校准关闭或样本不足时使用的余弦距离阈值。距离范围 0–2，越小越敏感。",
                 "default": 0.6,
                 "level": "expert"
             },
@@ -650,6 +650,41 @@
                 "hint": "建议 3–30。每次扫描时尾部这么多条消息不会被提取，留待下次或自然边界。太小容易截断进行中的话题；太大则周期任务效果减弱。",
                 "default": 10,
                 "level": "expert"
+            },
+            "extraction_llm_segmentation": {
+                "description": "启用 LLM 记忆分段",
+                "type": "bool",
+                "default": true,
+                "hint": "仅用于 llm 策略。至少 12 条消息时先按完整记忆单位分段；失败保留整窗。关闭后仍分页处理全部消息。",
+                "level": "advanced"
+            },
+            "extraction_segmentation_messages_per_segment": {
+                "description": "记忆分段消息比例",
+                "type": "int",
+                "default": 12,
+                "hint": "每多少条消息允许一段，用于限制分段数量；短于 4 条的片段会合并。",
+                "level": "advanced"
+            },
+            "extraction_segmentation_timeout_seconds": {
+                "description": "记忆分段超时（秒）",
+                "type": "float",
+                "default": 30.0,
+                "hint": "找切点的单次调用超时，不重试；失败继续按整窗分页整理。",
+                "level": "advanced"
+            },
+            "boundary_topic_drift_auto_calibration": {
+                "description": "自动校准漂移阈值",
+                "type": "bool",
+                "default": true,
+                "hint": "积累 64 次有效检查后，按最近最多 512 次距离的分位数定阈值；模型变化后重新积累。",
+                "level": "advanced"
+            },
+            "boundary_topic_drift_percentile": {
+                "description": "漂移距离分位数",
+                "type": "float",
+                "default": 85.0,
+                "hint": "0–100；数值越大越保守。样本不足时沿用余弦距离阈值；分位校准不能保证切点正确。",
+                "level": "advanced"
             }
         }
     },

@@ -1,7 +1,7 @@
 """LLM-based event extractor — fills topic/tags/salience after a window closes.
 
 Called as the on_event_close callback in MessageRouter. Uses the AstrBot
-provider for one LLM call per closed event; falls back to rule-based
+provider to choose memory units and summarize each page; falls back to rule-based
 extraction when no provider is available or the call fails.
 
 In main.py this callback is wrapped in asyncio.create_task so the LLM
@@ -32,6 +32,9 @@ from .persona_context import (
 )
 from .prompts import build_user_prompt, build_distillation_prompt
 from .summary import strip_evals
+from .segmentation import SEGMENTATION_PROMPT, MemorySegment, merge_segments, paginate_segment, parse_segments
+from ..retrieval.segments import index_segments
+from ..utils.model_retry import ModelOutputError, retry_model_call
 from .partitioner import LlmPartitioner, SemanticPartitioner, Partition
 
 _NO_PROVIDER_WARN_INTERVAL = 60.0
@@ -196,13 +199,18 @@ class EventExtractor:
         self._events_persisted_callback = events_persisted_callback
         self._raw_message_repo = raw_message_repo
         self._raw_message_writer = raw_message_writer
-        self._max_context_messages = cfg.max_context_messages
+        self._max_context_messages = max(0, cfg.max_context_messages)
         self._system_prompt = cfg.system_prompt
         self._distillation_system_prompt = cfg.distillation_system_prompt
         self._llm_timeout = cfg.llm_timeout
         self._llm_max_retries = max(0, int(getattr(cfg, "llm_max_retries", 2)))
         self._llm_timeout_growth = max(1.0, float(getattr(cfg, "llm_timeout_growth", 1.5)))
+        self._retry_until_success = cfg.retry_until_success
+        self._retry_delay = max(2.0, cfg.llm_retry_delay_seconds)
         self._strategy = cfg.strategy
+        self._llm_segmentation = cfg.llm_segmentation
+        self._segmentation_messages_per_segment = max(1, cfg.segmentation_messages_per_segment)
+        self._segmentation_timeout = max(0.1, cfg.segmentation_timeout)
         self._persona_influenced_summary = cfg.persona_influenced_summary
         self._persona_prompt_contexts: dict[str, str] = {}
         self._tag_normalization_threshold = cfg.tag_normalization_threshold
@@ -274,7 +282,9 @@ class EventExtractor:
         attempt = 0
         try:
             while True:
-                final = attempt >= self._requeue_attempts
+                if self._closing and self._retry_until_success:
+                    raise asyncio.CancelledError
+                final = attempt >= self._requeue_attempts and not self._retry_until_success
                 self._active_extractions += 1
                 try:
                     await self._process_window(window, defer=not final and not self._closing,
@@ -319,19 +329,18 @@ class EventExtractor:
             wake.set()
         current = asyncio.current_task()
         tasks = [task for task in tuple(self._requeued) if task is not current]
+        if self._retry_until_success:
+            for task in tasks:
+                task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _process_window(self, window: MessageWindow, *, defer: bool = False, rule_only: bool = False) -> None:
         """Partition, distill/extract, persist, then index vector.
 
-        Both strategies share the same post-partition pipeline:
-          - "llm":      LlmPartitioner returns the whole window as one partition;
-                        _extract_batch does ONE LLM call that splits and extracts
-                        multiple events simultaneously (most token-efficient for LLM mode).
-          - "semantic": SemanticPartitioner returns N pre-clustered partitions;
-                        _distill does ONE LLM call per partition using the dedicated
-                        distillation prompt (consistent single-object output format).
+        LLM mode chooses conservative memory units and extracts consecutive pages,
+        staging every result before persistence so a deferred retry creates no duplicates.
+        Semantic mode distills its clustered partitions independently.
         """
         from ..utils.perf import performance_timer
 
@@ -369,16 +378,22 @@ class EventExtractor:
         extracted_results: list[tuple[list[int], dict]] = []  # (indices, result_dict)
 
         if self._strategy == "llm":
-            # One batch call: LLM handles both splitting and field extraction.
             async with performance_timer("extraction"):
-                batch_results = await self._extract_batch(window, existing_tags=steering_tags,
-                                                          defer=defer, rule_only=rule_only)
-                if len(batch_results) == 1 and window.messages:
-                    batch_results[0]["start_idx"] = 0
-                    batch_results[0]["end_idx"] = len(window.messages) - 1
-                for res in batch_results:
-                    start, end = res.get("start_idx", 0), res.get("end_idx", len(window.messages)-1)
-                    extracted_results.append((list(range(start, end + 1)), res))
+                segments = await self._memory_segments(window, rule_only=rule_only)
+                for segment in segments:
+                    previous_summary = ""
+                    for page in paginate_segment(segment, self._max_context_messages):
+                        subwindow = window.clone_prefix(page.end)
+                        subwindow.drop_prefix(page.start)
+                        batch_results = await self._extract_batch(
+                            subwindow, existing_tags=steering_tags, defer=defer,
+                            rule_only=rule_only, previous_summary=previous_summary,
+                        )
+                        if batch_results:
+                            res = batch_results[0]
+                            res["start_idx"], res["end_idx"] = page.start, page.end - 1
+                            extracted_results.append((list(range(page.start, page.end)), res))
+                            previous_summary = strip_evals(res.get("summary", ""))
         else:
             # Per-partition distillation: run all partitions concurrently.
             # LLMTaskManager caps actual LLM concurrency; asyncio.gather just
@@ -503,7 +518,8 @@ class EventExtractor:
                 ipc_tasks.append(
                     self._run_ipc_analysis(
                         event, 
-                        window, 
+                        dataclasses.replace(window, messages=list(sub_messages),
+                                            start_time=start_time, last_message_time=end_time),
                         personality_data=res.get("participants_personality")
                     )
                 )
@@ -808,12 +824,18 @@ class EventExtractor:
         mapping = await self._batch_align_tags(raw_tags)
         return list(dict.fromkeys(mapping.get(tag, tag) for tag in raw_tags))
 
-    async def _call_llm_with_retry(self, coro_factory, task_name: str) -> tuple[object, int]:
+    async def _call_llm_with_retry(self, coro_factory, task_name: str, *, timeout=None, validate=None) -> tuple[object, int]:
         """Run an LLM call with timeout + exponential retry on TimeoutError / provider exceptions.
 
         coro_factory: zero-arg callable returning a fresh provider coroutine on each attempt.
         Returns (response, retries_used). Raises the last exception when all attempts fail.
         """
+        if self._retry_until_success:
+            return await retry_model_call(
+                coro_factory, task_name=task_name, strict=True, minimum=self._retry_delay,
+                timeout=timeout if timeout is not None else self._llm_timeout,
+                manager=self._llm_manager, validate=validate,
+            )
         attempts = self._llm_max_retries + 1
         timeout = float(self._llm_timeout)
         last_exc: BaseException | None = None
@@ -838,6 +860,7 @@ class EventExtractor:
                     task_name, timeout, i + 1, attempts,
                 )
                 timeout *= self._llm_timeout_growth
+                await asyncio.sleep(self._retry_delay)
             except Exception as exc:
                 last_exc = exc
                 if i + 1 >= attempts:
@@ -846,7 +869,7 @@ class EventExtractor:
                     "[EventExtractor] %s failed (%s); attempt %d/%d, retrying",
                     task_name, exc, i + 1, attempts,
                 )
-                await asyncio.sleep(min(2.0 ** i, 5.0))
+                await asyncio.sleep(min(self._retry_delay * 2.0 ** i, 60.0))
         assert last_exc is not None
         raise last_exc
 
@@ -856,13 +879,81 @@ class EventExtractor:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            if self._retry_until_success:
+                raise
             if defer:
                 raise ModelUnavailable(task_name) from exc
             raise
 
+    async def _memory_segments(self, window: MessageWindow, *, rule_only: bool = False) -> list[MemorySegment]:
+        count = window.message_count
+        whole = [MemorySegment(0, count)] if count else []
+        provider = self._provider_getter()
+        if rule_only or not self._llm_segmentation or count < 12 or provider is None:
+            if self._retry_until_success and provider is None and count >= 12 and self._llm_segmentation:
+                raise RuntimeError("Strict segmentation requires a model provider")
+            return whole
+        import math
+        cap = max(1, math.ceil(count / self._segmentation_messages_per_segment))
+        system = SEGMENTATION_PROMPT.format(cap=cap)
+        prompt = build_user_prompt(window, 0)
+
+        async def request():
+            import inspect
+            arguments = {"prompt": prompt, "system_prompt": system}
+            parameters = inspect.signature(provider.text_chat).parameters
+            if "temperature" in parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values()):
+                arguments["temperature"] = 0
+            return await asyncio.wait_for(
+                provider.text_chat(**arguments),
+                timeout=self._segmentation_timeout,
+            )
+
+        started = _time.perf_counter()
+        try:
+            def validate(response):
+                try:
+                    parse_segments(_response_text(response), count)
+                except (ValueError, TypeError) as exc:
+                    raise ModelOutputError("Invalid segmentation result") from exc
+            if self._retry_until_success:
+                response, _ = await self._call_llm_with_retry(
+                    request, "segmentation", timeout=self._segmentation_timeout, validate=validate,
+                )
+            else:
+                response = await self._llm_manager.run(request, task_name="segmentation") if self._llm_manager else await request()
+            segments = parse_segments(_response_text(response), count)
+            vectors = {}
+            needs_merge = len(segments) > cap or any(p.end - p.start < 4 for p in segments)
+            if needs_merge and self._encoder.dim > 0:
+                labels = list(dict.fromkeys(p.label for p in segments if p.label))
+                if labels:
+                    try:
+                        if self._retry_until_success:
+                            encoded = await self._encoder.encode_batch(labels)
+                        else:
+                            encoded = await asyncio.wait_for(self._encoder.encode_batch(labels), self._segmentation_timeout)
+                        vectors = dict(zip(labels, encoded))
+                    except Exception as exc:
+                        if self._retry_until_success:
+                            raise
+                        logger.warning("[EventExtractor] segmentation label encoding unavailable: %s", exc)
+            segments = merge_segments(segments, count, self._segmentation_messages_per_segment, vectors)
+            logger.info("[EventExtractor] segmentation: session=%s, messages=%d, segments=%d, seconds=%.2f",
+                        window.session_id, count, len(segments), _time.perf_counter() - started)
+            return segments
+        except Exception as exc:
+            if self._retry_until_success:
+                raise
+            logger.warning("[EventExtractor] segmentation fell back to whole window: session=%s, seconds=%.2f, reason=%s",
+                           window.session_id, _time.perf_counter() - started, exc)
+            return whole
+
     async def _extract_batch(self, window: MessageWindow, existing_tags: list[str] | None = None, *,
-                             defer: bool = False, rule_only: bool = False) -> list[dict]:
+                             defer: bool = False, rule_only: bool = False, previous_summary: str = "") -> list[dict]:
         if rule_only:
+            if self._retry_until_success:
+                raise RuntimeError("Strict extraction cannot write rule-only results")
             logger.warning(
                 "[EventExtractor] event fell back to rule extraction: reason=teardown_after_no_answer, "
                 "session=%s, message_count=%d",
@@ -871,6 +962,8 @@ class EventExtractor:
             return fallback_extraction(window)
         provider = self._provider_getter()
         if provider is None:
+            if self._retry_until_success:
+                raise RuntimeError("Strict extraction requires a model provider")
             _warn_no_provider()
             logger.warning(
                 "[EventExtractor] event fell back to rule extraction: reason=provider_none, "
@@ -885,6 +978,11 @@ class EventExtractor:
             self._max_context_messages,
             existing_tags=existing_tags,
         )
+        if previous_summary:
+            prompt = (
+                "[前情，仅作理解背景，不是本段发生的新事实，不要重新记为本段内容]\n"
+                f"{previous_summary}\n\n[本段消息，仅总结以下消息]\n{prompt}"
+            )
         fallback_reason = "parse_error"
         retries_used = 0
         try:
@@ -942,10 +1040,14 @@ class EventExtractor:
             )
             retries_used = self._llm_max_retries
         except Exception as exc:
+            if self._retry_until_success:
+                raise
             fallback_reason = "exception"
             logger.warning("[EventExtractor] LLM batch extraction failed: %s", exc)
             retries_used = self._llm_max_retries
 
+        if self._retry_until_success:
+            raise ModelUnavailable("extraction returned unusable JSON after repair")
         logger.warning(
             "[EventExtractor] event fell back to rule extraction: reason=%s, "
             "session=%s, message_count=%d, retries_used=%d",
@@ -958,6 +1060,8 @@ class EventExtractor:
         """Call LLM to summarize a specific cluster of messages."""
         provider = self._provider_getter()
         if provider is None or rule_only:
+            if self._retry_until_success:
+                raise RuntimeError("Strict distillation requires a model provider")
             return fallback_single_extraction(messages)
 
         system_prompt = select_event_system_prompt(self._distillation_system_prompt, has_bot_persona=False)
@@ -976,8 +1080,12 @@ class EventExtractor:
         except ModelUnavailable:
             raise
         except Exception as exc:
+            if self._retry_until_success:
+                raise
             logger.warning("[EventExtractor] LLM distillation failed: %s", exc)
 
+        if self._retry_until_success:
+            raise ModelUnavailable("distillation returned unusable JSON")
         return fallback_single_extraction(messages)
 
     async def _run_ipc_analysis(
@@ -1073,7 +1181,15 @@ class EventExtractor:
                 for (e, _), emb in zip(valid_pairs, embeddings)
             ])
         except Exception as exc:
+            if self._retry_until_success:
+                raise
             logger.warning("[EventExtractor] batch vector indexing failed: %s", exc)
+        try:
+            await index_segments(self._event_repo, self._encoder, [e for e, _ in valid_pairs])
+        except Exception as exc:
+            if self._retry_until_success:
+                raise
+            logger.warning("[EventExtractor] segment vector indexing failed: %s", exc)
 
     async def _index_vector(self, event: Event) -> None:
         if self._encoder.dim == 0:
@@ -1089,6 +1205,7 @@ class EventExtractor:
         try:
             embedding = await self._encoder.encode(text)
             await self._event_repo.upsert_vector(event.event_id, embedding)
+            await index_segments(self._event_repo, self._encoder, [event])
         except Exception as exc:
             logger.warning("[EventExtractor] vector indexing failed: %s", exc)
 

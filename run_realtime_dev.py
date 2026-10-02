@@ -6,6 +6,7 @@ Usage:
     python run_realtime_dev.py --resume   # force resume, skip the prompt
     python run_realtime_dev.py --fresh    # force a full rebuild, skip the prompt
     python run_realtime_dev.py --self-test # offline regressions, no runtime DB or models
+    python run_realtime_dev.py --check     # validate selected inputs/config; no DB or API writes
 
 Other datasets (all optional; defaults are the paths below):
     --data PATH      message JSON (default tests/mock_data/mock_realtime.json)
@@ -18,6 +19,10 @@ Other datasets (all optional; defaults are the paths below):
     --llm-concurrency N   shared LLM concurrency (default run_config LLM_CONCURRENCY)
     --set NAME=VALUE override one run_config.py value for this process only
                      (repeatable), e.g. --set RETRIEVAL_ENCODER_RETRY_MAX=6
+    --query TEXT    RAG validation question (default: summarize the imported conversation)
+    --group-id ID   RAG validation group (default: first group in the imported data)
+    --eval-persona  enable persona evaluation without the interactive question
+    --no-eval-persona disable it without the interactive question
     e.g. the canon story export from devtools/canon/realtime_mock.py:
     python run_realtime_dev.py --fresh --data tests/mock_data/canon_amiya_main_ch00-05.json \
         --dev-data .dev_data/canon_realtime/main-ch00-05 \
@@ -46,17 +51,19 @@ Configurations:
     3. KCL AI Hub: MODEL_TYPE="kcl", API_URL="https://ai.create.kcl.ac.uk/api/v1"
        (note /api/v1, not /v1), API_KEY from the ai.create.kcl.ac.uk dashboard,
        MODEL from `curl -H "Authorization: Bearer <key>" <API_URL>/models`.
-       Token-metered — a --fresh run costs real credits.
+       A --fresh run makes real model calls using the configured service.
 """
 
 import asyncio
 import json
 import shutil
+import sqlite3
 import sys
 import re
 import threading
 import time
 from datetime import datetime
+from contextlib import closing
 from pathlib import Path
 
 # ── Diagnostics: verbose pipeline logging ────────────────────────────────────
@@ -369,6 +376,29 @@ def _load_mock_persona(path: Path) -> tuple[str, str]:
 
 # ── Archive step ──────────────────────────────────────────────────────────────
 
+def _prepare_realtime_archive() -> None:
+    """Require an idle, checkpointed SQLite database before replacing its path."""
+    sidecars = [Path(str(REALTIME_DB) + suffix) for suffix in ("-wal", "-shm", "-journal")]
+    if not REALTIME_DB.exists():
+        if any(path.exists() for path in sidecars):
+            raise RuntimeError("Orphan SQLite sidecars remain; stop database users and clean this run's data before --fresh.")
+        return
+    try:
+        with closing(sqlite3.connect(REALTIME_DB.as_uri() + "?mode=rw", uri=True, timeout=0)) as db:
+            mode = db.execute("PRAGMA journal_mode=DELETE").fetchone()[0]
+            if mode != "delete":
+                raise RuntimeError(f"Cannot checkpoint realtime database: journal mode is {mode}.")
+            db.execute("BEGIN EXCLUSIVE")
+            db.commit()
+    except sqlite3.Error as exc:
+        raise RuntimeError(
+            f"Cannot safely archive {REALTIME_DB}: {exc}. "
+            "Stop replay runners, database readers and monitoring scripts before --fresh."
+        ) from exc
+    if any(path.exists() for path in sidecars):
+        raise RuntimeError("SQLite sidecars remain after checkpoint; refusing to archive the realtime database.")
+
+
 def _archive_step(resume: bool) -> None:
     """Back up existing DB files and relocate the summary dir before injection.
 
@@ -378,24 +408,15 @@ def _archive_step(resume: bool) -> None:
     """
     global _archived_groups
 
+    if not resume:
+        _prepare_realtime_archive()
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     if not resume and REALTIME_DB.exists():
         dest = ARCHIVE_DIR / f"realtime_test_stale_{ts}.db"
-        try:
-            shutil.move(str(REALTIME_DB), str(dest))
-            print(f"[Archive] Moved stale realtime_test.db → {dest.name}")
-        except PermissionError:
-            # Windows: DB file is still locked by a previous process.
-            # Delete it in place so a fresh DB can be created.
-            try:
-                REALTIME_DB.unlink()
-                print(
-                    "[Archive] realtime_test.db was locked; deleted in place (no archive).")
-            except PermissionError:
-                print("[Archive] WARNING: realtime_test.db is locked and cannot be deleted. "
-                      "Close any process holding it and retry.")
+        shutil.move(str(REALTIME_DB), str(dest))
+        print(f"[Archive] Moved stale realtime_test.db → {dest.name}")
     elif resume:
         print(f"[Archive] Resuming — keeping existing realtime_test.db in place.")
 
@@ -427,6 +448,187 @@ def _parse_mock_data(path: Path) -> list[dict]:
         return json.load(f)
 
 
+async def _ingest_message(router, message: dict, persona_name: str | None = None) -> None:
+    """Keep exported bot replies in the same stream as the surrounding human messages."""
+    platform = message.get("platform", "discord")
+    await router.process(
+        platform=platform,
+        session_platform="discord" if platform == "internal" else None,
+        physical_id=message["user_id"], display_name=message["nickname"],
+        text=message["content"], raw_group_id=message["group_id"],
+        now=message["timestamp"], bot_persona_name=persona_name,
+    )
+
+
+def _probe_target(messages: list[dict]) -> tuple[str, str]:
+    query = _flag_value("--query", "这段对话里发生了哪些值得记住的事情？")
+    group = _flag_value("--group-id", messages[0]["group_id"] if messages else "114514")
+    return query, group
+
+
+def _preflight(*, quiet: bool = False) -> list[dict]:
+    """Validate replay inputs and effective settings before archives, databases or model calls."""
+    import hashlib
+    import math
+    from collections import Counter
+    if "--eval-persona" in sys.argv and "--no-eval-persona" in sys.argv:
+        raise ValueError("Choose one of --eval-persona and --no-eval-persona")
+    messages = _parse_mock_data(MOCK_DATA_PATH)
+    if not isinstance(messages, list) or not messages:
+        raise ValueError("Replay data must be a non-empty array of messages")
+    last = {}
+    for index, message in enumerate(messages):
+        if not isinstance(message, dict) or any(not isinstance(message.get(key), str) for key in (
+            "user_id", "nickname", "content", "group_id",
+        )):
+            raise ValueError(f"Message {index} lacks the replay string fields")
+        stamp = message.get("timestamp")
+        if type(stamp) not in (int, float) or not math.isfinite(stamp):
+            raise ValueError(f"Message {index} has an invalid timestamp")
+        group = message["group_id"]
+        if stamp < last.get(group, stamp):
+            raise ValueError(f"Message {index} is out of timestamp order in its group")
+        last[group] = stamp
+        if message.get("role") == "assistant" and message.get("platform") != "internal":
+            raise ValueError(f"Message {index} is an assistant reply without the internal platform")
+    bot_ids = {m["user_id"] for m in messages if m.get("platform") == "internal"}
+    if bot_ids and bot_ids != {BOT_PHYSICAL_ID}:
+        raise ValueError(f"Internal bot IDs {sorted(bot_ids)} do not match --bot-id {BOT_PHYSICAL_ID}")
+    if not MOCK_PERSONA_PATH.is_file():
+        raise ValueError(f"Persona file does not exist: {MOCK_PERSONA_PATH}")
+    _load_mock_persona(MOCK_PERSONA_PATH)
+    manifest_path = MOCK_DATA_PATH.with_suffix(".manifest.json")
+    verified = []
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("counts", {}).get("messages", len(messages)) != len(messages):
+            raise ValueError("Manifest message count differs from the replay data")
+        for name, expected in manifest.get("files", {}).items():
+            path = MOCK_DATA_PATH.parent / name
+            if path not in (MOCK_DATA_PATH, MOCK_DATA_PATH.with_suffix(".linemap.jsonl"), MOCK_PERSONA_PATH):
+                continue
+            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                raise ValueError(f"Manifest hash mismatch: {name}")
+            verified.append(name)
+    cfg = _build_config(_EVENT_MODE)
+    _model_request_interval()
+    extraction, boundary, embedding = cfg.get_extractor_config(), cfg.get_boundary_config(), cfg.get_embedding_config()
+    if embedding.concurrency < 1 or embedding.request_interval_ms < 0 or embedding.retry_max < 0:
+        raise ValueError("Invalid embedding concurrency, request interval or retry count")
+    groups = Counter(m["group_id"] for m in messages)
+    query, group = _probe_target(messages)
+    if group not in groups:
+        raise ValueError(f"RAG probe group {group!r} is absent from the replay data")
+    if not quiet:
+        print(f"[Check] DATA: {MOCK_DATA_PATH}")
+        print(f"[Check] messages={len(messages)}, groups={dict(groups)}, bot_messages={sum(m.get('platform') == 'internal' for m in messages)}")
+        print(f"[Check] manifest hashes verified: {', '.join(verified) or 'no sidecar manifest'}")
+        print(f"[Check] output: {REALTIME_DB}; existing={REALTIME_DB.exists()}")
+        print(f"[Check] model={_MODEL_TYPE}:{LLM_MODEL}; LLM concurrency={cfg.llm_concurrency}")
+        print(f"[Check] extraction={extraction.strategy}, segmentation={extraction.llm_segmentation}, messages_per_segment={extraction.segmentation_messages_per_segment}, timeout={extraction.segmentation_timeout}s, page_limit={extraction.max_context_messages}")
+        print(f"[Check] drift auto={boundary.drift_auto_calibration}, percentile={boundary.drift_percentile}")
+        print(f"[Check] encoder={embedding.provider}:{embedding.model}, concurrency={embedding.concurrency}, interval={embedding.request_interval_ms}ms, retries={embedding.retry_max}")
+        print(f"[Check] strict retries=True; chat interval={_model_request_interval()}s; retry minimum={extraction.llm_retry_delay_seconds}s; transient failures never write fallback results")
+        print(f"[Check] RAG group={group}, query={query}")
+        print("[Check] PASS — no API requests, archives, database creation or WebUI startup")
+    return messages
+
+
+def _build_config(mode: str) -> "PluginConfig":
+    from core.config import PluginConfig
+    raw: dict = {
+        "retrieval_top_k": 3,
+        "retrieval_token_budget": 1000,
+        "boundary_max_messages": 200,
+        "boundary_topic_drift_enabled": True, # Re-enabled now that it's optimized
+        "boundary_topic_drift_interval": 5,
+        "vcm_enabled": True,
+        # Gemma 26B on LMStudio needs ~60-90 s per thinking call;
+        # set asyncio timeout to 150 s so wait_for never fires first.
+        "extractor_llm_timeout_seconds": _TIMEOUT,
+        "llm_concurrency": _LLM_CONCURRENCY,
+        "embedding_enabled": bool(_RETRIEVAL_ENCODER_ENABLED),
+        "embedding_provider": "local",
+        "embedding_model": _RETRIEVAL_ENCODER_MODEL,
+        "embedding_batch_interval_ms": _RETRIEVAL_ENCODER_BATCH_INTERVAL_MS,
+        "embedding_request_interval_ms": _RETRIEVAL_ENCODER_REQUEST_INTERVAL_MS,
+        "typesafe_enabled": bool(_TYPESAFE_ENABLED),
+        "typesafe_api_key": _TYPESAFE_KEY,
+        "typesafe_base_url": _TYPESAFE_BASE_URL,
+        "typesafe_model": _TYPESAFE_MODEL,
+        "typesafe_timeout_seconds": _TYPESAFE_TIMEOUT,
+        "typesafe_min_confidence": _TYPESAFE_MIN_CONFIDENCE,
+        "typesafe_custom_tag_min_score": _TYPESAFE_CUSTOM_TAG_MIN_SCORE,
+        "typesafe_topic_enabled": bool(_TYPESAFE_TOPIC_ENABLED),
+        "typesafe_event_enabled": bool(_TYPESAFE_EVENT_ENABLED),
+        "typesafe_topic_backfill": bool(_TYPESAFE_TOPIC_BACKFILL),
+        "typesafe_event_backfill": bool(_TYPESAFE_EVENT_BACKFILL),
+    }
+    if mode == "encoder":
+        raw.update({
+            "extraction_strategy": "semantic",
+            "semantic_clustering_eps": 0.45,
+        })
+    else:
+        raw["extraction_strategy"] = "llm"
+    from devtools.retrieval import development_config
+    raw.update(development_config(_rc if "_rc" in globals() else None).as_dict())
+    settings = globals().get("_rc")
+    raw["extraction_retry_until_success"] = True
+    raw["embedding_retry_until_success"] = True
+    raw["model_retry_delay_seconds"] = max(2.0, float(getattr(settings, "MODEL_RETRY_DELAY_MS", 2000)) / 1000)
+    raw["extractor_requeue_delay_seconds"] = raw["model_retry_delay_seconds"]
+    raw["embedding_request_interval_ms"] = max(2000, raw["embedding_request_interval_ms"])
+    raw["embedding_retry_delay_ms"] = max(2000, raw["embedding_retry_delay_ms"])
+    for source, target, default in (
+        ("EXTRACTION_LLM_SEGMENTATION", "extraction_llm_segmentation", True),
+        ("EXTRACTION_SEGMENTATION_MESSAGES_PER_SEGMENT", "extraction_segmentation_messages_per_segment", 12),
+        ("EXTRACTION_SEGMENTATION_TIMEOUT_SECONDS", "extraction_segmentation_timeout_seconds", 30.0),
+        ("BOUNDARY_TOPIC_DRIFT_AUTO_CALIBRATION", "boundary_topic_drift_auto_calibration", True),
+        ("BOUNDARY_TOPIC_DRIFT_PERCENTILE", "boundary_topic_drift_percentile", 85.0),
+    ):
+        raw[target] = getattr(settings, source, default)
+    return PluginConfig(raw, data_dir=DEV_DATA)
+
+
+def _model_request_interval() -> float:
+    import math
+    value = float(getattr(globals().get("_rc"), "MODEL_REQUEST_INTERVAL_MS", 2000)) / 1000
+    if not math.isfinite(value) or value <= 1:
+        raise ValueError("MODEL_REQUEST_INTERVAL_MS must be finite and greater than 1000")
+    return value
+
+
+def _start_run_log() -> None:
+    """Mirror future terminal output to a local per-run file without replacing stdin."""
+    import atexit
+    import logging
+    DEV_DATA.mkdir(parents=True, exist_ok=True)
+    path = Path(_flag_value("--log-file", DEV_DATA / f"run_{datetime.now():%Y%m%d_%H%M%S}.log")).resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    file = path.open("a", encoding="utf-8", buffering=1)
+    atexit.register(file.close)
+    lock = threading.Lock()
+    class Tee:
+        def __init__(self, stream):
+            self.stream = stream
+        def write(self, value):
+            with lock:
+                file.write(value)
+                return self.stream.write(value)
+        def flush(self):
+            with lock:
+                file.flush()
+                self.stream.flush()
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+    sys.stdout, sys.stderr = Tee(sys.stdout), Tee(sys.stderr)
+    for handler in logging.getLogger().handlers:
+        if isinstance(handler, logging.StreamHandler):
+            handler.setStream(sys.stderr)
+    print(f"[Log] {path}")
+
+
 # ── Provider bridge for slow local LLMs ──────────────────────────────────────
 
 _THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
@@ -446,7 +648,7 @@ class _RealtimeProviderBridge:
         self._key = api_key
         self._model = model
 
-    async def text_chat(self, prompt: str, system_prompt: str = ""):
+    async def text_chat(self, prompt: str, system_prompt: str = "", *, temperature: float = 0.1):
         import httpx
         from core.utils.llm import LLMResponse
 
@@ -459,7 +661,7 @@ class _RealtimeProviderBridge:
             body.append({"role": "system", "content": system_prompt})
         body.append({"role": "user", "content": prompt})
 
-        payload = {"model": self._model, "messages": body, "temperature": 0.1}
+        payload = {"model": self._model, "messages": body, "temperature": temperature}
 
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(self._url, headers=headers, json=payload)
@@ -517,6 +719,7 @@ async def main() -> None:
     print(f"  DATA: {MOCK_DATA_PATH}")
     print(f"  DIR : {DEV_DATA}  |  PERSONA: {MOCK_PERSONA_PATH.name} → (internal, {BOT_PHYSICAL_ID})")
     print(f"  LLM : {_MODEL_TYPE}:{LLM_MODEL}  |  concurrency {_LLM_CONCURRENCY}")
+    messages = _preflight(quiet=True) if not resume else []
     _archive_step(resume)
 
     # Step 2: Imports (lazy, inside main — same pattern as run_dataflow_dev.py)
@@ -709,57 +912,14 @@ async def main() -> None:
         print("=" * 58)
 
     # Step 3: Parse Mock_Data.md (skipped when resuming — nothing to (re-)ingest)
-    messages: list[dict] = []
     if not resume:
         print(f"\n[Parser] Reading {MOCK_DATA_PATH.name} ...")
         if not MOCK_DATA_PATH.exists():
             print(f"[Parser] ERROR: file not found at {MOCK_DATA_PATH}")
             return
-        messages = _parse_mock_data(MOCK_DATA_PATH)
         groups = {m["group_id"] for m in messages}
         print(
             f"[Parser] {len(messages)} messages parsed across {len(groups)} groups: {sorted(groups)}")
-
-    # Step 4: Config (mirrors run_dataflow_dev.py)
-    def _build_config(mode: str) -> PluginConfig:
-        raw: dict = {
-            "retrieval_top_k": 3,
-            "retrieval_token_budget": 1000,
-            "boundary_max_messages": 200,
-            "boundary_topic_drift_enabled": True, # Re-enabled now that it's optimized
-            "boundary_topic_drift_interval": 5,
-            "vcm_enabled": True,
-            # Gemma 26B on LMStudio needs ~60-90 s per thinking call;
-            # set asyncio timeout to 150 s so wait_for never fires first.
-            "extractor_llm_timeout_seconds": _TIMEOUT,
-            "llm_concurrency": _LLM_CONCURRENCY,
-            "embedding_enabled": bool(_RETRIEVAL_ENCODER_ENABLED),
-            "embedding_provider": "local",
-            "embedding_model": _RETRIEVAL_ENCODER_MODEL,
-            "embedding_batch_interval_ms": _RETRIEVAL_ENCODER_BATCH_INTERVAL_MS,
-            "embedding_request_interval_ms": _RETRIEVAL_ENCODER_REQUEST_INTERVAL_MS,
-            "typesafe_enabled": bool(_TYPESAFE_ENABLED),
-            "typesafe_api_key": _TYPESAFE_KEY,
-            "typesafe_base_url": _TYPESAFE_BASE_URL,
-            "typesafe_model": _TYPESAFE_MODEL,
-            "typesafe_timeout_seconds": _TYPESAFE_TIMEOUT,
-            "typesafe_min_confidence": _TYPESAFE_MIN_CONFIDENCE,
-            "typesafe_custom_tag_min_score": _TYPESAFE_CUSTOM_TAG_MIN_SCORE,
-            "typesafe_topic_enabled": bool(_TYPESAFE_TOPIC_ENABLED),
-            "typesafe_event_enabled": bool(_TYPESAFE_EVENT_ENABLED),
-            "typesafe_topic_backfill": bool(_TYPESAFE_TOPIC_BACKFILL),
-            "typesafe_event_backfill": bool(_TYPESAFE_EVENT_BACKFILL),
-        }
-        if mode == "encoder":
-            raw.update({
-                "extraction_strategy": "semantic",
-                "semantic_clustering_eps": 0.45,
-            })
-        else:
-            raw["extraction_strategy"] = "llm"
-        from devtools.retrieval import development_config
-        raw.update(development_config(_rc if "_rc" in globals() else None).as_dict())
-        return PluginConfig(raw, data_dir=DEV_DATA)
 
     cfg = _build_config(_EVENT_MODE)
     # Use _RealtimeProviderBridge instead of MockProviderBridge:
@@ -798,7 +958,7 @@ async def main() -> None:
             group_repo=persona_group_repo,
             event_repo=event_repo,
             provider_getter=lambda: mock_provider,
-            synthesis_config=SynthesisConfig(llm_timeout=_TIMEOUT),
+            synthesis_config=SynthesisConfig(llm_timeout=_TIMEOUT, retry_until_success=True),
         )
 
         from core.retrieval.hybrid import HybridRetriever
@@ -807,9 +967,9 @@ async def main() -> None:
             retriever, cfg.get_retrieval_config(), cfg.get_injection_config())
         context_manager = ContextManager(cfg.get_context_config())
         resolver = IdentityResolver(persona_repo)
-        detector = EventBoundaryDetector(cfg.get_boundary_config())
+        detector = EventBoundaryDetector(cfg.get_boundary_config(), encoder)
         from core.managers.llm_manager import LLMTaskManager
-        llm_manager = LLMTaskManager(concurrency=cfg.llm_concurrency)
+        llm_manager = LLMTaskManager(concurrency=cfg.llm_concurrency, request_interval_seconds=_model_request_interval())
 
         from core.extractor.category_pass import build_category_classifier
         _ts_cfg = cfg.get_typesafe_config()
@@ -846,9 +1006,14 @@ async def main() -> None:
 
         if not resume:
             # ── 模拟 Persona 选项 ──────────────────────────────────────────
-            use_mock_persona = input(
-                "\n[Dev] 是否启用模拟性格进行 [Eval] 测试？(y/N): "
-            ).strip().lower() in ("y", "yes")
+            if "--eval-persona" in sys.argv:
+                use_mock_persona = True
+            elif "--no-eval-persona" in sys.argv:
+                use_mock_persona = False
+            else:
+                use_mock_persona = input(
+                    "\n[Dev] 是否启用模拟性格进行 [Eval] 测试？(y/N): "
+                ).strip().lower() in ("y", "yes")
 
             if use_mock_persona:
                 import time as _time
@@ -891,6 +1056,13 @@ async def main() -> None:
 
             extraction_futures: list[asyncio.Task] = []
 
+            async def cancel_extractions():
+                for task in extraction_futures:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*extraction_futures, return_exceptions=True)
+            retrieval_stack.push_async_callback(cancel_extractions)
+
             async def on_event_close(window):
                 task = asyncio.create_task(extractor(window))
                 extraction_futures.append(task)
@@ -909,20 +1081,7 @@ async def main() -> None:
             print(f"\n[Phase 1] Ingesting {len(messages)} messages ...")
             with _tqdm(total=len(messages), desc="  Ingesting", unit="msg") as bar:
                 for msg in messages:
-                    # platform="internal" 的消息走 moirai 的 bot 身份路径
-                    # （is_bot=True、role=assistant）；session_platform 让 bot
-                    # 回复仍落进同一个 discord 群窗口。
-                    platform = msg.get("platform", "discord")
-                    await router.process(
-                        platform=platform,
-                        session_platform="discord" if platform == "internal" else None,
-                        physical_id=msg["user_id"],
-                        display_name=msg["nickname"],
-                        text=msg["content"],
-                        raw_group_id=msg["group_id"],
-                        now=msg["timestamp"],
-                        bot_persona_name=_persona_name if use_mock_persona else None,
-                    )
+                    await _ingest_message(router, msg, _persona_name if use_mock_persona else None)
                     bar.update(1)
 
             print("[Phase 1] Flushing router windows ...")
@@ -940,7 +1099,7 @@ async def main() -> None:
                         try:
                             await fut
                         except Exception as exc:
-                            print(f"\n  [Warning] Extraction task raised: {exc}")
+                            raise RuntimeError(f"Strict extraction failed; build stopped: {exc}") from exc
                         bar.update(1)
                 print("[Phase 2] Annotating [Eval] asides (batched, after extraction) ...")
                 await extractor.drain_evals()
@@ -952,7 +1111,7 @@ async def main() -> None:
             print("\n[Phase 3] Running persona synthesis ...")
             from core.tasks.synthesis import run_persona_synthesis
             from core.config import SynthesisConfig
-            synthesis_cfg = SynthesisConfig(llm_timeout=_TIMEOUT)
+            synthesis_cfg = SynthesisConfig(llm_timeout=_TIMEOUT, retry_until_success=True)
             n_synth = await run_persona_synthesis(
                 persona_repo=persona_repo,
                 event_repo=event_repo,
@@ -968,7 +1127,7 @@ async def main() -> None:
             from core.config import SummaryConfig  # noqa: F811 (re-import for local use)
             # match Gemma 26B latency
             summary_cfg = SummaryConfig(
-                llm_timeout=300.0, mood_source=_MOOD_SOURCE)
+                llm_timeout=300.0, mood_source=_MOOD_SOURCE, retry_until_success=True)
             n_written = await run_group_summary(
                 event_repo=event_repo,
                 data_dir=DEV_DATA,
@@ -997,9 +1156,8 @@ async def main() -> None:
 
             # ── Phase 5: RAG Validation & Prompt Injection ──────────────────────
             print("\n[Phase 5] Testing RAG Retrieval and Prompt Injection ...")
-            query = "卿泽对原神的看法是什么？大家都说了些什么？"
-            sid_rag = "test:114514"
-            test_group_id = "114514"
+            query, test_group_id = _probe_target(messages)
+            sid_rag = f"test:{test_group_id}"
             llm_client = SimpleLLMClient(LLM_API_URL, LLM_API_KEY, LLM_MODEL)
 
             req = ProviderRequest(
@@ -1014,11 +1172,15 @@ async def main() -> None:
 
             print(f"  [LLM] Generating response WITHOUT memory for query: '{query}'")
             try:
-                resp_no_mem = await llm_client.text_chat(req.prompt, req.system_prompt)
+                from core.utils.model_retry import retry_model_call
+                resp_no_mem, _ = await retry_model_call(
+                    lambda: llm_client.text_chat(req.prompt, req.system_prompt),
+                    task_name="rag_without_memory", strict=True, timeout=_TIMEOUT, manager=llm_manager,
+                )
                 no_mem_text = resp_no_mem.completion_text
             except Exception as e:
-                print(f"  [Warning] LLM call failed ({e}). Using simulated response.")
-                no_mem_text = "I don't know who Rain is."
+                print(f"  [Warning] LLM call failed ({e}). No answer recorded.")
+                no_mem_text = "[Generation failed; no answer recorded.]"
 
             # Force RECALL state for testing
             context_manager._states[sid_rag] = VCMState.RECALL
@@ -1039,8 +1201,8 @@ async def main() -> None:
                 resp_with_mem = await llm_client.text_chat(req.prompt, req.system_prompt)
                 with_mem_text = resp_with_mem.completion_text
             except Exception as e:
-                print(f"  [Warning] LLM call failed ({e}). Using simulated response.")
-                with_mem_text = "Based on the chat history, Rain mentions playing Genshin Impact..."
+                print(f"  [Warning] LLM call failed ({e}). No answer recorded.")
+                with_mem_text = "[Generation failed; no answer recorded.]"
 
             print("\n  " + "=" * 20 + " RAG COMPARISON " + "=" * 20)
             print(f"  QUERY: {query}")
@@ -1195,6 +1357,7 @@ async def main() -> None:
             await srv.stop()
             if category_classifier is not None:
                 await category_classifier.close()
+            await recall.close()
             await raw_message_writer.stop()
             _cleanup()
 
@@ -1205,6 +1368,12 @@ if __name__ == "__main__":
     _root_str = str(Path(__file__).parent)
     if _root_str not in sys.path:
         sys.path.insert(0, _root_str)
+    if "--check" in sys.argv:
+        try:
+            _preflight()
+        except (OSError, ValueError, TypeError) as exc:
+            raise SystemExit(f"[Check] FAILED: {exc}") from exc
+        raise SystemExit(0)
     if "--self-test" in sys.argv:
         import unittest
         suite = unittest.defaultTestLoader.discover(
@@ -1215,6 +1384,7 @@ if __name__ == "__main__":
         result = unittest.TextTestRunner(verbosity=2).run(suite)
         raise SystemExit(0 if result.wasSuccessful() else 1)
     try:
+        _start_run_log()
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\n[Interrupt] Ctrl+C received — forcing cleanup ...")

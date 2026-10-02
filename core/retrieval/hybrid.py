@@ -185,3 +185,5 @@ class HybridRetriever:
             return
         embedding = await self._encoder.encode(text)
         await self._event_repo.upsert_vector(event.event_id, embedding)
+        from .segments import index_segments
+        await index_segments(self._event_repo, self._encoder, [event])

@@ -1024,6 +1024,40 @@ class SQLiteEventRepository(EventRepository):
         except Exception:
             return []
 
+    async def upsert_segment_vectors(
+        self, event_id: str, identity: str, items: list[tuple[int, str, list[float]]]
+    ) -> None:
+        """Replace an event's segment embeddings, packed as float32."""
+        from array import array
+
+        async with _txn(self._db, self._lock):
+            await self._db.execute("DELETE FROM event_segment_vectors WHERE event_id = ?", (event_id,))
+            await self._db.executemany(
+                "INSERT INTO event_segment_vectors(event_id, ordinal, text_hash, identity, vector) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [(event_id, int(o), h, identity, array("f", v).tobytes()) for o, h, v in items if v],
+            )
+
+    async def get_segment_vectors(
+        self, event_ids: list[str], identity: str
+    ) -> dict[str, dict[int, tuple[str, list[float]]]]:
+        from array import array
+
+        if not event_ids:
+            return {}
+        marks = ",".join("?" * len(event_ids))
+        out: dict[str, dict[int, tuple[str, list[float]]]] = {}
+        async with self._db.execute(
+            f"SELECT event_id, ordinal, text_hash, vector FROM event_segment_vectors "
+            f"WHERE identity = ? AND event_id IN ({marks})",
+            (identity, *event_ids),
+        ) as cur:
+            for event_id, ordinal, text_hash, blob in await cur.fetchall():
+                values = array("f")
+                values.frombytes(blob)
+                out.setdefault(event_id, {})[int(ordinal)] = (text_hash, list(values))
+        return out
+
     async def upsert_vector(self, event_id: str, embedding: list[float]) -> None:
         """Store or replace the embedding for an event.
 

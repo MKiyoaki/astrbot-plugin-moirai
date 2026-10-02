@@ -53,6 +53,9 @@ class NullEncoder:
     async def encode_batch(self, texts: List[str]) -> List[List[float]]:
         return [[] for _ in texts]
 
+    def cached(self, text: str) -> List[float] | None:
+        return None
+
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -109,6 +112,11 @@ class SentenceTransformerEncoder:
         self._cache.put(key, result)
         return result
 
+    def cached(self, text: str) -> List[float] | None:
+        """Read an existing query vector without loading a model or computing an embedding."""
+        value = self._cache.get(_normalise(text))
+        return list(value) if value is not None else None
+
     async def encode_batch(self, texts: List[str]) -> List[List[float]]:
         import asyncio
         if not texts:
@@ -155,6 +163,11 @@ class ApiEncoder:
         if cached is not None:
             return list(cached)
         return (await self.encode_batch([text]))[0]
+
+    def cached(self, text: str) -> List[float] | None:
+        """Read an existing query vector without a remote request."""
+        value = self._cache.get(text)
+        return list(value) if value is not None else None
 
     async def encode_batch(self, texts: List[str]) -> List[List[float]]:
         import asyncio

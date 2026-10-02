@@ -273,6 +273,9 @@ class RecallManager(BaseRecallManager):
         self._last_recall_debug: dict[str, dict] = {}
         self._last_injection_debug: dict[str, dict] = {}
         self._last_injected_ids: dict[str, list[str]] = {}
+        self._segment_backfills: dict[tuple[str, str], asyncio.Task] = {}
+        self._segment_backfill_limit = asyncio.Semaphore(1)
+        self._segment_backfill_closed = False
 
     async def _hydrate_raw_details(self, events: list[Event]) -> list[Event]:
         if self._raw_message_repo is None or not events:
@@ -714,6 +717,60 @@ class RecallManager(BaseRecallManager):
             })
         return facts
 
+    async def _segment_inputs(self, query: str, events: list) -> tuple[list[float] | None, dict | None]:
+        """Read cached vectors and queue missing segments without awaiting embedding work."""
+        from ..retrieval.segments import segment_vectors
+        encoder = getattr(self._retriever, "_encoder", None)
+        if not events or not query or encoder is None:
+            return None, None
+        try:
+            if encoder.dim <= 0:
+                return None, None
+            cached = getattr(encoder, "cached", None)
+            query_vector = cached(query) if callable(cached) else None
+            missing = []
+            vectors = await segment_vectors(self._retriever._event_repo, encoder, events, missing=missing)
+            self._queue_segment_backfills(encoder, missing)
+        except Exception:
+            return None, None
+        return (query_vector, vectors) if query_vector and vectors else (None, None)
+
+    def _queue_segment_backfills(self, encoder, events: list) -> None:
+        from ..retrieval.segments import identity_key, index_segments, segment_vectors
+        if self._segment_backfill_closed:
+            return
+        identity = identity_key(encoder)
+
+        async def fill(event_id):
+            try:
+                async with self._segment_backfill_limit:
+                    if identity_key(encoder) != identity:
+                        return
+                    repo = self._retriever._event_repo
+                    event = await repo.get(event_id)
+                    if event is not None and await segment_vectors(repo, encoder, [event]) is None:
+                        await index_segments(repo, encoder, [event])
+            except Exception as exc:
+                logging.getLogger(__name__).warning("[RecallManager] segment backfill failed: %s", exc)
+
+        for event in events:
+            key = (identity, event.event_id)
+            if key in self._segment_backfills or len(self._segment_backfills) >= 32:
+                continue
+            task = asyncio.create_task(fill(event.event_id))
+            self._segment_backfills[key] = task
+            task.add_done_callback(lambda done, key=key: self._segment_backfills.pop(key, None))
+
+    async def close(self) -> None:
+        """Cancel embedding backfills before their repositories are closed."""
+        self._segment_backfill_closed = True
+        tasks = list(self._segment_backfills.values())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._segment_backfills.clear()
+
     async def recall_and_inject(
         self,
         query: str,
@@ -814,8 +871,10 @@ class RecallManager(BaseRecallManager):
                                 compat_reason=compat_reason,
                             )
                         return 0
+                    query_vector, seg_vectors = await self._segment_inputs(query, events)
                     messages = format_events_for_fake_tool_call(
-                        events, query, token_budget=token_budget
+                        events, query, token_budget=token_budget,
+                        query_vector=query_vector, segment_vectors=seg_vectors,
                     )
                     if store_injection_debug:
                         self._last_injection_debug[session_id] = _build_injection_debug(
@@ -838,8 +897,10 @@ class RecallManager(BaseRecallManager):
                     return len(events) if messages else 0
 
                 # Build memory body (may be empty if no events).
+                query_vector, seg_vectors = await self._segment_inputs(query, events)
                 body = format_events_for_prompt_safe(
-                    events, token_budget=token_budget, query=query
+                    events, token_budget=token_budget, query=query,
+                    query_vector=query_vector, segment_vectors=seg_vectors,
                 ) if events else ""
 
                 # OCEAN persona injection — use pre-fetched result.

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from ..utils.model_retry import retry_delay, retryable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -24,6 +25,8 @@ class EmbeddingManager:
         self._last_request_time = 0.0
         self._closed = False
         self.disabled_reason: str | None = None
+        from ..utils.cache import _LRUCache
+        self._query_cache = _LRUCache(maxsize=128)
 
     @property
     def dim(self) -> int:
@@ -71,8 +74,13 @@ class EmbeddingManager:
         if self._cfg.provider != "api":
             return fallback
         try:
-            vectors = await self._encoder.encode_batch(["Moirai embedding dimension probe"])
+            if self._cfg.retry_until_success:
+                vectors = await self._request(["Moirai embedding dimension probe"])
+            else:
+                vectors = await self._encoder.encode_batch(["Moirai embedding dimension probe"])
         except Exception as exc:
+            if self._cfg.retry_until_success:
+                raise
             self.disable(f"embedding endpoint unavailable at startup ({exc})")
             return 0
         return len(vectors[0])
@@ -81,6 +89,16 @@ class EmbeddingManager:
         if self._closed:
             return
         self._closed = True
+        if self._cfg.retry_until_success:
+            for worker in self._workers:
+                worker.cancel()
+            await asyncio.gather(*self._workers, return_exceptions=True)
+            while not self._queue.empty():
+                item = self._queue.get_nowait()
+                if item is not None:
+                    item[1].cancel()
+                self._queue.task_done()
+            self._workers.clear()
         for _ in self._workers:
             self._queue.put_nowait(None)
         await asyncio.gather(*self._workers)
@@ -91,6 +109,15 @@ class EmbeddingManager:
 
     async def encode(self, text: str) -> list[float]:
         return (await self.encode_batch([text]))[0]
+
+    def cached(self, text: str) -> list[float] | None:
+        """Read a previously computed vector without enqueueing embedding work."""
+        if self._closed or not self.active:
+            return None
+        import json
+        key = (json.dumps(self.identity, sort_keys=True, ensure_ascii=False), self.dim, text)
+        value = self._query_cache.get(key)
+        return list(value) if value is not None else None
 
     async def encode_batch(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -103,10 +130,17 @@ class EmbeddingManager:
         futures = [asyncio.get_running_loop().create_future() for _ in texts]
         for text, future in zip(texts, futures):
             self._queue.put_nowait((text, future))
-        return await asyncio.gather(*futures)
+        vectors = await asyncio.gather(*futures)
+        import json
+        identity = json.dumps(self.identity, sort_keys=True, ensure_ascii=False)
+        for text, vector in zip(texts, vectors):
+            if vector:
+                self._query_cache.put((identity, self.dim, text), list(vector))
+        return vectors
 
     async def _request(self, texts: list[str]) -> list[list[float]]:
-        for attempt in range(self._cfg.retry_max + 1):
+        attempt = 0
+        while True:
             async with self._interval_lock:
                 delay = self._cfg.request_interval_ms / 1000 - (time.monotonic() - self._last_request_time)
                 if delay > 0:
@@ -118,10 +152,15 @@ class EmbeddingManager:
                     raise ValueError("Embedding batch result count mismatch")
                 return results
             except Exception as exc:
-                if attempt == self._cfg.retry_max or not getattr(exc, "retryable", True):
+                if ((not self._cfg.retry_until_success and attempt == self._cfg.retry_max)
+                        or (self._cfg.retry_until_success and not retryable(exc))
+                        or not getattr(exc, "retryable", True)):
                     raise
-                await asyncio.sleep(min(self._cfg.retry_delay_ms / 1000 * 2 ** attempt, 60))
-        raise RuntimeError("Embedding retry loop exhausted")
+                delay = retry_delay(exc, attempt, max(2.0, self._cfg.retry_delay_ms / 1000))
+                logger.warning("[EmbeddingManager] retry attempt=%d retry_in=%.2fs error=%s",
+                               attempt + 1, delay, exc)
+                await asyncio.sleep(delay)
+                attempt += 1
 
     async def _worker(self) -> None:
         cap = min(self._cfg.batch_size, self._cfg.request_batch_size)
@@ -161,6 +200,11 @@ class EmbeddingManager:
                 for _, future in live:
                     if not future.done():
                         future.set_exception(exc)
+            except asyncio.CancelledError:
+                for _, future in live:
+                    if not future.done():
+                        future.cancel()
+                raise
             finally:
                 for _ in batch:
                     self._queue.task_done()

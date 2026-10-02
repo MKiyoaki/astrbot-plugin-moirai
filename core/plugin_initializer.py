@@ -725,6 +725,8 @@ class PluginInitializer:
             await self.webui.stop()
         if self.scheduler is not None:
             await self.scheduler.stop()
+        if self.recall is not None:
+            await self.recall.close()
         if self.embedding_manager is not None:
             await self.embedding_manager.stop()
         if self.router is not None:

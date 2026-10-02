@@ -20,7 +20,7 @@ class SimpleLLMClient:
         self.timeout = timeout
         self.temperature = temperature
 
-    async def text_chat(self, prompt: str, system_prompt: str = "") -> LLMResponse:
+    async def text_chat(self, prompt: str, system_prompt: str = "", *, temperature: float | None = None) -> LLMResponse:
         """Mimics AstrBot's Provider.text_chat interface."""
         url = f"{self.api_url}/chat/completions"
         headers = {
@@ -36,7 +36,7 @@ class SimpleLLMClient:
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": self.temperature,
+            "temperature": self.temperature if temperature is None else temperature,
         }
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -61,5 +61,5 @@ class MockProviderBridge:
     def __init__(self, client: SimpleLLMClient):
         self.client = client
         
-    async def text_chat(self, prompt: str, system_prompt: str = ""):
-        return await self.client.text_chat(prompt, system_prompt)
+    async def text_chat(self, prompt: str, system_prompt: str = "", *, temperature: float | None = None):
+        return await self.client.text_chat(prompt, system_prompt, temperature=temperature)

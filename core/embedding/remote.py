@@ -9,12 +9,14 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 import httpx
+from ..utils.model_retry import retry_after
 
 
 class RetrievalError(RuntimeError):
-    def __init__(self, message: str, *, retryable: bool = False) -> None:
+    def __init__(self, message: str, *, retryable: bool = False, retry_after: float = 0.0) -> None:
         super().__init__(message)
         self.retryable = retryable
+        self.retry_after = retry_after
 
 
 @dataclass(frozen=True)
@@ -86,6 +88,7 @@ class RemoteRetrievalClient:
             started = time.perf_counter()
             delay = min(2 ** attempt, 5)
             retryable = False
+            server_delay = 0.0
             reason = "transport failure"
             with self._lock:
                 self._metrics[f"{kind}_requests"] += 1
@@ -102,17 +105,15 @@ class RemoteRetrievalClient:
                     return body
                 reason = f"HTTP {response.status_code}"
                 retryable = response.status_code == 429 or response.status_code >= 500
-                try:
-                    delay = min(max(float(response.headers.get("retry-after", delay)), 0), 5)
-                except ValueError:
-                    pass
+                server_delay = retry_after(response.headers.get("retry-after"))
+                delay = max(2.0, delay, server_delay)
             except httpx.HTTPError:
                 retryable = True
             finally:
                 with self._lock:
                     self._metrics["request_seconds"] += time.perf_counter() - started
             if not retryable or attempt == self.settings.retries:
-                raise RetrievalError(f"{kind}: {reason}", retryable=retryable) from None
+                raise RetrievalError(f"{kind}: {reason}", retryable=retryable, retry_after=server_delay) from None
             self._sleep(delay)
         raise RetrievalError(f"{kind}: request failed")
 

@@ -548,11 +548,11 @@
     },
     "boundary.boundary_topic_drift_threshold": {
       "description": "事件边界：话题漂移阈值",
-      "hint": "0–1 之间的余弦距离值，超过此值时触发话题切换检测（需启用向量检索）"
+      "hint": "自动校准关闭或样本不足时使用的余弦距离阈值。距离范围 0–2，越小越敏感。"
     },
     "boundary_topic_drift_threshold": {
       "description": "事件边界：话题漂移阈值",
-      "hint": "0–1 之间的余弦距离值，超过此值时触发话题切换检测（需启用向量检索）"
+      "hint": "自动校准关闭或样本不足时使用的余弦距离阈值。距离范围 0–2，越小越敏感。"
     },
     "boundary.boundary_topic_drift_min_messages": {
       "description": "事件边界：漂移检测最小消息数",
@@ -905,6 +905,46 @@
     "canon_extract_timeout": {
       "description": "单次抽取超时（秒）",
       "hint": "导入时单次抽取调用的超时。"
+    },
+    "extraction_llm_segmentation": {
+      "description": "启用 LLM 记忆分段",
+      "hint": "仅用于 llm 策略。至少 12 条消息时先按完整记忆单位分段；失败保留整窗。关闭后仍分页处理全部消息。"
+    },
+    "boundary.extraction_llm_segmentation": {
+      "description": "启用 LLM 记忆分段",
+      "hint": "仅用于 llm 策略。至少 12 条消息时先按完整记忆单位分段；失败保留整窗。关闭后仍分页处理全部消息。"
+    },
+    "extraction_segmentation_messages_per_segment": {
+      "description": "记忆分段消息比例",
+      "hint": "每多少条消息允许一段，用于限制分段数量；短于 4 条的片段会合并。"
+    },
+    "boundary.extraction_segmentation_messages_per_segment": {
+      "description": "记忆分段消息比例",
+      "hint": "每多少条消息允许一段，用于限制分段数量；短于 4 条的片段会合并。"
+    },
+    "extraction_segmentation_timeout_seconds": {
+      "description": "记忆分段超时（秒）",
+      "hint": "找切点的单次调用超时，不重试；失败继续按整窗分页整理。"
+    },
+    "boundary.extraction_segmentation_timeout_seconds": {
+      "description": "记忆分段超时（秒）",
+      "hint": "找切点的单次调用超时，不重试；失败继续按整窗分页整理。"
+    },
+    "boundary_topic_drift_auto_calibration": {
+      "description": "自动校准漂移阈值",
+      "hint": "积累 64 次有效检查后，按最近最多 512 次距离的分位数定阈值；模型变化后重新积累。"
+    },
+    "boundary.boundary_topic_drift_auto_calibration": {
+      "description": "自动校准漂移阈值",
+      "hint": "积累 64 次有效检查后，按最近最多 512 次距离的分位数定阈值；模型变化后重新积累。"
+    },
+    "boundary_topic_drift_percentile": {
+      "description": "漂移距离分位数",
+      "hint": "0–100；数值越大越保守。样本不足时沿用余弦距离阈值；分位校准不能保证切点正确。"
+    },
+    "boundary.boundary_topic_drift_percentile": {
+      "description": "漂移距离分位数",
+      "hint": "0–100；数值越大越保守。样本不足时沿用余弦距离阈值；分位校准不能保证切点正确。"
     }
   }
 }

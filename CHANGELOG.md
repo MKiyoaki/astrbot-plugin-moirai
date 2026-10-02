@@ -1,5 +1,69 @@
 # CHANGELOG
 
+## [v1.2.36.sub] — 2026-10-02
+
+### LLM 记忆分段、长窗口完整整理与后台补向量
+
+- `run_realtime_dev.py`：修复 `--fresh` 在只读监测连接仍占用旧库时只移动主文件、遗留 WAL/SHM 导致新库 `disk I/O error` 的问题。归档前切换 DELETE 日志模式合并 WAL 并检查独占访问；占用、孤立 sidecar 或移动失败时明确停止，不再尝试删除锁定库后继续。离线回归覆盖跨进程只读连接、WAL 已提交数据保留、恢复模式和移动失败。
+- `run_realtime_dev.py`：增加 `--check`，在归档旧库或调用模型前检查消息格式、时间顺序、bot 身份和导出 manifest 校验值，并打印实际生效的分段、校准和向量参数；不创建数据库。支持 `--query` / `--group-id` 指定当前数据的 RAG 验证，默认使用导入群组；生成失败不再展示编造的模拟答案。`--eval-persona` / `--no-eval-persona` 可代替性格测试交互问题；新增分段与漂移的进程配置覆盖，边界检测器与运行用的 encoder 绑定。主线第 0–17 章对话导出已按原有格式通过检查，不改数据。
+- `core/extractor/segmentation.py`（新增）、`core/extractor/extractor.py`：`llm` 策略默认开启 V3 记忆单位分段，至少 12 条消息时调用；中性示例不固定领域或标签类别。排序、去重、补齐起点，短于 4 条的段优先按小标题语义合并，限制为每 12 条消息最多一段。向量不可用时按相邻段长度确定合并位置；切分超时或无效时保留整窗。
+- `core/extractor/extractor.py`、`core/extractor/prompts.py`：超过 `extractor_context_messages` 的段均分分页，后一页带前页客观摘要作前情；原始消息编号按页映射回整窗，前情不扩展事件的消息归属。所有页完成后才进入保存阶段，后页失败排队重试时不会留下重复的前页事件；IPC 分析只接收本事件的消息。
+- `core/boundary/detector.py`：漂移门槛默认在 64 次有效检查后取最近最多 512 次距离的第 85 分位，样本不足沿用配置阈值；向量身份或维度变化后重置，零向量与非有限值不进入校准。分位数适配距离分布，不代表已经证明跨模型切点准确率。
+- `core/retrieval/segments.py`、`core/managers/recall_manager.py`：注入只读段落向量，缺失或过期时沿用旧挑选方法并排队补算。最多 32 个待办、同时补一个事件，去重并跳过已删除事件；插件结束前取消任务。写向量时校验模型身份及结果完整性。
+- `core/managers/embedding_manager.py`、`core/embedding/encoder.py`：增加只读查询向量缓存接口，注入不再调用 `encode`；`core/plugin_initializer.py` 关闭补算后再结束向量与数据库服务。
+- `_conf_schema.json`、中英文配置翻译、`core/config.py`：增加分段开关、分段数量比例、超时与漂移校准设置；`README.md`、`README_EN.md` 和本地开发文档记录行为及验证范围。`run_realtime_dev.py`、`core/utils/llm.py` 和 workspace full-flow 模型适配器支持切分温度，开发生命周期也关闭补算任务。
+- 离线验证覆盖消息完整且无重复归属、前情隔离、提取失败重试、分段兜底、漂移校准和后台补算；未调用 KCL，未重跑第 0–17 章，不能据此宣称答题效果提升。
+
+### 事件流时间线超过 200 条时分页渲染
+
+- 起因：展开卷轴后，`EventThread` 把该群组的全部事件一次性画进同一个 SVG。每条事件对应一个节点和一张 `foreignObject` 卡片，每张卡片内含 3 个 Tooltip；`arknights_main`（408 条）这类大群组打开和滚动都明显卡顿。
+- `web/frontend/components/events/thread-pager.tsx`（新增）：`‹ 页码/总页数 ›` 翻页控件，高度与样式和时间间隔按钮一致；首页禁用上一页、末页禁用下一页；悬停显示“第 X–Y 条，共 N 条”。
+- `web/frontend/app/events/page.tsx`：
+  - 新增 `THREAD_PAGE_SIZE = 200`。筛选后的时间线超过 200 条时，只把当前页交给 `EventThread`；200 条以内不显示翻页，行为与之前相同。
+  - 翻页控件放在工具栏“时间间隔（2h）”按钮右侧，与搜索、间隔同属视图控件；它只在超过 200 条时出现，放在这一组末尾不会挤动搜索框和间隔按钮的位置。卷轴总览不显示。
+  - 页码按“卷轴 + 搜索 + 日期 + 标签”记录，任一项变化回到第 1 页。
+  - 从信息库等页面跳转来的聚焦或高亮事件、以及在右侧详情面板中点选的事件，会自动跳到该事件所在的页。
+  - `EventThread` 以页码为 `key`，翻页后滚动回到顶部，丝线重新绘制。
+- `web/frontend/lib/i18n.ts`：新增 `events.prevPage`、`events.nextPage`、`events.pageRange`（中、日、英）。
+- 验证：前端类型检查、ESLint 与构建通过，重新生成 `pages/moirai/_app/`。用无头 Chromium 在第 0–8 章预览库（`arknights_main` 408 条）实测 8 项通过：卷轴总览无翻页；第 1 页 200 张卡，上一页禁用；下一页内容切换且滚动归零；末页 8 张卡，下一页禁用；在第 3 页从详情面板点第 1 页的事件，跳回第 1 页并选中；在第 2 页搜索后回到第 1 页（结果 71 条，翻页隐藏）；清空搜索后仍在第 1 页；无运行时错误。
+
+## [v1.2.35.sub] — 2026-10-01
+
+### 记忆注入按语义挑选摘要段落
+
+- 起因：2026-10-01 夜间基准中，“设定集+记忆”组的记忆题三轮都比“只用记忆”组低 5–6 分。逐题排查发现，事件已经召回并注入，但 `format_events_for_prompt` 按“与问题共有的字”给段落打分，“点、出、想、帮”这类常用字也算分，每个事件又只分到平均一份预算。结果“外面下雨了……雨点……出去”（3 分）挤掉了“不吃香菜”（2 分），三轮都是如此；阿米娅答剧情时段落较长，每个事件装下的段数更少。
+- 随机抽查：从群聊开发库、第 0–8 章和 bench 随机抽 176 个段落，由模型各出一道换说法的题和一道原话题，候选取向量前 3 个事件。目标段落被注入的情况（旧 → 新）：
+  - 群聊：换说法 25→26（共 27），原话 29→29（共 29）；
+  - 第 0–8 章：换说法 26→26（共 30），原话 40→40（共 40）；
+  - bench：换说法 16→26（共 29），原话 30→31（共 31）。
+
+  旧方法失手的多是长事件，中位 9 段、约 2,600 字。第 0–8 章 26 题离线三次的答题分为 20、24、23（旧方法 24、22、23），在误差内持平；矛盾数 6、5、7，与旧方法相同。用户确认后实施。
+- `migrations/022_event_segment_vectors.sql`：
+  - 新增 `event_segment_vectors` 表（event_id、ordinal、text_hash、identity、vector）；
+  - 新增 `events` 的删除触发器，事件删除时同步删掉对应的段落向量。
+- `core/repository`：`EventRepository` 新增 `upsert_segment_vectors` / `get_segment_vectors`（默认为空操作）。SQLite 版以 float32 存储，内存版供测试使用。
+- `core/retrieval/segments.py`（新增）：
+  - `segments_of` 与 `split_subtopics` 的切分一致。
+  - `index_segments` 一次批量为事件的每段生成向量。
+  - `segment_vectors` 读取向量时校验段落文字哈希和编码器身份，不符的视为缺失并当场补算、写回（旧库懒回填）。编辑、重新提取或更换向量模型都不需要改动这张表。
+- `core/extractor/extractor.py`：写事件向量时同批写段落向量（`_batch_index_vectors`、`_index_vector`）。`core/retrieval/hybrid.py`：`index_event`（重建索引）也会写段落向量。
+- `core/managers/recall_manager.py`：
+  - 新增 `_segment_inputs`。问题向量取编码器缓存（召回时已算过），不多发请求。
+  - `recall_and_inject` 的普通注入和假工具调用两种位置都传入问题向量和段落向量。
+- `core/utils/formatter.py`：同时拿到问题向量和全部段落向量时，所有召回事件的段落统一按“余弦相似度 + 0.3 × 归一化的稀有词重合”排序，在预算内装入，事件顺序、段内顺序和标题格式不变。没有一个段落入选的事件不再出现。缺任何一项向量时，完全沿用原来的逐事件挑选，不做改动；单独的稀有词加权在随机抽查里与旧方法持平（167 对 166），因此没有采用。
+- 文档：`README.md`、`README_EN.md` 关于注入的说明已更新。
+- 测试：本地新增 `tests/test_segment_injection.py` 8 项，覆盖：
+  - 语义胜过常用字重合；
+  - 跨事件统一排序并保持顺序；
+  - 缺向量时输出与旧版一致；
+  - 懒回填只做一次，文字或模型变化后重算；
+  - 编码器未启用时不启用新逻辑；
+  - SQLite 读写与删除级联；
+  - 抽取时写入段落向量；
+  - `RecallManager` 提供两类向量。
+
+  Moirai 离线测试 384 项通过（1 项跳过），工作区联合检查 28 项通过，全流程自检 3 项通过。
+
 ## [v1.2.34.sub] — 2026-10-01
 
 ### canon 第二次召回只发新想起的事；聊天记忆抽取没等到模型时稍后重试

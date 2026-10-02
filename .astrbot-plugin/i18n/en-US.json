@@ -548,11 +548,11 @@
     },
     "boundary.boundary_topic_drift_threshold": {
       "description": "Event Boundary: Topic Drift Threshold",
-      "hint": "Cosine distance threshold from 0 to 1. Topic switch detection triggers when exceeded. Requires vector retrieval."
+      "hint": "Cold-start cosine distance threshold (0–2); also used when self-calibration is disabled."
     },
     "boundary_topic_drift_threshold": {
       "description": "Event Boundary: Topic Drift Threshold",
-      "hint": "Cosine distance threshold from 0 to 1. Topic switch detection triggers when exceeded. Requires vector retrieval."
+      "hint": "Cold-start cosine distance threshold (0–2); also used when self-calibration is disabled."
     },
     "boundary.boundary_topic_drift_min_messages": {
       "description": "Event Boundary: Minimum Messages for Drift Detection",
@@ -905,6 +905,46 @@
     "canon_extract_timeout": {
       "description": "Extraction timeout (s)",
       "hint": "Timeout for one extraction call during import."
+    },
+    "extraction_llm_segmentation": {
+      "description": "LLM memory-unit segmentation",
+      "hint": "In llm mode, segment windows with at least 12 messages before extraction. Failure keeps one unit. Disabling this still paginates all messages."
+    },
+    "boundary.extraction_llm_segmentation": {
+      "description": "LLM memory-unit segmentation",
+      "hint": "In llm mode, segment windows with at least 12 messages before extraction. Failure keeps one unit. Disabling this still paginates all messages."
+    },
+    "extraction_segmentation_messages_per_segment": {
+      "description": "Messages per allowed memory unit",
+      "hint": "Segment cap is the ceiling of message count divided by this value. Units shorter than four messages are merged."
+    },
+    "boundary.extraction_segmentation_messages_per_segment": {
+      "description": "Messages per allowed memory unit",
+      "hint": "Segment cap is the ceiling of message count divided by this value. Units shorter than four messages are merged."
+    },
+    "extraction_segmentation_timeout_seconds": {
+      "description": "Segmentation timeout (seconds)",
+      "hint": "One boundary call, no retries. Failure continues with whole-window pagination."
+    },
+    "boundary.extraction_segmentation_timeout_seconds": {
+      "description": "Segmentation timeout (seconds)",
+      "hint": "One boundary call, no retries. Failure continues with whole-window pagination."
+    },
+    "boundary_topic_drift_auto_calibration": {
+      "description": "Self-calibrating drift threshold",
+      "hint": "After 64 valid checks, use a percentile of the latest 512 distances. Reset on encoder changes."
+    },
+    "boundary.boundary_topic_drift_auto_calibration": {
+      "description": "Self-calibrating drift threshold",
+      "hint": "After 64 valid checks, use a percentile of the latest 512 distances. Reset on encoder changes."
+    },
+    "boundary_topic_drift_percentile": {
+      "description": "Drift distance percentile",
+      "hint": "0–100; higher is more conservative. Insufficient samples use the configured distance threshold. Calibration does not guarantee boundary accuracy."
+    },
+    "boundary.boundary_topic_drift_percentile": {
+      "description": "Drift distance percentile",
+      "hint": "0–100; higher is more conservative. Insufficient samples use the configured distance threshold. Calibration does not guarantee boundary accuracy."
     }
   }
 }

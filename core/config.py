@@ -208,6 +208,8 @@ _DEFAULT_REANALYZE_IMPRESSION_SYSTEM_PROMPT = (
 
 @dataclass
 class SynthesisConfig:
+    retry_until_success: bool = False
+    retry_delay_seconds: float = 2.0
     llm_timeout: float = 30.0
     max_events: int = 10
     persona_system_prompt: str = _DEFAULT_PERSONA_SYSTEM_PROMPT
@@ -248,6 +250,8 @@ _DEFAULT_SUMMARY_UNIFIED_PROMPT = (
 
 @dataclass
 class SummaryConfig:
+    retry_until_success: bool = False
+    retry_delay_seconds: float = 2.0
     llm_timeout: float = 45.0
     max_events: int = 20
     word_limit: int = 300
@@ -334,6 +338,8 @@ class SoulConfig:
 
 @dataclass
 class ExtractorConfig:
+    retry_until_success: bool = False
+    llm_retry_delay_seconds: float = 2.0
     max_context_messages: int = 20
     llm_timeout: float = 30.0
     llm_max_retries: int = 2
@@ -343,6 +349,9 @@ class ExtractorConfig:
     system_prompt: str = DEFAULT_EXTRACTOR_SYSTEM_PROMPT
     distillation_system_prompt: str = DEFAULT_DISTILLATION_SYSTEM_PROMPT
     strategy: str = "llm"  # "llm" or "semantic"
+    llm_segmentation: bool = True
+    segmentation_messages_per_segment: int = 12
+    segmentation_timeout: float = 30.0
     semantic_clustering_eps: float = 0.45
     semantic_clustering_min_samples: int = 2
     persona_influenced_summary: bool = True
@@ -440,6 +449,7 @@ class MaintenanceConfig:
 
 @dataclass
 class EmbeddingConfig:
+    retry_until_success: bool = False
     provider: str = "local"
     model: str = "BAAI/bge-small-zh-v1.5"
     api_url: str = ""
@@ -564,6 +574,8 @@ class PluginConfig:
             drift_detection_enabled=self._bool(
                 "boundary_topic_drift_enabled", True),
             drift_threshold=self._float("boundary_topic_drift_threshold", 0.6),
+            drift_auto_calibration=self._bool("boundary_topic_drift_auto_calibration", True),
+            drift_percentile=self._float("boundary_topic_drift_percentile", 85.0),
             drift_min_messages=self._int(
                 "boundary_topic_drift_min_messages", 20),
             drift_check_interval=self._int("boundary_topic_drift_interval", 5),
@@ -714,6 +726,8 @@ class PluginConfig:
         tag_seeds_str = self._str("tag_seeds", "社交,日常,技术,知识,工作,娱乐,艺术,情感,资讯")
         tag_seeds = [s.strip() for s in tag_seeds_str.split(",") if s.strip()]
         return ExtractorConfig(
+            retry_until_success=self._bool("extraction_retry_until_success", False),
+            llm_retry_delay_seconds=max(2.0, self._float("model_retry_delay_seconds", 2.0)),
             max_context_messages=self._int(
                 "extractor_context_messages",
                 min(40, self._int("context_window_size", 50)),
@@ -724,6 +738,9 @@ class PluginConfig:
             system_prompt=custom_prompt or DEFAULT_EXTRACTOR_SYSTEM_PROMPT,
             distillation_system_prompt=custom_distill_prompt or DEFAULT_DISTILLATION_SYSTEM_PROMPT,
             strategy=self._str("extraction_strategy", "llm"),
+            llm_segmentation=self._bool("extraction_llm_segmentation", True),
+            segmentation_messages_per_segment=max(1, self._int("extraction_segmentation_messages_per_segment", 12)),
+            segmentation_timeout=max(0.1, self._float("extraction_segmentation_timeout_seconds", 30.0)),
             semantic_clustering_eps=self._float(
                 "semantic_clustering_eps",
                 0.45
@@ -797,6 +814,7 @@ class PluginConfig:
 
     def get_embedding_config(self) -> EmbeddingConfig:
         return EmbeddingConfig(
+            retry_until_success=self._bool("embedding_retry_until_success", False),
             provider=self._str("embedding_provider", "local"),
             model=self._str("embedding_model", "BAAI/bge-small-zh-v1.5"),
             api_url=self._str("embedding_api_url", ""),
