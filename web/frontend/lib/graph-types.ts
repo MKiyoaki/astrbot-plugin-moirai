@@ -66,6 +66,8 @@ export interface PhysicsParams {
 
 export interface VisualParams {
   showBot: boolean
+  hideQuiet: boolean          // hide non-AI nodes that sent fewer than minMsgs messages
+  minMsgs: number
   edgeOpacity: number         // 0.05 – 1
   defaultEdgeWidth: number
   alwaysShowLabels: boolean   // off: names appear only around the hovered node
@@ -205,6 +207,8 @@ export const DEFAULT_PHYSICS_PARAMS: PhysicsParams = {
 
 export const DEFAULT_VISUAL_PARAMS: VisualParams = {
   showBot: true,
+  hideQuiet: true,
+  minMsgs: 20,
   edgeOpacity: 0.7,
   defaultEdgeWidth: 1.8,
   alwaysShowLabels: false,

@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { RotateCcw, Download, Maximize2, Trash2, FlaskConical, Wand2, Image as ImageIcon, FileSpreadsheet, Share2 } from 'lucide-react'
+import { RotateCcw, Download, Maximize2, Trash2, FlaskConical, Wand2, Image as ImageIcon, FileSpreadsheet, Share2, Check, ChevronDown } from 'lucide-react'
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
@@ -14,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Badge } from '@/components/ui/badge'
 import { NumberField } from '@/components/graph/number-field'
+import { meetsMessageFloor } from '@/lib/graph-utils'
 import type { PersonaNode } from '@/lib/api'
 import type { PhysicsParams, VisualParams, ViewMode } from '@/lib/graph-types'
 import { useApp } from '@/lib/store'
@@ -73,20 +76,31 @@ export function ParamsPanel({
   // Search state for node focus
   const [searchQ, setSearchQ] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
+  const [memberOpen, setMemberOpen] = useState(false)
+  const selectedMember = groupNodes.find(n => n.data.id === selectedMemberId) ?? null
 
   // Export options
   const [pngScale, setPngScale] = useState(2)
   const [transparent, setTransparent] = useState(false)
 
+  const shownNodes = useMemo(
+    () => visual.hideQuiet ? groupNodes.filter(n => meetsMessageFloor(n, visual.minMsgs)) : groupNodes,
+    [groupNodes, visual.hideQuiet, visual.minMsgs],
+  )
+  const memberTotal = useMemo(() => groupNodes.filter(n => !n.data.is_bot).length, [groupNodes])
+  const memberShown = useMemo(() => shownNodes.filter(n => !n.data.is_bot).length, [shownNodes])
+
   const searchResults = useMemo(() => {
     if (!searchQ.trim()) return []
     const q = searchQ.toLowerCase()
-    return groupNodes.filter(n => n.data.label.toLowerCase().includes(q)).slice(0, 8)
-  }, [searchQ, groupNodes])
+    return shownNodes.filter(n => n.data.label.toLowerCase().includes(q)).slice(0, 8)
+  }, [searchQ, shownNodes])
 
-  // Sorted member list for member mode
+  // Sorted member list for member mode; a chosen member stays listed after the floor rises.
   const sortedMembers = useMemo(() => {
-    const members = groupNodes.filter(n => !n.data.is_bot)
+    const members = groupNodes.filter(n => !n.data.is_bot && (
+      !visual.hideQuiet || meetsMessageFloor(n, visual.minMsgs) || n.data.id === selectedMemberId
+    ))
     return [...members].sort((a, b) => {
       const am = (a.data as { msg_count?: number }).msg_count ?? 0
       const bm = (b.data as { msg_count?: number }).msg_count ?? 0
@@ -96,7 +110,7 @@ export function ParamsPanel({
       if (memberSort === 'za') return b.data.label.localeCompare(a.data.label)
       return 0
     })
-  }, [groupNodes, memberSort])
+  }, [groupNodes, memberSort, visual.hideQuiet, visual.minMsgs, selectedMemberId])
 
   const handleFullscreen = () => {
     const el = svgEl?.parentElement
@@ -116,6 +130,27 @@ export function ParamsPanel({
             checked={visual.showBot}
             onCheckedChange={v => onVisual('showBot', v)}
           />
+        </div>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs text-muted-foreground">{t.hideQuiet}</Label>
+            <Switch
+              checked={visual.hideQuiet}
+              onCheckedChange={v => onVisual('hideQuiet', v)}
+            />
+          </div>
+          {visual.hideQuiet && (
+            <>
+              <NumberField
+                label={t.minMsgs} value={visual.minMsgs}
+                min={0} step={1} integer
+                onChange={v => onVisual('minMsgs', v)}
+              />
+              <p className="text-muted-foreground text-[11px] tabular-nums">
+                {t.quietShown.replace('{shown}', String(memberShown)).replace('{total}', String(memberTotal))}
+              </p>
+            </>
+          )}
         </div>
         <Separator />
 
@@ -198,19 +233,44 @@ export function ParamsPanel({
                   <SelectItem value="za">{t.memberSortZA}</SelectItem>
                 </SelectContent>
               </Select>
-              <Select
-                value={selectedMemberId ?? ''}
-                onValueChange={v => onSelectedMemberId(v || null)}
-              >
-                <SelectTrigger className="h-7 text-xs">
-                  <SelectValue placeholder={t.memberPlaceholder} />
-                </SelectTrigger>
-                <SelectContent>
-                  {sortedMembers.map(n => (
-                    <SelectItem key={n.data.id} value={n.data.id}>{n.data.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={memberOpen} onOpenChange={setMemberOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-expanded={memberOpen}
+                    data-member-picker=""
+                    className="flex h-7 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-xs ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  >
+                    <span className={cn('line-clamp-1', !selectedMember && 'text-muted-foreground')}>
+                      {selectedMember?.data.label ?? t.memberPlaceholder}
+                    </span>
+                    <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+                  <Command filter={(_, search, keywords) =>
+                    (keywords ?? []).some(k => k.toLowerCase().includes(search.trim().toLowerCase())) ? 1 : 0
+                  }>
+                    <CommandInput placeholder={t.memberSearchPlaceholder} className="h-9 text-xs" />
+                    <CommandList>
+                      <CommandEmpty>{t.memberSearchEmpty}</CommandEmpty>
+                      {sortedMembers.map(n => (
+                        <CommandItem
+                          key={n.data.id}
+                          value={n.data.id}
+                          keywords={[n.data.label]}
+                          className="text-xs"
+                          onSelect={() => { onSelectedMemberId(n.data.id); setMemberOpen(false) }}
+                        >
+                          <Check className={cn('mr-2 size-3.5', n.data.id === selectedMemberId ? 'opacity-100' : 'opacity-0')} />
+                          <span className="flex-1 truncate">{n.data.label}</span>
+                          <span className="text-muted-foreground ml-2 tabular-nums">{n.data.msg_count ?? 0}</span>
+                        </CommandItem>
+                      ))}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
           )}
         </div>

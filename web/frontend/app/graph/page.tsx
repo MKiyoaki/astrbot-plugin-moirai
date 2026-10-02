@@ -32,7 +32,7 @@ import {
   type GroupCard,
 } from '@/lib/graph-types'
 import {
-  buildGroupCards, computeNodeRadius, degreeMap,
+  buildGroupCards, computeNodeRadius, degreeMap, meetsMessageFloor,
   GROUP_ID_GLOBAL, GROUP_ID_PRIVATE,
 } from '@/lib/graph-utils'
 import { leidenCluster } from '@/lib/leiden'
@@ -171,9 +171,11 @@ export default function GraphPage() {
   const activeNodes = useMemo(() =>
     (currentGroup?.nodes ?? []).filter(n =>
       (visual.showBot || !n.data.is_bot) &&
+      (!visual.hideQuiet || meetsMessageFloor(n, visual.minMsgs) ||
+        (viewMode === 'member' && n.data.id === selectedMemberId)) &&
       (visibleNodeIds === null || visibleNodeIds.has(n.data.id))
     ),
-    [currentGroup, visual.showBot, visibleNodeIds],
+    [currentGroup, visual.showBot, visual.hideQuiet, visual.minMsgs, viewMode, selectedMemberId, visibleNodeIds],
   )
 
   const activePairs = useMemo(() => {

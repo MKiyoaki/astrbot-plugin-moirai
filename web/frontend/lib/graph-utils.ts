@@ -72,6 +72,11 @@ export function edgePairWeight(pair: EdgePair, source: EdgeWeightSource): number
 // ── degreeMap ─────────────────────────────────────────────────────────────────
 // One pass over the edge pairs instead of a filter() per node.
 
+/** AI nodes are governed by "show AI" alone; everyone else needs `minMsgs` messages to be shown. */
+export function meetsMessageFloor(node: PersonaNode, minMsgs: number): boolean {
+  return !!node.data.is_bot || (node.data.msg_count ?? 0) >= minMsgs
+}
+
 export function degreeMap(nodes: PersonaNode[], edgePairs: EdgePair[]): Map<string, number> {
   const degrees = new Map<string, number>()
   for (const n of nodes) degrees.set(n.data.id, 0)

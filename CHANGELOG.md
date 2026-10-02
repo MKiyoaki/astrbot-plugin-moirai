@@ -8,6 +8,10 @@
 - `core/social/big_five_scorer.py`：`BigFiveBuffer` 跟踪的用户超过上限（500）被 LRU 挤出时，不再取消该用户仍在排队的打分任务，只释放引用；旧任务完成后只在仍是当前任务时写缓存、清登记。原先取消会把 `CancelledError` 抛进正在等它的抽取窗口：ch0–17 回放（974 名说话人）在 2026-10-02 11:31 因此整体中断。本地新增 `tests/test_big_five_buffer.py` 2 项，旧代码下两项均报错。
 - `run_realtime_dev.py`：新增 `--continue`，在原库上续跑中断的 `--fresh` 构建：按内容哈希沿用已存原始消息的编号、只补写缺失的原始消息；路由不再逐条算向量，窗口与中断前一致；无链接的窗口照常抽取，全部链接的窗口不重抽，其中早先日志里没有 `window extracted` 记录的事件重跑人物关系分析；部分链接的窗口直接停下；抽取后把摘要缺少已生成 [Eval] 的事件补进评价队列。`core/extractor/extractor.py` 新增 `queue_missing_evals`、`rerun_social_analysis`；严格回放下 [Eval] 队列不再在 500 条上限处丢弃（插件默认不变）。`core/extractor/summary.py` 新增 `evals_complete`。本地新增 `tests/test_replay_continue.py` 11 项。
 
+### 关系图成员筛选与搜索
+
+- WebUI 关系图（`web/frontend`）：修复成员视角下“选择成员”下拉无法滚动——`components/ui/select.tsx` 的最大高度仍用 Tailwind v3 的 `max-h-[--var]` 写法，v4 编译成无效的 `max-height:--radix-select-content-available-height`，973 人的列表撑到 31146px 高、滚轮无效；改为 v4 的 `max-h-(--radix-select-content-available-height)`。右侧面板顶部新增“隐藏发言少的成员”开关（默认开）与阈值输入（默认 20 句），按节点 `msg_count` 过滤图、成员下拉与节点搜索，并显示“显示 N / 总数 位成员”；AI 节点只受“显示 AI 节点”控制，成员视角下已选成员始终保留（`lib/graph-utils.ts` 新增 `meetsMessageFloor`，`lib/graph-types.ts` 新增 `hideQuiet`/`minMsgs`，中日英文案）。前端类型检查与构建通过，重新生成 `pages/moirai/_app/`；用无头 Chromium 在 ch0–17 中断库副本上实测：旧构建下拉 `max-height: none`、滚动位置恒为 0，新构建限高 470px、188 项可滚；阈值 20/50 时图上 189/108 个节点，关闭后 974 个。成员视角的“选择成员”改为与标签选择器同款的弹出框：顶部搜索框（按名字子串匹配）、列表右侧显示发言数，触发按钮沿用排序下拉的样式；实测打开即聚焦搜索框，188 项列表可滚，搜“陈”剩 1 项、回车选中并关闭，无匹配时显示“没有匹配的成员”。
+
 ## [v1.2.36.sub] — 2026-10-02
 
 ### LLM 记忆分段、长窗口完整整理与后台补向量
