@@ -445,6 +445,148 @@ async def run_persona_synthesis_for_uid(
     )
 
 
+_SYNTHESIZED_KEYS = (
+    "description", "big_five", "big_five_evidence", "speaking_style", "style_quotes", "content_tags",
+    "last_synthesized_at", "last_synthesized_message_count", "last_synthesis_wall_time",
+    "last_synthesis_attempt_at",
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class SynthesisJob:
+    at: float
+    uid: str
+    message_count: int
+    event_ids: tuple[str, ...]
+
+
+def plan_persona_synthesis(
+    events: list,
+    *,
+    min_messages: int = 30,
+    min_events: int = 3,
+    cooldown_seconds: float = 3 * 3600.0,
+    fallback_seconds: float = 72 * 3600.0,
+    max_events: int = 10,
+) -> list[SynthesisJob]:
+    """Schedule the synthesis calls the live trigger and staleness fallback would make, in event time.
+
+    Events are taken in end-time order as if persisted one by one; each job keeps the person's latest
+    ``max_events`` participant events at that moment, newest first.
+    """
+    ordered = sorted(
+        (event for event in events if getattr(event, "event_type", "episode") == "episode"),
+        key=lambda event: event.end_time,
+    )
+    jobs: list[SynthesisJob] = []
+    counts: Counter = Counter()
+    seen: dict[str, list[str]] = {}
+    last_count: dict[str, int] = {}
+    last_attempt: dict[str, float] = {}
+    last_success: dict[str, float] = {}
+
+    def schedule(uid: str, at: float) -> None:
+        recent = seen.get(uid, [])
+        jobs.append(SynthesisJob(at, uid, counts[uid], tuple(reversed(recent[-max_events:]))))
+        last_attempt[uid] = at
+        last_success[uid] = at
+        last_count[uid] = counts[uid]
+
+    def cooled(uid: str, at: float) -> bool:
+        return uid not in last_attempt or at - last_attempt[uid] >= cooldown_seconds
+
+    next_fallback = ordered[0].end_time + fallback_seconds if ordered else 0.0
+    for event in ordered:
+        while event.end_time >= next_fallback:
+            for uid in sorted(counts):
+                stale = uid not in last_success or next_fallback - last_success[uid] >= fallback_seconds
+                if (counts[uid] > last_count.get(uid, 0) and stale and cooled(uid, next_fallback)
+                        and len(seen.get(uid, [])) >= min_events):
+                    schedule(uid, next_fallback)
+            next_fallback += fallback_seconds
+        senders = Counter(
+            getattr(message, "sender_uid", None) for message in (event.interaction_flow or [])
+            if getattr(message, "sender_uid", None)
+        )
+        for uid in dict.fromkeys(list(event.participants or []) + list(senders)):
+            seen.setdefault(uid, []).append(event.event_id)
+        counts.update(senders)
+        for uid in senders:
+            if (counts[uid] - last_count.get(uid, 0) >= min_messages and cooled(uid, event.end_time)
+                    and len(seen.get(uid, [])) >= min_events):
+                schedule(uid, event.end_time)
+    return jobs
+
+
+async def replay_persona_synthesis(
+    persona_repo: PersonaRepository,
+    event_repo: EventRepository,
+    provider_getter: Callable,
+    *,
+    synthesis_config: SynthesisConfig,
+    llm_manager: LLMTaskManager | None = None,
+    min_messages: int = 30,
+    min_events: int = 3,
+    cooldown_hours: float = 3.0,
+    fallback_hours: float = 72.0,
+    initial_confidence: float = 0.5,
+) -> tuple[int, int]:
+    """Rebuild persona attributes by replaying the live synthesis trigger over stored events.
+
+    Meant for replays that persist a whole history before synthesis can run. Earlier synthesized
+    attributes are cleared first; internal bot personas keep their authored attributes. Each
+    person's calls run in event order, so the blend with earlier scores matches live use.
+    Returns ``(calls, updated)``.
+    """
+    from ..extractor.persona_context import is_internal_bot_persona
+
+    if provider_getter() is None:
+        return 0, 0
+    for persona in await persona_repo.list_all():
+        if is_internal_bot_persona(persona):
+            continue
+        attrs = {key: value for key, value in (persona.persona_attrs or {}).items()
+                 if key not in _SYNTHESIZED_KEYS}
+        await persona_repo.upsert(dataclasses.replace(persona, persona_attrs=attrs, confidence=initial_confidence))
+
+    events = await event_repo.list_all(limit=10_000_000)
+    by_id = {event.event_id: event for event in events}
+    jobs = plan_persona_synthesis(
+        events, min_messages=min_messages, min_events=min_events,
+        cooldown_seconds=cooldown_hours * 3600.0, fallback_seconds=fallback_hours * 3600.0,
+        max_events=synthesis_config.max_events,
+    )
+    chains: dict[str, list[SynthesisJob]] = {}
+    for job in jobs:
+        chains.setdefault(job.uid, []).append(job)
+    logger.info("[SynthesisReplay] %d call(s) for %d persona(s)", len(jobs), len(chains))
+    progress = {"done": 0, "updated": 0}
+
+    async def run_chain(chain: list[SynthesisJob]) -> None:
+        for job in chain:
+            persona = await persona_repo.get(job.uid)
+            if persona is None:
+                return
+            ok = await _synthesize_one_persona(
+                persona=persona,
+                events=[by_id[event_id] for event_id in job.event_ids if event_id in by_id],
+                persona_repo=persona_repo,
+                provider=provider_getter(),
+                cfg=synthesis_config,
+                llm_manager=llm_manager,
+                log_prefix="SynthesisReplay",
+                total_message_count=job.message_count,
+                force=True,
+            )
+            progress["done"] += 1
+            progress["updated"] += int(bool(ok))
+            if progress["done"] % 50 == 0 or progress["done"] == len(jobs):
+                logger.info("[SynthesisReplay] %d/%d call(s) done", progress["done"], len(jobs))
+
+    await asyncio.gather(*(run_chain(chain) for chain in chains.values()))
+    return len(jobs), progress["updated"]
+
+
 class PersonaSynthesisTrigger:
     """Message-count driven persona synthesis trigger with periodic fallback."""
 

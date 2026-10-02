@@ -329,10 +329,21 @@ def _continue_requested() -> bool:
     """--continue finishes an interrupted fresh build in place instead of archiving it."""
     if "--continue" not in sys.argv:
         return False
-    if "--fresh" in sys.argv or "--resume" in sys.argv:
-        raise SystemExit("Choose one of --fresh, --resume and --continue.")
+    if "--fresh" in sys.argv or "--resume" in sys.argv or "--finish" in sys.argv:
+        raise SystemExit("Choose one of --fresh, --resume, --continue and --finish.")
     if not REALTIME_DB.exists():
         raise SystemExit("--continue needs the interrupted build's realtime database.")
+    return True
+
+
+def _finish_requested() -> bool:
+    """--finish runs the post-extraction phases on a fully extracted build and annotates [Eval] behind the WebUI."""
+    if "--finish" not in sys.argv:
+        return False
+    if "--fresh" in sys.argv or "--resume" in sys.argv or "--continue" in sys.argv:
+        raise SystemExit("Choose one of --fresh, --resume, --continue and --finish.")
+    if not REALTIME_DB.exists():
+        raise SystemExit("--finish needs the extracted build's realtime database.")
     return True
 
 
@@ -391,11 +402,42 @@ class _KnownRawMessageFilter:
         return getattr(self._writer, name)
 
 
+def _in_window_order(extract, limit: int):
+    """Run window extractions in creation order, at most ``limit`` windows at a time, each to completion.
+
+    A replay closes every window within minutes. Started together, their calls would share the
+    model slots round-robin: windows would finish out of event order, impressions would be blended
+    out of order, and an interrupted run would lose every half-extracted window.
+    """
+    slots = asyncio.Semaphore(max(1, limit))
+
+    async def run(window):
+        async with slots:
+            return await extract(window)
+
+    return run
+
+
 class _NoDriftEncoder:
     """Router-side encoder for --continue: no per-message vectors, so no drift and identical windows."""
 
     async def encode_batch(self, texts: list[str]) -> list[list[float]]:
         return []
+
+
+def _build_mock_persona(name: str, description: str):
+    """The internal bot persona seeded from the supplied persona file."""
+    from core.domain.models import Persona
+    now = time.time()
+    return Persona(
+        uid=f"bot_internal_{BOT_PHYSICAL_ID}",
+        bound_identities=[("internal", BOT_PHYSICAL_ID)],
+        primary_name=name,
+        persona_attrs={"description": description},
+        confidence=0.9,
+        created_at=now,
+        last_active_at=now,
+    )
 
 
 def _load_eval_setting() -> bool:
@@ -788,14 +830,15 @@ async def main() -> None:
     print("=" * 70)
     print("  REALTIME DEV TEST  |  EVENT_MODE:", _EVENT_MODE.upper(), " |  LLM:", LLM_MODEL)
     print("=" * 70)
+    finishing = _finish_requested()
     continuing = _continue_requested()
-    resume = False if continuing else _resume_requested()
-    print(f"  MODE: {'RESUME (skip rebuild)' if resume else 'CONTINUE INTERRUPTED BUILD' if continuing else 'FRESH BUILD'}")
+    resume = False if continuing or finishing else _resume_requested()
+    print(f"  MODE: {'RESUME (skip rebuild)' if resume else 'CONTINUE INTERRUPTED BUILD' if continuing else 'FINISH EXTRACTED BUILD' if finishing else 'FRESH BUILD'}")
     print(f"  DATA: {MOCK_DATA_PATH}")
     print(f"  DIR : {DEV_DATA}  |  PERSONA: {MOCK_PERSONA_PATH.name} → (internal, {BOT_PHYSICAL_ID})")
     print(f"  LLM : {_MODEL_TYPE}:{LLM_MODEL}  |  concurrency {_LLM_CONCURRENCY}")
     messages = _preflight(quiet=True) if not resume else []
-    _archive_step(resume, keep_db=continuing)
+    _archive_step(resume, keep_db=continuing or finishing)
 
     # Step 2: Imports (lazy, inside main — same pattern as run_dataflow_dev.py)
     from core.utils.llm import SimpleLLMClient, MockProviderBridge  # noqa: F401 (SimpleLLMClient kept for reference)
@@ -1081,11 +1124,11 @@ async def main() -> None:
 
         if not resume:
             # ── 模拟 Persona 选项 ──────────────────────────────────────────
-            if continuing:
+            if continuing or finishing:
                 use_mock_persona = _load_eval_setting()
                 if ("--eval-persona" in sys.argv and not use_mock_persona) or (
                         "--no-eval-persona" in sys.argv and use_mock_persona):
-                    raise SystemExit("--continue keeps the interrupted build's persona-evaluation setting.")
+                    raise SystemExit("--continue and --finish keep the earlier build's persona-evaluation setting.")
             elif "--eval-persona" in sys.argv:
                 use_mock_persona = True
             elif "--no-eval-persona" in sys.argv:
@@ -1096,23 +1139,12 @@ async def main() -> None:
                 ).strip().lower() in ("y", "yes")
 
             if use_mock_persona:
-                import time as _time
-                from core.domain.models import Persona as _Persona
                 _persona_name, _persona_desc = _load_mock_persona(MOCK_PERSONA_PATH)
-                if not continuing:
-                    _mock_persona = _Persona(
-                        uid=f"bot_internal_{BOT_PHYSICAL_ID}",
-                        bound_identities=[("internal", BOT_PHYSICAL_ID)],
-                        primary_name=_persona_name,
-                        persona_attrs={"description": _persona_desc},
-                        confidence=0.9,
-                        created_at=_time.time(),
-                        last_active_at=_time.time(),
-                    )
-                    await persona_repo.upsert(_mock_persona)
+                if not continuing and not finishing:
+                    await persona_repo.upsert(_build_mock_persona(_persona_name, _persona_desc))
                     print("[Dev] persona 已植入。")
 
-            if not continuing:
+            if not continuing and not finishing:
                 _save_eval_setting(use_mock_persona)
             extractor_cfg = cfg.get_extractor_config()
             extractor_cfg.persona_influenced_summary = use_mock_persona
@@ -1135,6 +1167,8 @@ async def main() -> None:
                 raw_message_writer=raw_message_writer,
                 category_classifier=category_classifier,
             )
+            if use_mock_persona:
+                extractor.note_persona_prompt_context(_persona_name, _persona_desc)
 
             extraction_futures: list[asyncio.Task] = []
             social_futures: list[asyncio.Task] = []
@@ -1159,6 +1193,8 @@ async def main() -> None:
                 print(f"[Continue] stored raw messages={len(known)}, linked={len(links)}, "
                       f"finished event prefixes from earlier logs={len(continue_state.completed)}")
 
+            extract_window = _in_window_order(extractor, cfg.llm_concurrency + 1)
+
             async def on_event_close(window):
                 if continue_state is not None:
                     kind, pending = continue_state.classify(window)
@@ -1169,7 +1205,7 @@ async def main() -> None:
                             window, [(event, mids) for event, mids in events if event is not None])))
                     if kind != "extract":
                         return
-                task = asyncio.create_task(extractor(window))
+                task = asyncio.create_task(extract_window(window))
                 extraction_futures.append(task)
 
             router = MessageRouter(
@@ -1182,66 +1218,72 @@ async def main() -> None:
                 raw_message_writer=router_writer,
             )
 
-            # ── Phase 1: Message ingestion ──────────────────────────────────────
-            print(f"\n[Phase 1] Ingesting {len(messages)} messages ...")
-            with _tqdm(total=len(messages), desc="  Ingesting", unit="msg") as bar:
-                for msg in messages:
-                    await _ingest_message(router, msg, _persona_name if use_mock_persona else None)
-                    bar.update(1)
-
-            print("[Phase 1] Flushing router windows ...")
-            await router.flush_all()
-            await raw_message_writer.flush_once()
-            print(
-                f"[Phase 1] Done. {len(extraction_futures)} extraction task(s) queued.")
-            if continuing:
-                print(f"[Continue] windows: {window_kinds.get('done', 0)} finished, "
-                      f"{window_kinds.get('social', 0)} social re-run, {window_kinds.get('extract', 0)} to extract; "
-                      f"raw messages newly written={router_writer.written}")
-
-            # ── Phase 2: Wait for LLM extraction ───────────────────────────────
-            if extraction_futures:
-                print(
-                    f"\n[Phase 2] Running {len(extraction_futures)} LLM extraction task(s) ...")
-                with _tqdm(total=len(extraction_futures), desc="  Extracting", unit="task") as bar:
-                    for fut in asyncio.as_completed(extraction_futures):
-                        try:
-                            await fut
-                        except Exception as exc:
-                            raise RuntimeError(f"Strict extraction failed; build stopped: {exc}") from exc
-                        bar.update(1)
-                print("[Phase 2] Annotating [Eval] asides (batched, after extraction) ...")
-                await extractor.drain_evals()
-                await extractor.drain_categories()
+            if finishing:
+                print("\n[Finish] Extraction is complete; skipping ingestion and extraction.")
             else:
-                print("\n[Phase 2] No extraction tasks queued.")
+                # ── Phase 1: Message ingestion ──────────────────────────────────────
+                print(f"\n[Phase 1] Ingesting {len(messages)} messages ...")
+                with _tqdm(total=len(messages), desc="  Ingesting", unit="msg") as bar:
+                    for msg in messages:
+                        await _ingest_message(router, msg, _persona_name if use_mock_persona else None)
+                        bar.update(1)
 
-            if continuing:
-                if social_futures:
-                    print(f"[Continue] Waiting for {len(social_futures)} social re-run(s) ...")
-                    for fut in asyncio.as_completed(social_futures):
-                        try:
-                            await fut
-                        except Exception as exc:
-                            raise RuntimeError(f"Social re-run failed; build stopped: {exc}") from exc
-                missing = await extractor.queue_missing_evals(await event_repo.list_all(limit=1_000_000))
-                print(f"[Continue] {missing} event(s) without a generated [Eval] queued ...")
-                await extractor.drain_evals()
-                await extractor.drain_categories()
+                print("[Phase 1] Flushing router windows ...")
+                await router.flush_all()
+                await raw_message_writer.flush_once()
+                print(
+                    f"[Phase 1] Done. {len(extraction_futures)} extraction task(s) queued.")
+                if continuing:
+                    print(f"[Continue] windows: {window_kinds.get('done', 0)} finished, "
+                          f"{window_kinds.get('social', 0)} social re-run, {window_kinds.get('extract', 0)} to extract; "
+                          f"raw messages newly written={router_writer.written}")
 
-            # ── Phase 3: Persona synthesis (writes big_five + big_five_evidence) ──
-            print("\n[Phase 3] Running persona synthesis ...")
-            from core.tasks.synthesis import run_persona_synthesis
-            from core.config import SynthesisConfig
-            synthesis_cfg = SynthesisConfig(llm_timeout=_TIMEOUT, retry_until_success=True)
-            n_synth = await run_persona_synthesis(
-                persona_repo=persona_repo,
-                event_repo=event_repo,
-                provider_getter=lambda: mock_provider,
-                synthesis_config=synthesis_cfg,
-                llm_manager=llm_manager,
-            )
-            print(f"[Phase 3] Persona synthesis: {n_synth} persona(s) updated.")
+                # ── Phase 2: Wait for LLM extraction ───────────────────────────────
+                if extraction_futures:
+                    print(
+                        f"\n[Phase 2] Running {len(extraction_futures)} LLM extraction task(s) ...")
+                    with _tqdm(total=len(extraction_futures), desc="  Extracting", unit="task") as bar:
+                        for fut in asyncio.as_completed(extraction_futures):
+                            try:
+                                await fut
+                            except Exception as exc:
+                                raise RuntimeError(f"Strict extraction failed; build stopped: {exc}") from exc
+                            bar.update(1)
+                    print("[Phase 2] Annotating [Eval] asides (batched, after extraction) ...")
+                    await extractor.drain_evals()
+                    await extractor.drain_categories()
+                else:
+                    print("\n[Phase 2] No extraction tasks queued.")
+
+                if continuing:
+                    if social_futures:
+                        print(f"[Continue] Waiting for {len(social_futures)} social re-run(s) ...")
+                        for fut in asyncio.as_completed(social_futures):
+                            try:
+                                await fut
+                            except Exception as exc:
+                                raise RuntimeError(f"Social re-run failed; build stopped: {exc}") from exc
+                    missing = await extractor.queue_missing_evals(await event_repo.list_all(limit=1_000_000))
+                    print(f"[Continue] {missing} event(s) without a generated [Eval] queued ...")
+                    await extractor.drain_evals()
+                    await extractor.drain_categories()
+
+            if finishing:
+                print("\n[Finish] Persona synthesis is replayed in event order after the WebUI starts.")
+            else:
+                # ── Phase 3: Persona synthesis (writes big_five + big_five_evidence) ──
+                print("\n[Phase 3] Running persona synthesis ...")
+                from core.tasks.synthesis import run_persona_synthesis
+                from core.config import SynthesisConfig
+                synthesis_cfg = SynthesisConfig(llm_timeout=_TIMEOUT, retry_until_success=True)
+                n_synth = await run_persona_synthesis(
+                    persona_repo=persona_repo,
+                    event_repo=event_repo,
+                    provider_getter=lambda: mock_provider,
+                    synthesis_config=synthesis_cfg,
+                    llm_manager=llm_manager,
+                )
+                print(f"[Phase 3] Persona synthesis: {n_synth} persona(s) updated.")
 
             # ── Phase 4: Generate group summaries via LLM ──────────────────────
             print("\n[Phase 4] Generating group summaries via LLM ...")
@@ -1431,6 +1473,35 @@ async def main() -> None:
         )
         await srv.start()
         print(f"\n  WebUI ready  →  http://localhost:{PORT}")
+        finish_task = None
+        if finishing:
+            async def _finish_evals() -> None:
+                from core.extractor.summary import evals_complete
+                from core.tasks.synthesis import replay_persona_synthesis
+                try:
+                    if use_mock_persona:
+                        await persona_repo.upsert(_build_mock_persona(_persona_name, _persona_desc))
+                    print("[Finish] Replaying persona synthesis in event order ...")
+                    calls, updated = await replay_persona_synthesis(
+                        persona_repo, event_repo, lambda: mock_provider,
+                        synthesis_config=SynthesisConfig(llm_timeout=_TIMEOUT, retry_until_success=True),
+                        llm_manager=llm_manager,
+                        min_messages=cfg.persona_synthesis_trigger_messages,
+                        min_events=cfg.persona_synthesis_min_events,
+                        cooldown_hours=cfg.persona_synthesis_cooldown_hours,
+                        fallback_hours=cfg.persona_synthesis_interval_seconds / 3600.0,
+                        initial_confidence=cfg.persona_default_confidence,
+                    )
+                    print(f"[Finish] Persona synthesis replay done: {calls} call(s), {updated} update(s)")
+                    missing = await extractor.queue_missing_evals(await event_repo.list_all(limit=1_000_000))
+                    print(f"[Finish] Annotating {missing} event(s) without a generated [Eval] behind the WebUI ...")
+                    await extractor.drain_evals()
+                    left = sum(1 for event in await event_repo.list_all(limit=1_000_000)
+                               if not evals_complete(event.summary or ""))
+                    print(f"[Finish] [Eval] annotation done; events still without a generated aside: {left}")
+                except Exception as exc:
+                    print(f"[Finish] [Eval] annotation stopped: {exc}")
+            finish_task = asyncio.create_task(_finish_evals())
         print(f"  DB           →  {REALTIME_DB}")
         if not _TQDM_OK:
             print("  Tip: pip install tqdm  for nicer progress bars")
@@ -1475,6 +1546,9 @@ async def main() -> None:
             pass
         finally:
             print("\n[Shutdown] Stopping WebUI server ...")
+            if finish_task is not None and not finish_task.done():
+                finish_task.cancel()
+                await asyncio.gather(finish_task, return_exceptions=True)
             _save_eval_setting(session_config["persona_influenced_summary"] is True)
             await srv.stop()
             if category_classifier is not None:

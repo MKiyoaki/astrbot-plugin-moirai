@@ -218,7 +218,7 @@ class SynthesisConfig:
     language: str = LANG_ZH
     llm_provider: str | None = None
     # weight for new synthesis vs existing scores (0=freeze, 1=replace)
-    ema_alpha: float = 0.35
+    ema_alpha: float = 0.30
 
 
 _DEFAULT_SUMMARY_SYSTEM_PROMPT = (

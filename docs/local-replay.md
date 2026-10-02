@@ -45,6 +45,10 @@ The persona question remains interactive. Add `--eval-persona` to enable indepen
 
 Runtime overrides leave `run_config.py` unchanged. The new extraction overrides are `EXTRACTION_LLM_SEGMENTATION`, `EXTRACTION_SEGMENTATION_MESSAGES_PER_SEGMENT`, `EXTRACTION_SEGMENTATION_TIMEOUT_SECONDS`, `BOUNDARY_TOPIC_DRIFT_AUTO_CALIBRATION` and `BOUNDARY_TOPIC_DRIFT_PERCENTILE`. Their defaults match the plugin configuration. Existing retrieval overrides retain their names.
 
+## Extraction order
+
+A replay closes every window within minutes of starting. The runner extracts them in the order they were created, with at most one more window in progress than the configured model concurrency (four with three slots), and finishes each window before starting another. Each window's segmentation, extraction pages and social analysis therefore run back to back. Started all at once, the windows would share the model slots round-robin: they would finish out of event order, impressions (blended 40% new to 60% old per event) would be updated out of event order, and an interrupted run would lose every half-extracted window. In the 2026-10-02 ch0–17 build, which predates this ordering, the update order of social analysis correlated only 0.45 with event time. A live plugin closes windows as messages arrive and is unaffected.
+
 ## Continue an interrupted build
 
 Replace `--fresh` with `--continue` to finish an interrupted fresh build in place. The database stays where it is and is not archived. The persona-evaluation setting saved by the interrupted run applies, so `--eval-persona` may be repeated but not contradicted. The run replays every message through the same router and handles each window as follows:
@@ -59,6 +63,20 @@ Replace `--fresh` with `--continue` to finish an interrupted fresh build in plac
 Strict replay never drops a deferred `[Eval]` at the plugin's 500-item queue cap. Ordinary plugin runs keep the cap.
 
 On 2026-10-02 the interrupted ch0–17 build was dry-run offline against a copy of its database, with no model calls. It rebuilt the original 1,295 windows. Of these, 343 were finished, 356 needed the social re-run for 708 events and 596 were untouched. Three source messages had never been stored, and no window was partly linked.
+
+## Finish an extracted build
+
+`--finish` runs the post-extraction phases on a build whose windows are all extracted. It is meant for a run stopped after it printed `[Phase 2] Annotating [Eval] asides`, at which point every extraction and social-analysis task has finished. The database stays where it is and nothing is ingested or extracted again. The run keeps the saved persona-evaluation setting and works in this order:
+
+1. TypeSafe classification continues through its existing background backfill.
+2. Group summaries, the RAG probe and the state test run as in a fresh build. The single end-of-build persona synthesis is skipped.
+3. The WebUI starts.
+4. Persona synthesis is replayed in event order. A live plugin synthesizes a person after 30 new messages (with at least three events and three hours since the last attempt) and through a 72-hour staleness pass, each time from that person's latest ten events, and blends the new big-five scores with the old ones. A replay stores the whole history first, so one synthesis at the end sees only the last ten events of each person. The replay instead clears earlier synthesized attributes, plans the calls the live trigger would have made in event time, and runs each person's calls in order. The supplied bot persona is seeded again first. The log reports `[Finish] Persona synthesis replay done` with the call count.
+5. Every event whose summary lacks a generated `[Eval]` aside is queued, and the deferred pass annotates it in the background. Each batch is written as it completes, so the WebUI shows asides as they land. The log ends this step with `[Finish] [Eval] annotation done` and the number of events still missing an aside.
+
+The replay passes the supplied persona file to `[Eval]` as the host persona context, as a live host does, so synthesis cannot shorten the persona the asides are written from. Stopping the WebUI cancels unfinished background work. A later `--finish` replays synthesis again and queues whatever asides are still missing.
+
+On the 2026-10-02 ch0–17 build the plan was 1,528 synthesis calls for 366 people; the longest single chain was the bot persona with 103 calls.
 
 ## Restarting a WAL database safely
 
