@@ -16,7 +16,8 @@ Other datasets (all optional; defaults are the paths below):
                      platform "internal" messages with user_id ID are the bot itself
     --model-type T   lmstudio | deepseek | kcl | openai (default run_config MODEL_TYPE)
     --model NAME     model id for that type (default the one in run_config)
-    --llm-concurrency N   shared LLM concurrency (default run_config LLM_CONCURRENCY)
+    --llm-concurrency N   shared LLM concurrency (default run_config LLM_CONCURRENCY; behind a
+                     local KCL hub, the hub's lanes minus the embedding workers, all lanes with --finish)
     --resume-synthesis    with --finish: continue an interrupted persona synthesis replay
     --port N         WebUI port (default 2656), so several replays can serve at once
     --no-drift       route without per-message vectors; a fast replay closes windows before
@@ -283,6 +284,76 @@ _MODEL_TYPE = _flag_value("--model-type", _MODEL_TYPE)
 _LLM_CONCURRENCY = int(_flag_value("--llm-concurrency", _LLM_CONCURRENCY))
 LLM_API_URL, LLM_API_KEY, LLM_MODEL = _get_model_info(_MODEL_TYPE)
 LLM_MODEL = _flag_value("--model", LLM_MODEL)
+
+# Set by _detect_hub() when the chat endpoint is a local KCL hub that also carries the embeddings.
+_HUB_EMBEDDINGS = False
+
+
+def _url_origin(url: str) -> str:
+    from urllib.parse import urlsplit
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+def _is_local_host(url: str) -> bool:
+    import ipaddress
+    from urllib.parse import urlsplit
+    host = urlsplit(url).hostname or ""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_private
+    except ValueError:
+        return False
+
+
+def _detect_hub() -> None:
+    """Size chat concurrency from a local KCL hub's lanes and send embeddings ahead of queued chat.
+
+    The hub queues requests beyond its lanes and that wait counts against client timeouts, so while
+    extraction needs vectors the chat calls leave one lane per embedding worker; --finish sends no
+    embeddings and takes every lane. An explicit --llm-concurrency always wins. Only loopback and
+    private hosts are probed, so remote providers receive no extra request.
+    """
+    global _HUB_EMBEDDINGS, _LLM_CONCURRENCY
+    import urllib.request
+    if not _is_local_host(LLM_API_URL):
+        return
+    origin = _url_origin(LLM_API_URL)
+    try:
+        with urllib.request.urlopen(origin + "/hub/status", timeout=2) as resp:
+            status = json.loads(resp.read())
+        lanes = status.get("capacity_max", status.get("capacity"))
+    except (OSError, ValueError, AttributeError):
+        return
+    if type(lanes) is not int or lanes < 1:
+        return
+    cfg = _build_config(_EVENT_MODE)
+    embedding = cfg.get_embedding_config()
+    _HUB_EMBEDDINGS = bool(cfg.embedding_enabled and embedding.provider == "api"
+                           and _url_origin(embedding.api_url) == origin)
+    reserved = embedding.concurrency if _HUB_EMBEDDINGS and "--finish" not in sys.argv else 0
+    note = "embeddings sent first" if _HUB_EMBEDDINGS else "embeddings not on the hub"
+    if _flag_value("--llm-concurrency", None) is not None:
+        print(f"[Hub] {origin}: {lanes} lanes; --llm-concurrency {_LLM_CONCURRENCY} kept; {note}")
+        return
+    _LLM_CONCURRENCY = max(1, lanes - reserved)
+    print(f"[Hub] {origin}: {lanes} lanes; LLM concurrency {_LLM_CONCURRENCY}, "
+          f"{reserved} lane(s) kept for embeddings; {note}")
+
+
+def _retrieval_transport():
+    """Mark embedding and rerank requests high priority when they share the hub with chat."""
+    if not _HUB_EMBEDDINGS:
+        return None
+    import httpx
+
+    class HubPriorityTransport(httpx.HTTPTransport):
+        def handle_request(self, request):
+            request.headers["X-Hub-Priority"] = "high"
+            return super().handle_request(request)
+
+    return HubPriorityTransport()
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -1056,7 +1127,7 @@ async def main() -> None:
     from core.retrieval.providers import build_retrieval_providers
     from contextlib import AsyncExitStack
     async with AsyncExitStack() as retrieval_stack:
-        providers = build_retrieval_providers(cfg)
+        providers = build_retrieval_providers(cfg, transport=_retrieval_transport())
         retrieval_stack.push_async_callback(providers.close)
         await providers.start()
         encoder = providers.encoder
@@ -1578,6 +1649,7 @@ if __name__ == "__main__":
         sys.path.insert(0, _root_str)
     if "--check" in sys.argv:
         try:
+            _detect_hub()
             _preflight()
         except (OSError, ValueError, TypeError) as exc:
             raise SystemExit(f"[Check] FAILED: {exc}") from exc
@@ -1593,6 +1665,7 @@ if __name__ == "__main__":
         raise SystemExit(0 if result.wasSuccessful() else 1)
     try:
         _start_run_log()
+        _detect_hub()
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\n[Interrupt] Ctrl+C received — forcing cleanup ...")

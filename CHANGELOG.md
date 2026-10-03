@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [v1.2.41.sub] — 2026-10-03
+
+### 回放自动适配本地 KCL hub
+
+- `run_realtime_dev.py`：新增 `_detect_hub`：`KCL_API_URL` 指向本机或局域网地址且 `/hub/status` 有应答时，按 hub 的满额通道数（`capacity_max`，不取 429 后临时降低的值）自动设置模型并发：未写 `--llm-concurrency` 时，抽取阶段用通道数减去向量并发（10 通道、`RETRIEVAL_ENCODER_CONCURRENCY=1` 时为 9），`--finish` 不发向量请求，用满 10 条；手写 `--llm-concurrency` 时以手写为准；远程地址不探测。新增 `_retrieval_transport`：向量与重排请求和聊天走同一个 hub 时带 `X-Hub-Priority: high`，hub 通道不够时排在聊天请求前面。原先并发须手算，且 hub 先来先服务，抽取等待的事件向量会排在聊天请求后面，排队时间还计入客户端超时。启动日志与 `--check` 输出 `[Hub]` 行。hub 本身不改。
+- `docs/local-replay.md`：多 key 说明改为本地 KCL hub 与上述自动设置。
+- 本地 `tests/test_realtime_entry.py` 增 4 项：抽取与 `--finish` 的并发、手写并发与向量不在 hub 时、远程地址与非 hub 地址不变、只在共用 hub 时加优先级头。
+
 ## [v1.2.40.sub] — 2026-10-03
 
 ### 大库关键词检索不再超时
