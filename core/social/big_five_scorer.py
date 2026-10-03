@@ -76,14 +76,18 @@ class LLMBigFiveScorer:
         self,
         system_prompt: str = _DEFAULT_SYSTEM_PROMPT,
         llm_timeout: float = 30.0,
+        retry_until_success: bool = False,
     ) -> None:
         self._system_prompt = system_prompt
         self._llm_timeout = llm_timeout
+        self._retry_until_success = retry_until_success
 
     async def score(self, context: str, provider_getter: Callable, llm_manager: LLMTaskManager | None = None) -> BigFiveVector:
         provider = provider_getter()
         if provider is None:
             return _ZERO_VECTOR
+        if self._retry_until_success:
+            return await self._score_strictly(context, provider, llm_manager)
         try:
             if llm_manager:
                 resp = await llm_manager.run(
@@ -114,6 +118,31 @@ class LLMBigFiveScorer:
         except Exception as exc:
             logger.warning("[BigFiveScorer] scoring failed: %s", exc)
             return _ZERO_VECTOR
+
+    async def _score_strictly(self, context: str, provider, llm_manager: LLMTaskManager | None) -> BigFiveVector:
+        """Strict replay: retry transient failures and unusable output instead of returning a neutral vector."""
+        from ..utils.model_retry import ModelOutputError, retry_model_call
+
+        def validate(response):
+            parsed = _safe_parse(response.completion_text or "")
+            try:
+                [float(parsed[key]) for key in ("O", "C", "E", "A", "N")]
+            except (TypeError, KeyError, ValueError) as exc:
+                raise ModelOutputError("Invalid Big Five result") from exc
+
+        response, _ = await retry_model_call(
+            lambda: provider.text_chat(prompt=context, system_prompt=self._system_prompt),
+            task_name="big_five_score", strict=True, timeout=self._llm_timeout,
+            manager=llm_manager, validate=validate,
+        )
+        parsed = _safe_parse(response.completion_text)
+        return BigFiveVector(
+            openness=_clamp(float(parsed["O"])),
+            conscientiousness=_clamp(float(parsed["C"])),
+            extraversion=_clamp(float(parsed["E"])),
+            agreeableness=_clamp(float(parsed["A"])),
+            neuroticism=_clamp(float(parsed["N"])),
+        )
 
 
 class BigFiveBuffer(BoundedKeysMixin):

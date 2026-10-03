@@ -168,7 +168,7 @@ function LibraryContent() {
     try {
       const [tagsData, eventsData] = await Promise.allSettled([
         api.tags.list(),
-        api.events.list(1000, personaFilter),
+        api.events.list(api.ALL_EVENTS, personaFilter),
       ])
       if (tagsData.status === 'fulfilled') setTagList(tagsData.value.tags)
       if (eventsData.status === 'fulfilled') {

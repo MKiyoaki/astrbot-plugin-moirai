@@ -31,7 +31,7 @@ export default function StatsPage() {
     refreshStats()
     try {
       const [evs, g] = await Promise.all([
-        api.events.list(2000, personaFilter),
+        api.events.list(api.ALL_EVENTS, personaFilter),
         api.graph.get(personaFilter).catch(() => null),
       ])
       setEvents(evs.items)

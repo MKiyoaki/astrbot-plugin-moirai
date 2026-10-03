@@ -50,7 +50,7 @@ STUCK_SECONDS = 300.0
 async def retry_model_call(factory, *, task_name: str, strict: bool = False,
                            max_retries: int = 0, minimum: float = 2.0,
                            timeout: float | None = None, manager=None, validate=None,
-                           timeout_growth: float = 1.5, timeout_cap: float = 300.0):
+                           timeout_growth: float = 1.5, timeout_cap: float = 300.0, priority: int = 10):
     """Retry a model call; each timeout widens the next attempt's limit up to ``timeout_cap``.
 
     In strict mode a retryable failure is retried until it succeeds, so a request that always needs more
@@ -70,7 +70,7 @@ async def retry_model_call(factory, *, task_name: str, strict: bool = False,
                     return await asyncio.wait_for(factory(), limit)
                 finally:
                     spent += time.monotonic() - began
-            result = await manager.run(request, task_name=task_name) if manager else await request()
+            result = await manager.run(request, task_name=task_name, priority=priority) if manager else await request()
             if validate is not None:
                 validate(result)
             return result, attempt

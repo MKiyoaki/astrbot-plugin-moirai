@@ -530,19 +530,22 @@ async def replay_persona_synthesis(
     cooldown_hours: float = 3.0,
     fallback_hours: float = 72.0,
     initial_confidence: float = 0.5,
+    resume: bool = False,
 ) -> tuple[int, int]:
     """Rebuild persona attributes by replaying the live synthesis trigger over stored events.
 
     Meant for replays that persist a whole history before synthesis can run. Earlier synthesized
     attributes are cleared first; internal bot personas keep their authored attributes. Each
     person's calls run in event order, so the blend with earlier scores matches live use.
+    ``resume`` continues an interrupted replay: nothing is cleared, and a call is skipped when the
+    person's stored ``last_synthesized_message_count`` already reaches it (counts only grow along a chain).
     Returns ``(calls, updated)``.
     """
     from ..extractor.persona_context import is_internal_bot_persona
 
     if provider_getter() is None:
         return 0, 0
-    for persona in await persona_repo.list_all():
+    for persona in [] if resume else await persona_repo.list_all():
         if is_internal_bot_persona(persona):
             continue
         attrs = {key: value for key, value in (persona.persona_attrs or {}).items()
@@ -567,6 +570,10 @@ async def replay_persona_synthesis(
             persona = await persona_repo.get(job.uid)
             if persona is None:
                 return
+            done = int((persona.persona_attrs or {}).get("last_synthesized_message_count", 0) or 0)
+            if resume and job.message_count <= done:
+                progress["done"] += 1
+                continue
             ok = await _synthesize_one_persona(
                 persona=persona,
                 events=[by_id[event_id] for event_id in job.event_ids if event_id in by_id],

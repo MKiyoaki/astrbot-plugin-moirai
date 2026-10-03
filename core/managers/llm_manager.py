@@ -1,5 +1,8 @@
 """Shared model concurrency, request pacing and call accounting."""
 import asyncio
+import contextlib
+import heapq
+import itertools
 import logging
 import time
 from collections import deque
@@ -20,7 +23,10 @@ class LLMTaskManager:
     def __init__(self, concurrency: int = 2, request_interval_seconds: float = 0.0):
         if concurrency < 1 or request_interval_seconds < 0:
             raise ValueError("Model concurrency must be positive and request interval nonnegative")
-        self._semaphore = asyncio.Semaphore(concurrency)
+        self._limit = concurrency
+        self._in_use = 0
+        self._waiters: list[tuple[int, int, asyncio.Future]] = []
+        self._waiter_seq = itertools.count()
         self._request_interval = request_interval_seconds
         self._pacing_lock = asyncio.Lock()
         self._next_request = 0.0
@@ -70,14 +76,15 @@ class LLMTaskManager:
         Args:
             coro_func: The coroutine function to execute (e.g., provider.text_chat).
             *args: Arguments for the coroutine function.
-            priority: Task priority (smaller values = higher priority). Currently used for logging.
+            priority: Task priority (smaller values = higher priority). A free slot goes to the
+                waiting task with the smallest priority; equal priorities are served first come, first served.
             task_name: Name of the task for logging/monitoring.
             **kwargs: Keyword arguments for the coroutine function.
             
         Returns:
             The result of the coroutine.
         """
-        async with self._semaphore:
+        async with self._slot(priority):
             async with self._pacing_lock:
                 while self._next_request > time.monotonic():
                     await asyncio.sleep(self._next_request - time.monotonic())
@@ -130,6 +137,32 @@ class LLMTaskManager:
             finally:
                 self._active_tasks -= 1
 
+    @contextlib.asynccontextmanager
+    async def _slot(self, priority: int):
+        if self._in_use < self._limit and not self._waiters:
+            self._in_use += 1
+        else:
+            granted = asyncio.get_running_loop().create_future()
+            heapq.heappush(self._waiters, (priority, next(self._waiter_seq), granted))
+            try:
+                await granted
+            except asyncio.CancelledError:
+                if granted.done() and not granted.cancelled():
+                    self._release_slot()
+                raise
+        try:
+            yield
+        finally:
+            self._release_slot()
+
+    def _release_slot(self) -> None:
+        while self._waiters:
+            _, _, granted = heapq.heappop(self._waiters)
+            if not granted.done():
+                granted.set_result(None)
+                return
+        self._in_use -= 1
+
     def defer_requests(self, seconds: float) -> None:
         """Share provider cooldown with every queued model task."""
         self._next_request = max(self._next_request, time.monotonic() + seconds)
@@ -152,7 +185,7 @@ class LLMTaskManager:
             "total_completion_tokens": total_completion,
             "token_usage_by_task": self._token_usage,
             "uptime_seconds": uptime,
-            "concurrency_limit": self._semaphore._value if hasattr(self._semaphore, "_value") else "unknown"
+            "concurrency_limit": self._limit,
         }
         if show_details:
             stats["recent_calls"] = list(reversed(self._recent_calls))

@@ -153,6 +153,9 @@ class ModelUnavailable(Exception):
     """The model gave no answer after the in-call retries; the window can wait and be extracted again."""
 
 
+EVAL_PRIORITY = 20
+
+
 class EventExtractor:
     """Fills Event.topic / chat_content_tags / salience / confidence via LLM,
     then stores the embedding for vector search.
@@ -233,6 +236,7 @@ class EventExtractor:
         self._eval_queue: asyncio.Queue[tuple[str, str]] | None = None
         self._eval_worker: asyncio.Task | None = None
         self._eval_batch_size: int = 10
+        self._eval_concurrency: int = max(1, int(getattr(cfg, "eval_concurrency", 1) or 1))
         self._eval_queue_max: int = 500
         self._requeue_attempts = max(0, int(getattr(cfg, "requeue_attempts", 2)))
         self._requeue_delay = max(0.0, float(getattr(cfg, "requeue_delay_seconds", 60.0)))
@@ -660,7 +664,7 @@ class EventExtractor:
         async def _eval_call(user_prompt: str, system_prompt: str) -> str:
             resp, _ = await self._call_llm_with_retry(
                 lambda: provider.text_chat(prompt=user_prompt, system_prompt=system_prompt),
-                task_name="eval",
+                task_name="eval", priority=EVAL_PRIORITY,
             )
             return _response_text(resp)
 
@@ -703,7 +707,12 @@ class EventExtractor:
         if self._eval_queue is None:
             return
         self._ensure_eval_worker()
+        helpers = [asyncio.create_task(self._eval_worker_loop())
+                   for _ in range(self._eval_concurrency - 1)] if not self._eval_queue.empty() else []
         await self._eval_queue.join()
+        for helper in helpers:
+            helper.cancel()
+        await asyncio.gather(*helpers, return_exceptions=True)
         if self._eval_worker is not None:
             self._eval_worker.cancel()
             try:
@@ -863,7 +872,8 @@ class EventExtractor:
         mapping = await self._batch_align_tags(raw_tags)
         return list(dict.fromkeys(mapping.get(tag, tag) for tag in raw_tags))
 
-    async def _call_llm_with_retry(self, coro_factory, task_name: str, *, timeout=None, validate=None) -> tuple[object, int]:
+    async def _call_llm_with_retry(self, coro_factory, task_name: str, *, timeout=None, validate=None,
+                                   priority: int = 10) -> tuple[object, int]:
         """Run an LLM call with timeout + exponential retry on TimeoutError / provider exceptions.
 
         coro_factory: zero-arg callable returning a fresh provider coroutine on each attempt.
@@ -874,6 +884,7 @@ class EventExtractor:
                 coro_factory, task_name=task_name, strict=True, minimum=self._retry_delay,
                 timeout=timeout if timeout is not None else self._llm_timeout,
                 manager=self._llm_manager, validate=validate, timeout_growth=self._llm_timeout_growth,
+                priority=priority,
             )
         attempts = self._llm_max_retries + 1
         timeout = float(self._llm_timeout)
@@ -886,6 +897,7 @@ class EventExtractor:
                         coro_factory(),
                         timeout=timeout,
                         task_name=task_name,
+                        priority=priority,
                     )
                 else:
                     resp = await asyncio.wait_for(coro_factory(), timeout=timeout)
@@ -943,6 +955,8 @@ class EventExtractor:
             parameters = inspect.signature(provider.text_chat).parameters
             if "temperature" in parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values()):
                 arguments["temperature"] = 0
+            if self._retry_until_success:
+                return await provider.text_chat(**arguments)
             return await asyncio.wait_for(
                 provider.text_chat(**arguments),
                 timeout=self._segmentation_timeout,

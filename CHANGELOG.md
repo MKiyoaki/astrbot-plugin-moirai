@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [v1.2.39.sub] — 2026-10-02
+
+### WebUI 事件列表显示全部事件
+
+- `web/frontend`：事件页、信息库页与统计页原先分别只取最新的 1000、1000、2000 个事件（ch0–17 回放 2945 个事件时只显示剧情 9/16–9/22 的部分），改为通过 `api.ALL_EVENTS` 一次取回全部事件，事件页沿用现有每页 200 条的前端分页（2945 个事件共 15 页）；重新生成 `pages/moirai/_app/`。实测运行中的 WebUI 事件卡片显示 2945，线程分页为 1/15。
+- `web/frontend/app/events/page.tsx`：右侧事件详情轴原先渲染整个群的全部事件卡片（2945 张完整卡片加逐张淡入动画）并滚到选中项，翻页也不变化，选中事件时明显卡顿；改为只显示选中事件所在的那一页（最多 200 张，与左侧分页一致），选中事件被搜索或筛选排除时只显示它本身。实测第 1 页选中后右侧 200 张、首张与左侧一致，翻到 2/15 后右侧随之换成第 2 页。
+- `core/tasks/synthesis.py`、`run_realtime_dev.py`：人格合成重放支持断点续跑：`--finish --resume-synthesis` 不清空画像、不重新植入人设，按每人记录的 `last_synthesized_message_count` 跳过已完成的调用（同一人的调用按发言数递增）。`core/config.py`、`core/extractor/extractor.py`：新增 `ExtractorConfig.eval_concurrency`（插件默认 1），`drain_evals` 按该值并行处理 [Eval] 批次；回放设为模型并发数。本地 `tests/test_synthesis_replay.py`、`tests/test_replay_continue.py` 各增 1 项。
+- `core/managers/llm_manager.py`：共享模型名额改为按优先级分配：空出的名额先给 `priority` 数值最小的等待任务，同优先级先来先服务（原先 `priority` 只用于日志，所有任务一律先来先服务）；插件默认所有任务优先级相同，行为不变。`core/utils/model_retry.py` 的 `retry_model_call` 与提取器重试接受 `priority`，[Eval] 调用使用 `EVAL_PRIORITY = 20`。`run_realtime_dev.py --finish` 让人格合成重放与 [Eval] 补写同时进行，合成优先、[Eval] 只用空出的名额。本地新增 `tests/test_llm_manager_priority.py` 3 项。
+- `web/server.py`、`web/plugin_routes.py`：事件列表接口不再返回逐段 `interaction_classification` 明细（列表视图从不读取，却占 ch0–17 列表响应 13.8 MB 中的 69%）；单个事件、创建、更新、搜索等接口不变。需重启 WebUI 后生效。本地新增 `tests/test_event_list_payload.py` 1 项。
+- `run_realtime_dev.py`：新增 `--port N`（默认 2656），多个回放可同时各自开 WebUI，例如阿米娅回放占 2656 时另一份群聊回放用 2657。
+- `core/social/big_five_scorer.py`：`LLMBigFiveScorer` 新增 `retry_until_success`：严格模式下限流、超时和无法解析的输出都按严格重试规则重来（时限逐次放宽），不再返回中性零向量；插件默认仍回退零向量。`run_realtime_dev.py` 的大五打分改用严格模式，初始时限与抽取相同。原先回放沿用插件默认（固定 30 秒、失败即零向量），且零向量会覆盖此人先前的分数：2026-10-03 群聊回放 A 段 LLM 并发 5 加向量 1 路超过 KCL 每 key 5 路上限，停下前共 19 次打分因 HTTP 429 记为零向量。本地 `tests/test_big_five_buffer.py` 增 2 项。
+- `run_realtime_dev.py`：新增 `--no-drift`，全新构建时路由也不逐条计算消息向量（与 `--continue` 相同）。这些向量只用于实时话题漂移检测，快速回放时窗口在向量返回前早已关闭，窗口划分不变；但它们与抽取所需的事件向量共用一条先进先出的向量队列：2026-10-03 群聊回放 A 段 26,316 条消息先排进队列，抽取 9 分钟内一个窗口也没完成，按队列速度要空等一个多小时。
+- `core/extractor/extractor.py`：严格回放下的 LLM 切分不再在请求内部另套固定的 `segmentation_timeout`（默认 30 秒），时限只由严格重试控制，每次超时后按 1.5 倍放宽到 300 秒。原先内层 30 秒在外层放宽后照样生效，模型变慢时需要 30 秒以上的切分会永远超时重试：2026-10-03 群聊回放 A 段开跑 9 分钟后，一个 60 条消息的窗口每次都在 32–40 秒失败、连续重试 11 次。插件默认（非严格）不变。本地 `tests/test_memory_segmentation.py` 增 1 项，旧代码下该项超时失败。
+
 ## [v1.2.38.sub] — 2026-10-02
 
 ### 回放收尾顺序、人格合成按事件时间重放与按序抽取

@@ -403,8 +403,12 @@ class WebuiServer:
         }
 
     async def _events_to_dicts(self, events: list[Event]) -> list[dict[str, Any]]:
+        """Serialize an event list without per-segment interaction classification, which no list view reads."""
         names = await self._participant_name_map(events)
-        return [event_to_dict(event, names) for event in events]
+        items = [event_to_dict(event, names) for event in events]
+        for item in items:
+            item.pop("interaction_classification", None)
+        return items
 
     async def events_data(
         self, group_id: str | None, limit: int,

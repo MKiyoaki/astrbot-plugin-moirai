@@ -140,6 +140,8 @@ export interface ApiEvent {
   bot_persona_name?: string | null
 }
 export interface EventsResponse { items: ApiEvent[]; total: number }
+/** Large enough to load every event; list pages paginate on the client. */
+export const ALL_EVENTS = 1_000_000
 export const events = {
   list: (limit = 500, persona?: string | null) =>
     request<EventsResponse>(withPersona(`/api/events?limit=${limit}`, persona)),

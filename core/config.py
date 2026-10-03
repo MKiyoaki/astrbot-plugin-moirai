@@ -339,6 +339,7 @@ class SoulConfig:
 @dataclass
 class ExtractorConfig:
     retry_until_success: bool = False
+    eval_concurrency: int = 1
     llm_retry_delay_seconds: float = 2.0
     max_context_messages: int = 20
     llm_timeout: float = 30.0

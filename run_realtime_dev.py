@@ -17,6 +17,10 @@ Other datasets (all optional; defaults are the paths below):
     --model-type T   lmstudio | deepseek | kcl | openai (default run_config MODEL_TYPE)
     --model NAME     model id for that type (default the one in run_config)
     --llm-concurrency N   shared LLM concurrency (default run_config LLM_CONCURRENCY)
+    --resume-synthesis    with --finish: continue an interrupted persona synthesis replay
+    --port N         WebUI port (default 2656), so several replays can serve at once
+    --no-drift       route without per-message vectors; a fast replay closes windows before
+                     they arrive, so windows are unchanged and no embedding backlog builds up
     --set NAME=VALUE override one run_config.py value for this process only
                      (repeatable), e.g. --set RETRIEVAL_ENCODER_RETRY_MAX=6
     --query TEXT    RAG validation question (default: summarize the imported conversation)
@@ -294,7 +298,8 @@ DATAFLOW_DB = DEV_DATA / "dataflow_test.db"
 # session gets its markdown output back without re-running Phase 4.
 REALTIME_GROUPS_STASH = DEV_DATA / "realtime_groups"
 REALTIME_SETTINGS = DEV_DATA / "realtime_settings.json"
-PORT = 2656
+PORT = int(_flag_value("--port", 2656))
+NO_DRIFT = "--no-drift" in sys.argv
 
 # Tracks where the previous groups/ directory was archived so _cleanup()
 # can restore it on Ctrl+Q exit.
@@ -419,7 +424,7 @@ def _in_window_order(extract, limit: int):
 
 
 class _NoDriftEncoder:
-    """Router-side encoder for --continue: no per-message vectors, so no drift and identical windows."""
+    """Router-side encoder for --continue and --no-drift: no per-message vectors, so no drift and identical windows."""
 
     async def encode_batch(self, texts: list[str]) -> list[list[float]]:
         return []
@@ -863,7 +868,7 @@ async def main() -> None:
     from core.adapters.identity import IdentityResolver
     from core.boundary.detector import EventBoundaryDetector
     from core.extractor.extractor import EventExtractor
-    from core.social.big_five_scorer import BigFiveBuffer
+    from core.social.big_five_scorer import BigFiveBuffer, LLMBigFiveScorer
     from core.social.orientation_analyzer import SocialOrientationAnalyzer
     from core.embedding.encoder import NullEncoder
     from core.utils.version import get_plugin_version
@@ -1148,13 +1153,15 @@ async def main() -> None:
                 _save_eval_setting(use_mock_persona)
             extractor_cfg = cfg.get_extractor_config()
             extractor_cfg.persona_influenced_summary = use_mock_persona
+            extractor_cfg.eval_concurrency = cfg.llm_concurrency
 
             extractor = EventExtractor(
                 event_repo=event_repo,
                 provider_getter=lambda: mock_provider,
                 encoder=encoder,
                 extractor_config=extractor_cfg,
-                big_five_buffer=BigFiveBuffer(x_messages=10),
+                big_five_buffer=BigFiveBuffer(x_messages=10, scorer=LLMBigFiveScorer(
+                    llm_timeout=_TIMEOUT, retry_until_success=True)),
                 orientation_analyzer=SocialOrientationAnalyzer(
                     impression_repo=impression_repo,
                     event_repo=event_repo,
@@ -1213,7 +1220,7 @@ async def main() -> None:
                 identity_resolver=resolver,
                 detector=detector,
                 context_manager=context_manager,
-                encoder=_NoDriftEncoder() if continuing else encoder,
+                encoder=_NoDriftEncoder() if continuing or NO_DRIFT else encoder,
                 on_event_close=on_event_close,
                 raw_message_writer=router_writer,
             )
@@ -1479,23 +1486,28 @@ async def main() -> None:
                 from core.extractor.summary import evals_complete
                 from core.tasks.synthesis import replay_persona_synthesis
                 try:
-                    if use_mock_persona:
+                    resume_synthesis = "--resume-synthesis" in sys.argv
+                    if use_mock_persona and not resume_synthesis:
                         await persona_repo.upsert(_build_mock_persona(_persona_name, _persona_desc))
-                    print("[Finish] Replaying persona synthesis in event order ...")
-                    calls, updated = await replay_persona_synthesis(
-                        persona_repo, event_repo, lambda: mock_provider,
-                        synthesis_config=SynthesisConfig(llm_timeout=_TIMEOUT, retry_until_success=True),
-                        llm_manager=llm_manager,
-                        min_messages=cfg.persona_synthesis_trigger_messages,
-                        min_events=cfg.persona_synthesis_min_events,
-                        cooldown_hours=cfg.persona_synthesis_cooldown_hours,
-                        fallback_hours=cfg.persona_synthesis_interval_seconds / 3600.0,
-                        initial_confidence=cfg.persona_default_confidence,
-                    )
-                    print(f"[Finish] Persona synthesis replay done: {calls} call(s), {updated} update(s)")
                     missing = await extractor.queue_missing_evals(await event_repo.list_all(limit=1_000_000))
-                    print(f"[Finish] Annotating {missing} event(s) without a generated [Eval] behind the WebUI ...")
-                    await extractor.drain_evals()
+                    print(f"[Finish] {'Resuming' if resume_synthesis else 'Replaying'} persona synthesis in event order; "
+                          f"annotating {missing} event(s) without a generated [Eval] alongside it at lower priority ...")
+
+                    async def _synthesize() -> None:
+                        calls, updated = await replay_persona_synthesis(
+                            persona_repo, event_repo, lambda: mock_provider,
+                            synthesis_config=SynthesisConfig(llm_timeout=_TIMEOUT, retry_until_success=True),
+                            llm_manager=llm_manager,
+                            min_messages=cfg.persona_synthesis_trigger_messages,
+                            min_events=cfg.persona_synthesis_min_events,
+                            cooldown_hours=cfg.persona_synthesis_cooldown_hours,
+                            fallback_hours=cfg.persona_synthesis_interval_seconds / 3600.0,
+                            initial_confidence=cfg.persona_default_confidence,
+                            resume=resume_synthesis,
+                        )
+                        print(f"[Finish] Persona synthesis replay done: {calls} call(s), {updated} update(s)")
+
+                    await asyncio.gather(_synthesize(), extractor.drain_evals())
                     left = sum(1 for event in await event_repo.list_all(limit=1_000_000)
                                if not evals_complete(event.summary or ""))
                     print(f"[Finish] [Eval] annotation done; events still without a generated aside: {left}")

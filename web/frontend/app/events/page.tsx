@@ -78,7 +78,7 @@ export default function EventsPage() {
   const loadEvents = useCallback(async () => {
     setIsRefreshing(true)
     try {
-      const data = await api.events.list(1000, personaFilter)
+      const data = await api.events.list(api.ALL_EVENTS, personaFilter)
       setRawEvents(data.items)
     } catch {
       appToast(i18n.events.loadError, 'destructive')
@@ -198,12 +198,15 @@ export default function EventsPage() {
     [threadEvents, threadPageCount, threadPageIndex]
   )
 
+  // The detail axis shows the thread page that holds the focused event, so it follows paging and
+  // never renders a whole spindle of full cards at once.
   const axisEvents = useMemo(() => {
-    if (!detailEvent) return currentSpindle?.events ?? []
-    return app.rawEvents
-      .filter(e => eventGroupId(e) === eventGroupId(detailEvent))
-      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
-  }, [app.rawEvents, currentSpindle, detailEvent])
+    if (!detailEvent) return pagedThreadEvents
+    const index = threadEvents.findIndex(e => e.id === detailEvent.id)
+    if (index < 0) return [detailEvent]
+    const page = Math.floor(index / THREAD_PAGE_SIZE)
+    return threadEvents.slice(page * THREAD_PAGE_SIZE, (page + 1) * THREAD_PAGE_SIZE)
+  }, [threadEvents, pagedThreadEvents, detailEvent])
 
   // ── CRUD handlers ───────────────────────────────────────────────────────────
 
