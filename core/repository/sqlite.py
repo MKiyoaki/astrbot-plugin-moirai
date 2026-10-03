@@ -954,6 +954,11 @@ class SQLiteEventRepository(EventRepository):
         The query is split by core/retrieval/terms.py the same way events are,
         so Chinese text matches without a word segmenter. group_id=None searches
         across all groups; pass a value to restrict to one scope.
+
+        The scope filter joins the matches to events before the limit instead of
+        constraining the FTS rowid with `IN (subquery)`: single-character terms
+        match nearly every event, and the subquery form took about 10 s per query
+        on a 2,945-event store, past Core's injection deadline.
         """
         match = fts_match(query)
         if not match:
@@ -966,18 +971,14 @@ class SQLiteEventRepository(EventRepository):
             if bot_persona_name is not None:
                 clauses.append("e.bot_persona_name = ?")
                 scope_params.append(bot_persona_name)
-            candidate_filter = (
-                " AND rowid IN (SELECT e.rowid FROM events e WHERE "
-                + " AND ".join(clauses) + ")"
-            ) if clauses else ""
+            where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
             params = [match, *scope_params, limit]
             async with self._db.execute(
                 f"SELECT {_EVENT_COLS} FROM "
                 "(SELECT rowid, bm25(events_fts, 0.0, 0.0, 0.0, 1.0, 1.0) AS score "
-                "FROM events_fts WHERE events_fts MATCH ?"
-                f"{candidate_filter} ORDER BY score LIMIT ?) f "
-                "JOIN events e ON e.rowid = f.rowid"
-                " ORDER BY f.score",
+                "FROM events_fts WHERE events_fts MATCH ?) f "
+                f"JOIN events e ON e.rowid = f.rowid{where}"
+                " ORDER BY f.score LIMIT ?",
                 params,
             ) as cur:
                 rows = await cur.fetchall()
