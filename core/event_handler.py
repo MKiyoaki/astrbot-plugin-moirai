@@ -220,6 +220,31 @@ class EventHandler:
             while len(self._turns) > 1024:
                 self._turns.popitem(last=False)
 
+    async def describe_current_event(self, session: dict) -> dict | None:
+        """Describe the still-open window of one stream for a Core capability query.
+
+        Uses the extractor as-is on a snapshot of the window; nothing is closed or stored.
+        Returns None when no extractor or LLM provider is available.
+        """
+        from .extractor.summary import split_subtopics
+
+        extractor = getattr(self._init, "extractor", None)
+        contexts = self._init.context_manager
+        if extractor is None or contexts is None:
+            return None
+        key = session.get("stream_id") or f"{session['platform']}:private:{session['sender_id']}"
+        window = contexts.get_window(key)
+        if window is None or not window.messages:
+            return {"open": False, "message_count": 0, "started_at": None,
+                    "topic": "", "segments": [], "tags": []}
+        result = await extractor.describe(window.clone_prefix(window.message_count))
+        if result is None:
+            return None
+        return {"open": True, "message_count": window.message_count, "started_at": window.start_time,
+                "topic": str(result.get("topic", "")),
+                "segments": split_subtopics(str(result.get("summary", ""))),
+                "tags": [str(tag) for tag in result.get("chat_content_tags", [])]}
+
     async def _handle(self, event: dict, persona: str, session: str) -> list[dict]:
         from .adapters.core_events import InjectionDraft
 

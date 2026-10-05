@@ -252,6 +252,22 @@ class EventExtractor:
             self._active_extractions -= 1
             self._kick_eval_worker()
 
+    async def describe(self, window: MessageWindow) -> dict | None:
+        """Extract a still-open window on demand without persisting, indexing or queueing [Eval].
+
+        Returns the same single result object the close-time extraction produces, or None
+        when no LLM provider is available or the window is empty.
+        """
+        if self._provider_getter() is None or not window.messages:
+            return None
+        frequent_tags = self._frequent_tags_cache.get()
+        if frequent_tags is None:
+            frequent_tags = await self._event_repo.list_frequent_tags(limit=20)
+            self._frequent_tags_cache.put(frequent_tags)
+        steering_tags = list(dict.fromkeys(self._tag_seeds + frequent_tags))[:30]
+        results = await self._extract_batch(window, existing_tags=steering_tags)
+        return results[0] if results else None
+
     async def _process_window(self, window: MessageWindow) -> None:
         """Partition, distill/extract, persist, then index vector.
 

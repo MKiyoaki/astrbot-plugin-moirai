@@ -32,6 +32,9 @@ class InjectionDraft:
                                        "tool": messages[index + 1]})
 
 
+EVENT_DESCRIBE_OPERATION = "conversation.event.describe"
+
+
 class MoiraiCoreProvider:
     def __init__(self, handler: Callable, scopes: Callable, version: str,
                  core_available: Callable = lambda: True) -> None:
@@ -53,6 +56,8 @@ class MoiraiCoreProvider:
         return {"extension_id": "moirai", "display_name": "Moirai", "protocol_version": "1",
                 "extension_version": self.version, "capabilities": [
                     {"operation": "moirai.scopes.list", "kind": "query", "required_scopes": []},
+                    {"operation": EVENT_DESCRIBE_OPERATION, "kind": "query",
+                     "required_scopes": ["runtime_persona", "extension"]},
                 ]}
 
     def events_v1(self) -> dict:
@@ -78,6 +83,8 @@ class MoiraiCoreProvider:
     async def invoke_v1(self, request: dict, context: dict) -> dict:
         if context.get("principal", {}).get("authenticated") is not True:
             return self._error("permission_denied", "需要已认证的管理身份。")
+        if request.get("operation") == EVENT_DESCRIBE_OPERATION and request.get("kind") == "query":
+            return await self._describe_event(request, context)
         if request.get("operation") != "moirai.scopes.list" or request.get("kind") != "query":
             return self._error("capability_unsupported", "不支持的操作。")
         try:
@@ -88,6 +95,31 @@ class MoiraiCoreProvider:
                 "operation": "moirai.scopes.list", "resolved_scope": request["scope"],
                 "data": {"items": [{"id": key, "label": value, "status": "ready"}
                                    for key, value in sorted(mappings.items())]}}
+
+    async def _describe_event(self, request: dict, context: dict) -> dict:
+        """Answer another extension's query about the conversation event in progress."""
+        if not context.get("caller_extension_id"):
+            return self._error("permission_denied", "该操作只接受经 Core 转发的扩展间查询。")
+        handler = self._handler()
+        if not self._core_available() or handler is None:
+            return self._error("extension_unavailable", "Moirai 尚未就绪。")
+        try:
+            mappings = self._mapping()
+        except ValueError:
+            return self._error("scope_invalid", "Core 人格映射配置无效。")
+        scope = request.get("scope") or {}
+        if mappings.get((scope.get("extension_scopes") or {}).get("moirai")) is None:
+            return self._error("scope_invalid", "该 Moirai scope 没有显式的人格桶映射。")
+        session = (request.get("payload") or {}).get("session")
+        if (not isinstance(session, dict) or not isinstance(session.get("platform"), str)
+                or not isinstance(session.get("sender_id"), str)
+                or not isinstance(session.get("stream_id"), (str, type(None)))):
+            return self._error("payload_invalid", "需要 session.platform、session.sender_id 和可选的 session.stream_id。")
+        data = await handler.describe_current_event(session)
+        if data is None:
+            return self._error("extension_failure", "当前没有可用的事件抽取模型。")
+        return {"request_id": context["request_id"], "extension_id": "moirai",
+                "operation": EVENT_DESCRIBE_OPERATION, "resolved_scope": scope, "data": data}
 
     async def on_event_v1(self, event: dict) -> dict:
         handler = self._handler()

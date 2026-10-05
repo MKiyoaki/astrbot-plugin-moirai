@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [v1.0.18.sub] — 2026-10-06
+
+### Core 能力查询：按需描述尚未关闭的对话事件
+
+- `core/adapters/core_events.py` 的 `MoiraiCoreProvider` 在清单中新增查询操作 `conversation.event.describe`（需要 `runtime_persona` 与 `extension` scope），由 `invoke_v1` 分发到新的 `_describe_event`。该操作只接受经 Core 转发、带可信 `caller_extension_id` 的扩展间查询；scope 未映射到人格桶返回 `scope_invalid`，`payload.session` 缺少 `platform` / `sender_id` 返回 `payload_invalid`，没有可用抽取模型返回 `extension_failure`。操作名不带 Moirai 前缀，调用方只按操作名向 Core 查询，不需要知道由谁提供。
+- `core/event_handler.py` 新增 `EventHandler.describe_current_event(session)`：按与事件入口相同的规则定位该会话仍然打开的 `MessageWindow`，对其快照（`clone_prefix`）调用抽取器，返回 `open`、`message_count`、`started_at`、`topic`、按话题拆好的 `segments`（`split_subtopics`，不含 `[Eval]`）和 `tags`；窗口不存在时返回空描述。
+- `core/extractor/extractor.py` 新增 `EventExtractor.describe(window)`：复用 `_extract_batch` 与同一套标签引导，对未关闭窗口按需抽取，不落库、不建向量索引、不排 `[Eval]`、不关闭窗口。窗口关闭时的抽取流程、边界判定和全部配置项不变。
+- 版本仅更新 Moirai 至 `v1.0.18.sub`，未发布。workspace `scripts/chat_composition.py` 同步把抽取器交给 `EventHandler`，`scripts/verify-event-runtime.py` 同步版本常量断言。
+- 验证：workspace `scripts/scheme_comparison_via_core.py` 以真实 Core 分发器、真实 Moirai provider（默认配置、arc:chat 抽取、arc:embed 向量）跑通，调用方仅按操作名查询即得到分段描述。未新增离线单元测试。
+
 ## [v1.0.17.sub] — 2026-09-06
 
 ### 事件抽取与 Bot 人格彻底解耦：[Eval] 移到延后批量的第二趟
