@@ -255,6 +255,7 @@ class RecallManager(BaseRecallManager):
         soul_config: SoulConfig | None = None,
         raw_message_repo: RawMessageRepository | None = None,
         persona_group_repo: object | None = None,
+        commitment_repo=None,
     ) -> None:
         super().__init__()
         self._retriever = retriever
@@ -264,6 +265,7 @@ class RecallManager(BaseRecallManager):
         self._impression_repo = impression_repo
         self._raw_message_repo = raw_message_repo
         self._group_repo = persona_group_repo
+        self._commitment_repo = commitment_repo
         self._soul_cfg = soul_config
         self._soul_states: dict[str, SoulState] = {}
         self._soul_state_accessed: dict[str, float] = {}
@@ -771,6 +773,45 @@ class RecallManager(BaseRecallManager):
             await asyncio.gather(*tasks, return_exceptions=True)
         self._segment_backfills.clear()
 
+    async def _inject_commitments(self, query, req, group_id, sender_uid, persona) -> None:
+        from ..turn_annotations import COMMITMENTS_BLOCK
+        from ..utils.formatter import _cosine, _LEXICAL_WEIGHT
+
+        if self._commitment_repo is None or not sender_uid or not persona or self._icfg.commitment_max_items <= 0:
+            return
+        rows = await self._commitment_repo.list_open(persona, [sender_uid], group_id)
+        if not rows:
+            return
+        terms = _explicit_query_terms(query)
+        terms = _required_query_terms(query, terms) or terms
+        scores = []
+        vectors = []
+        query_vector = None
+        encoder = self._retriever._encoder
+        if encoder.dim > 0:
+            try:
+                query_vector = await encoder.encode(query)
+                vectors = await encoder.encode_batch([row["text"] for row in rows])
+            except Exception:
+                vectors = []
+        for index, row in enumerate(rows):
+            evidence = Event(event_id=row["commitment_id"], topic=row["text"], summary=row["text"])
+            coverage = sum(_event_term_score(evidence, term) for term in terms) / len(terms) if terms else 0.0
+            similarity = _cosine(query_vector, vectors[index]) if query_vector and len(vectors) == len(rows) else 0.0
+            relevance = max(coverage, similarity)
+            if relevance >= _MIN_EVIDENCE_COVERAGE:
+                scores.append((relevance + _LEXICAL_WEIGHT * coverage, index, row))
+        selected = sorted(scores, key=lambda item: (-item[0], item[1]))[:self._icfg.commitment_max_items]
+        if not selected:
+            return
+        text = "[你对这个人尚未完成的约定]\n" + "\n".join(f"- {row['text']}" for _, _, row in selected)
+        if hasattr(req, "add_block"):
+            req.add_block("commitments", "system_prompt", "after", text)
+        else:
+            block = COMMITMENTS_BLOCK
+            wrapped = f"{block['start']}\n{text}\n{block['end']}"
+            req.system_prompt = getattr(req, "system_prompt", "") + "\n\n" + wrapped
+
     async def recall_and_inject(
         self,
         query: str,
@@ -792,6 +833,7 @@ class RecallManager(BaseRecallManager):
                 else:
                     self.clear_previous_injection(req)
 
+            await self._inject_commitments(query, req, group_id, sender_uid, bot_persona_name)
             if self._rcfg.final_limit <= 0:
                 return 0
 
@@ -1029,6 +1071,17 @@ class RecallManager(BaseRecallManager):
     def clear_previous_injection(self, req: object) -> int:
         """Strip all injection markers from req. Returns count of blocks removed."""
         removed = 0
+
+        from ..turn_annotations import COMMITMENTS_BLOCK, NOTES_BLOCK
+        for block in (COMMITMENTS_BLOCK, NOTES_BLOCK):
+            pattern = re.compile(re.escape(block["start"]) + ".*?" + re.escape(block["end"]), re.DOTALL)
+            for field in ("system_prompt", "prompt"):
+                value = getattr(req, field, None)
+                if value:
+                    cleaned, count = pattern.subn("", value)
+                    if count:
+                        setattr(req, field, cleaned.strip())
+                        removed += count
 
         # Clear memory blocks from system_prompt and prompt
         sp = getattr(req, "system_prompt", None)

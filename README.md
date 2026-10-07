@@ -6,7 +6,7 @@
 
 **AstrBot 三轴长期记忆与数据可视化插件**
 
-[![version](https://img.shields.io/badge/版本-v1.2.24.sub-blueviolet)](metadata.yaml)
+[![version](https://img.shields.io/badge/版本-v1.2.42.sub-blueviolet)](metadata.yaml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![license](https://img.shields.io/badge/license-APGL-green)](LICENSE)
 [![en](https://img.shields.io/badge/English-README__EN.md-blue)](README_EN.md)
@@ -19,9 +19,11 @@ Made with ♥ by MKiyoaki & Gariton
 
 ---
 
-## Oedipus-Sub 分支：Core 事件接入
+## cb5t-loop-wiring 工作分支：Core 事件接入
 
-此工作分支版本为 `v1.2.24.sub`。五阶段自动事件消费与注入需要启用支持 Event Protocol v1 的 Core（本轮 `v0.6.0`）；缺失、停用或不兼容时暂停自动处理，保留数据库和独立管理功能。
+此工作分支版本为 `v1.2.42.sub`，基于上游 `Oedipus-Sub`，尚未提交或发布。五阶段自动事件消费与注入需要启用支持 Event Protocol v1 的 Core；缺失、停用或不兼容时暂停自动处理，保留数据库和独立管理功能。
+
+本轮另接可选 Annotation Protocol v1：保存每次回复的便签和 `记下` 约定，在当前窗口给同一个人带入上一轮便签，并在事件详情显示「当时的我」。旧 `[Eval]` 默认关闭，代码及已有摘要保留；视角注入召回仅保留默认关闭的开关，暂未实现。约定默认最多注入 3 条，结清搭在现有抽取调用里。说明与验证见 [每轮回路](docs/cb5t-loop-wiring.md)；Core 对话界面的调试开关是后续工作，当前未接。
 
 1. 在 Moirai 配置 `core_integration.scope_mappings` 填入 JSON，例如 `{"memory-alice":"Alice"}`，显式指定 scope 对应的旧人格数据桶。
 2. 在 Core Settings 创建人格与绑定，选择 Moirai 提供的 scope。

@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [v1.2.42.sub] — 2026-10-06
+
+### 每轮便签、未完成约定与「当时的我」
+
+- `core/adapters/core_events.py`、`core/turn_annotations.py`：独立订阅 Core Annotation Protocol v1，只消费严格验证的 `turn-annotation.v1`；原有 Event / Generation Protocol v1 不改，不导入 Core 或 Oedipus 源码。新增便签和约定的独立注入块声明。
+- `core/event_handler.py`：便签按本次请求、来源、绑定版本、人格、会话和说话人暂存，交付后由 `after_generation` 消费一次；缓存沿用现有 15 分钟、1024 条的上限。`before_generation` 只读取当前窗口内该人格回复同一个人的最新原始回复，带入上一轮预期、情绪和目标；较新的无便签回复或窗口结清后，不再沿用旧便签。
+- `core/adapters/astrbot.py`、`core/boundary/window.py`：回复对象的 `metadata` 进入 `raw_messages.metadata_json`，保留 `turn_annotation` 与 `reply_to_uid`；窗口内留同一份元数据给下一轮读取，避免依赖后台批量写入的完成时机。原有调用仍可不传元数据。
+- `migrations/023_commitments.sql`、`core/repository/commitments.py`、`core/plugin_initializer.py`：约定独立保存人格、对象、会话、群、原始回复编号和时间；状态为 `open` / `done` / `dropped`，同一源回复的同一项只写一次。路由、召回和抽取使用同一仓库；原始消息清理不会连带删掉约定。
+- `core/managers/recall_manager.py`、`core/config.py`：同一人格、同一个人的未完成约定按当前私聊／群范围召回；复用现有证据覆盖规则、余弦相似度、关键词权重和向量编码器，达到现有相关度下限后独立注入，默认最多 3 条、设为 0 不注入。语义相关度沿用 `0.35` 下限，未用真实数据校准；向量调用走现有编码器，缓存未命中时仍可能有向量请求，不新增聊天模型调用。
+- `core/repository/commitments.py`（2026-10-07 补充，按用户决定）：同一人格对同一个人、同一私聊／群范围内已有文字完全相同的未完成约定时，不再新存一条；一次「记下」里重复的同一项也只存一次。措辞不同仍存为新约定；原约定完成或放弃后再写同一句，会存成新的未完成约定。此前模型连续两轮写同一句「记下」会存成两条，召回时出现两行相同内容，结清时也可能只关掉其中一条。
+- `core/extractor/prompts.py`、`parser.py`、`extractor.py`：把本段参与者的未完成约定及编号加入现有抽取提示，由同一次调用返回完成／放弃结果；只更新实际列给模型的编号，并记录关闭时间和事件。冲突状态、未知编号、不确定情况、较晚产生的约定和规则摘要兜底不关闭约定。事实抽取仍不带人设，也没有新增结清调用。
+- `core/repository/sqlite.py`、`core/api.py`、`web/server.py`、`web/plugin_routes.py`：从 `event_messages` 连接原始回复的便签投影 `persona_view`，批量读取，不改事实摘要。`web/frontend/components/events/event-dialogs.tsx` 与 `lib/api.ts` 在事件详情独立显示「当时的我」的发生了什么、情绪和目标，按文本转义；旧事件继续显示已有 `[Eval]`。
+- `core/config.py`、`_conf_schema.json`、中英文配置文案：`persona_influenced_summary` 默认关，保留旧评价代码和已有摘要；新增 `persona_view_injection_enabled` 默认关，仅为预留开关，打开也不会把「当时的我」注入召回，格式化器未改。按用户新要求，这些调试开关之后接 Core 对话界面，本阶段没有实现该界面。
+- 文档：新增 `docs/cb5t-loop-wiring.md` 与完整离线验证记录，更新 README 的分支版本及接线说明；未提交、推送、装依赖、调用真实模型、运行实验或改 gitlink。
+- 本地验证：完整 unittest `Ran 473 tests in 12.910s`、`OK (skipped=1)`，1 项为原有跳过；联合事件检查 `Ran 28 tests in 0.802s`、`OK`；实际 React 静态渲染 8 项通过；前端类型检查退出 0。2026-10-07 加入重复约定去重后复跑：完整 unittest `Ran 474 tests in 10.510s`、`OK (skipped=1)`；扩充后的联合事件检查 `Ran 44 tests in 0.862s`、`OK`。新测试位于上游忽略的 `tests/`，没有强行加入跟踪。语义分区测试使用现有单分区降级，未安装 scikit-learn；真实聚类、浏览器、AstrBot 和完整三仓库新回路仍未验证。
+
 ## [v1.2.41.sub] — 2026-10-03
 
 ### 回放自动适配本地 KCL hub

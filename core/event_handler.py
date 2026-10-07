@@ -213,6 +213,40 @@ class EventHandler:
         self._init = initializer
         self._locks = {}
         self._turns = OrderedDict()
+        self._annotations = OrderedDict()
+
+    @staticmethod
+    def _annotation_key(event: dict, persona: str) -> tuple:
+        return (event["source_instance"], event["correlation_id"],
+                event["persona"]["scope"]["runtime_persona_id"], persona,
+                event["persona"]["binding_id"], event["persona"]["binding_revision"],
+                event["persona"]["configuration_revision"], event["payload"]["message"]["platform"],
+                event["payload"]["message"]["stream_id"], event["payload"]["message"]["sender_id"],
+                event["payload"]["message"]["raw_group_id"], event["payload"]["message"]["stream_group_id"])
+
+    def cache_annotation(self, event: dict, persona: str, annotation: dict) -> None:
+        now = time.monotonic()
+        self._annotations.setdefault(self._annotation_key(event, persona), (annotation, now))
+        self._evict_annotations(now)
+
+    def _evict_annotations(self, now: float) -> None:
+        for key, (_, created) in list(self._annotations.items()):
+            if now - created > 900:
+                self._annotations.pop(key, None)
+        while len(self._annotations) > 1024:
+            self._annotations.popitem(last=False)
+
+    def _previous_notes(self, session: str, persona: str, uid: str | None) -> str:
+        from .turn_annotations import annotation_from_metadata, notes_text
+        context = self._init.context_manager
+        window = context.get_window(session) if context is not None else None
+        if window is None or uid is None:
+            return ""
+        for message in reversed(window.messages):
+            if (message.role == "assistant" and message.bot_persona_name == persona
+                    and message.metadata.get("reply_to_uid") == uid):
+                return notes_text(annotation_from_metadata(message.metadata))
+        return ""
 
     async def handle_core_event(self, event: dict, persona_name: str) -> list[dict]:
         message = event["payload"]["message"]
@@ -241,6 +275,7 @@ class EventHandler:
         payload = event["payload"]
         message = payload["message"]
         stage, correlation = event["stage"], event["correlation_id"]
+        self._evict_annotations(time.monotonic())
         router = self._init.router
         group = message["stream_group_id"]
         snapshot = payload["request"]
@@ -253,6 +288,16 @@ class EventHandler:
         state_key = json.dumps([event["source_instance"],
                                event["persona"]["scope"]["runtime_persona_id"], session])
         if stage in {"message", "after_generation"} and router is not None:
+            metadata = None
+            if stage == "after_generation":
+                saved = self._annotations.pop(self._annotation_key(event, persona), None)
+                uid = await self._init.resolver.get_or_create_uid(
+                    platform=message["platform"], physical_id=message["sender_id"],
+                    display_name=message["sender_name"],
+                ) if self._init.resolver is not None else None
+                metadata = {"reply_to_uid": uid}
+                if saved is not None:
+                    metadata["turn_annotation"] = saved[0]
             text = message["text"] if stage == "message" else payload["response_text"]
             if not text:
                 return []
@@ -265,6 +310,7 @@ class EventHandler:
                 now=event["timestamp"] if stage == "message" else None,
                 session_platform=message["platform"], session_id_override=session,
                 stream_group_id=group, bot_persona_name=persona,
+                metadata=metadata,
             )
             return []
         recall = self._init.recall
@@ -292,6 +338,9 @@ class EventHandler:
                 store_injection_debug=cfg.show_injection_summary,
                 scope_mode="group" if group is not None else "private", bot_persona_name=persona,
             )
+            notes = self._previous_notes(session, persona, sender_uid)
+            if notes:
+                draft.add_block("notes", "system_prompt", "after", notes)
             if self._init.context_manager is not None:
                 self._init.context_manager.update_state(session, recall_hit=count > 0)
             info = {"persona": persona, "system_prompt": snapshot["system_prompt"],

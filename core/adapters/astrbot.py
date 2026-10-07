@@ -6,7 +6,9 @@ the window is persisted as an Event and the on_event_close callback is invoked.
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
+import json
 import logging
 import uuid
 from typing import TYPE_CHECKING, Set
@@ -34,6 +36,7 @@ class MessageRouter:
         encoder: Encoder,
         on_event_close: Callable[[MessageWindow], Awaitable[None]] | None = None,
         raw_message_writer: RawMessageWriter | None = None,
+        commitment_repo=None,
     ) -> None:
         self._event_repo = event_repo
         self._resolver = identity_resolver
@@ -42,6 +45,7 @@ class MessageRouter:
         self._encoder = encoder
         self._on_event_close = on_event_close
         self._raw_message_writer = raw_message_writer
+        self._commitment_repo = commitment_repo
         
         # Track background brain tasks to allow waiting for them (Phase 1 performance)
         self._brain_tasks: Set[asyncio.Task] = set()
@@ -58,6 +62,7 @@ class MessageRouter:
         session_id_override: str | None = None,
         stream_group_id: str | None = None,
         bot_persona_name: str | None = None,
+        metadata: dict | None = None,
     ) -> None:
         """Entry point for every incoming message.
 
@@ -75,6 +80,7 @@ class MessageRouter:
         """
         import time as _time
 
+        metadata = copy.deepcopy(metadata) if metadata is not None else None
         now = now if now is not None else _time.time()
         group_id: str | None = stream_group_id or raw_group_id or None
         _sid_platform = session_platform or platform
@@ -129,6 +135,7 @@ class MessageRouter:
             physical_id=physical_id,
             role=role,
             content_hash=content_hash,
+            metadata=metadata,
         )
         if bot_persona_name:
             window.last_active_persona = bot_persona_name
@@ -146,7 +153,19 @@ class MessageRouter:
             content_hash=content_hash,
             bot_persona_name=bot_persona_name,
             created_at=now,
+            metadata=metadata,
         )
+
+        if self._commitment_repo is not None and role == "assistant" and bot_persona_name and metadata:
+            from ..turn_annotations import annotation_from_metadata
+            annotation = annotation_from_metadata(metadata)
+            reply_to = metadata.get("reply_to_uid")
+            if annotation is not None and isinstance(reply_to, str) and reply_to:
+                await self._commitment_repo.add(
+                    persona=bot_persona_name, person_uid=reply_to, session_id=session_id,
+                    group_id=group_id, source_message_id=message_id, created_at=now,
+                    texts=annotation["commitments"],
+                )
         
         # 2. Update basic state (without drift info yet)
         self._context_manager.update_state(session_id, drift_detected=False)
@@ -171,6 +190,7 @@ class MessageRouter:
         content_hash: str,
         bot_persona_name: str | None,
         created_at: float,
+        metadata: dict | None = None,
     ) -> None:
         if self._raw_message_writer is None:
             return
@@ -193,6 +213,7 @@ class MessageRouter:
                     bot_persona_name=bot_persona_name,
                     created_at=created_at,
                     ingested_at=_time.time(),
+                    metadata_json=json.dumps(metadata or {}, ensure_ascii=False),
                 )
             )
         except Exception as exc:

@@ -7,6 +7,7 @@ import logging
 from typing import Callable
 
 from .core_canon import BLOCK as CANON_BLOCK, NO_TURN
+from ..turn_annotations import COMMITMENTS_BLOCK, NOTES_BLOCK, validate_annotation
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +71,29 @@ class MoiraiCoreProvider:
                 "blocks": [{"id": "memory", "start": "<!-- EM:MEMORY:START -->",
                             "end": "<!-- EM:MEMORY:END -->"},
                            {"id": "soul", "start": "<!-- EM:SOUL:START -->",
-                            "end": "<!-- EM:SOUL:END -->"}, dict(CANON_BLOCK)],
+                            "end": "<!-- EM:SOUL:END -->"}, dict(CANON_BLOCK),
+                           dict(NOTES_BLOCK), dict(COMMITMENTS_BLOCK)],
                 "tool_prefix": "em_recall_", "timeout_seconds": 10.0}
+
+    def annotation_v1(self) -> dict:
+        return {"version": "1", "produce": None, "consume": True, "timeout_seconds": 10.0}
+
+    async def on_annotation_v1(self, call: dict) -> dict:
+        if (not isinstance(call, dict) or set(call) != {"version", "kind", "event", "annotation", "producer"}
+                or call.get("version") != "1" or call.get("kind") != "deliver"
+                or not isinstance(call.get("producer"), str) or not call["producer"].strip()):
+            raise ValueError("只支持 Annotation Protocol v1 的 deliver 调用。")
+        handler = self._handler()
+        if not self._core_available() or handler is None:
+            raise RuntimeError("Core 事件入口或 Moirai 尚未就绪。")
+        event = call["event"]
+        if not isinstance(event, dict) or event.get("version") != "1" or event.get("stage") != "before_generation":
+            raise ValueError("每轮便签必须对应 before_generation 事件。")
+        bucket = self._bucket(event)
+        if bucket is None:
+            raise ValueError("每轮便签没有明确的 Moirai 人格映射。")
+        handler.cache_annotation(event, bucket, validate_annotation(call["annotation"]))
+        return {"version": "1", "kind": "deliver"}
 
     def generation_v1(self) -> dict:
         """Canon tools and reply review; without a canon service the declaration offers nothing."""

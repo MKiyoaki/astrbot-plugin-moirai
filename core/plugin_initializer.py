@@ -24,6 +24,7 @@ except:
     astrbot_logger = logging.getLogger("astrbot_plugin_moirai")
 
 from .adapters.astrbot import MessageRouter
+from .repository.commitments import SQLiteCommitmentRepository
 from .adapters.identity import IdentityResolver
 from .boundary.detector import EventBoundaryDetector
 from .config import PluginConfig
@@ -205,6 +206,7 @@ class PluginInitializer:
         event_repo = SQLiteEventRepository(db)
         impression_repo = SQLiteImpressionRepository(db)
         raw_message_repo = SQLiteRawMessageRepository(db)
+        commitment_repo = SQLiteCommitmentRepository(db)
         self.raw_message_writer = RawMessageWriter(raw_message_repo)
         await self.raw_message_writer.start()
 
@@ -254,6 +256,7 @@ class PluginInitializer:
             soul_config=cfg.get_soul_config(),
             raw_message_repo=raw_message_repo,
             persona_group_repo=persona_group_repo,
+            commitment_repo=commitment_repo,
         )
 
         await self._open_canon(cfg, data_dir)
@@ -332,6 +335,7 @@ class PluginInitializer:
             raw_message_repo=raw_message_repo,
             raw_message_writer=self.raw_message_writer,
             category_classifier=self.category_classifier,
+            commitment_repo=commitment_repo,
         )
 
         self.extractor = extractor
@@ -362,6 +366,7 @@ class PluginInitializer:
             encoder=self.embedding_manager,
             on_event_close=on_event_close,
             raw_message_writer=self.raw_message_writer,
+            commitment_repo=commitment_repo,
         )
 
         # Periodic window flush: turns stable prefixes into Events on a cadence

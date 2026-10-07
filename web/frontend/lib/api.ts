@@ -122,6 +122,7 @@ export interface ApiEvent {
   content: string
   topic: string
   summary: string
+  persona_view?: { message_id: string; what_happened: string; feeling: string; goal: string }[]
   start: string
   end: string
   start_ts: number

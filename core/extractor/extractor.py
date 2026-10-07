@@ -190,6 +190,7 @@ class EventExtractor:
         raw_message_repo: RawMessageRepository | None = None,
         raw_message_writer: RawMessageWriter | None = None,
         category_classifier: EventCategoryClassifier | None = None,
+        commitment_repo=None,
     ) -> None:
         from ..config import ExtractorConfig as _EC
         cfg = extractor_config or _EC()
@@ -202,6 +203,7 @@ class EventExtractor:
         self._events_persisted_callback = events_persisted_callback
         self._raw_message_repo = raw_message_repo
         self._raw_message_writer = raw_message_writer
+        self._commitment_repo = commitment_repo
         self._max_context_messages = max(0, cfg.max_context_messages)
         self._system_prompt = cfg.system_prompt
         self._distillation_system_prompt = cfg.distillation_system_prompt
@@ -412,6 +414,7 @@ class EventExtractor:
                         existing_tags=steering_tags,
                         defer=defer,
                         rule_only=rule_only,
+                        persona=window.last_active_persona or bot_name, group_id=window.group_id,
                     )
                 return (part.indices, res)
 
@@ -516,6 +519,11 @@ class EventExtractor:
 
             await self._event_repo.upsert(event)
             await self._link_raw_messages(event.event_id, sub_messages)
+            if self._commitment_repo is not None:
+                await self._commitment_repo.close(
+                    res.get("commitments_closed", []), allowed_ids=res.get("_allowed_commitments", []),
+                    event_id=event.event_id, now=event.end_time,
+                )
             persisted_events.append(event)
 
             if self._ipc_enabled:
@@ -1002,6 +1010,20 @@ class EventExtractor:
                            window.session_id, _time.perf_counter() - started, exc)
             return whole
 
+    async def _open_commitments(self, messages, persona, group_id) -> list[dict]:
+        if self._commitment_repo is None or not persona:
+            return []
+        participants = list(dict.fromkeys(message.uid for message in messages))
+        return await self._commitment_repo.list_open(
+            persona, participants, group_id, before=max((message.timestamp for message in messages), default=0),
+        )
+
+    @staticmethod
+    def _allow_commitment_resolutions(results, rows):
+        for result in results:
+            result["_allowed_commitments"] = [row["commitment_id"] for row in rows]
+        return results
+
     async def _extract_batch(self, window: MessageWindow, existing_tags: list[str] | None = None, *,
                              defer: bool = False, rule_only: bool = False, previous_summary: str = "") -> list[dict]:
         if rule_only:
@@ -1026,10 +1048,13 @@ class EventExtractor:
             return fallback_extraction(window)
 
         system_prompt = select_event_system_prompt(self._system_prompt, has_bot_persona=False)
+        messages = window.messages[-self._max_context_messages:] if self._max_context_messages > 0 else window.messages
+        open_commitments = await self._open_commitments(messages, window.last_active_persona, window.group_id)
         prompt = build_user_prompt(
             window,
             self._max_context_messages,
             existing_tags=existing_tags,
+            open_commitments=open_commitments,
         )
         if previous_summary:
             prompt = (
@@ -1050,7 +1075,7 @@ class EventExtractor:
                 merge_to_single=True,
             )
             if result is not None:
-                return result
+                return self._allow_commitment_resolutions(result, open_commitments)
             raw_text = _response_text(resp)
             logger.warning(
                 "[EventExtractor] LLM extraction parse_error; attempting JSON repair "
@@ -1075,7 +1100,7 @@ class EventExtractor:
                 merge_to_single=True,
             )
             if result is not None:
-                return result
+                return self._allow_commitment_resolutions(result, open_commitments)
             logger.warning(
                 "[EventExtractor] JSON repair parse_error; falling back "
                 "(session=%s, message_count=%d, repair_snippet=%r)",
@@ -1109,7 +1134,8 @@ class EventExtractor:
         return fallback_extraction(window)
 
     async def _distill(self, messages: list, existing_tags: list[str] | None = None, *,
-                       defer: bool = False, rule_only: bool = False) -> dict:
+                       defer: bool = False, rule_only: bool = False, persona: str | None = None,
+                       group_id: str | None = None) -> dict:
         """Call LLM to summarize a specific cluster of messages."""
         provider = self._provider_getter()
         if provider is None or rule_only:
@@ -1118,9 +1144,11 @@ class EventExtractor:
             return fallback_single_extraction(messages)
 
         system_prompt = select_event_system_prompt(self._distillation_system_prompt, has_bot_persona=False)
+        open_commitments = await self._open_commitments(messages, persona, group_id)
         prompt = build_distillation_prompt(
             messages,
             existing_tags=existing_tags,
+            open_commitments=open_commitments,
         )
         try:
             resp, _ = await self._ask(
@@ -1129,7 +1157,7 @@ class EventExtractor:
             )
             result = parse_single_item(_response_text(resp), has_bot_persona=False)
             if result is not None:
-                return result
+                return self._allow_commitment_resolutions([result], open_commitments)[0]
         except ModelUnavailable:
             raise
         except Exception as exc:

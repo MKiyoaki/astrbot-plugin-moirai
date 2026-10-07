@@ -33,13 +33,14 @@ def _ts(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
-def event_to_dict(event: Event) -> dict[str, Any]:
+def event_to_dict(event: Event, persona_view: list[dict] | None = None) -> dict[str, Any]:
     participants = event.participants or []
     return {
         "id": event.event_id,
         "content": event.topic or event.event_id[:8],
         "topic": event.topic,
         "summary": event.summary,
+        "persona_view": persona_view or [],
         "start": _ts(event.start_time),
         "end": _ts(event.end_time),
         "start_ts": event.start_time,
@@ -56,6 +57,21 @@ def event_to_dict(event: Event) -> dict[str, Any]:
         "status": event.status,
         "is_locked": event.is_locked,
     }
+
+
+async def attach_persona_views(items: list[dict], raw_message_repo) -> list[dict]:
+    if raw_message_repo is None:
+        return items
+    from .turn_annotations import persona_views
+    bulk = getattr(raw_message_repo, "list_persona_views", None)
+    if callable(bulk):
+        views = await bulk([item["id"] for item in items])
+        for item in items:
+            item["persona_view"] = views.get(item["id"], [])
+    else:
+        for item in items:
+            item["persona_view"] = persona_views(await raw_message_repo.list_by_event(item["id"]), item.get("bot_persona_name"))
+    return items
 
 
 def persona_to_dict(persona: Persona) -> dict[str, Any]:
@@ -205,6 +221,7 @@ async def list_events(
     event_repo: EventRepository,
     group_id: str | None,
     limit: int = 100,
+    raw_message_repo=None,
 ) -> dict[str, Any]:
     if group_id is not None:
         events = await event_repo.list_by_group(group_id, limit=limit)
@@ -218,23 +235,26 @@ async def list_events(
             events.extend(await event_repo.list_by_group(gid, limit=per_group))
         events = events[:limit]
     events = [e for e in events if e.status == EventStatus.ACTIVE]
-    return {"items": [event_to_dict(e) for e in events]}
+    return {"items": await attach_persona_views([event_to_dict(e) for e in events], raw_message_repo)}
 
 
 async def list_archived_events(
     event_repo: EventRepository,
     limit: int = 1000,
+    raw_message_repo=None,
 ) -> dict[str, Any]:
     from .domain.models import EventStatus
     events = await event_repo.list_by_status(EventStatus.ARCHIVED, limit=limit)
-    return {"items": [event_to_dict(e) for e in events]}
+    return {"items": await attach_persona_views([event_to_dict(e) for e in events], raw_message_repo)}
 
 
 async def get_event(
-    event_repo: EventRepository, event_id: str
+    event_repo: EventRepository, event_id: str, raw_message_repo=None,
 ) -> dict[str, Any] | None:
     event = await event_repo.get(event_id)
-    return event_to_dict(event) if event else None
+    if event is None:
+        return None
+    return (await attach_persona_views([event_to_dict(event)], raw_message_repo))[0]
 
 
 async def update_event(

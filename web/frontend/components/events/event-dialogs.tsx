@@ -925,6 +925,27 @@ export function EventDetailCard({ event, isFocused, onEdit, onDelete, onLockTogg
         )
       })()}
 
+      {!!event.persona_view?.length && (
+        <div className="rounded-lg border bg-muted/30 p-4 ml-2 min-w-0 max-w-full">
+          <p className="text-xs font-bold mb-2">当时的我</p>
+          <div className="flex flex-col gap-3">
+            {event.persona_view.map(view => (
+              <div key={view.message_id} className="flex flex-col gap-1">
+                {([
+                  ['发生了什么', view.what_happened],
+                  ['我此刻的情绪', view.feeling],
+                  ['我想达到的目的', view.goal],
+                ] as [string, string][]).filter(([, text]) => text.trim()).map(([label, text]) => (
+                  <p key={label} className="text-sm whitespace-pre-wrap break-words">
+                    <span className="text-muted-foreground">{label}：</span>{text}
+                  </p>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {event.tags?.length > 0 && (
         <div className="flex flex-wrap gap-1.5 pl-2">
           {event.tags.map(t => {

@@ -35,6 +35,8 @@ _CONTRAST = (
 
 _FIELDS_SUMMARY = (
     "- topic：≤30 字，点明具体对象和主要事件，避免「日常闲聊」「群内互动」。\n"
+    "- commitments_closed：（可选）只对用户提示列出的未完成约定返回 [{\"id\":\"约定编号\",\"status\":\"done\"或\"dropped\"}]；"
+    "本段有明确完成证据才写 done，明确取消或放弃才写 dropped；仍未完成、不确定或没有约定时返回 []。不要把答应做当成已完成。\n"
     "- summary：纯文本，每个小话题按 [What] 事实 [Who] 人物 [How] 进展 的顺序写，"
     "小话题之间用 \" | \" 分隔。三项都要有；不加 Markdown 加粗、代码围栏、HTML 实体或下划线转义。\n"
     "  · 每段独立可读：以人名开头，写清具体对象、行为或说法；保留专名、数字、条件、否定、链接和关键原话。"
@@ -301,6 +303,10 @@ class InjectionConfig:
     """Strip previous injection markers from the request before re-injecting."""
     token_budget: int = 800
     """Maximum tokens to fill with injected memory text."""
+    commitment_max_items: int = 3
+    """Maximum relevant open commitments injected, matching the three-event recall default."""
+    persona_view_injection_enabled: bool = False
+    """Reserved switch; injecting persona views is deferred, even when this is set."""
     show_thinking_process: bool = False
     """Prepend memory-retrieval debug info to each reply."""
     show_system_prompt: bool = False
@@ -355,7 +361,7 @@ class ExtractorConfig:
     segmentation_timeout: float = 30.0
     semantic_clustering_eps: float = 0.45
     semantic_clustering_min_samples: int = 2
-    persona_influenced_summary: bool = True
+    persona_influenced_summary: bool = False
     # Deprecated: configure explicit bindings and the global override in Core.
     bot_persona_name_override: str = ""
     tag_normalization_threshold: float = 0.85
@@ -681,6 +687,8 @@ class PluginConfig:
             position=pos if pos in valid else "user_message_before",
             auto_clear=self._bool("injection_auto_clear", True),
             token_budget=self._int("retrieval_token_budget", 800),
+            commitment_max_items=max(0, self._int("commitment_max_items", 3)),
+            persona_view_injection_enabled=self._bool("persona_view_injection_enabled", False),
             show_thinking_process=self._bool("show_thinking_process", False),
             show_system_prompt=self._bool("show_system_prompt", False),
             show_injection_summary=self._bool("show_injection_summary", False),
@@ -752,7 +760,7 @@ class PluginConfig:
             ),
             persona_influenced_summary=self._bool(
                 "persona_influenced_summary",
-                True
+                False
             ),
             bot_persona_name_override=self._str(
                 "bot_persona_name_override", ""

@@ -35,6 +35,7 @@ def build_user_prompt(
     max_messages: int = 20,
     bot_persona_desc: str | None = None,
     existing_tags: list[str] | None = None,
+    open_commitments: list[dict] | None = None,
 ) -> str:
     """Format the conversation window into a user prompt."""
     messages = window.messages[-max_messages:] if max_messages > 0 else window.messages
@@ -59,13 +60,14 @@ def build_user_prompt(
         stamp = datetime.fromtimestamp(m.timestamp, timezone.utc).isoformat(timespec="seconds")
         lines.append(f"[{i}] [消息时间 {stamp}] {label}: {m.text}")
 
-    return "\n".join(lines)
+    return "\n".join(lines) + commitment_context(open_commitments, uid_label)
 
 
 def build_distillation_prompt(
     messages: list[RawMessage],
     bot_persona_desc: str | None = None,
     existing_tags: list[str] | None = None,
+    open_commitments: list[dict] | None = None,
 ) -> str:
     """Build a prompt for summarizing a pre-grouped cluster of messages."""
     header_parts = []
@@ -86,7 +88,17 @@ def build_distillation_prompt(
         lines.append(f"[{i}] [消息时间 {stamp}] {uid_label.get(m.uid, m.display_name or m.uid)}: {m.text}")
 
     lines.append("\n请按 system 指令为这段对话输出单个 JSON 对象。")
-    return "\n".join(lines)
+    return "\n".join(lines) + commitment_context(open_commitments, uid_label)
+
+
+def commitment_context(rows: list[dict] | None, labels: dict[str, str]) -> str:
+    if not rows:
+        return ""
+    import json
+    items = [{"id": row["commitment_id"], "person": labels.get(row["person_uid"], row["person_uid"]),
+              "text": row["text"]} for row in rows]
+    return ("\n\n[本段参与者的未完成约定，仅凭以上消息判断完成或放弃；不确定就保持未完成]\n"
+            + json.dumps(items, ensure_ascii=False))
 
 
 def build_eval_prompt(

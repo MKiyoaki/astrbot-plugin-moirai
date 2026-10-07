@@ -84,6 +84,7 @@ def event_to_dict(event: Event, participant_names: dict[str, str] | None = None)
         "content": event.topic or event.event_id[:8],
         "topic": event.topic or "",
         "summary": event.summary or "",
+        "persona_view": [],
         "start": _ts_to_iso(event.start_time),
         "end": _ts_to_iso(event.end_time),
         "start_ts": event.start_time,
@@ -408,7 +409,8 @@ class WebuiServer:
         items = [event_to_dict(event, names) for event in events]
         for item in items:
             item.pop("interaction_classification", None)
-        return items
+        from core.api import attach_persona_views
+        return await attach_persona_views(items, self._raw_message_repo)
 
     async def events_data(
         self, group_id: str | None, limit: int,

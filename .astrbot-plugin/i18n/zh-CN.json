@@ -468,11 +468,11 @@
     },
     "boundary.persona_influenced_summary": {
       "description": "根据当前性格记忆事件",
-      "hint": "开启后在提取事件摘要时注入 Bot 人格描述，使摘要带有 Bot 当前性格的视角"
+      "hint": "默认关闭：每轮便签单独显示为「当时的我」。开启后仍可为新事件补独立的旧式 [Eval] 评价；不改事实摘要或历史记忆。"
     },
     "persona_influenced_summary": {
       "description": "根据当前性格记忆事件",
-      "hint": "开启后在提取事件摘要时注入 Bot 人格描述，使摘要带有 Bot 当前性格的视角"
+      "hint": "默认关闭：每轮便签单独显示为「当时的我」。开启后仍可为新事件补独立的旧式 [Eval] 评价；不改事实摘要或历史记忆。"
     },
     "boundary.extraction_strategy": {
       "description": "事件划分策略",
@@ -945,6 +945,22 @@
     "boundary.boundary_topic_drift_percentile": {
       "description": "漂移距离分位数",
       "hint": "0–100；数值越大越保守。样本不足时沿用余弦距离阈值；分位校准不能保证切点正确。"
+    },
+    "commitment_max_items": {
+      "description": "相关约定注入上限",
+      "hint": "每次回复最多带入几条与当前消息相关、尚未完成的约定。0 表示不注入；约定仍会保存。"
+    },
+    "retrieval.commitment_max_items": {
+      "description": "相关约定注入上限",
+      "hint": "每次回复最多带入几条与当前消息相关、尚未完成的约定。0 表示不注入；约定仍会保存。"
+    },
+    "persona_view_injection_enabled": {
+      "description": "注入「当时的我」（预留）",
+      "hint": "调试开关预留，当前尚未接入召回；即使打开也不会注入，只在事件详情显示。"
+    },
+    "retrieval.persona_view_injection_enabled": {
+      "description": "注入「当时的我」（预留）",
+      "hint": "调试开关预留，当前尚未接入召回；即使打开也不会注入，只在事件详情显示。"
     }
   }
 }

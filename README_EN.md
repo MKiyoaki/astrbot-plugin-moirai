@@ -21,6 +21,8 @@ Made with ♥ by MKiyoaki & Gariton
 
 ## What is this
 
+The `cb5t-loop-wiring` development branch adds optional Core Annotation Protocol v1 consumption, one-turn notes, separately stored commitments and the event's persona view. The legacy deferred Eval pass defaults off. Persona-view recall injection is a reserved default-off switch and is not implemented. See [loop wiring](docs/cb5t-loop-wiring.md) for the uncommitted `v1.2.42.sub` work and offline evidence; dialogue controls in Core follow after this wiring.
+
 Moirai adds three-axis persistent memory to AstrBot: conversations are automatically segmented into **episodic events**, interactions between participants accumulate as **social impressions**, and daily activity is distilled into **narrative summaries**. All three axes are retrieved and injected into context at response time — no manual management required.
 
 Highlights:

@@ -468,11 +468,11 @@
     },
     "boundary.persona_influenced_summary": {
       "description": "Use Current Persona When Summarizing Events",
-      "hint": "When enabled, injects the bot persona description during event summary extraction, giving summaries the current bot persona perspective."
+      "hint": "Defaults off; turn annotations appear separately as persona views. Enabling retains the legacy deferred Eval pass without rewriting facts or history."
     },
     "persona_influenced_summary": {
       "description": "Use Current Persona When Summarizing Events",
-      "hint": "When enabled, injects the bot persona description during event summary extraction, giving summaries the current bot persona perspective."
+      "hint": "Defaults off; turn annotations appear separately as persona views. Enabling retains the legacy deferred Eval pass without rewriting facts or history."
     },
     "boundary.extraction_strategy": {
       "description": "Event Partitioning Strategy",
@@ -945,6 +945,22 @@
     "boundary.boundary_topic_drift_percentile": {
       "description": "Drift distance percentile",
       "hint": "0–100; higher is more conservative. Insufficient samples use the configured distance threshold. Calibration does not guarantee boundary accuracy."
+    },
+    "commitment_max_items": {
+      "description": "Relevant open commitments per reply",
+      "hint": "Maximum relevant unfinished commitments per reply. Zero disables injection, not storage."
+    },
+    "retrieval.commitment_max_items": {
+      "description": "Relevant open commitments per reply",
+      "hint": "Maximum relevant unfinished commitments per reply. Zero disables injection, not storage."
+    },
+    "persona_view_injection_enabled": {
+      "description": "Inject persona view (reserved)",
+      "hint": "Defaults off. Injection is deferred; enabling this reserved switch does not inject persona views."
+    },
+    "retrieval.persona_view_injection_enabled": {
+      "description": "Inject persona view (reserved)",
+      "hint": "Defaults off. Injection is deferred; enabling this reserved switch does not inject persona views."
     }
   }
 }

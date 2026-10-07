@@ -283,6 +283,20 @@
                 "hint": "仅在加权随机模式下生效。1.0 为标准采样，数值越低越接近确定性排名，数值越高随机性越强。",
                 "default": 1.0,
                 "level": "expert"
+            },
+            "commitment_max_items": {
+                "description": "相关约定注入上限",
+                "type": "int",
+                "default": 3,
+                "hint": "每次回复最多带入几条与当前消息相关、尚未完成的约定。0 表示不注入；约定仍会保存。",
+                "level": "advanced"
+            },
+            "persona_view_injection_enabled": {
+                "description": "注入「当时的我」（预留）",
+                "type": "bool",
+                "default": false,
+                "hint": "调试开关预留，当前尚未接入召回；即使打开也不会注入，只在事件详情显示。",
+                "level": "advanced"
             }
         }
     },
@@ -517,8 +531,8 @@
             "persona_influenced_summary": {
                 "description": "🟢 根据当前性格记忆事件",
                 "type": "bool",
-                "hint": "开启后为新提取或重新提取的事件添加独立的「我的评价」；事实摘要保持客观。关闭后不生成评价，不改变事件人格归属，也不自动修改历史记忆。",
-                "default": true,
+                "hint": "默认关闭：每轮便签单独显示为「当时的我」。开启后仍可为新事件补独立的旧式 [Eval] 评价；不改事实摘要或历史记忆。",
+                "default": false,
                 "level": "basic"
             },
             "tag_seeds": {

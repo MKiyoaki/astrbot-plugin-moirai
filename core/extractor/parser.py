@@ -318,6 +318,8 @@ def _merge_into(target: dict, source: dict) -> dict:
             merged_tags.append(tag)
     target["chat_content_tags"] = merged_tags[:5]
     target["inherit"] = bool(target.get("inherit") or source.get("inherit"))
+    target["commitments_closed"] = parse_commitment_resolutions(
+        list(target.get("commitments_closed", [])) + list(source.get("commitments_closed", [])))
     # participants_personality: keep target's if present, else source's
     if not target.get("participants_personality") and source.get("participants_personality"):
         target["participants_personality"] = source["participants_personality"]
@@ -435,6 +437,7 @@ def parse_llm_output(
             "inherit": bool(item.get("inherit", False)),
             "participants_personality": _parse_personality(item.get("participants_personality")),
             "participant_style": _parse_participant_style(item.get("participant_style")),
+            "commitments_closed": parse_commitment_resolutions(item.get("commitments_closed")),
         }
         results.append(parsed)
 
@@ -467,8 +470,26 @@ def parse_single_item(text: str, has_bot_persona: bool = False) -> dict | None:
         "inherit": bool(data.get("inherit", False)),
         "participants_personality": _parse_personality(data.get("participants_personality")),
         "participant_style": _parse_participant_style(data.get("participant_style")),
+        "commitments_closed": parse_commitment_resolutions(data.get("commitments_closed")),
     }
     return parsed
+
+
+def parse_commitment_resolutions(value: object) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    statuses = {}
+    conflicting = set()
+    for item in value:
+        if (not isinstance(item, dict) or set(item) != {"id", "status"}
+                or not isinstance(item["id"], str) or not item["id"].strip()
+                or not isinstance(item["status"], str) or item["status"] not in {"done", "dropped"}):
+            continue
+        key, status = item["id"], item["status"]
+        if key in statuses and statuses[key] != status:
+            conflicting.add(key)
+        statuses[key] = status
+    return [{"id": key, "status": status} for key, status in statuses.items() if key not in conflicting]
 
 
 def parse_eval_map(text: str, expected: dict[str, int]) -> dict[str, list[str]]:

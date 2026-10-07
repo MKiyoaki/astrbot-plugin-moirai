@@ -19,6 +19,7 @@ class RawMessage:
     physical_id: str = ""
     role: str = "user"
     content_hash: str = ""
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -57,13 +58,13 @@ class MessageWindow:
         self, uid: str, text: str, timestamp: float, display_name: str = "",
         embedding: list[float] | None = None, bot_persona_name: str | None = None,
         message_id: str = "", platform: str = "", physical_id: str = "",
-        role: str = "user", content_hash: str = "",
+        role: str = "user", content_hash: str = "", metadata: dict | None = None,
     ) -> None:
         msg = RawMessage(
             uid=uid, text=text, timestamp=timestamp, display_name=display_name,
             embedding=embedding, bot_persona_name=bot_persona_name,
             message_id=message_id, platform=platform, physical_id=physical_id,
-            role=role, content_hash=content_hash,
+            role=role, content_hash=content_hash, metadata=metadata or {},
         )
         self.messages.append(msg)
         self.last_message_time = timestamp

@@ -642,6 +642,24 @@ class SQLiteRawMessageRepository(RawMessageRepository):
                 rows,
             )
 
+    async def list_persona_views(self, event_ids: list[str]) -> dict[str, list[dict]]:
+        from ..turn_annotations import persona_views
+        result = {event_id: [] for event_id in event_ids}
+        if not event_ids:
+            return result
+        async with self._db.execute(
+            "SELECT rm.*, em.event_id FROM event_messages em "
+            "JOIN raw_messages rm ON rm.message_id = em.message_id "
+            "JOIN events ev ON ev.event_id = em.event_id "
+            "WHERE em.event_id IN (SELECT value FROM json_each(?)) AND rm.role = 'assistant' "
+            "AND (ev.bot_persona_name IS NULL OR rm.bot_persona_name = ev.bot_persona_name) "
+            "ORDER BY em.event_id, em.ordinal", (json.dumps(event_ids),),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        for row in rows:
+            result[row["event_id"]].extend(persona_views([_row_to_raw_message(row)]))
+        return result
+
     async def delete_older_than(self, cutoff_ts: float) -> int:
         async with _txn(self._db, self._lock):
             cursor = await self._db.execute(
