@@ -356,87 +356,6 @@
             }
         }
     },
-    "soul": {
-        "description": "情绪四维 (Soul Layer)",
-        "hint": "动态情绪状态，随对话变化并注入 system prompt 以影响回复风格",
-        "type": "object",
-        "items": {
-            "soul_enabled": {
-                "description": "🧪 启用情绪四维状态 (Soul Layer)",
-                "type": "bool",
-                "hint": "实验性功能，默认关闭。开启后，RecallDepth / ImpressionDepth / ExpressionDesire / Creativity 四维情绪状态将随对话动态更新，并注入 system prompt 以影响回复风格。",
-                "default": false,
-                "level": "advanced",
-                "experimental": true
-            },
-            "soul_decay_rate": {
-                "description": "情绪衰减率（每轮）",
-                "type": "float",
-                "hint": "每轮对话后各情绪维度向零衰减的比例，0.1 表示每轮衰减 10%。",
-                "default": 0.1,
-                "min": 0.0,
-                "max": 1.0,
-                "step": 0.01,
-                "level": "expert",
-                "experimental": true
-            },
-            "soul_recall_depth_init": {
-                "description": "记忆检索驱动初始值",
-                "type": "float",
-                "hint": "RecallDepth 维度的初始值，范围 -20 到 +20，0 为中性。",
-                "default": 0.0,
-                "min": -20.0,
-                "max": 20.0,
-                "step": 0.5,
-                "level": "expert",
-                "experimental": true
-            },
-            "soul_impression_depth_init": {
-                "description": "社交关注度初始值",
-                "type": "float",
-                "hint": "ImpressionDepth 维度的初始值，范围 -20 到 +20，0 为中性。",
-                "default": 0.0,
-                "min": -20.0,
-                "max": 20.0,
-                "step": 0.5,
-                "level": "expert",
-                "experimental": true
-            },
-            "soul_expression_desire_init": {
-                "description": "表达欲初始值",
-                "type": "float",
-                "hint": "ExpressionDesire 维度的初始值，范围 -20 到 +20，0 为中性。",
-                "default": 0.0,
-                "min": -20.0,
-                "max": 20.0,
-                "step": 0.5,
-                "level": "expert",
-                "experimental": true
-            },
-            "soul_creativity_init": {
-                "description": "创意度初始值",
-                "type": "float",
-                "hint": "Creativity 维度的初始值，范围 -20 到 +20，0 为中性。",
-                "default": 0.0,
-                "min": -20.0,
-                "max": 20.0,
-                "step": 0.5,
-                "level": "expert",
-                "experimental": true
-            },
-            "soul_states_ttl_hours": {
-                "description": "Soul 状态缓存 TTL（小时）",
-                "type": "float",
-                "hint": "超过此时长未活跃的 session Soul 状态将从内存中清除，防止多群组长期运行的内存泄漏。默认 24 小时。",
-                "default": 24.0,
-                "min": 1.0,
-                "max": 168.0,
-                "step": 1.0,
-                "level": "expert",
-                "experimental": true
-            }
-        }
-    },
     "cleanup": {
         "description": "记忆清理",
         "hint": "定期清理重要度衰减到阈值以下的旧记忆，控制数据库规模",
@@ -933,7 +852,7 @@
                 "description": "显示 Moirai 实际注入内容摘要",
                 "type": "bool",
                 "default": false,
-                "hint": "开启后，回复前将附加 Moirai 本轮实际注入内容的安全摘要（记忆、用户画像、Soul 状态），不会显示完整内部提示词或证据原文",
+                "hint": "开启后，回复前将附加 Moirai 本轮实际注入内容的安全摘要（记忆、用户画像），不会显示完整内部提示词或证据原文",
                 "level": "expert"
             },
             "show_llm_call_details": {

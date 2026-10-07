@@ -249,25 +249,6 @@ class CommandManager:
             return "解绑失败：内部错误。"
         return "已解绑当前账号，正在后台重新合成人格。"
 
-    async def soul(self, session_id: str, soul_states: dict) -> str:
-        state = soul_states.get(session_id)
-        if state is None:
-            return self._t("cmd.soul.neutral")
-
-        def _fmt(val: float) -> str:
-            if abs(val) < 1.0:
-                return f"{val:+.1f}/20（{self._t('cmd.soul.level_neutral')}）"
-            level = self._t("cmd.soul.level_high") if val > 0 else self._t("cmd.soul.level_low")
-            return f"{val:+.1f}/20（{level}）"
-
-        return "\n".join([
-            self._t("cmd.soul.header"),
-            self._t("cmd.soul.recall_depth", val=_fmt(state.recall_depth)),
-            self._t("cmd.soul.impression_depth", val=_fmt(state.impression_depth)),
-            self._t("cmd.soul.expression_desire", val=_fmt(state.expression_desire)),
-            self._t("cmd.soul.creativity", val=_fmt(state.creativity)),
-        ])
-
     async def recall(
         self, query: str, group_id: str | None = None, scope_mode: str = "all"
     ) -> str:

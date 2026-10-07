@@ -347,9 +347,8 @@ class PluginRoutes:
             return wrapped
 
         routes: list[tuple[str, Any, list[str], str]] = [
-            # Stats / soul
+            # Stats
             (f"/api/stats",                    self._handle_stats,                   ["GET"],         "Plugin stats"),
-            (f"/api/soul/states",              self._handle_soul_states,             ["GET"],         "Soul/recall states"),
             # Events
             (f"/api/events",                   self._handle_events,                  ["GET"],         "List events"),
             (f"/api/events",                   self._handle_create_event,            ["POST"],        "Create event"),
@@ -754,21 +753,14 @@ class PluginRoutes:
             summary_trigger_rounds=self._summary_trigger_rounds,
             show_llm_call_details=bool(self._read_config().get("show_llm_call_details", False)),
         )
-        data["soul_enabled"] = bool(self._initial_config.get("soul_enabled", True))
         return data
 
     # ------------------------------------------------------------------
-    # Handlers: stats / soul
+    # Handlers: stats
     # ------------------------------------------------------------------
 
     async def _handle_stats(self, request: web.Request) -> web.Response:
         return _json(await self.stats_data())
-
-    async def _handle_soul_states(self, request: web.Request) -> web.Response:
-        if self._recall_manager is None:
-            return _json({"states": {}})
-        states = getattr(self._recall_manager, "get_soul_states", lambda: {})()
-        return _json({"states": states})
 
     # ------------------------------------------------------------------
     # Handlers: events

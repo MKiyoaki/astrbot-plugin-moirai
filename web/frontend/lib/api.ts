@@ -63,7 +63,6 @@ export interface PluginStats {
   avg_summary_chars?: number
   groups: number
   version: string
-  soul_enabled?: boolean
   active_sessions?: SessionWindowInfo[]
   summary_trigger_rounds?: number
   llm_stats?: {
@@ -89,17 +88,6 @@ export interface PluginStats {
 }
 
 export type Stats = PluginStats
-
-export interface SoulState {
-  recall_depth: number
-  impression_depth: number
-  expression_desire: number
-  creativity: number
-}
-
-export const soul = {
-  getStates: () => request<{ states: Record<string, SoulState> }>('/api/soul/states'),
-}
 
 // ── Persona scope helper ──────────────────────────────────────────────────
 export const LEGACY_PERSONA_TOKEN = '__legacy__'
@@ -444,7 +432,6 @@ export const api = {
   admin,
   tags,
   config: pluginConfig,
-  soul,
   auth,
   personaGroups,
 }

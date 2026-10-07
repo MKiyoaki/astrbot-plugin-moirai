@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [v1.2.44.sub] — 2026-10-07
+
+### 移除 Soul Layer（情绪四维状态）
+
+- `src/core/social/soul_state.py`：整个删除（`SoulState`、`update_from_signals`、`format_soul_for_prompt`）。该层只在内存里按会话保存、默认关闭，没有数据库表，也没有迁移。
+- `src/core/managers/recall_manager.py`、`src/core/managers/base.py`：删除 `soul_config` 构造参数、`_soul_states`、`get_soul_states`、`_evict_soul_states`、`EM:SOUL` 块的注入与清除、注入调试里的 `soul` 字段。
+- `src/core/config.py`：删除 `SoulConfig`、`get_soul_config` 与 `SOUL_INJECTION_HEADER/FOOTER`。`_conf_schema.json` 与 `.astrbot-plugin/i18n/` 中英文去掉 `soul` 配置节及 7 个 `soul_*` 配置项；旧配置里残留的 `soul_*` 键不再被读取，也不报错。
+- `main.py`、`src/core/managers/command_manager.py`、`src/core/utils/i18n.py`：删除 `/mrm soul` 命令及中英日三语文案；`/mrm init` 的模块列表不再显示 Soul。
+- `src/core/event_handler.py`、`src/core/plugin_initializer.py`：注入摘要不再有「Soul Layer：已注入」，`show_injection_summary` 的说明同步去掉 Soul 状态。
+- `src/core/adapters/core_events.py`：`events_v1` 不再声明 `soul` 块（不再有任何东西写入它）。
+- `src/web/server.py`、`src/web/plugin_routes.py`：删除 `/api/soul/states` 与统计里的 `soul_enabled`。
+- `web/frontend`：删除首页 `SoulMonitor` 卡片、`api.soul`、配置页「情绪系统」节及依赖联动、快速设置向导里的开关与实验徽章、中英日三语文案；重新构建后按 `core/utils/frontend_build.py` 的方式整体替换 `pages/moirai/_app/`，旧哈希脚本一并清除，构建产物里不再有 Soul 字样。
+- 文档：README 中英文去掉 Soul 的命令、开关与实验性说明；`docs/cb5t-loop-wiring.md` 改为「Soul Layer 已移除」。历史验证记录与更早的 CHANGELOG 条目不改。
+- 工作区 `scripts/chat_composition.py` 同步不再传 `soul_config`。
+- 本地验证：完整 unittest `Ran 474 tests`、`OK (skipped=1)`，与移除前相同；联合事件检查 44 项、聊天运行检查 16 项、persona 启动检查 7 项全部通过；前端 `tsc --noEmit` 与 `npm run build` 通过；`src/tools/webui_dev.py` 在空闲端口启动后，首页及配置、事件、统计、图谱页和 18 个静态资源均为 200，`/api/stats` 不再含 `soul_enabled`，服务日志无报错。未在真实浏览器中渲染页面。
+
 ## [v1.2.43.sub] — 2026-10-07
 
 ### 目录分层、Hydra 配置与 canon 重构

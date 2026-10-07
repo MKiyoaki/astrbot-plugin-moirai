@@ -111,7 +111,7 @@ stored summaries are not rewritten.
 | `persona_view_injection_enabled` | `false` | Reserved switch only; even `true` does not inject persona view into recall. |
 | `commitment_max_items` | `3` | Caps relevant open-commitment injection; `0` disables that block. |
 
-The existing recall formatter and Soul Layer remain. The user requested these
+The existing recall formatter remains; the Soul Layer was removed in v1.2.44.sub. The user requested these
 debugging controls in Core's dialogue interface as follow-up work; this Moirai
 phase does not implement that interface. Oedipus's loop defaults off in its own
 provider; Moirai does not configure or import it.

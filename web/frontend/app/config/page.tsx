@@ -44,13 +44,6 @@ const FIELD_DEPENDENCIES: Record<string, string> = {
   // Retrieval
   'retrieval_sampling_temperature': 'retrieval_weighted_random',
 
-  // Soul Layer
-  'soul_decay_rate': 'soul_enabled',
-  'soul_recall_depth_init': 'soul_enabled',
-  'soul_impression_depth_init': 'soul_enabled',
-  'soul_expression_desire_init': 'soul_enabled',
-  'soul_creativity_init': 'soul_enabled',
-
   // Cleanup
   'memory_cleanup_threshold': 'memory_cleanup_enabled',
   'memory_cleanup_interval_days': 'memory_cleanup_enabled',
@@ -376,18 +369,6 @@ export default function ConfigPage() {
       ],
     },
     {
-      id: 'soul',
-      label: i18n.config.sections.soul,
-      keys: [
-        'soul_enabled',
-        'soul_decay_rate',
-        'soul_recall_depth_init',
-        'soul_impression_depth_init',
-        'soul_expression_desire_init',
-        'soul_creativity_init',
-      ],
-    },
-    {
       id: 'cleanup',
       label: i18n.config.sections.cleanup,
       keys: [
@@ -528,7 +509,7 @@ export default function ConfigPage() {
     { id: 'cat-general', label: (i18n.config as any).categories.general, sectionIds: ['webui', 'backup', 'debug_display'] },
     { id: 'cat-info', label: (i18n.config as any).categories.infoFlow, sectionIds: ['retrieval', 'embedding'] },
     { id: 'cat-event', label: (i18n.config as any).categories.eventFlow, sectionIds: ['boundary', 'vcm'] },
-    { id: 'cat-relation', label: (i18n.config as any).categories.relations, sectionIds: ['relation', 'soul'] },
+    { id: 'cat-relation', label: (i18n.config as any).categories.relations, sectionIds: ['relation'] },
     { id: 'cat-summary', label: (i18n.config as any).categories.summary, sectionIds: ['summaries'] },
     { id: 'cat-database', label: (i18n.config as any).categories.database, sectionIds: ['cleanup', 'tasks'] },
   ], [i18n])

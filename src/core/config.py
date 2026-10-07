@@ -89,9 +89,6 @@ class RetrievalConfig:
 # Sentinel strings used to wrap injected memory blocks for auto-clear.
 MEMORY_INJECTION_HEADER = "<!-- EM:MEMORY:START -->"
 MEMORY_INJECTION_FOOTER = "<!-- EM:MEMORY:END -->"
-# Soul state is always injected into system_prompt via its own separate markers.
-SOUL_INJECTION_HEADER = "<!-- EM:SOUL:START -->"
-SOUL_INJECTION_FOOTER = "<!-- EM:SOUL:END -->"
 # Prefix for fake tool-call IDs so they can be cleaned up later.
 FAKE_TOOL_CALL_ID_PREFIX = "em_recall_"
 
@@ -132,17 +129,6 @@ class IPCConfig:
     enabled: bool = True
     bigfive_x_messages: int = 10
     bigfive_llm_timeout: float = 30.0
-
-
-@dataclass
-class SoulConfig:
-    enabled: bool = False
-    decay_rate: float = 0.1
-    recall_depth_init: float = 0.0
-    impression_depth_init: float = 0.0
-    expression_desire_init: float = 0.0
-    creativity_init: float = 0.0
-    states_ttl_hours: float = 24.0
 
 
 @dataclass
@@ -516,19 +502,6 @@ class PluginConfig:
             bigfive_x_messages=self._int("bigfive_x_messages", 10),
             bigfive_llm_timeout=self._float(
                 "bigfive_llm_timeout_seconds", 30.0),
-        )
-
-    def get_soul_config(self) -> SoulConfig:
-        return SoulConfig(
-            enabled=self._bool("soul_enabled", False),
-            decay_rate=self._float("soul_decay_rate", 0.1),
-            recall_depth_init=self._float("soul_recall_depth_init", 0.0),
-            impression_depth_init=self._float(
-                "soul_impression_depth_init", 0.0),
-            expression_desire_init=self._float(
-                "soul_expression_desire_init", 0.0),
-            creativity_init=self._float("soul_creativity_init", 0.0),
-            states_ttl_hours=self._float("soul_states_ttl_hours", 24.0),
         )
 
     def get_extractor_config(self) -> ExtractorConfig:

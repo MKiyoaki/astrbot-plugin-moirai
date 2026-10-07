@@ -16,7 +16,7 @@ import logging
 import re
 import time
 from math import exp, log
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from ..config import (
     FAKE_TOOL_CALL_ID_PREFIX,

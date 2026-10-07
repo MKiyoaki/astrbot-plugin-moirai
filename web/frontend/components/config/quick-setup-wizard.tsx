@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ShieldCheck, FlaskConical, Check, Loader2 } from 'lucide-react'
+import { ShieldCheck, Check, Loader2 } from 'lucide-react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
@@ -52,7 +52,6 @@ const FEATURE_KEYS = [
   'summary_enabled',
   'impression_injection_enabled',
   'persona_influenced_summary',
-  'soul_enabled',
   'webui_enabled',
 ] as const
 type FeatureKey = (typeof FEATURE_KEYS)[number]
@@ -63,13 +62,12 @@ const DEFAULT_FEATURES: Record<FeatureKey, boolean> = {
   summary_enabled: true,
   impression_injection_enabled: true,
   persona_influenced_summary: true,
-  soul_enabled: false,
   webui_enabled: true,
 }
 
 // Features that change what the bot sends to the LLM / how it is visualised.
 const PROMPT_FEATURES: FeatureKey[] = [
-  'impression_injection_enabled', 'persona_influenced_summary', 'soul_enabled', 'webui_enabled',
+  'impression_injection_enabled', 'persona_influenced_summary', 'webui_enabled',
 ]
 const CORE_FEATURES: FeatureKey[] = ['embedding_enabled', 'relation_enabled', 'summary_enabled']
 
@@ -162,12 +160,6 @@ export function QuickSetupWizard({ open, onClose }: { open: boolean; onClose: ()
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="text-sm font-medium">{meta.label}</span>
-            {k === 'soul_enabled' && (
-              <Badge variant="outline" className="h-4 gap-0.5 px-1 text-[9px] border-amber-500/40 text-amber-600 dark:text-amber-400">
-                <FlaskConical className="size-2.5" />
-                {(i18n.config as any).experimental}
-              </Badge>
-            )}
           </div>
           <p className="text-xs text-muted-foreground leading-normal">{meta.desc}</p>
         </div>

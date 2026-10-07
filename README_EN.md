@@ -6,7 +6,7 @@
 
 **Three-Axis Long-Term Memory & Data Visualisation Plugin for AstrBot**
 
-[![version](https://img.shields.io/badge/version-v1.2.43.sub-blueviolet)](metadata.yaml)
+[![version](https://img.shields.io/badge/version-v1.2.44.sub-blueviolet)](metadata.yaml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![license](https://img.shields.io/badge/license-APGL-green)](LICENSE)
 [![zh](https://img.shields.io/badge/中文-README.md-red)](README.md)
@@ -28,9 +28,9 @@ Moirai adds three-axis persistent memory to AstrBot: conversations are automatic
 Highlights:
 
 - **Visualised memory management**: 7 WebUI pages covering the full data lifecycle — event timeline, interactive social graph, narrative summary reader, hybrid recall debugger, persona library, and live statistics. All data is browsable and editable in-browser.
-- **Highly configurable**: 70+ config keys; each subsystem (social graph, summaries, Soul Layer, VCM) can be toggled independently. Retrieval strategy, event boundary thresholds, and decay rates are all tunable per deployment.
+- **Highly configurable**: 70+ config keys; each subsystem (social graph, summaries, VCM) can be toggled independently. Retrieval strategy, event boundary thresholds, and decay rates are all tunable per deployment.
 - **Memory recall costs zero extra LLM calls**: Retrieving and injecting memory on every message requires no LLM calls — no added API cost, no added latency. BM25 keyword search (Chinese indexed as adjacent character pairs plus single characters, no segmenter dependency) and vector semantic search run in parallel, fused via RRF; the summary segments of the recalled events are then ranked together by meaning (each segment is embedded at extraction time and the query vector from search is reused, so no extra request; plus a small weight for shared rare terms) and injected within a configurable token budget. Without embeddings, each event contributes the segments sharing the most terms with the message.
-- **Graceful degradation**: Falls back to BM25 when the embedding model is unavailable. Social graph, summaries, and Soul Layer are fully isolated — a failure in one module does not affect the memory injection hot path.
+- **Graceful degradation**: Falls back to BM25 when the embedding model is unavailable. Social graph and summaries are fully isolated — a failure in one module does not affect the memory injection hot path.
 
 ---
 
@@ -99,7 +99,6 @@ All commands require **admin-level** AstrBot permissions. Send `/mrm language en
 | `/mrm status` | Plugin runtime status (tasks, active sessions, WebUI state) |
 | `/mrm recall <keywords>` | Manual hybrid memory retrieval with scores |
 | `/mrm persona <PlatID>` | User persona profile (description, Big Five scores, evidence events) |
-| `/mrm soul` | Current session emotional state across 4 dimensions (requires Soul Layer) |
 
 **Action Commands**
 
@@ -160,7 +159,6 @@ The WebUI uses two-tier auth: **Login** (password at `data_dir/.webui_password`)
 | Persona Synthesis | `persona_synthesis_enabled` | ✅ on |
 | Salience Decay | `decay_enabled` | ✅ on |
 | Auto Cleanup | `memory_cleanup_enabled` | ✅ on |
-| Soul Layer | `soul_enabled` | ❌ off |
 | Markdown Projection | `markdown_projection_enabled` | ✅ on |
 | VCM State Machine | `vcm_enabled` | ✅ on |
 
@@ -226,7 +224,6 @@ The local model is downloaded from HuggingFace on first start and may time out o
 | Embedding model | Local model optimized for Chinese; English-heavy deployments should use an API provider |
 | Graph scale | Designed for < 500 nodes; very large group histories may degrade UI performance |
 | LLM quality | Extraction quality depends on configured LLM capability |
-| Soul Layer | Experimental; may behave unexpectedly at extreme parameter values |
 | Token budget | 800-token hard cap; relevant events may be excluded in high-activity groups |
 
 ---

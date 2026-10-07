@@ -187,8 +187,3 @@ class BaseRecallManager(BaseManager, ABC):
         Returns the number of events actually injected.
         """
         ...
-
-    @abstractmethod
-    def get_soul_states(self) -> dict[str, Any]:
-        """Return all active soul states (emotional states per session)."""
-        ...

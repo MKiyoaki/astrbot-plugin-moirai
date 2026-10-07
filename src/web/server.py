@@ -269,7 +269,6 @@ class WebuiServer:
         app.router.add_get("/api/summaries", self._wrap("auth", self._handle_summaries))
         app.router.add_get("/api/summary", self._wrap("auth", self._handle_summary))
         app.router.add_get("/api/stats", self._wrap("auth", self._handle_stats))
-        app.router.add_get("/api/soul/states", self._wrap("auth", self._handle_soul_states))
         app.router.add_post("/api/admin/run_task", self._wrap("sudo", self._handle_run_task))
         app.router.add_put("/api/summary", self._wrap("sudo", self._handle_update_summary))
         app.router.add_post("/api/summary/regenerate", self._wrap("sudo", self._handle_regenerate_summary))
@@ -666,7 +665,6 @@ class WebuiServer:
             summary_trigger_rounds=self._summary_trigger_rounds,
             show_llm_call_details=bool(self._read_config().get("show_llm_call_details", False)),
         )
-        data["soul_enabled"] = bool(self._initial_config.get("soul_enabled", True))
         return data
 
     async def _handle_auth_status(self, request: web.Request) -> web.Response:
@@ -759,10 +757,6 @@ class WebuiServer:
         return _json({"content": content, "linked_events": [link.to_dict() for link in links]})
 
     async def _handle_stats(self, _: web.Request) -> web.Response: return _json(await self.stats_data())
-
-    async def _handle_soul_states(self, _: web.Request) -> web.Response:
-        states = getattr(self._recall_manager, "get_soul_states", lambda: {})() if self._recall_manager else {}
-        return _json({"states": states})
 
     async def _handle_run_task(self, request: web.Request) -> web.Response:
         if not self._task_runner: return _json({"error": "no runner"}, status=503)

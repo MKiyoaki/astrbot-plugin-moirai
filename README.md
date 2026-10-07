@@ -6,7 +6,7 @@
 
 **AstrBot 三轴长期记忆与数据可视化插件**
 
-[![version](https://img.shields.io/badge/版本-v1.2.43.sub-blueviolet)](metadata.yaml)
+[![version](https://img.shields.io/badge/版本-v1.2.44.sub-blueviolet)](metadata.yaml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![license](https://img.shields.io/badge/license-APGL-green)](LICENSE)
 [![en](https://img.shields.io/badge/English-README__EN.md-blue)](README_EN.md)
@@ -21,7 +21,7 @@ Made with ♥ by MKiyoaki & Gariton
 
 ## cb5t-loop-wiring 工作分支：Core 事件接入
 
-此工作分支版本为 `v1.2.43.sub`，基于上游 `Oedipus-Sub`，尚未提交或发布。v1.2.43.sub 把代码移到 `src/`、配置改为 `configs/` 下的 Hydra 配置，见下方「代码目录与配置」。五阶段自动事件消费与注入需要启用支持 Event Protocol v1 的 Core；缺失、停用或不兼容时暂停自动处理，保留数据库和独立管理功能。
+此工作分支版本为 `v1.2.44.sub`，基于上游 `Oedipus-Sub`，尚未提交或发布。v1.2.44.sub 移除了 Soul Layer（情绪四维状态、`/mrm soul`、`soul_*` 配置和 WebUI 监视卡片）；旧配置里的 `soul_*` 键会被忽略。v1.2.43.sub 把代码移到 `src/`、配置改为 `configs/` 下的 Hydra 配置，见下方「代码目录与配置」。五阶段自动事件消费与注入需要启用支持 Event Protocol v1 的 Core；缺失、停用或不兼容时暂停自动处理，保留数据库和独立管理功能。
 
 本轮另接可选 Annotation Protocol v1：保存每次回复的便签和 `记下` 约定，在当前窗口给同一个人带入上一轮便签，并在事件详情显示「当时的我」。旧 `[Eval]` 默认关闭，代码及已有摘要保留；视角注入召回仅保留默认关闭的开关，暂未实现。约定默认最多注入 3 条，结清搭在现有抽取调用里。说明与验证见 [每轮回路](docs/cb5t-loop-wiring.md)；Core 对话界面的调试开关是后续工作，当前未接。
 
@@ -42,9 +42,9 @@ Moirai 为 AstrBot 增加三轴持久记忆：每段对话自动切分为**情�
 核心亮点：
 
 - **可视化记忆管理**：7 页 WebUI 覆盖完整数据生命周期——事件时间轴、交互式社交关系图、叙事摘要阅读器、混合检索调试、人格档案库与实时统计，所有数据均可在线查看和编辑
-- **高度可定制**：70+ 配置项，各子系统（社交图谱、摘要、Soul Layer、VCM）均可独立开关；检索策略、事件切分阈值、衰减速率均可按场景精细调节
+- **高度可定制**：70+ 配置项，各子系统（社交图谱、摘要、VCM）均可独立开关；检索策略、事件切分阈值、衰减速率均可按场景精细调节
 - **记忆召回不消耗额外 LLM**：每条消息的记忆检索与上下文注入零 LLM 调用，不增加 API 费用也不拉长响应链路；BM25 关键词（中文按相邻两字与单字建索引，无需分词库）与向量语义并行搜索，RRF 融合排序后，召回事件的摘要段落按与问题的语义相近度（每段在整理记忆时预先算好向量，检索时复用问题向量，不多发请求；另加少量字面重合分）统一排序，在 Token 预算内注入；未启用向量时按与问题共有的词逐事件挑选
-- **可靠降级**：Embedding 不可用时自动退回 BM25；社交图谱、摘要、Soul Layer 各自独立，单模块故障不影响记忆注入主路径
+- **可靠降级**：Embedding 不可用时自动退回 BM25；社交图谱、摘要各自独立，单模块故障不影响记忆注入主路径
 - **完整事件整理**：`llm` 策略默认先按完整记忆单位分段，追问、玩笑与短暂题外话不单独成事件；长段按提取上下文上限均分分页，后一页带前页摘要作背景，不再只整理窗口末尾。缺失的段落向量在后台补算，当前注入使用旧方法，不等待向量请求。实现与验证边界见 [memory segmentation](docs/memory-segmentation.md)。
 
 ---
@@ -116,7 +116,6 @@ pip install sentence-transformers bcrypt
 | `/mrm status` | 插件运行状态（任务、活跃会话、WebUI 状态） |
 | `/mrm recall <关键词>` | 手动触发混合记忆检索，返回匹配事件与评分 |
 | `/mrm persona <平台ID>` | 查看指定用户的人格档案（Big Five 评分、支撑事件） |
-| `/mrm soul` | 当前会话四维情绪状态（需启用 Soul Layer） |
 
 **操作指令**
 
@@ -177,7 +176,6 @@ WebUI 采用双层认证：**登录**（密码存于 `data_dir/.webui_password`�
 | 人格档案合成 | `persona_synthesis_enabled` | ✅ 开 |
 | 显著度衰减 | `decay_enabled` | ✅ 开 |
 | 自动清理 | `memory_cleanup_enabled` | ✅ 开 |
-| Soul Layer | `soul_enabled` | ❌ 关 |
 | Markdown 投影 | `markdown_projection_enabled` | ✅ 开 |
 | VCM 状态机 | `vcm_enabled` | ✅ 开 |
 
@@ -245,7 +243,6 @@ WebUI 采用双层认证：**登录**（密码存于 `data_dir/.webui_password`�
 | 嵌入模型 | 本地模型针对中文优化，英文为主的部署建议配置 API 提供商 |
 | 图谱规模 | 设计目标 < 500 节点，超大群组历史可能影响 UI 性能 |
 | LLM 质量 | 话题标注、Big Five 评分、摘要质量取决于所配置 LLM 的能力 |
-| Soul Layer | 实验性，极端参数下行为可能异常 |
 | Token 上限 | 800 Token 注入为硬上限，高活跃群组中部分相关事件可能被截断 |
 
 ---

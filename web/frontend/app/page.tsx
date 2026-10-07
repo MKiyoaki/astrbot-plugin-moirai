@@ -8,7 +8,6 @@ import {
   DensityRibbon,
   UtilityNavCards,
   RecentEventsStrip,
-  SoulMonitor,
 } from '@/components/landing'
 import * as api from '@/lib/api'
 
@@ -63,9 +62,6 @@ export default function HomePage() {
 
         {/* Row 4: Recent Events Strip (3-column) */}
         <RecentEventsStrip events={recentThree} loading={loading} />
-
-        {/* Row 5: Soul Monitor (conditional) */}
-        <SoulMonitor />
       </main>
     </div>
   )

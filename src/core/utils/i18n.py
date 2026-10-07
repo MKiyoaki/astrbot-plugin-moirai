@@ -130,15 +130,6 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "cmd.persona.confidence": "置信度：{pct}%",
         "cmd.persona.not_found": "未找到平台 {platform} 上 ID 为 {id} 的人格档案。",
         "cmd.persona.no_repo": "人格仓库未加载。",
-        "cmd.soul.header": "【当前会话情绪状态】",
-        "cmd.soul.neutral": "当前会话情绪状态：中立（无偏移）",
-        "cmd.soul.recall_depth": "记忆检索驱动：{val}",
-        "cmd.soul.impression_depth": "社交关注度：{val}",
-        "cmd.soul.expression_desire": "表达欲：{val}",
-        "cmd.soul.creativity": "创意度：{val}",
-        "cmd.soul.level_high": "偏高",
-        "cmd.soul.level_low": "偏低",
-        "cmd.soul.level_neutral": "中立",
         "cmd.recall.not_found": "未找到与「{query}」相关的记忆。",
         "cmd.task.triggered": "任务 '{task}' 已触发执行。",
         "cmd.task.not_found": "未找到任务 '{task}'。可用任务：{available}",
@@ -192,7 +183,6 @@ _STRINGS: Dict[str, Dict[str, str]] = {
             "--- 信息查询 ---\n"
             "/mrm status               - 查询插件运行状态\n"
             "/mrm persona <PlatID>     - 查看用户人格档案 + 大五人格\n"
-            "/mrm soul                 - 查看当前会话情绪状态\n"
             "/mrm recall <关键词>      - 手动触发记忆检索\n"
             "--- 操作 ---\n"
             "/mrm webui on|off         - 启动或关闭 WebUI\n"
@@ -332,15 +322,6 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "cmd.persona.confidence": "Confidence: {pct}%",
         "cmd.persona.not_found": "No persona found for ID {id} on platform {platform}.",
         "cmd.persona.no_repo": "Persona repository not loaded.",
-        "cmd.soul.header": "【Current Session Mood State】",
-        "cmd.soul.neutral": "Current session mood: Neutral (no deviation)",
-        "cmd.soul.recall_depth": "Recall Drive: {val}",
-        "cmd.soul.impression_depth": "Social Attention: {val}",
-        "cmd.soul.expression_desire": "Expression Desire: {val}",
-        "cmd.soul.creativity": "Creativity: {val}",
-        "cmd.soul.level_high": "High",
-        "cmd.soul.level_low": "Low",
-        "cmd.soul.level_neutral": "Neutral",
         "cmd.recall.not_found": "No memories found related to \"{query}\".",
         "cmd.task.triggered": "Task '{task}' has been triggered.",
         "cmd.task.not_found": "Task '{task}' not found. Available: {available}",
@@ -394,7 +375,6 @@ _STRINGS: Dict[str, Dict[str, str]] = {
             "--- Info ---\n"
             "/mrm status               - Plugin running status\n"
             "/mrm persona <PlatID>     - User persona profile + Big Five\n"
-            "/mrm soul                 - Current session mood state\n"
             "/mrm recall <keywords>    - Manual memory retrieval\n"
             "--- Actions ---\n"
             "/mrm webui on|off         - Start or stop WebUI\n"
@@ -534,15 +514,6 @@ _STRINGS: Dict[str, Dict[str, str]] = {
         "cmd.persona.confidence": "信頼度：{pct}%",
         "cmd.persona.not_found": "プラットフォーム {platform} に ID {id} のペルソナが見つかりません。",
         "cmd.persona.no_repo": "ペルソナリポジトリが読み込まれていません。",
-        "cmd.soul.header": "【現在のセッション感情状態】",
-        "cmd.soul.neutral": "現在のセッション感情状態：中立（偏りなし）",
-        "cmd.soul.recall_depth": "記憶検索ドライブ：{val}",
-        "cmd.soul.impression_depth": "社会的注目度：{val}",
-        "cmd.soul.expression_desire": "表現欲：{val}",
-        "cmd.soul.creativity": "創造性：{val}",
-        "cmd.soul.level_high": "高め",
-        "cmd.soul.level_low": "低め",
-        "cmd.soul.level_neutral": "中立",
         "cmd.recall.not_found": "「{query}」に関連する記憶が見つかりません。",
         "cmd.task.triggered": "タスク '{task}' の実行をトリガーしました。",
         "cmd.task.not_found": "タスク '{task}' が見つかりません。利用可能：{available}",
@@ -596,7 +567,6 @@ _STRINGS: Dict[str, Dict[str, str]] = {
             "--- 情報照会 ---\n"
             "/mrm status               - プラグインの実行状態を確認\n"
             "/mrm persona <PlatID>     - ユーザーのペルソナプロフィール + ビッグファイブ\n"
-            "/mrm soul                 - 現在のセッション感情状態を確認\n"
             "/mrm recall <キーワード>  - 手動で記憶を検索\n"
             "--- 操作 ---\n"
             "/mrm webui on|off         - WebUI の起動または停止\n"

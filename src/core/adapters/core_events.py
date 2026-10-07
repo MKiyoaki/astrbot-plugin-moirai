@@ -70,8 +70,7 @@ class MoiraiCoreProvider:
                                               "before_tool", "decorate"],
                 "blocks": [{"id": "memory", "start": "<!-- EM:MEMORY:START -->",
                             "end": "<!-- EM:MEMORY:END -->"},
-                           {"id": "soul", "start": "<!-- EM:SOUL:START -->",
-                            "end": "<!-- EM:SOUL:END -->"}, dict(CANON_BLOCK),
+                           dict(CANON_BLOCK),
                            dict(NOTES_BLOCK), dict(COMMITMENTS_BLOCK)],
                 "tool_prefix": "em_recall_", "timeout_seconds": 10.0}
 

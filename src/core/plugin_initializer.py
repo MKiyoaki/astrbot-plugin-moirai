@@ -252,7 +252,6 @@ class PluginInitializer:
             injection_config=cfg.get_injection_config(),
             persona_repo=persona_repo,
             impression_repo=impression_repo,
-            soul_config=cfg.get_soul_config(),
             raw_message_repo=raw_message_repo,
             persona_group_repo=persona_group_repo,
             commitment_repo=commitment_repo,
@@ -348,7 +347,7 @@ class PluginInitializer:
         # also extracted instead of silently dropped.
         self.context_manager._evict_callback = on_event_close
         # Keep RecallManager's per-session state in sync with ContextManager's
-        # session lifecycle so soul states and debug caches are freed promptly.
+        # session lifecycle so debug caches are freed promptly.
         if self.recall is not None:
             self.context_manager._on_session_evict = self.recall.evict_session
 
@@ -664,8 +663,6 @@ class PluginInitializer:
         # Modules
         report.append(get_string("cmd.init.module", lang).format(
             name="Memory", status=active_label))
-        report.append(get_string("cmd.init.module", lang).format(
-            name="Soul", status=active_label if cfg.get_soul_config().enabled else inactive_label))
         report.append(get_string("cmd.init.module", lang).format(
             name="WebUI", status=active_label if cfg.webui_enabled else inactive_label))
         report.append(get_string("cmd.init.module", lang).format(

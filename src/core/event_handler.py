@@ -185,18 +185,6 @@ def _format_injection_debug_for_display(debug: dict) -> str:
         lines.append("")
         lines.append("Social impression hints: not injected")
 
-    soul = debug.get("soul") if isinstance(debug.get("soul"), dict) else None
-    if soul:
-        ordered = [
-            f"recall_depth={soul.get('recall_depth')}",
-            f"impression_depth={soul.get('impression_depth')}",
-            f"expression_desire={soul.get('expression_desire')}",
-            f"creativity={soul.get('creativity')}",
-        ]
-        lines.append("")
-        lines.append("Soul Layer：已注入")
-        lines.append("  ▸ " + ", ".join(ordered))
-
     lines.append("")
     hidden = debug.get("hidden")
     if isinstance(hidden, list) and hidden:

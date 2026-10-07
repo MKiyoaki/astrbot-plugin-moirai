@@ -229,23 +229,6 @@ class MoiraiPlugin(Star):
             )
         )
 
-    @mrm.command("soul")
-    async def mrm_soul(self, event: AstrMessageEvent):
-        '''查看当前会话情绪状态。用法：/mrm soul'''
-        if not self._initializer:
-            yield event.plain_result("插件未初始化。")
-            return
-        soul_states = (
-            self._initializer.recall._soul_states
-            if self._initializer.recall is not None
-            else {}
-        )
-        yield event.plain_result(
-            await self._initializer.command_manager.soul(
-                event.unified_msg_origin, soul_states
-            )
-        )
-
     @mrm.command("recall")
     async def mrm_recall(self, event: AstrMessageEvent, query: str):
         '''手动触发记忆检索并返回结果。用法：/mrm recall <关键词>'''

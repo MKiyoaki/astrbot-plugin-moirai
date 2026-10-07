@@ -338,58 +338,6 @@
       "description": "History Cleanup Batch Size",
       "hint": "Minimum number of old summarized messages to attempt to delete when the history limit is exceeded."
     },
-    "soul": {
-      "description": "Emotion Four-Dimensional State (Soul Layer)",
-      "hint": "Dynamic emotion state that changes with conversation and can be injected into the system prompt to influence reply style."
-    },
-    "soul.soul_enabled": {
-      "description": "Enable Emotion Four-Dimensional State (Soul Layer)",
-      "hint": "When enabled, RecallDepth, ImpressionDepth, ExpressionDesire, and Creativity update dynamically during conversation and are injected into the system prompt to influence reply style."
-    },
-    "soul_enabled": {
-      "description": "Enable Emotion Four-Dimensional State (Soul Layer)",
-      "hint": "When enabled, RecallDepth, ImpressionDepth, ExpressionDesire, and Creativity update dynamically during conversation and are injected into the system prompt to influence reply style."
-    },
-    "soul.soul_decay_rate": {
-      "description": "Emotion Decay Rate (per turn)",
-      "hint": "The ratio by which each emotion dimension decays toward zero after every conversation turn. 0.1 means 10% decay per turn."
-    },
-    "soul_decay_rate": {
-      "description": "Emotion Decay Rate (per turn)",
-      "hint": "The ratio by which each emotion dimension decays toward zero after every conversation turn. 0.1 means 10% decay per turn."
-    },
-    "soul.soul_recall_depth_init": {
-      "description": "Initial Memory Retrieval Drive",
-      "hint": "Initial value for RecallDepth, from -20 to +20. 0 is neutral."
-    },
-    "soul_recall_depth_init": {
-      "description": "Initial Memory Retrieval Drive",
-      "hint": "Initial value for RecallDepth, from -20 to +20. 0 is neutral."
-    },
-    "soul.soul_impression_depth_init": {
-      "description": "Initial Social Attention",
-      "hint": "Initial value for ImpressionDepth, from -20 to +20. 0 is neutral."
-    },
-    "soul_impression_depth_init": {
-      "description": "Initial Social Attention",
-      "hint": "Initial value for ImpressionDepth, from -20 to +20. 0 is neutral."
-    },
-    "soul.soul_expression_desire_init": {
-      "description": "Initial Expression Desire",
-      "hint": "Initial value for ExpressionDesire, from -20 to +20. 0 is neutral."
-    },
-    "soul_expression_desire_init": {
-      "description": "Initial Expression Desire",
-      "hint": "Initial value for ExpressionDesire, from -20 to +20. 0 is neutral."
-    },
-    "soul.soul_creativity_init": {
-      "description": "Initial Creativity",
-      "hint": "Initial value for Creativity, from -20 to +20. 0 is neutral."
-    },
-    "soul_creativity_init": {
-      "description": "Initial Creativity",
-      "hint": "Initial value for Creativity, from -20 to +20. 0 is neutral."
-    },
     "cleanup": {
       "description": "Memory Cleanup",
       "hint": "Periodically cleans old memories whose importance decays below the threshold to control database size."

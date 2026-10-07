@@ -189,7 +189,7 @@ export function ParamsPanel({
                 </Button>
               )
               if (mode !== 'force') return btn
-              // 力导向为实验性布局 — 与 Soul Layer 一致打实验标记
+              // 力导向为实验性布局，打实验标记
               return (
                 <Tooltip key={mode}>
                   <TooltipTrigger asChild>{btn}</TooltipTrigger>

@@ -31,8 +31,6 @@ export const zh = {
     recall: '混合召回',
     coreProtected: '核心记忆受保护中',
     manageLibrary: '管理信息库',
-    soulMonitor: 'Soul Layer 情绪状态',
-    soulNoActive: '当前暂无活跃会话的情绪状态',
     recallDepth: '记忆检索驱动',
     impressionDepth: '社交关注度',
     expressionDesire: '表达欲',
@@ -613,7 +611,6 @@ export const zh = {
       retrieval: '检索参数',
       boundary: '事件流',
       vcm: '虚拟上下文 (VCM)',
-      soul: '情绪系统 (Soul Layer)',
       cleanup: '记忆清理',
       summaries: '摘要记忆',
       relation: '社会关系与印象',
@@ -669,7 +666,6 @@ export const zh = {
         summary_enabled: { label: '每日叙事摘要', desc: '定期为活跃群组生成叙事摘要' },
         impression_injection_enabled: { label: '印象注入', desc: '在 system prompt 注入少量关系线索，轻微影响语气' },
         persona_influenced_summary: { label: '按性格视角记忆事件', desc: '提取事件摘要时带入 Bot 当前性格视角' },
-        soul_enabled: { label: '情绪四维 (Soul)', desc: '实验性：四维情绪状态随对话变化并注入 prompt' },
         webui_enabled: { label: 'WebUI 记忆面板', desc: '在浏览器中可视化管理记忆' },
       },
       presets: {
@@ -750,32 +746,6 @@ export const zh = {
       context_max_sessions: { label: '最大缓存会话数', hint: '内存中保留的活跃会话上限' },
       context_session_idle_seconds: { label: '会话过期时间 (秒)', hint: '无新消息自动释放内存的时间' },
       context_window_size: { label: '上下文窗口大小', hint: '传给 LLM 的历史消息条数' },
-      soul_enabled: { label: '启用情绪四维状态', hint: '开启后 Soul Layer 将随对话动态更新并注入 system prompt' },
-      soul_decay_rate: { 
-        label: '情绪衰减率', 
-        hint: '情绪向中性回归的速度。0.1 表示每轮衰减 10%',
-        tooltip: '决定情绪消退的速度。值越大，Bot 的情绪变化越快（健忘）；值越小，情绪越持久稳定。'
-      },
-      soul_recall_depth_init: {
-        label: '记忆检索驱动初始值',
-        hint: '记忆检索的活跃基调。正值→主动回忆往事（博学/念旧），负值→聚焦当前对话。',
-        tooltip: 'RecallDepth 基调，范围 -20 到 +20'
-      },
-      soul_impression_depth_init: {
-        label: '社交关注度初始值',
-        hint: '社交关注的活跃基调。正值→在意对方人格与彼此关系，负值→公事公办风格。',
-        tooltip: 'ImpressionDepth 基调，范围 -20 到 +20'
-      },
-      soul_expression_desire_init: {
-        label: '表达欲初始值',
-        hint: '表达欲望的活跃基调。正值→长句多段落（话痨），负值→回复精简（高冷）。',
-        tooltip: 'ExpressionDesire 基调，范围 -20 到 +20'
-      },
-      soul_creativity_init: {
-        label: '创意度初始值',
-        hint: '思维活跃基调。正值→使用比喻/联想/跳跃话题，负值→表达平实逻辑化。',
-        tooltip: 'Creativity 基调，范围 -20 到 +20'
-      },
       memory_cleanup_enabled: { label: '启用自动清理', hint: '定期清理低重要度记忆' },
       memory_cleanup_threshold: { label: '清理阈值', hint: '低于此重要度的事件将先归档，超过保留期后删除' },
       memory_cleanup_interval_days: { label: '清理周期 (天)', hint: '执行清理任务的时间间隔' },
@@ -1010,8 +980,6 @@ export const ja = {
     recall: 'ハイブリッド想起',
     coreProtected: 'コアメモリ保護中',
     manageLibrary: 'ライブラリ管理',
-    soulMonitor: 'ソウルレイヤー監視',
-    soulNoActive: 'アクティブなセッションの感情状態はありません',
     recallDepth: '記憶検索駆動',
     impressionDepth: '社会的関心度',
     expressionDesire: '表現欲',
@@ -1588,7 +1556,6 @@ export const ja = {
       retrieval: '検索パラメータ',
       boundary: 'イベントフロー',
       vcm: '仮想コンテキスト (VCM)',
-      soul: '感情システム (Soul Layer)',
       cleanup: '記憶のクリーンアップ',
       summaries: '要約記憶',
       relation: '社会関係と印象',
@@ -1644,7 +1611,6 @@ export const ja = {
         summary_enabled: { label: '毎日の物語要約', desc: 'アクティブなグループの物語要約を定期生成' },
         impression_injection_enabled: { label: '印象の注入', desc: 'system prompt に少量の関係ヒントを注入し口調に微影響' },
         persona_influenced_summary: { label: 'ペルソナ視点で記憶', desc: 'イベント要約抽出時に Bot の現在のペルソナ視点を反映' },
-        soul_enabled: { label: '感情四次元 (Soul)', desc: '実験的：四次元の感情状態が会話で変化し prompt に注入' },
         webui_enabled: { label: 'WebUI 記憶パネル', desc: 'ブラウザで記憶を可視化管理' },
       },
       presets: {
@@ -1725,12 +1691,6 @@ export const ja = {
       context_max_sessions: { label: '最大キャッシュセッション数', hint: 'メモリに保持されるアクティブセッションの上限' },
       context_session_idle_seconds: { label: 'セッション有効期限 (秒)', hint: '新しいメッセージがない場合にメモリを自動解放する時間' },
       context_window_size: { label: 'コンテキストウィンドウサイズ', hint: 'LLM に渡される履歴メッセージ数' },
-      soul_enabled: { label: '感情四次元状態を有効にする', hint: 'Soul Layer を有効にするとシステムプロンプトに注入されます' },
-      soul_decay_rate: { label: '感情減衰率（ターンごと）', hint: '各ターン後に次元がゼロへ減衰する割合、0.1 = 10% 減衰', tooltip: '感情の消退速度を決定します。値が大きいほど変化が速く（忘れっぽい）、値が小さいほど感情が持続します。' },
-      soul_recall_depth_init: { label: '記憶検索駆動の初期値', hint: '記憶検索の基調。正値→過去を積極的に想起（博識/郷愁）、負値→現在の会話に集中。', tooltip: 'RecallDepth の基調、範囲 -20 ～ +20' },
-      soul_impression_depth_init: { label: '社会的関心度の初期値', hint: '社会的関心の基調。正値→相手の人格や関係性を重視、負値→ビジネスライクな応対。', tooltip: 'ImpressionDepth の基調、範囲 -20 ～ +20' },
-      soul_expression_desire_init: { label: '表現欲の初期値', hint: '表現欲の基調。正値→長文・多段落（饒舌）、負値→簡潔な応答（クール）。', tooltip: 'ExpressionDesire の基調、範囲 -20 ～ +20' },
-      soul_creativity_init: { label: '創造性の初期値', hint: '思考活性の基調。正値→比喩・連想・脱線を促す、負値→論理的で平易な表現。', tooltip: 'Creativity の基調、範囲 -20 ～ +20' },
       memory_cleanup_enabled: { label: '自動クリーンアップを有効にする', hint: '重要度の低いメモリを定期的にクリーンアップします' },
       memory_cleanup_threshold: { label: 'クリーンアップしきい値', hint: 'この重要度を下回るとアーカイブされ、保持期間後に削除されます' },
       memory_cleanup_interval_days: { label: 'クリーンアップ周期 (日)', hint: 'クリーンアップタスクを実行する間隔' },
@@ -1964,8 +1924,6 @@ export const en = {
     recall: 'Recall',
     coreProtected: 'Core Memories Protected',
     manageLibrary: 'Manage Library',
-    soulMonitor: 'Soul Layer Monitor',
-    soulNoActive: 'No active session emotional states',
     recallDepth: 'Recall Depth',
     impressionDepth: 'Impression Depth',
     expressionDesire: 'Expression Desire',
@@ -2541,7 +2499,6 @@ export const en = {
       retrieval: 'Retrieval Parameters',
       boundary: 'Event Flow',
       vcm: 'Virtual Context (VCM)',
-      soul: 'Emotion System (Soul Layer)',
       cleanup: 'Memory Cleanup',
       summaries: 'Summaries',
       relation: 'Social Relations & Impressions',
@@ -2597,7 +2554,6 @@ export const en = {
         summary_enabled: { label: 'Daily Narrative Summary', desc: 'Periodically generate narrative summaries for active groups' },
         impression_injection_enabled: { label: 'Impression Injection', desc: 'Inject a few relation hints into the system prompt to lightly shape tone' },
         persona_influenced_summary: { label: 'Persona-Aware Memory', desc: "Bake the bot's current persona viewpoint into extracted event summaries" },
-        soul_enabled: { label: 'Soul Layer (4-axis emotion)', desc: 'Experimental: a 4-axis emotional state shifts with conversation and is injected into the prompt' },
         webui_enabled: { label: 'WebUI Memory Panel', desc: 'Visually manage memory in the browser' },
       },
       presets: {
@@ -2678,32 +2634,6 @@ export const en = {
       context_max_sessions: { label: 'Max Cached Sessions', hint: 'Active sessions kept in memory' },
       context_session_idle_seconds: { label: 'Session Idle Timeout', hint: 'Seconds before idle session is evicted' },
       context_window_size: { label: 'Context Window Size', hint: 'History messages sent to LLM' },
-      soul_enabled: { label: 'Enable Soul Layer', hint: 'Injects dynamic 4D emotional state into system prompt' },
-      soul_decay_rate: { 
-        label: 'Emotion Decay Rate', 
-        hint: 'Speed of return to neutral. 0.1 means 10% decay per turn',
-        tooltip: 'Determines how fast emotions fade. Higher values make the Bot more volatile (forgetful); lower values make emotions more persistent.'
-      },
-      soul_recall_depth_init: {
-        label: 'Recall Depth Init',
-        hint: 'The baseline for memory retrieval. Positive values make the Bot prone to recalling past events (erudite/nostalgic); negative values focus on the current moment.',
-        tooltip: 'RecallDepth baseline, range -20 to +20'
-      },
-      soul_impression_depth_init: {
-        label: 'Impression Depth Init',
-        hint: "The baseline for social attention. Positive values make the Bot care more about the user's personality and relationship; negative values make it more business-like.",
-        tooltip: 'ImpressionDepth baseline, range -20 to +20'
-      },
-      soul_expression_desire_init: {
-        label: 'Expression Desire Init',
-        hint: 'The baseline for the urge to express. Positive values lead to longer sentences and multiple paragraphs (talkative); negative values make replies concise (cool).',
-        tooltip: 'ExpressionDesire baseline, range -20 to +20'
-      },
-      soul_creativity_init: {
-        label: 'Creativity Init',
-        hint: 'The baseline for thinking activity. Positive values guide the Bot to use metaphors, associations, or jump topics; negative values make speech more plain and logical.',
-        tooltip: 'Creativity baseline, range -20 to +20'
-      },
       memory_cleanup_enabled: { label: 'Enable Auto Cleanup', hint: 'Periodically archive and delete low salience memories' },
       memory_cleanup_threshold: { label: 'Cleanup Threshold', hint: 'Events below this salience are archived first, then deleted after the retention period' },
       memory_cleanup_interval_days: { label: 'Cleanup Interval (Days)', hint: 'Frequency of cleanup tasks' },
