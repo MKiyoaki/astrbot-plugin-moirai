@@ -2,11 +2,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Must be first: add plugin root to sys.path before any local imports so
+# Must be first: add src/ to sys.path before any local imports so
 # AstrBot can resolve 'core' regardless of its working directory.
 _ROOT_DIR = Path(__file__).parent
-if str(_ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(_ROOT_DIR))
+_SRC_DIR = _ROOT_DIR / "src"
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
 
 
 def _purge_stale_local_modules() -> None:

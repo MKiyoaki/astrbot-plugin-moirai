@@ -28,11 +28,11 @@ M1（B1–B5）已完成；M2（B6–B9）的正式路径还没开始，但检�
 | B1 目录结构 | `config.py`、`schema.sql`、`store.py`、`prompt.py`、`extract.py`、`importer.py`、`cli.py`；基准用的 `audit.py`、`probes.py`、`compare.py`、`judge.py`、`bench.py`；时间事实用的 `fact_extract.py`、`fact_review.py`、`temporal.py`；终端与检索评测共用的 `query.py`、`reader.py`、`packing.py`、`assembly.py`、`retrieval.py`、`lexical.py`、`vector_index.py`、`context.py`、`overview.py`、`gateway.py` |
 | B2 配置 | `_conf_schema.json` 新增 `canon` 分组；`PluginConfig.get_canon_config()`；`canon_persona_map` 格式错误时对所有人格都不生效。`canon_enabled` 打开、映射有效且库存在时，插件在工作线程上打开 canon 库，经 Core Generation Protocol v1 提供工具和审稿（v1.2.33.sub，暂时只有词法检索） |
 | B3 canon.sqlite | schema v5（v2–v4 的旧库打开时原地升级）；trigram 全文表（不可用时降级为 bigram）；库内 `event_vec` 随共享 embedding 的维度创建，模型身份变化时清空重编码。终端试聊不读这两类表，见 [canon 终端试聊](canon-terminal.md) 的“检索”一节 |
-| B4 抽取 | 默认 `canon-extract-v10`（已运行 100 场景与 618 场景全量）；可选 `canon-extract-v11`（只跑过 20 和 100 场景试验）。确定性 user prompt、10 条校验规则、带问题清单的重试（连续失败最多 4 次）、超过 2 万字的场景分块、解析前修复字符串内部未转义的英文双引号。见 [canon 抽取与基准](canon-extraction.md) |
+| B4 抽取 | 只保留 `canon-extract-v11`（v1.2.43.sub 起；v7、v10 已删除，版本由 `configs/canon/default.yaml` 的 `extract.prompt_version` 指定）。确定性 user prompt、10 条校验规则、带问题清单的重试（连续失败最多 4 次）、超过 2 万字的场景分块、解析前修复字符串内部未转义的英文双引号。见 [canon 抽取与基准](canon-extraction.md) |
 | B5 导入 | 命令行导入；按 scene_hash 增量；抽取缓存；中断后续跑；删除包里已没有的场景；另有不调用模型的干员档案导入 `archive-import` |
 | 时间事实候选 | 全库分块抽取与失败续跑、审阅包与冲突分组、人工批准后导入、偏序与覆盖判断。V10 用 `canon-facts-v2`，V11 用 `canon-facts-v3`。V10 全库有 5,930 条候选，全部未审阅，库里没有已批准的事实。见 [canon 时间线与事实有效期](canon-temporal-facts.md) |
-| 抽取基准 | `cli bench` / `compare` / `judge`：真实接口、回放、估算；金标准探针、逐事件对比、重测信度、可选 LLM 裁判；手动测试用 `run_canon_dev.py` |
-| 终端试聊原型 | `moirai canon test`：路由、hybrid 检索、综述、结构扩展、档案工具、回复核验。查询解析、读取、装填、调度，以及一轮的工具、提示词和收尾（`core/canon/turn.py` 的 `CanonTurn`）都已在 `core/canon`；仓库根目录的 `run_canon_chat.py` 只剩命令行、会话、生成循环和输出。见 [canon 终端试聊](canon-terminal.md) |
+| 抽取基准 | `cli bench` / `compare` / `judge`：真实接口、回放、估算；金标准探针、逐事件对比、重测信度、可选 LLM 裁判；手动测试用 `src/tools/canon_dev.py` |
+| 终端试聊原型 | `moirai canon test`：路由、hybrid 检索、综述、结构扩展、档案工具、回复核验。查询解析、读取、装填、调度，以及一轮的工具、提示词和收尾（`src/core/canon/turn/canon_turn.py` 的 `CanonTurn`）都已在 `core/canon`；仓库根目录的 `src/tools/canon_chat.py` 只剩命令行、会话、生成循环和输出。见 [canon 终端试聊](canon-terminal.md) |
 | B6–B9 检索、注入、命令、初始化 | 正式路径未开始。终端原型已迁进 `core/canon`（v1.2.18.sub）；接入前要先定线程模型和其余待决问题，见 [canon 运行时结构](canon-runtime-architecture.md) |
 
 `/mrm canon import` 属于 B8，在 M2 接入；目前只有命令行入口。
@@ -94,6 +94,6 @@ Moirai core/canon（M1，已实现）
 - **`events` 表多了整数主键 `rid`**，`event_id` 改为 `NOT NULL UNIQUE`。全文检索按 rowid 关联，文本主键表的 rowid 在 `VACUUM` 后可能改变，会让全文索引错位。
 - **抽取出的实体先按别名查找**：名字已经是某个实体的别名（例如种子里的英文代号），就复用那个实体，不再新建。
 - **不用 `RETURNING`**：规格要求 SQLite ≥ 3.34，`RETURNING` 需要 3.35。
-- **测试用 unittest**：规格 B10 写的是 pytest，但本仓库环境没有 pytest，`run_realtime_dev.py --self-test` 用 unittest 发现测试。`tests/test_canon.py` 按现有测试的写法编写；`tests/` 按本仓库的 `.gitignore` 只留在本地。
+- **测试用 unittest**：规格 B10 写的是 pytest，但本仓库环境没有 pytest，`src/tools/realtime_dev.py --self-test` 用 unittest 发现测试。`tests/test_canon.py` 按现有测试的写法编写；`tests/` 按本仓库的 `.gitignore` 只留在本地。
 - **`SimpleLLMClient`** 增加可选参数 `timeout`（默认仍是 60 秒）和 `temperature`（默认仍是 0.1，裁判用 0），并把接口返回的 `usage` 带回来，用于统计 token。它固定发送 `temperature: 0.1`；部分推理模型只接受默认的 temperature，会返回 400，基准里记为接口失败，真实运行前先用一个场景试通。接口返回错误时，异常信息里带上响应体的前 300 字，方便看到网关给出的原因。
 - **`extract_scene` 和 `Importer` 多了可选的 `observer`**：每次模型调用后收到一条记录（块号、第几次、耗时、token、校验问题、原始回复），基准用它统计；正式导入不传。

@@ -16,7 +16,9 @@ web/
 │   │   └── shared/    # LoginScreen, TagSelector, Toaster
 │   ├── lib/           # api.ts, store.tsx, i18n.ts, utils.ts
 │   └── (build artifacts go to pages/moirai/ at repo root)
+src/web/               # Python side of the WebUI
 ├── server.py          # aiohttp backend — local debug only (webui_standalone_debug)
+├── plugin_routes.py   # AstrBot Plugin Page routes
 ├── auth.py            # Auth helpers
 └── registry.py        # Third-party panel registry
 ```

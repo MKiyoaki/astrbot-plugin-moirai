@@ -1,0 +1,4 @@
+# canon 抽取基准：真实接口、回放或估算；args 改成 [compare, <运行>, <运行>] 做对比。
+runner:
+  id: canon-bench
+args: [run]

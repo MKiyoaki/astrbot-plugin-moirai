@@ -1,0 +1,691 @@
+"""In-memory repository implementations — for testing only.
+
+All read methods return deep copies so callers cannot accidentally mutate
+the store. All write methods store deep copies for the same reason.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import math
+import time
+from collections.abc import Sequence
+from copy import deepcopy
+
+from ..domain.models import Event, Impression, Persona, PersonaGroup
+
+from .base import (
+    EventRepository,
+    EventStatusStats,
+    ImpressionRepository,
+    PersonaGroupRepository,
+    PersonaRepository,
+)
+
+
+class InMemoryPersonaRepository(PersonaRepository):
+    def __init__(self) -> None:
+        self._store: dict[str, Persona] = {}
+        # (platform, physical_id) → uid
+        self._bindings: dict[tuple[str, str], str] = {}
+
+    async def get(self, uid: str) -> Persona | None:
+        persona = self._store.get(uid)
+        return deepcopy(persona) if persona is not None else None
+
+    async def get_by_identity(self, platform: str, physical_id: str) -> Persona | None:
+        uid = self._bindings.get((platform, physical_id))
+        if uid is None:
+            return None
+        return await self.get(uid)
+
+    async def list_all(self) -> list[Persona]:
+        return [deepcopy(p) for p in self._store.values()]
+
+    async def count(self) -> int:
+        return len(self._store)
+
+    async def upsert(self, persona: Persona) -> None:
+        # Remove stale bindings that belonged to the previous version of this uid
+        old = self._store.get(persona.uid)
+        if old is not None:
+            for identity in old.bound_identities:
+                self._bindings.pop(identity, None)
+
+        copy = deepcopy(persona)
+        self._store[copy.uid] = copy
+        for identity in copy.bound_identities:
+            self._bindings[identity] = copy.uid
+
+    async def delete(self, uid: str) -> bool:
+        persona = self._store.pop(uid, None)
+        if persona is None:
+            return False
+        for identity in persona.bound_identities:
+            self._bindings.pop(identity, None)
+        return True
+
+    async def bind_identity(self, uid: str, platform: str, physical_id: str) -> None:
+        self._bindings[(platform, physical_id)] = uid
+        if uid in self._store:
+            persona = self._store[uid]
+            identity = (platform, physical_id)
+            if identity not in persona.bound_identities:
+                persona.bound_identities.append(identity)
+
+
+class InMemoryPersonaGroupRepository(PersonaGroupRepository):
+    """In-memory persona groups; member assignment mutates the shared persona store."""
+
+    def __init__(self, persona_repo: InMemoryPersonaRepository) -> None:
+        self._persona_repo = persona_repo
+        self._groups: dict[str, PersonaGroup] = {}
+
+    async def upsert_group(self, group: PersonaGroup) -> None:
+        self._groups[group.group_id] = deepcopy(group)
+
+    async def get_group(self, group_id: str) -> PersonaGroup | None:
+        group = self._groups.get(group_id)
+        return deepcopy(group) if group is not None else None
+
+    async def list_groups(self) -> list[PersonaGroup]:
+        return sorted(
+            (deepcopy(g) for g in self._groups.values()),
+            key=lambda g: g.updated_at,
+            reverse=True,
+        )
+
+    async def delete_group(self, group_id: str) -> bool:
+        if group_id not in self._groups:
+            return False
+        for persona in self._persona_repo._store.values():
+            if persona.group_id == group_id:
+                persona.group_id = None
+        del self._groups[group_id]
+        return True
+
+    async def set_member_group(self, uid: str, group_id: str | None) -> None:
+        persona = self._persona_repo._store.get(uid)
+        if persona is not None:
+            persona.group_id = group_id
+
+    async def list_member_uids(self, group_id: str) -> list[str]:
+        return [
+            uid
+            for uid, persona in self._persona_repo._store.items()
+            if persona.group_id == group_id
+        ]
+
+
+class InMemoryEventRepository(EventRepository):
+    def __init__(self) -> None:
+        self._store: dict[str, Event] = {}
+        self._segments: dict[str, tuple[str, dict[int, tuple[str, list[float]]]]] = {}
+        # Canonical tag bookkeeping — no vectors, but the df promotion gate is
+        # mirrored so behaviour matches the SQLite repo.
+        self._canonical_df: dict[str, int] = {}
+        self._canonical_created_at: dict[str, float] = {}
+        self._tag_categories: dict[str, tuple[str, float]] = {}
+        self._custom_interaction_tags: dict[str, set[str]] = {}
+        self._custom_tag_lock = asyncio.Lock()
+
+    async def get(self, event_id: str) -> Event | None:
+        event = self._store.get(event_id)
+        return deepcopy(event) if event is not None else None
+
+    async def list_all(
+        self, limit: int = 100,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Event]:
+        events = [
+            deepcopy(e) for e in self._store.values()
+            if _event_persona_matches(e, bot_persona_name, include_legacy)
+        ]
+        events.sort(key=lambda e: e.start_time, reverse=True)
+        return events[:limit]
+
+    async def list_by_group(
+        self, group_id: str | None, limit: int = 100, exclude_type: str | None = None,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Event]:
+        events = [
+            deepcopy(e) for e in self._store.values()
+            if e.group_id == group_id
+            and (exclude_type is None or e.event_type != exclude_type)
+            and _event_persona_matches(e, bot_persona_name, include_legacy)
+        ]
+        events.sort(key=lambda e: e.start_time, reverse=True)
+        return events[:limit]
+
+    async def list_by_participant(self, uid: str, limit: int = 100) -> list[Event]:
+        events = [
+            deepcopy(e) for e in self._store.values() if uid in e.participants
+        ]
+        events.sort(key=lambda e: e.start_time, reverse=True)
+        return events[:limit]
+
+    async def list_group_ids(self) -> list[str | None]:
+        return list({e.group_id for e in self._store.values()})
+
+    async def list_by_group_window(
+        self, group_id: str | None, start_ts: float, end_ts: float,
+        limit: int = 100,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Event]:
+        events = [
+            deepcopy(e) for e in self._store.values()
+            if e.group_id == group_id
+            and start_ts <= e.end_time < end_ts
+            and _event_persona_matches(e, bot_persona_name, include_legacy)
+        ]
+        events.sort(key=lambda e: e.start_time, reverse=True)
+        return events[:limit]
+
+    async def list_summary_scopes(
+        self, start_ts: float, end_ts: float,
+    ) -> list[tuple[str | None, str | None]]:
+        return sorted(
+            {
+                (e.group_id, e.bot_persona_name)
+                for e in self._store.values()
+                if start_ts <= e.end_time < end_ts
+            },
+            key=lambda item: (item[0] or "", item[1] or ""),
+        )
+
+    async def search_fts(
+        self, query: str, limit: int = 20, active_only: bool = True,
+        group_id: str | None = None, event_type: str | None = None,
+        scope_mode: str = "all",
+        bot_persona_name: str | None = None,
+    ) -> list[Event]:
+        """Naive term-in-string match over topic + tags. FTS5 replaces this in production."""
+        terms = query.lower().split()
+        results: list[Event] = []
+        for event in self._store.values():
+            if bot_persona_name is not None and event.bot_persona_name != bot_persona_name:
+                continue
+            if active_only and event.status != "active":
+                continue
+            if scope_mode == "group" and event.group_id != group_id:
+                continue
+            if scope_mode == "private" and event.group_id is not None:
+                continue
+            if event_type is not None and event.event_type != event_type:
+                continue
+            haystack = (event.topic + " " + " ".join(event.chat_content_tags)).lower()
+            if any(term in haystack for term in terms):
+                results.append(deepcopy(event))
+        results.sort(key=lambda e: e.salience, reverse=True)
+        return results[:limit]
+
+    async def search_vector(
+        self, embedding: list[float], limit: int = 20, active_only: bool = True,
+        group_id: str | None = None, event_type: str | None = None,
+        scope_mode: str = "all",
+        bot_persona_name: str | None = None,
+    ) -> list[Event]:
+        """Stub — no vector index in memory. Production uses sqlite-vec."""
+        return []
+
+    async def get_children(self, parent_event_id: str) -> list[Event]:
+        return [
+            deepcopy(e)
+            for e in self._store.values()
+            if parent_event_id in e.inherit_from
+        ]
+
+    async def upsert(self, event: Event) -> None:
+        stored = deepcopy(event)
+        existing = self._store.get(event.event_id)
+        if existing is not None:
+            stored.interaction_classification = deepcopy(
+                existing.interaction_classification
+            )
+        self._store[event.event_id] = stored
+
+    async def delete(self, event_id: str) -> bool:
+        if event_id not in self._store:
+            return False
+        del self._store[event_id]
+        self._segments.pop(event_id, None)
+        return True
+
+    async def upsert_segment_vectors(
+        self, event_id: str, identity: str, items: list[tuple[int, str, list[float]]]
+    ) -> None:
+        self._segments[event_id] = (identity, {o: (h, list(v)) for o, h, v in items})
+
+    async def get_segment_vectors(
+        self, event_ids: list[str], identity: str
+    ) -> dict[str, dict[int, tuple[str, list[float]]]]:
+        return {e: dict(self._segments[e][1]) for e in event_ids
+                if e in self._segments and self._segments[e][0] == identity}
+
+    async def update_salience(self, event_id: str, new_salience: float) -> bool:
+        if event_id not in self._store:
+            return False
+        self._store[event_id].salience = new_salience
+        return True
+
+    async def update_last_accessed(self, event_id: str, timestamp: float) -> bool:
+        if event_id not in self._store:
+            return False
+        self._store[event_id].last_accessed_at = timestamp
+        return True
+
+    async def increment_access_count(self, event_id: str) -> bool:
+        if event_id not in self._store:
+            return False
+        self._store[event_id].access_count += 1
+        return True
+
+    async def bump_event_usage(self, event_id: str, new_salience: float, timestamp: float) -> bool:
+        if event_id not in self._store:
+            return False
+        ev = self._store[event_id]
+        ev.salience = new_salience
+        ev.last_accessed_at = timestamp
+        ev.access_count += 1
+        return True
+
+
+    async def decay_all_salience(self, lambda_: float) -> int:
+        """Multiply every event's salience by exp(-lambda_).
+        Intended to be called once per day; lambda_=0.01 ≈ half-life 69 days.
+        """
+        factor = math.exp(-lambda_)
+        for event in self._store.values():
+            event.salience = max(0.0, event.salience * factor)
+        return len(self._store)
+
+    async def aggregate_by_status(self) -> dict[str, EventStatusStats]:
+        buckets: dict[str, list[Event]] = {}
+        for event in self._store.values():
+            buckets.setdefault(event.status, []).append(event)
+        result: dict[str, EventStatusStats] = {}
+        for status, events in buckets.items():
+            saliences = [e.salience for e in events]
+            result[status] = EventStatusStats(
+                total=len(events),
+                locked=sum(1 for e in events if e.is_locked),
+                avg_salience=(sum(saliences) / len(saliences)) if saliences else 0.0,
+                min_salience=min(saliences, default=0.0),
+                max_salience=max(saliences, default=0.0),
+            )
+        return result
+
+    async def count_groups(self) -> int:
+        return len({e.group_id for e in self._store.values()})
+
+    async def count_by_status(self, status: str) -> int:
+        return sum(1 for e in self._store.values() if e.status == status)
+
+    async def list_by_status(
+        self, status: str, limit: int = 100,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Event]:
+        events = [
+            deepcopy(e) for e in self._store.values()
+            if e.status == status
+            and _event_persona_matches(e, bot_persona_name, include_legacy)
+        ]
+        events.sort(key=lambda e: e.start_time, reverse=True)
+        return events[:limit]
+
+    async def set_status(self, event_id: str, status: str) -> bool:
+        if event_id not in self._store:
+            return False
+        self._store[event_id].status = status
+        return True
+
+    async def set_locked(self, event_id: str, is_locked: bool) -> bool:
+        if event_id not in self._store:
+            return False
+        self._store[event_id].is_locked = is_locked
+        return True
+
+    async def cleanup_low_salience_events(self, threshold: float) -> int:
+        to_delete = [
+            eid for eid, ev in self._store.items()
+            if ev.salience < threshold and not ev.is_locked
+        ]
+        for eid in to_delete:
+            del self._store[eid]
+        return len(to_delete)
+
+    async def archive_low_salience_events(self, threshold: float) -> int:
+        import dataclasses
+        from ..domain.models import EventStatus
+        count = 0
+        for eid, ev in list(self._store.items()):
+            if ev.salience < threshold and not ev.is_locked and ev.status == EventStatus.ACTIVE:
+                self._store[eid] = dataclasses.replace(ev, status=EventStatus.ARCHIVED)
+                count += 1
+        return count
+
+    async def delete_old_archived_events(self, cutoff_ts: float) -> int:
+        from ..domain.models import EventStatus
+        to_delete = [
+            eid for eid, ev in self._store.items()
+            if ev.status == EventStatus.ARCHIVED and ev.end_time < cutoff_ts and not ev.is_locked
+        ]
+        for eid in to_delete:
+            del self._store[eid]
+        return len(to_delete)
+
+    async def delete_by_group(self, group_id: str | None) -> int:
+        to_delete = [eid for eid, ev in self._store.items() if ev.group_id == group_id]
+        for eid in to_delete:
+            del self._store[eid]
+        return len(to_delete)
+
+    async def delete_all(self) -> int:
+        count = len(self._store)
+        self._store.clear()
+        return count
+
+    async def prune_group_history(self, group_id: str | None, max_messages: int, batch_size: int) -> int:
+        """Prune oldest non-locked events in a group until total message count is <= max_messages."""
+        group_events = [
+            e for e in self._store.values()
+            if e.group_id == group_id and not e.is_locked
+        ]
+        group_events.sort(key=lambda e: e.start_time)
+        
+        total_messages = sum(len(e.interaction_flow) for e in group_events)
+        if total_messages <= max_messages:
+            return 0
+            
+        target_messages = max_messages - batch_size
+        deleted_count = 0
+        current_messages = total_messages
+        
+        for event in group_events:
+            if current_messages <= target_messages:
+                break
+            del self._store[event.event_id]
+            current_messages -= len(event.interaction_flow)
+            deleted_count += 1
+            
+        return deleted_count
+
+    async def get_rowid(self, event_id: str) -> int | None:
+        # In-memory has no rowid concept; return position index as a surrogate
+        for i, key in enumerate(self._store):
+            if key == event_id:
+                return i
+        return None
+
+    async def get_by_rowid(self, rowid: int) -> Event | None:
+        keys = list(self._store)
+        if rowid < 0 or rowid >= len(keys):
+            return None
+        return deepcopy(self._store[keys[rowid]])
+
+    async def count_messages_by_uid_bulk(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for event in self._store.values():
+            for msg in event.interaction_flow:
+                counts[msg.sender_uid] = counts.get(msg.sender_uid, 0) + 1
+        return counts
+
+    async def count_edge_messages(self, uid1: str, uid2: str, scope: str) -> int:
+        count = 0
+        for event in self._store.values():
+            if scope != "global" and event.group_id != scope:
+                continue
+            for msg in event.interaction_flow:
+                if msg.sender_uid in (uid1, uid2):
+                    count += 1
+        return count
+
+    async def count_messages_by_uid_scope_bulk(self) -> dict[tuple[str | None, str], int]:
+        counts: dict[tuple[str | None, str], int] = {}
+        for event in self._store.values():
+            for msg in event.interaction_flow:
+                key = (event.group_id, msg.sender_uid)
+                counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    async def list_participants_by_group(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> dict[str | None, list[str]]:
+        members: dict[str | None, set[str]] = {}
+        for event in self._store.values():
+            if not _event_persona_matches(event, bot_persona_name, include_legacy):
+                continue
+            for uid in (event.participants or []):
+                members.setdefault(event.group_id, set()).add(uid)
+        return {gid: sorted(uids) for gid, uids in members.items()}
+
+    # --- Tag Abstraction & Normalization ---
+
+    async def count_tags(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for event in self._store.values():
+            if not _event_persona_matches(event, bot_persona_name, include_legacy):
+                continue
+            for tag in (event.chat_content_tags or []):
+                if tag:
+                    counts[tag] = counts.get(tag, 0) + 1
+        return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
+    async def list_frequent_tags(self, limit: int = 50) -> list[str]:
+        counts: dict[str, int] = {}
+        for event in self._store.values():
+            for tag in event.chat_content_tags:
+                counts[tag] = counts.get(tag, 0) + 1
+        sorted_tags = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+        return [t[0] for t in sorted_tags[:limit]]
+
+    async def search_canonical_tag(
+        self, embedding: list[float], limit: int = 5, threshold: float = 0.85,
+        prefer_min_df: int = 0, exclude: Sequence[str] | None = None,
+    ) -> list[tuple[str, float]]:
+        # Stub: memory repo has no vector store for tags
+        return []
+
+    async def upsert_canonical_tag(
+        self, tag_text: str, embedding: list[float], df_delta: int = 1,
+    ) -> None:
+        # No vectors here, but document frequency is tracked so the promotion
+        # gate behaves the same way against the in-memory repo.
+        self._canonical_df[tag_text] = self._canonical_df.get(tag_text, 0) + max(df_delta, 0)
+        self._canonical_created_at.setdefault(tag_text, time.time())
+
+    async def bump_canonical_tag_df(self, tag_text: str, delta: int = 1) -> int:
+        if tag_text not in self._canonical_df:
+            return 0
+        self._canonical_df[tag_text] += delta
+        return self._canonical_df[tag_text]
+
+    async def prune_canonical_tags(
+        self, min_df: int, older_than_ts: float,
+        protect: Sequence[str] | None = None,
+    ) -> int:
+        protected = set(protect or ())
+        stale = [
+            tag for tag, df in self._canonical_df.items()
+            if df < min_df and self._canonical_created_at.get(tag, 0.0) < older_than_ts
+            and tag not in protected
+        ]
+        for tag in stale:
+            self._canonical_df.pop(tag, None)
+            self._canonical_created_at.pop(tag, None)
+        return len(stale)
+
+    async def set_interaction_classification(
+        self, event_id: str, classification: dict,
+    ) -> None:
+        event = self._store.get(event_id)
+        if event is not None:
+            event.interaction_classification = deepcopy(classification or {})
+
+    async def set_chat_content_tags(self, event_id: str, tags: list[str]) -> None:
+        event = self._store.get(event_id)
+        if event is not None:
+            event.chat_content_tags = list(tags)
+
+    async def get_tag_categories(self) -> dict[str, tuple[str, float]]:
+        return dict(self._tag_categories)
+
+    async def upsert_tag_categories(
+        self, rows: dict[str, tuple[str, float]],
+    ) -> None:
+        for tag, (category, confidence) in rows.items():
+            self._tag_categories[tag] = (category, float(confidence))
+
+    async def list_custom_interaction_tags(
+        self, bot_persona_name: str | None,
+    ) -> list[str]:
+        scope = str(bot_persona_name or "")
+        return sorted(self._custom_interaction_tags.get(scope, set()))
+
+    async def list_all_custom_interaction_tags(self) -> list[str]:
+        return sorted({
+            tag for tags in self._custom_interaction_tags.values() for tag in tags
+        })
+
+    async def register_custom_interaction_tag(
+        self, bot_persona_name: str | None, tag_text: str, *, limit: int,
+    ) -> str:
+        scope = str(bot_persona_name or "")
+        async with self._custom_tag_lock:
+            tags = self._custom_interaction_tags.setdefault(scope, set())
+            if tag_text in tags:
+                return "existing"
+            if len(tags) >= limit:
+                return "full"
+            tags.add(tag_text)
+            return "created"
+
+
+class InMemoryImpressionRepository(ImpressionRepository):
+    def __init__(self, persona_repo: PersonaRepository | None = None) -> None:
+        # Unique key: (observer_uid, subject_uid, scope, bot_persona_name_or_empty).
+        # bot_persona_name is normalized to '' when None so dict equality matches
+        # the SQLite ifnull(bot_persona_name, '') unique index semantics.
+        self._store: dict[tuple[str, str, str, str], Impression] = {}
+        # Stands in for the SQLite persona-table join used by
+        # count_all(known_observers_only=True); without it the flag is a no-op.
+        self._persona_repo = persona_repo
+
+    def _key(
+        self, observer_uid: str, subject_uid: str, scope: str,
+        bot_persona_name: str | None = None,
+    ) -> tuple[str, str, str, str]:
+        return (observer_uid, subject_uid, scope, bot_persona_name or "")
+
+    async def get(
+        self, observer_uid: str, subject_uid: str, scope: str,
+        bot_persona_name: str | None = None,
+    ) -> Impression | None:
+        imp = self._store.get(self._key(observer_uid, subject_uid, scope, bot_persona_name))
+        return deepcopy(imp) if imp is not None else None
+
+    async def list_by_observer(
+        self, observer_uid: str, scope: str | None = None,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Impression]:
+        return [
+            deepcopy(imp)
+            for (obs, _subj, sc, _bp), imp in self._store.items()
+            if obs == observer_uid
+            and (scope is None or sc == scope)
+            and _persona_matches(imp.bot_persona_name, bot_persona_name, include_legacy)
+        ]
+
+    async def list_by_subject(
+        self, subject_uid: str, scope: str | None = None,
+        bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Impression]:
+        return [
+            deepcopy(imp)
+            for (_obs, subj, sc, _bp), imp in self._store.items()
+            if subj == subject_uid
+            and (scope is None or sc == scope)
+            and _persona_matches(imp.bot_persona_name, bot_persona_name, include_legacy)
+        ]
+
+    async def list_all(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+    ) -> list[Impression]:
+        return [
+            deepcopy(imp)
+            for imp in self._store.values()
+            if _persona_matches(imp.bot_persona_name, bot_persona_name, include_legacy)
+        ]
+
+    async def count_all(
+        self, bot_persona_name: str | None = None, include_legacy: bool = True,
+        known_observers_only: bool = False,
+    ) -> int:
+        known: set[str] | None = None
+        if known_observers_only and self._persona_repo is not None:
+            known = {p.uid for p in await self._persona_repo.list_all()}
+        return sum(
+            1 for imp in self._store.values()
+            if _persona_matches(imp.bot_persona_name, bot_persona_name, include_legacy)
+            and (known is None or imp.observer_uid in known)
+        )
+
+    async def upsert(self, impression: Impression) -> None:
+        key = self._key(
+            impression.observer_uid, impression.subject_uid,
+            impression.scope, impression.bot_persona_name,
+        )
+        self._store[key] = deepcopy(impression)
+
+    async def delete(
+        self, observer_uid: str, subject_uid: str, scope: str,
+        bot_persona_name: str | None = None,
+    ) -> bool:
+        keys = [
+            k for k in self._store
+            if k[0] == observer_uid
+            and k[1] == subject_uid
+            and k[2] == scope
+            and (
+                bot_persona_name is None
+                or k[3] == bot_persona_name
+                or (bot_persona_name == "" and k[3] == "")
+            )
+        ]
+        if not keys:
+            return False
+        for k in keys:
+            del self._store[k]
+        return True
+
+    async def delete_by_scope(
+        self, scope: str, bot_persona_name: str | None = None,
+    ) -> int:
+        keys = [
+            k for k in self._store
+            if k[2] == scope
+            and (
+                bot_persona_name is None
+                or k[3] == bot_persona_name
+                or (bot_persona_name == "" and k[3] == "")
+            )
+        ]
+        for k in keys:
+            del self._store[k]
+        return len(keys)
+
+
+def _persona_matches(row_persona: str | None, filter_persona: str | None, include_legacy: bool) -> bool:
+    if filter_persona is None:
+        return True
+    if filter_persona == "":
+        return row_persona is None
+    if row_persona == filter_persona:
+        return True
+    return include_legacy and row_persona is None
+
+
+def _event_persona_matches(event: Event, filter_persona: str | None, include_legacy: bool) -> bool:
+    return _persona_matches(event.bot_persona_name, filter_persona, include_legacy)

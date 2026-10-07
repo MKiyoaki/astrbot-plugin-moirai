@@ -25,7 +25,7 @@
 
 **只存坐标。**`event_times` 每个事件一行：年、月、日、排序键、显示标签（如 `1098年7月`、`1101年夏`）、精度（日、月、季、年、区间、纪元）和来源。外部年表的正文不入库，也不会送进模型；模型看到的内容仍是事件摘要和原文行。
 
-**来源优先级**，由 `core/canon/calendar.py` 逐事件决定：
+**来源优先级**，由 `src/core/canon/domain/calendar.py` 逐事件决定：
 
 1. **场景里写明的日期**（来源 `text`）。例如字幕“泽尔格勒主城区 1102年1月20日 16:32”，只作用于它之后的原文行。整句叙述里提到的年份、落款式的“——某人，1076年秋于狱中”都不算。比故事当下早八十年以上的纯年份行被视为引文落款，比如一篇旧论文开头的“937年”。
 2. **年表里引用了这个关卡的条目**（`stage`）。按关卡编号、关卡名和行动前/后匹配；没有编号的活动按关卡名匹配。一个场景被多条条目引用时，取出现最多的日期。
@@ -40,8 +40,8 @@
 **外部年表**来自用户在浏览器里保存的 PRTS《泰拉年表》页面（CC BY-NC-SA 3.0）。页面和解析结果只放在 `.dev_data/canon/timeline/`，不入库也不提交。导入命令不调用模型：
 
 ```bash
-python devtools/canon/terra_timeline.py            # .dev_data/canon/timeline/prts-terra-timeline.html → .json
-python -m core.canon.cli calendar-apply --db <canon.sqlite> --entries .dev_data/canon/timeline/prts-terra-timeline.json
+python src/tools/canon_terra_timeline.py            # .dev_data/canon/timeline/prts-terra-timeline.html → .json
+python src/tools/canon_data.py calendar-apply --db <canon.sqlite> --entries .dev_data/canon/timeline/prts-terra-timeline.json
 ```
 
 `calendar-apply` 把旧库升级到 schema v6，只补表、写版本号，不动向量和全文索引；然后整体替换 `event_times`，所以可以重复执行。
@@ -93,7 +93,7 @@ V11 全库（2026-09-28）有 4,140/4,903 个事件定上了时间，她直接�
 
 ## 全库构建与审阅路径
 
-当前 story_pack 的 manifest 有 618 个场景。`moirai canon build` 使用 `.dev_data/canon/v10/all/build/canon.sqlite`，一次命令先按 V10 增量抽取全部事件，再按事件证据行抽取时间事实候选。重复执行同一命令会沿用成功场景的事件缓存，以及成功场景/成功分块的事实缓存（事实缓存还按模型区分，换了模型会整批重抽，续跑前先核对模型，见 [canon 抽取与基准](canon-extraction.md) 的“全库 canon 构建”）；单场景事实接口失败不会停止其他场景。每块至多约 6500 字，连续失败最多重试四次；事件分块也按连续失败四次封顶。一条候选的锚点是它的原文行：`line_key` 在本块里只属于一个事件、而 `event_id` 写成了块内另一个事件时，校验改用拥有这一行的事件，不再让整块失败；行不在本块、或同一行属于多个事件时仍按失败重试。V11 全库构建中 5 个失败块离线复查，其中 2 块就是整批把事件号错标到相邻事件（9 条），另外 3 块重新调用即通过。事件抽取失败的场景会明确记为跳过，命令返回非零状态；不会把没有事件证据的场景当作已完成事实抽取。可以用 `moirai canon estimate all` 先看事件阶段规模；真实接口的 `moirai canon run` 默认追加事实候选阶段，`--no-facts` 才跳过。`moirai canon run all` 做一次完整基准时也自动执行事实候选阶段，但基准每次新建数据库，实际全库续跑应选 `build`。这两个命令由本地 `run_canon_dev.py` 驱动，模型取自 `run_config.py`。
+当前 story_pack 的 manifest 有 618 个场景。`moirai canon build` 使用 `.dev_data/canon/v10/all/build/canon.sqlite`，一次命令先按 V10 增量抽取全部事件，再按事件证据行抽取时间事实候选。重复执行同一命令会沿用成功场景的事件缓存，以及成功场景/成功分块的事实缓存（事实缓存还按模型区分，换了模型会整批重抽，续跑前先核对模型，见 [canon 抽取与基准](canon-extraction.md) 的“全库 canon 构建”）；单场景事实接口失败不会停止其他场景。每块至多约 6500 字，连续失败最多重试四次；事件分块也按连续失败四次封顶。一条候选的锚点是它的原文行：`line_key` 在本块里只属于一个事件、而 `event_id` 写成了块内另一个事件时，校验改用拥有这一行的事件，不再让整块失败；行不在本块、或同一行属于多个事件时仍按失败重试。V11 全库构建中 5 个失败块离线复查，其中 2 块就是整批把事件号错标到相邻事件（9 条），另外 3 块重新调用即通过。事件抽取失败的场景会明确记为跳过，命令返回非零状态；不会把没有事件证据的场景当作已完成事实抽取。可以用 `moirai canon estimate all` 先看事件阶段规模；真实接口的 `moirai canon run` 默认追加事实候选阶段，`--no-facts` 才跳过。`moirai canon run all` 做一次完整基准时也自动执行事实候选阶段，但基准每次新建数据库，实际全库续跑应选 `build`。这两个命令由 `src/tools/canon_dev.py` 驱动，模型取自 `configs/models/`。
 
 ```bash
 moirai canon estimate all
@@ -101,7 +101,7 @@ moirai canon build
 moirai canon test --db .dev_data/canon/v10/all/build/canon.sqlite
 ```
 
-`python -m core.canon.cli import --pack <story_pack> --db <canon.sqlite> --api-url <地址> --model <模型> --facts` 也是可续跑的底层入口，并在数据库旁写出 `review.html`；从环境变量 `CANON_API_KEY` 读取密钥。对已有库可用 `facts-suggest --db <库> --api-url <地址> --model <模型>` 单独续跑事实阶段。所有模型调用都只由用户显式执行这些命令触发。旧 Nexus 基准原件不能用于会迁移/写入的命令；使用数据库副本。
+`python src/tools/canon_data.py import --pack <story_pack> --db <canon.sqlite> --api-url <地址> --model <模型> --facts` 也是可续跑的底层入口，并在数据库旁写出 `review.html`；从环境变量 `CANON_API_KEY` 读取密钥。对已有库可用 `facts-suggest --db <库> --api-url <地址> --model <模型>` 单独续跑事实阶段。所有模型调用都只由用户显式执行这些命令触发。旧 Nexus 基准原件不能用于会迁移/写入的命令；使用数据库副本。
 
 全量输出留在本机的忽略目录：`review.html` 按场景并排显示原文、事件和待审阅时间事实；`facts-candidates-*.jsonl` 是逐场景候选，`facts-candidates-*.report.json` 记录完成、失败、跳过和原因，`facts-candidates-*.review.json` 是可编辑审阅包。审阅包已为每条候选生成稳定 `fact_id`、时间点和证据引用，按主体/谓词列出重复或状态不同的 `review_groups`，无需人工从零拼装 JSON。默认全部是 `review_status=candidate`、`source_type=suggested`、`persistence=point`，`before`、`transitions`、`coverage` 为空。回忆和没有明确时间锚的事件放在独立的未锚定时间线；即便属于同一合集，也不会仅凭导出顺序自动建立世界时间先后。
 
@@ -111,7 +111,7 @@ moirai canon test --db .dev_data/canon/v10/all/build/canon.sqlite
 
 本次审阅包有 764 个按主体/谓词汇总的组，其中 654 组包含不同客体；这可能是正常状态变更，也可能是抽取错误，不能仅凭客体不同判为矛盾。审阅时先核查查询影响最大的生死与拘押状态，再按常问人物处理地点和组织归属；每条都对照原文行，只有能证明跨场景先后或变更时才补 `before` / `transitions`。另有 165 个未锚定时间点，须保留时间不可比结论。只有核实相应时间线的场景连续性和事实审阅完整性后才能批准 `coverage`。
 
-全量人工审阅不现实，第一批审阅按主体切窄。`python devtools/canon/fact_focus.py --db <库> [--subjects 主体1,主体2]` 从最新 `facts-candidates-*.review.json` 切出主体子包（仍是 canon-fact-review-v1 格式，`{DOCTOR}` 归一为“博士”），并在审阅包旁生成同名审阅页：按主体/谓词分组、按叙事位置排序，每条候选并列其原文行，多客体的冲突组标色。页面勾选“原文明确写明”的候选后可一键导出已审阅子集（自动置 `review_status=reviewed`、`source_type=explicit`），再用与全量相同的 `facts-apply` 导入。2026-09-25 的核心主体子包（阿米娅、博士、凯尔希）为 901 条候选、12 个多客体组。窄范围只让事实查询先在少数人物上可用，其余主体分批审阅；`coverage` 的批准门槛不因窄范围降低。
+全量人工审阅不现实，第一批审阅按主体切窄。`python src/tools/canon_fact_focus.py --db <库> [--subjects 主体1,主体2]` 从最新 `facts-candidates-*.review.json` 切出主体子包（仍是 canon-fact-review-v1 格式，`{DOCTOR}` 归一为“博士”），并在审阅包旁生成同名审阅页：按主体/谓词分组、按叙事位置排序，每条候选并列其原文行，多客体的冲突组标色。页面勾选“原文明确写明”的候选后可一键导出已审阅子集（自动置 `review_status=reviewed`、`source_type=explicit`），再用与全量相同的 `facts-apply` 导入。2026-09-25 的核心主体子包（阿米娅、博士、凯尔希）为 901 条候选、12 个多客体组。窄范围只让事实查询先在少数人物上可用，其余主体分批审阅；`coverage` 的批准门槛不因窄范围降低。
 
 `moirai canon test --db <副本>` 读取同一个解析器。只有 `scene_scope=continuous`、`fact_scope=reviewed` 且有当前剧情锚点时，省略 `--as-of` 的状态才可能判为截至已导入剧情的有效事实；这仍然不等于现实中的“今天”。20 场景 Nexus 库没有这些条件，问塔露拉现况时，阿米娅只能说最后记得的情况，对她现况的断言会被 gateway 判为无依据。`--as-of` 接受已审阅的世界时间点 ID，不再把场景导出顺序当成世界时间。
 

@@ -7,18 +7,18 @@
 在插件根目录下运行，API key 只从环境变量读取：抽取用 `CANON_API_KEY`，裁判用 `CANON_JUDGE_API_KEY`（没有就用 `CANON_API_KEY`）：
 
 ```bash
-python -m core.canon.cli import --pack <story_pack> --db <canon.sqlite> \
+python src/tools/canon_data.py import --pack <story_pack> --db <canon.sqlite> \
     --api-url <OpenAI 兼容地址> --model <模型> [--only samples/20.txt] [--concurrency 2] [--timeout 300] [--embed]
-python -m core.canon.cli status --db <canon.sqlite>
-python -m core.canon.cli dump --db <canon.sqlite> --only samples/20.txt [--out review.html]
-python -m core.canon.cli bench --pack <story_pack> (--only <清单> | --scene <key> ...) \
+python src/tools/canon_data.py status --db <canon.sqlite>
+python src/tools/canon_data.py dump --db <canon.sqlite> --only samples/20.txt [--out review.html]
+python src/tools/canon_data.py bench --pack <story_pack> (--only <清单> | --scene <key> ...) \
     (--estimate | --replay <目录> | --api-url <地址> --model <模型>) \
     [--probes <探针文件>] [--baseline <运行目录>] [--repeats N] [--price-in <每百万输入 token 单价> --price-out <输出单价>]
-python -m core.canon.cli compare <运行目录> <运行目录> [...]
-python -m core.canon.cli judge --run <运行目录> --pack <story_pack> --api-url <地址> --model <模型> [--repeats 3] [--labels <人工标注>]
+python src/tools/canon_data.py compare <运行目录> <运行目录> [...]
+python src/tools/canon_data.py judge --run <运行目录> --pack <story_pack> --api-url <地址> --model <模型> [--repeats 3] [--labels <人工标注>]
 ```
 
-`--embed` 给事件编码向量，用的是 Moirai 共享的 embedding 入口和 `run_config.py` 的 `RETRIEVAL_*` 配置（本地模型、KCL 或其他 OpenAI 兼容服务），和普通记忆同一套代码；canon 不再单独加载本地模型。这样写入的是库内的 `event_vec` 表；终端试聊和检索评测不读它，而是读构建目录旁的派生索引（见 [canon 终端试聊](canon-terminal.md) 的“检索”一节）。正式 Bot 路径用哪一套向量尚未决定，见 [canon 运行时结构](canon-runtime-architecture.md)。
+`--embed` 给事件编码向量，用的是 Moirai 共享的 embedding 入口和 `configs/retrieval/` 的配置（本地模型、KCL 或其他 OpenAI 兼容服务），和普通记忆同一套代码；canon 不再单独加载本地模型。这样写入的是库内的 `event_vec` 表；终端试聊和检索评测不读它，而是读构建目录旁的派生索引（见 [canon 终端试聊](canon-terminal.md) 的“检索”一节）。正式 Bot 路径用哪一套向量尚未决定，见 [canon 运行时结构](canon-runtime-architecture.md)。
 
 `dump` 生成本地 HTML 审阅页：顶部选择场景，左边是带 L 编号的原文，右边按事件标题、渠道和行范围列出可折叠的摘要与细节；事件证据、第一人称摘要、认知和事件关系按需展开。鼠标移到事件上会高亮它的证据行，点击蓝色行号可定位原文。
 
@@ -28,9 +28,9 @@ python -m core.canon.cli judge --run <运行目录> --pack <story_pack> --api-ur
 
 候选只属于待审阅数据。完整 618 场景也不会凭导出顺序生成世界时间先后、事实有效期终点或“当前”状态；必须核实原文、批准候选及有证据的时间关系。`moirai canon test --db .dev_data/canon/v10/all/build/canon.sqlite` 可读该全量工作库，但在审阅前时间敏感状态仍会判不确定。详见 [canon 时间线与事实有效期](canon-temporal-facts.md)。
 
-> **续跑前先确认模型。** 事件缓存按 `(scene_key, scene_hash, prompt_version)` 命中，与模型无关；事实缓存 `fact_extractions` 的主键还包含模型。`run_canon_dev.py` 的模型类型可由 `CANON_MODEL_TYPE` 或 `MODEL_TYPE` 指定，但模型名只从本机 `run_config.py` 读取（KCL 时是 `KCL_MODEL`），没有环境变量覆盖。换了模型再续跑，事件阶段照常命中缓存，事实阶段却会全部重抽。2026-09-25 就因续跑前没核对模型，在 `arc:chat` 下重抽了约 215 个场景的事实候选。只想补跑个别场景时，用 `python -m core.canon.cli import ... --model <模型> --facts --only <场景>`：`--only` 只作用于事件阶段；事实阶段仍覆盖全部场景，其余场景只有在同一模型下才会命中缓存。
+> **续跑前先确认模型。** 事件缓存按 `(scene_key, scene_hash, prompt_version)` 命中，与模型无关；事实缓存 `fact_extractions` 的主键还包含模型。`src/tools/canon_dev.py` 的模型家族由 `canon_tools.model_type` 或选中的 `models` 决定，模型名取自对应的 `configs/models/*.yaml`（`model.model_id`），可以用覆盖项临时改，例如 `MOIRAI_CONFIG_OVERRIDES="models=lmstudio_gemma4_26b"`。换了模型再续跑，事件阶段照常命中缓存，事实阶段却会全部重抽。2026-09-25 就因续跑前没核对模型，在 `arc:chat` 下重抽了约 215 个场景的事实候选。只想补跑个别场景时，用 `python src/tools/canon_data.py import ... --model <模型> --facts --only <场景>`：`--only` 只作用于事件阶段；事实阶段仍覆盖全部场景，其余场景只有在同一模型下才会命中缓存。
 
-> **补跑 V11 场景的注意点。** `core.canon.cli` 不读 `run_config.py`：不设环境变量 `CANON_PROMPT_VERSION=canon-extract-v11` 时它按代码默认的 V10 抽取，事实阶段也随之退回 `canon-facts-v2`；它也不像 `build` 那样用 `temperature=0`，并且不保存失败回复。2026-09-28 的 V11 补跑改为导入 `run_canon_dev.py` 取得同一配置，再用带 observer 的 `Importer(only=…)` 把每次调用的原始回复写进构建目录的 `patch-*/attempts.jsonl`，事实阶段用 `run_fact_pipeline` 覆盖全部场景键（成功场景和分块走缓存）。`build` 本身同样不保存失败回复，出现连续失败时只能重调复现。
+> **补跑场景的注意点。** v1.2.43.sub 起只保留 `canon-extract-v11` 和 `canon-facts-v3`，版本由 `configs/canon/default.yaml` 的 `extract.prompt_version` 与 `facts.prompt_version` 决定，不再读环境变量。`src/tools/canon_data.py` 不读 `configs/` 里的模型，模型和地址由命令行参数给出；它也不像 `build` 那样用 `temperature=0`，并且不保存失败回复。2026-09-28 的 V11 补跑改为导入 `src/tools/canon_dev.py` 取得同一配置，再用带 observer 的 `Importer(only=…)` 把每次调用的原始回复写进构建目录的 `patch-*/attempts.jsonl`，事实阶段用 `run_fact_pipeline` 覆盖全部场景键（成功场景和分块走缓存）。`build` 本身同样不保存失败回复，出现连续失败时只能重调复现。
 >
 > 单块场景持续撞上网关 300 秒上限（HTTP 502 `cURL error 28`）时，重试不会改变结果：`level_main_07-16_end`（渲染后约 1.2 万字，低于 2 万字的分块阈值）以单块连续 6 次超时，把 `CHUNK_TRIGGER`/`CHUNK_LIMIT` 临时降到 7000 后按两块（161 行 + 242 行）各 32 秒、50 秒一次通过。分块走的是长场景的正常路径，缓存键不含分块方式。
 
@@ -88,31 +88,31 @@ prompt 每升一版，旧版本的缓存都不再命中：试跑库 `.dev_data/c
 | `review.html` | 原文、事件和本轮待审阅时间事实候选；候选可点击证据行定位 |
 | `failures/` | 校验不通过的原始回复，每次调用一个文件 |
 | `judge.jsonl` | 跑过 `judge` 才有：逐事件的裁判结果（含每次重复的判断） |
-| `console.log`、`judge.log` | 用 `run_canon_dev.py` 跑才有：运行和裁判时的逐次调用记录 |
+| `console.log`、`judge.log` | 用 `src/tools/canon_dev.py` 跑才有：运行和裁判时的逐次调用记录 |
 | `canon.sqlite` | 这次运行的库，可以用 `status` / `dump` 查看，也可以作为 `--replay` 或 `compare` 的输入 |
 | `facts-candidates.jsonl` / `facts-candidates.review.json` / `facts-candidates.report.json` | 真实接口运行默认生成：待审阅候选、可编辑审阅包和失败报告；回放模式不调用事实模型 |
 
-### 开发工具 run_canon_dev.py
+### 开发工具 src/tools/canon_dev.py
 
-插件根目录下的 `run_canon_dev.py` 用来手动跑基准，写法和 `run_realtime_dev.py` 一样：模型、地址和 key 取自本机的 `run_config.py`（`MODEL_TYPE`，可以用 `CANON_MODEL_TYPE`、`CANON_JUDGE_MODEL_TYPE` 单独指定），story_pack、探针、场景清单、基线和单价都在 `run_config.py` 的 `CANON_*` 里设置，模板见 `run_config.py.example`。它直接调用 `run_bench` 和 `judge_into`，所以结果和命令行的 `bench` / `judge` 完全一样。
+插件根目录下的 `src/tools/canon_dev.py` 用来手动跑基准，写法和 `src/tools/realtime_dev.py` 一样：模型和地址取自 `configs/models/`（选中的 `models`，可以用 `canon_tools.model_type`、`canon_tools.judge_model_type` 单独指定家族），key 取自模型文件 `api_key_env` 指定的环境变量；story_pack、探针和场景清单在 `configs/data/arknights.yaml`，并发、基线和单价在 `configs/canon_tools/default.yaml`。也可以经 `python src/main.py experiments=canon_build`（或 `canon_bench`、`canon_judge`）调用。它直接调用 `run_bench` 和 `judge_into`，所以结果和命令行的 `bench` / `judge` 完全一样。
 
 ```bash
-python run_canon_dev.py                          # 列出已有的运行和主要指标
-python run_canon_dev.py estimate [20|100|all]    # 估算，不调用接口
-python run_canon_dev.py build                    # 全库事件与事实候选续跑，并生成 review.html
-python run_canon_dev.py run [20|100|all]         # 真实接口：事件与时间事实候选；开始前确认（-y 跳过），样本默认 CANON_SCENES
-python run_canon_dev.py run 20 --replay pilot    # 回放 v1 的 Luna 试跑
-python run_canon_dev.py run --repeats 3          # 重测信度
-python run_canon_dev.py judge [运行]              # LLM 裁判，默认最近一次真实接口的运行；开始前确认
-python run_canon_dev.py compare <运行> <运行> [...]
-python run_canon_dev.py open [运行] [--report]    # 用浏览器打开审阅页或报告
+python src/tools/canon_dev.py                          # 列出已有的运行和主要指标
+python src/tools/canon_dev.py estimate [20|100|all]    # 估算，不调用接口
+python src/tools/canon_dev.py build                    # 全库事件与事实候选续跑，并生成 review.html
+python src/tools/canon_dev.py run [20|100|all]         # 真实接口：事件与时间事实候选；开始前确认（-y 跳过），样本默认 CANON_SCENES
+python src/tools/canon_dev.py run 20 --replay pilot    # 回放 v1 的 Luna 试跑
+python src/tools/canon_dev.py run --repeats 3          # 重测信度
+python src/tools/canon_dev.py judge [运行]              # LLM 裁判，默认最近一次真实接口的运行；开始前确认
+python src/tools/canon_dev.py compare <运行> <运行> [...]
+python src/tools/canon_dev.py open [运行] [--report]    # 用浏览器打开审阅页或报告
 ```
 
 真实接口的 `run` 默认抽取时间事实候选；只测 V7 事件时加 `--no-facts`。每个事件分块或事实分块连续失败最多 4 次，成功即停止重试；失败场景保留原因，整批继续。样本是 story_pack 的 `samples/` 里的场景清单，由 Arknights-Texts 的 `config/samples.json` 定义：`20` 是分层抽样，`100` 是整块连贯的章节和活动（主线第 0 章、第 4–6 章、「如我所见」「长夜临光」和三篇密录），`all` 是全部场景；`--scenes` 可以改用别的清单文件。`<运行>` 可以写目录名、名字里的一段、路径，或 `latest` / `latest-api` / `latest-replay`；回放来源、基线和 `compare` 还可以写 `pilot`。
 
 运行时每次模型调用打一行（场景、第几次、耗时、token、校验问题和原始回复文件），每个场景结束打一行；终端底部的状态行每秒刷新，显示用时、完成数、预计剩余时间、累计 token 和费用，以及正在进行的调用各自等了多久。输出不是终端时，状态改为每 30 秒打一行。这些行同时写进日志：正常结束后移到运行目录的 `console.log`（裁判是 `judge.log`），中断时留在 `.dev_data/canon/logs/`。`compare` 的结果写到 `.dev_data/canon/compare/`。Ctrl+C 中断后，没跑完的运行目录在列表里标为"未完成"，已经花掉的调用不会重放。
 
-`.dev_data/` 整个被 `.gitignore` 忽略，`run_config.py` 也是；工具本身匹配 `/run_*_dev.py`，同样默认不跟踪，要提交得像 `run_realtime_dev.py` 那样显式 `git add -f`。
+`.dev_data/` 整个被 `.gitignore` 忽略；工具都在 `src/tools/` 下，随仓库跟踪。
 
 ### 评测框架和出处
 

@@ -1,0 +1,12 @@
+# canon 开发工具（抽取基准、裁判、终端试聊）的运行设置。model_type 为空时用 models 选中的模型家族。
+model_type: ""
+judge_model_type: ""
+chat_model_type: ""
+concurrency: 2
+# 单次调用超时（秒）；null 用模型文件的 timeout_seconds
+timeout_seconds: null
+# 对比的基线运行；"" 不对比
+baseline: 20260923-005355-baseline-luna-v1
+# 每百万 token 的价格，用来估算花费；任一个为 null 时不估算
+price_in: null
+price_out: null

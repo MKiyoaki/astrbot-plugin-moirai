@@ -1,0 +1,100 @@
+# canon 原作剧情记忆的超参数。数值从原来的模块常量原样搬来，改动其中任何一项都要重跑对应的评测。
+# src/core/canon/settings.py 按类型校验；未知的键会报错。
+
+extract:
+  # 抽取 prompt 版本；只保留 canon-extract-v11
+  prompt_version: canon-extract-v11
+  max_attempts: 4
+  max_reported_errors: 20
+  # 各文本字段的长度范围（字数，下限与上限）
+  text_limits:
+    topic: [20, 30]
+    summary: [300, 400]
+    beat: [25, 40]
+    episode: [200, 300]
+    stance: [40, 60]
+  max_range_span: 1000
+  max_uncovered_run: 5
+  max_shared_lines: 2
+  # 场景超过 chunk_trigger 字就切块，每块不超过 chunk_limit 字
+  chunk_trigger: 20000
+  chunk_limit: 12000
+
+facts:
+  prompt_version: canon-facts-v3
+  max_prompt_chars: 6500
+  max_attempts: 4
+
+importer:
+  vector_batch: 64
+
+recall:
+  # 每轮所有回忆合计的原文上限（token，估算），不含人设；改动前先按 docs/canon-terminal.md 的预算扫描重测
+  turn_budget: 2000
+  # 核验补查可以超出每轮预算的额度
+  verify_extra: 400
+  window_before: 2
+  window_after: 6
+  probe_names: 3
+  probe_collections: 3
+  axis_rows: 8
+  axis_topics: 2
+  axis_neighbours: 2
+  recent_rows: 6
+  recent_events: 3
+
+retrieval:
+  speaker_view: false
+  query_instruction: ""
+  rerank_blend: 0.0
+  route_similarity: 0.54
+  fusion_k: 10
+  channel_weights:
+    dense: 1.0
+    lexical: 0.3
+    lines: 0.8
+    entities: 0.1
+
+turn:
+  max_tool_rounds: 2
+  archive_sections: 2
+  archive_chars: 600
+
+gateway:
+  align_min: 0.3
+  min_quote: 4
+
+query:
+  max_subjects: 3
+  route_idf_mass: 4.2
+
+overview:
+  max_events: 10
+  story_max_events: 16
+  max_scenes: 18
+  max_candidates: 160
+
+reader:
+  lexical_limit: 50
+  entity_limit: 60
+  per_scene: 3
+  recent_months: 1
+
+anchors:
+  tolerance_months: 24
+
+calendar:
+  window: 10000
+  epigraph_years: 80
+  match: 0.12
+
+# 评测脚本（src/core_eval/canon/）用的阈值
+eval:
+  tokens_per_char: [0.7, 1.3]
+  match_threshold: 0.5
+  cover_share: 0.5
+  flagged_limit: 80
+  max_events_hint: 8
+  fragment_span: 3
+  fragment_scene_lines: 20
+  low_coverage: 0.9

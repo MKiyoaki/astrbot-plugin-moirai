@@ -1,0 +1,38 @@
+# Moirai 的 Hydra 根配置。src/main.py 按 experiments.runner.id 选择任务；src/tools/ 下的脚本直接运行时也组合这一份。
+# 命令行可以替换任一配置组（models=lmstudio_gemma4_26b）或单个值（run.llm_concurrency=2）；
+# 环境变量 MOIRAI_CONFIG_OVERRIDES 给直接运行的脚本传同样的覆盖项。
+defaults:
+  - models: kcl_hub_arc_chat
+  - experiments: canon_chat
+  - data: arknights
+  - retrieval: kcl_hub
+  - canon: default
+  - canon_tools: default
+  - realtime: default
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+  - _self_
+
+run:
+  seed: 42
+  # 后台抽取、摘要等模型调用共用的并发上限
+  llm_concurrency: 3
+
+# 工具按名字切换模型家族时（CANON_JUDGE_MODEL_TYPE 等）各家族使用的模型文件；
+# 被 models 选中的那个家族改用选中的文件。
+providers:
+  lmstudio: lmstudio_gemma4_26b
+  deepseek: deepseek_v4_flash
+  kcl: kcl_hub_arc_chat
+  openai: openai_gpt
+
+paths:
+  # 工具的运行记录、数据库副本和报告都写在这里；整个目录被 .gitignore 忽略
+  output_root: ${moirai_project_root:}/.dev_data
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: ${paths.output_root}
+  output_subdir: null

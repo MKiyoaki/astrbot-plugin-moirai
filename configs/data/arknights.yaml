@@ -1,0 +1,77 @@
+# 明日方舟剧情数据集（工作区里的 Arknights-Texts）。路径可以用环境变量 ARKNIGHTS_TEXTS_ROOT 改到别处。
+# 只属于这个数据集的内容（角色、称呼、时间锚点、抽取时的收件人）都写在这里，canon 的代码只读字段。
+id: arknights
+root: ${oc.env:ARKNIGHTS_TEXTS_ROOT,${moirai_project_root:}/../Arknights-Texts}
+story_pack: ${.root}/exports/story_pack
+archive_pack: ${.root}/exports/archive_pack
+probes: ${.root}/eval/canon_extract_probes.jsonl
+answer_bank: ${.root}/eval/canon_answer_bank.jsonl
+# story_pack/samples/<名字>.txt 里的场景清单（20、100），或 all，或一个清单文件的路径
+samples: "20"
+
+# 工具默认扮演的角色
+default_character: amiya
+
+characters:
+  amiya:
+    name: "阿米娅"
+    player: "博士"
+    player_placeholder: "{DOCTOR}"
+    player_token: "@doctor"
+    home: "罗德岛"
+    world: "明日方舟"
+    # 哪些汇报会到她手里：(view_access 的 kind, recipient)
+    report_recipients: [["direct_report", "阿米娅"], ["command_report", "{DOCTOR}"], ["command_report", "凯尔希"]]
+    home_status_terms: ["在岛上", "在舰上"]
+    # 回复里出现就算出戏的游戏术语（正则）
+    game_pattern: '[二三四五六2-6]星(?:干员|角色|先锋|近卫|重装|狙击|术师|医疗|辅助|特种|(?![一-鿿A-Za-z]))|几星|星级|技能专精|专精[一二三1-3]|精英化|抽卡|卡池|第[一二三四五六七八九十百零〇0-9]+章'
+    report_knowledge: true
+    # 她用来说时间的大事件；span 是世界时间区间（yyyymmdd）
+    anchors:
+      - {name: "卡兹戴尔内战", event: "卡兹戴尔内战", span: [10911201, 10941231], stages: [{collection: "巴别塔"}]}
+      - {name: "博士救阿米娅", event: "博士救下阿米娅", span: [10900101, 10910831], stages: [{first: "BB-4@行动前", last: "BB-4@行动前", collection: "巴别塔"}], parent: "卡兹戴尔内战", during: "前后"}
+      - {name: "阿米娅加入巴别塔", event: "阿米娅加入巴别塔", span: [10910901, 10911130], stages: [{first: "BB-4@行动后", last: "BB-4@行动后", collection: "巴别塔"}], parent: "卡兹戴尔内战", during: "时"}
+      - {name: "特蕾西娅遇刺", event: "特蕾西娅遇刺与巴别塔瓦解", span: [10940601, 10940831], stages: [{collection: "巴别塔", only: ["BB-ST-1"]}, {first: "BB-9@行动前", collection: "巴别塔"}], parent: "卡兹戴尔内战", during: "时"}
+      - {name: "切城—龙门事件", event: "切尔诺伯格—龙门危机", span: [10961223, 10970122], stages: [{last: "END8-1", chapters: [0, 8], skip: ["R8-", "EG-"]}]}
+      - {name: "切城救援", event: "切尔诺伯格救援行动", span: [10961223, 10961223], stages: [{chapters: [0, 1]}], parent: "切城—龙门事件"}
+      - {name: "米莎事件", event: "米莎争夺事件", span: [10961227, 10961229], stages: [{chapters: [2, 3]}], parent: "切城—龙门事件"}
+      - {name: "霜星阵亡", event: "霜星阵亡", span: [10970105, 10970105], stages: [{first: "6-16", last: "6-17", chapters: [6, 6]}], parent: "切城—龙门事件", during: "时"}
+      - {name: "切城核心城之战", event: "切尔诺伯格核心城阻截战", span: [10970105, 10970106], stages: [{last: "JT8-3@行动后", chapters: [7, 8], skip: ["R8-", "EG-"]}], parent: "切城—龙门事件"}
+      - {name: "小丘郡事件", event: "小丘郡事件", span: [10970901, 10971130], stages: [{last: "9-20", chapters: [9, 9]}]}
+      - {name: "塔露拉被劫走", event: "整合运动劫走塔露拉", span: [10980101, 10980630], stages: [{first: "9-21", chapters: [9, 9]}], during: "时"}
+      - {name: "伦蒂尼姆大战", event: "伦蒂尼姆战争", span: [10980701, 10981008], stages: [{chapters: [10, 14], skip: ["11-1", "11-2", "11-3", "EG-6"]}, {collection: "追迹日落以西", only: ["GO-8", "GO-9"]}, {first: "15-1", last: "15-2", chapters: [15, 15]}]}
+      - {name: "温德米尔公爵遇刺", event: "温德米尔公爵遇刺", span: [10980701, 10980930], stages: [{chapters: [13, 13], only: ["13-3"]}], parent: "伦蒂尼姆大战", during: "时"}
+      - {name: "布伦特伍德之战", event: "布伦特伍德之战", span: [10980701, 10980930], stages: [{first: "13-11", last: "13-21", chapters: [13, 13]}], parent: "伦蒂尼姆大战"}
+      - {name: "飞空艇之战", event: "飞空艇决战", span: [10980901, 10980930], stages: [{first: "14-14", last: "14-22", chapters: [14, 14]}], parent: "伦蒂尼姆大战"}
+      - {name: "伦蒂尼姆收尾", event: "伦蒂尼姆战争结束", span: [10981002, 10981008], stages: [{collection: "追迹日落以西", only: ["GO-8", "GO-9"]}, {first: "15-1", last: "15-2", chapters: [15, 15]}], parent: "伦蒂尼姆大战", during: "时"}
+      - {name: "罗德岛本舰事故", event: "罗德岛本舰危机", span: [11010601, 11010731], stages: [{first: "15-3", chapters: [15, 15], skip: ["15-16"]}]}
+      - {name: "远北矿区事件", event: "乌萨斯远北矿区危机", span: [11010901, 11011130], stages: [{last: "16-19", chapters: [16, 16]}]}
+      - {name: "泽尔格勒事件", event: "泽尔格勒危机", span: [11020120, 11020123], stages: [{first: "17-4", last: "17-21", chapters: [17, 17]}]}
+      - {name: "凯尔希复活", event: "凯尔希复生", span: [11020122, 11020123], stages: [{first: "17-17@行动后", last: "17-18@行动后", chapters: [17, 17]}], parent: "泽尔格勒事件", during: "时"}
+      - {name: "罗德岛冲过天灾", event: "罗德岛天灾区突围", span: [10970201, 10970430], stages: [{collection: "如我所见", only: ["我不会全部遗忘"]}], during: "时"}
+      - {name: "汐斯塔黑曜石节", event: "汐斯塔黑曜石节危机", span: [10970601, 10970831], stages: [{collection: "火蓝之心"}]}
+      - {name: "卡西米尔特锦赛", event: "第二十四届特锦赛与大骑士领风波", span: [10971024, 10971130], stages: [{collection: "长夜临光"}]}
+      - {name: "阿米娅返乡", event: "雷姆必拓返乡之行", span: [10970123, 10980630], stages: [{collection: "去咧嘴谷"}], places: false}
+
+extraction:
+  # 抽取结果里玩家的字面称呼，落库前换成 player_placeholder
+  player_literal: "博士"
+  # view_access 允许的收件人
+  access_recipients: ["阿米娅", "{DOCTOR}", "凯尔希", "罗德岛"]
+  # 每种 access.kind 允许的收件人
+  access_rules:
+    direct_report: ["阿米娅"]
+    command_report: ["{DOCTOR}", "凯尔希"]
+    record_available: ["罗德岛"]
+    role_candidate: ["阿米娅"]
+
+calendar:
+  # 年表页面里不是事件的条目标签
+  skip_labels: ["展开泰拉大典", "来源", "目录", "编辑指引", "附表", "？？？"]
+  # 年表的特殊条目：未来章节的标记、前文明时期、纪元前未知年份与纪元名、元年
+  labels:
+    future_section: "未来"
+    pre_civilization: "前文明时期"
+    before_era: "泰拉纪元前未知年份"
+    before_era_name: "泰拉纪元前"
+    first_year: "泰拉历元年"

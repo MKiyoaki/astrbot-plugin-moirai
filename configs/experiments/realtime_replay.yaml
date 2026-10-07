@@ -1,0 +1,4 @@
+# 把群聊记录逐条回放进 Moirai，检查抽取、召回和注入（src/tools/realtime_dev.py）。args 例：[--self-test, --quiet]
+runner:
+  id: realtime-replay
+args: []

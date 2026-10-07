@@ -8,20 +8,20 @@
 
 | 环节 | 位置 | 说明 |
 |---|---|---|
-| 抽取与写入 | `core/canon/extract.py`、`fact_extract.py`、`importer.py`、`store.py` | `CanonStore` 基于 aiosqlite，异步、可写；只有导入和基准会用 |
-| 查询解析 | `core/canon/query.py`：`TurnPlan`、`plan_turn`、`route`、`needs_motive_rerank`、`explicit_quote` 与关键词表 | 纯函数，除别名查找外没有 IO；`context.py` 的 `resolve_name` 做名字纠正 |
-| 只读访问与索引 | `core/canon/reader.py`：`CanonReader`、`fact_search` | 同步 sqlite、`mode=ro`；构造时在内存里建三份两字 BM25（事件文本、原文台词、场景资料）和别名表，查询方法只读这些数据和 SQLite |
-| 召回与融合 | `core/canon/retrieval.py`（`fuse`、`CanonRetrieval`）、`lexical.py`、`vector_index.py` | hybrid 需要派生向量索引；embedding 由 `devtools/retrieval.py` 的 `ProviderBridge` 提供 |
+| 抽取与写入 | `src/core/canon/builder/extract.py`、`fact_extract.py`、`importer.py`、`store.py` | `CanonStore` 基于 aiosqlite，异步、可写；只有导入和基准会用 |
+| 查询解析 | `src/core/canon/read/query.py`：`TurnPlan`、`plan_turn`、`route`、`needs_motive_rerank`、`explicit_quote` 与关键词表 | 纯函数，除别名查找外没有 IO；`context.py` 的 `resolve_name` 做名字纠正 |
+| 只读访问与索引 | `src/core/canon/read/reader.py`：`CanonReader`、`fact_search` | 同步 sqlite、`mode=ro`；构造时在内存里建三份两字 BM25（事件文本、原文台词、场景资料）和别名表，查询方法只读这些数据和 SQLite |
+| 召回与融合 | `src/core/canon/read/retrieval.py`（`fuse`、`CanonRetrieval`）、`lexical.py`、`vector_index.py` | hybrid 需要派生向量索引；embedding 由 `src/core/api/retrieval.py` 的 `ProviderBridge` 提供 |
 | 结构扩展与综述 | `context.py` 的 `expand_events`、`overview.py`；`CanonReader.overview_search`、`expand_context` | |
-| 证据装填与预算 | `core/canon/packing.py`：`Hit`、`fill*`、`rank_reason_hits`、`result_line`、`estimate_tokens`；`recall.py` 的 `CanonRecall._incident`（讲经过的事件窗口）；`gateway.py` 的 `EvidencePack` | 预算常量仍直接写在 `fill_*` 里。`EvidencePack.render` 按 `CanonReader.sequence` 编号、换成第一人称，并列出 `CanonReader.causal_links` 的因果许可 |
-| 调度 | `core/canon/assembly.py`：`EvidenceAssembler`、`EvidenceSettings` | 一轮一个实例，持有证据包和本轮预算；首轮预取、`canon_recall` / `canon_overview` 工具和近况事实块都经过它。自适应装填放宽的预算对之后的工具调用可见 |
-| 提示词、工具与收尾 | `core/canon/turn.py`：`CanonTurn`（三个工具回调、档案直查、`system` / `block` / `messages`、`tool_text`、`settle`、`check`），以及 `knowledge`、`build_block`、`build_system`、`OUTPUT_RULES`、`MEMORY_NOTE`、`STYLE`（[讲法]）、`archive_names`、`supplement_recall`；`query.py` 的 `task_of` | 终端和 Bot 共用。终端每次请求前重建系统提示词，工具结果只回一行说明；Bot 的系统提示词在工具轮之间不变，`tool_text` 把[你的记忆]块随结果返回：第一次带整块，之后只带新想起的事（标“新1”“新2”，写明排在已给出的哪件事前后，见 `EvidencePack.render_new`），因为宿主对话里前面的工具结果还在；执行次数上限为 `MAX_TOOL_ROUNDS`。`run_turn` 可带入宿主侧的 `memory_block`（普通记忆），只给模型看，不参与路由和检查 |
-| 生成 | `run_canon_chat.py` 的 `generate`、`ModelClient`（httpx，同步）、`Session`、`conversation_history` | |
-| 检查 | `core/canon/gateway.py` 的 `align`、`inspect`、`check_reply`、`beat_line` | 检查本身不调模型：逐句对到证据，按结构标出问题；有问题才调一次模型定点修补，修补后仍有问题的句子换成对上的记忆原句。`CheckReport.stages` 记录对齐、修补和替换，供 `--trace` 和评测写出 |
-| 时间事实 | `core/canon/temporal.py` 的 `resolve`；`CanonReader.fact_context` | |
-| 世界日历 | `core/canon/calendar.py`（离线定坐标，`calendar-apply` 写 `event_times`）；`CanonReader.times`、`now`、`time_label`；`recall.py` 的 `timeline` / `recent` 路径 | 只存坐标，外部年表正文不入库；运行时只读 |
-| 时间说法 | `core/canon/anchors.py`（锚点的范围选择、归属与定位措辞）；锚点表在 `character.py` 的 `ANCHORS`；`CanonReader.time_phrase`、`now_phrase`；`recall.py` 的 `present_phrase` | 给模型看的时间用大事件说，日历只在底下排序；证据包的 `when` 接 `time_phrase` |
-| 评测 | `devtools/canon/retrieval.py`、`dialogue_eval.py`、`budget_sweep.py`、`fact_focus.py`；终端 `--trace` | 检索评测经 `EvidenceAssembler` 组包；只从终端导入默认库路径 `DEFAULT_DB`。`dialogue_eval.py` 仍整体运行终端的代码快照 |
+| 证据装填与预算 | `src/core/canon/read/packing.py`：`Hit`、`fill*`、`rank_reason_hits`、`result_line`、`estimate_tokens`；`recall.py` 的 `CanonRecall._incident`（讲经过的事件窗口）；`gateway.py` 的 `EvidencePack` | 预算常量仍直接写在 `fill_*` 里。`EvidencePack.render` 按 `CanonReader.sequence` 编号、换成第一人称，并列出 `CanonReader.causal_links` 的因果许可 |
+| 调度 | `src/core/canon/turn/assembly.py`：`EvidenceAssembler`、`EvidenceSettings` | 一轮一个实例，持有证据包和本轮预算；首轮预取、`canon_recall` / `canon_overview` 工具和近况事实块都经过它。自适应装填放宽的预算对之后的工具调用可见 |
+| 提示词、工具与收尾 | `src/core/canon/turn/canon_turn.py`：`CanonTurn`（三个工具回调、档案直查、`system` / `block` / `messages`、`tool_text`、`settle`、`check`），以及 `knowledge`、`build_block`、`build_system`、`OUTPUT_RULES`、`MEMORY_NOTE`、`STYLE`（[讲法]）、`archive_names`、`supplement_recall`；`query.py` 的 `task_of` | 终端和 Bot 共用。终端每次请求前重建系统提示词，工具结果只回一行说明；Bot 的系统提示词在工具轮之间不变，`tool_text` 把[你的记忆]块随结果返回：第一次带整块，之后只带新想起的事（标“新1”“新2”，写明排在已给出的哪件事前后，见 `EvidencePack.render_new`），因为宿主对话里前面的工具结果还在；执行次数上限为 `MAX_TOOL_ROUNDS`。`run_turn` 可带入宿主侧的 `memory_block`（普通记忆），只给模型看，不参与路由和检查 |
+| 生成 | `src/tools/canon_chat.py` 的 `generate`、`ModelClient`（httpx，同步）、`Session`、`conversation_history` | |
+| 检查 | `src/core/canon/turn/gateway.py` 的 `align`、`inspect`、`check_reply`、`beat_line` | 检查本身不调模型：逐句对到证据，按结构标出问题；有问题才调一次模型定点修补，修补后仍有问题的句子换成对上的记忆原句。`CheckReport.stages` 记录对齐、修补和替换，供 `--trace` 和评测写出 |
+| 时间事实 | `src/core/canon/domain/temporal.py` 的 `resolve`；`CanonReader.fact_context` | |
+| 世界日历 | `src/core/canon/domain/calendar.py`（离线定坐标，`calendar-apply` 写 `event_times`）；`CanonReader.times`、`now`、`time_label`；`recall.py` 的 `timeline` / `recent` 路径 | 只存坐标，外部年表正文不入库；运行时只读 |
+| 时间说法 | `src/core/canon/domain/anchors.py`（锚点的范围选择、归属与定位措辞）；锚点表在 `character.py` 的 `ANCHORS`；`CanonReader.time_phrase`、`now_phrase`；`recall.py` 的 `present_phrase` | 给模型看的时间用大事件说，日历只在底下排序；证据包的 `when` 接 `time_phrase` |
+| 评测 | `src/core_eval/canon/retrieval.py`、`dialogue_eval.py`、`budget_sweep.py`、`fact_focus.py`；终端 `--trace` | 检索评测经 `EvidenceAssembler` 组包；只从终端导入默认库路径 `DEFAULT_DB`。`dialogue_eval.py` 仍整体运行终端的代码快照 |
 | 插件侧 | `core/adapters/core_canon.py` 的 `CanonGeneration`；`core/adapters/core_events.py` 的 `generation_v1` / `on_generation_v1`；`core/plugin_initializer.py` 的 `_open_canon`；配置在 `get_canon_config` / `CanonConfig` | Core Generation Protocol v1 的参与方：`before_generation` 注入 canon 块，`offer` 提供工具，`tool` 转给 `CanonTurn`，`review` 在 `after_generation` 之前审稿。读库和审稿里的模型调用都在一个工作线程上排队执行。插件里暂时只有词法检索 |
 
 测试（本机的 `tests/`）直接从 `core/canon` 导入，只有 `conversation_history` 仍从终端导入。
@@ -49,7 +49,7 @@ Bot 路径上的 canon 工具回调应复用终端的 `CanonRecall` / `EvidenceA
 
 ## 迁移记录与对比方法
 
-2026-09-27 分四步迁移（纯函数 → 读取 → 调度 → 清理），每一步只移动代码。迁移前发现：`moirai canon test --questions` 实际运行 `devtools/canon/retrieval.py`，它自带一份组包流程，缺少终端对“问原因”题的上下文扩展，所以此前的题库数字测的不是终端的实际注入。合并后，316 道对比题中评测与终端的注入事件、证据长度和路线逐题一致（此前 31 题不一致）。评测还修掉一处诊断问题：印象类综述的 trace 会带上一题的结构扩展记录。
+2026-09-27 分四步迁移（纯函数 → 读取 → 调度 → 清理），每一步只移动代码。迁移前发现：`moirai canon test --questions` 实际运行 `src/core_eval/canon/retrieval.py`，它自带一份组包流程，缺少终端对“问原因”题的上下文扩展，所以此前的题库数字测的不是终端的实际注入。合并后，316 道对比题中评测与终端的注入事件、证据长度和路线逐题一致（此前 31 题不一致）。评测还修掉一处诊断问题：印象类综述的 trace 会带上一题的结构扩展记录。
 
 之后再做只移动代码的重构，用本机的对比工具验证（`.dev_data/canon/parity/`，被 `.gitignore` 忽略，因为题目含剧情原文）：
 
@@ -64,7 +64,7 @@ Bot 路径上的 canon 工具回调应复用终端的 `CanonRecall` / `EvidenceA
 - 运行时只读，不写 `canon.sqlite`；聊天内容不写回 canon。
 - `unstated` 事件只做导航，不注入；`role_candidate` 获知标签和 `reported` 事实候选都不当作角色知识或世界事实。
 - 汇报即知情（2026-09-28 用户决定）：V11 视角为 `unstated`、但带 `direct_report`（报给阿米娅）或 `command_report`（报给博士或凯尔希）获知标签的事件，读取时渠道记为 `reported`（“经汇报得知”），视为阿米娅已知。作为罗德岛领导人，她知道汇报内容，但不必说明由谁转达。她只知道汇报本身：证据包里这类事件的摘要换成获知标签的 `content`，证据行只取标签引用的行。`record_available` 与 `role_candidate` 仍不算知情；V10 库没有 `view_access`，行为不变。规则写在 `CanonReader` 一处（`REPORT_ACCESS`），检索、组包、综述和评测的已知事件集合共用它。
-- 角色相关的写法只放在 `core/canon/character.py` 的 `CharacterProfile`，按 `CanonPersona.character` 取用。它记录自称名、玩家称谓与占位符（博士、{DOCTOR}、@doctor）、所属组织、汇报接收人、世界名与游戏术语，并带 `report_knowledge` 开关，和 `user_is_doctor` 开关并列。运行时模块（reader、retrieval、gateway、packing、query、overview、context、assembly、lexical、vector_index）不直接写角色名。抽取 prompt 是按版本冻结的故事包资产，不在此列。
+- 角色相关的写法只放在 `src/core/canon/domain/character.py` 的 `CharacterProfile`，按 `CanonPersona.character` 取用。它记录自称名、玩家称谓与占位符（博士、{DOCTOR}、@doctor）、所属组织、汇报接收人、世界名与游戏术语，并带 `report_knowledge` 开关，和 `user_is_doctor` 开关并列。运行时模块（reader、retrieval、gateway、packing、query、overview、context、assembly、lexical、vector_index）不直接写角色名。抽取 prompt 是按版本冻结的故事包资产，不在此列。
 - 防护测试 `tests/test_canon_guards.py`（本地）钉住以下几项，改动时要同步更新文档、版本号和钉值：
   - 各版本抽取与事实 prompt 的文本（文本变了必须换版本号，因为缓存按版本命中）；
   - 定点修补提示词和各类问题说明在阿米娅配置下的渲染结果；

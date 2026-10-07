@@ -1,0 +1,4 @@
+# canon 终端试聊：只读 canon 数据库，对话只存在内存里。args 传给 src/tools/canon_chat.py。
+runner:
+  id: canon-chat
+args: []

@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [v1.2.43.sub] — 2026-10-07
+
+### 目录分层、Hydra 配置与 canon 重构
+
+- 目录：`core/`、`migrations/` 和 `web/*.py` 移到 `src/`；`tools/`、`devtools/` 与根目录的 `run_*_dev.py`、`run_canon_chat.py`、`reset_realtime_dev.py`、`test_model_call.py` 分到 `src/tools/`（工具）和 `src/core_eval/`（评测）。根目录 `main.py` 仍是 AstrBot 入口，只改为把 `src/` 加进 `sys.path`；导入名 `core`、`web`、`migrations` 不变。`web/frontend/` 与 `pages/` 不动。
+- 配置：新增 `configs/`（Hydra：`base.yaml` 与 `models/`、`data/`、`experiments/`、`retrieval/`、`canon/`、`canon_tools/`、`realtime/`）和入口 `src/main.py`，按 `experiments.runner.id` 运行 canon 试聊、构建、基准、裁判、档案导入、事实与历法写回、本地回放和 WebUI 预览。`src/core/utils/config_utils.py` 组合配置，并给开发脚本一份与旧 `run_config.py` 同名的设置，脚本不再读取 `run_config.py`，`run_config.py.example` 删除；key 只从模型文件 `api_key_env` 指定的环境变量读取。`requirements.txt` 增 `hydra-core>=1.3,<2`、`omegaconf>=2.3,<3`。`src/tools/realtime_dev.py` 缺 key 时不再在导入阶段报错，改在真正调用模型前报错，离线自检不需要 key。
+- canon 超参数：约 50 个数值从模块常量移到 `configs/canon/default.yaml`，`src/core/canon/settings.py` 按类型校验（缺键、多键、类型不符都报错），插件启动与工具读同一份值；数值原样搬，逐项与原常量核对一致。AstrBot 面板的 `canon_top_k`、`canon_token_budget`、`canon_evidence_lines` 照旧按参数传入。
+- 数据集内容：阿米娅的角色档案与 24 个时间锚点、view_access 收件人及 kind 对照、玩家字面称呼、年表的特殊标签移到 `configs/data/arknights.yaml`，`domain/character.py`、`builder/extract.py`、`domain/calendar.py`、`storage/store.py` 只读字段；从配置重建的档案与原对象逐项相等。
+- prompt 与常量：所有 prompt 文本和拼装函数移到 `src/core/utils/prompts/`（`prompt_canon_utils.py`、`prompt_extractor_utils.py`、`prompt_memory_utils.py`、`prompt_social_utils.py`），内容一字不改，测试里固定的 prompt 哈希不变。canon 的词表与标签移到 `src/core/canon/constant_utils.py`（按来源分节，`SPEAKING_KINDS` 两份合并）；评测标签移到 `src/core_eval/canon/constant_utils.py`；标签停用词等移到 `src/core/extractor/constant_utils.py`。
+- 抽取 prompt 版本：只保留 `canon-extract-v11` 与 `canon-facts-v3`，删除 v7、v10 与 facts-v2 及其分支；版本由 `configs/canon/default.yaml` 决定，不再读环境变量 `CANON_PROMPT_VERSION`。离线抽取工具的默认版本因此从 v10 变为 v11；AstrBot 运行时不调用抽取，回复路径不受影响。
+- canon 结构：拆成 `domain/`、`storage/`、`builder/`、`read/`、`turn/` 五个子包；`bench`、`compare`、`judge`、`probes`、`audit`、审阅页与事实基准移到 `src/core_eval/canon/`，原 `bench↔cli`、`bench↔compare` 的循环导入消失。`core/canon/cli.py` 删除，保留的命令（import、bench、compare、judge、facts-suggest、archive-import、facts-apply、calendar-apply）移到 `src/tools/canon_data.py`，只读的 status、dump、facts-query 删除。两段抽取重试改为 `builder/stage.py` 的 `JsonStage` 与 `SceneExtraction`、`FactSuggestion` 两个子类，超时、退避、错误回传与报错格式不变，仍对任何异常重试。`CanonReader` 拆成 `read/mixins/` 下 4 个 mixin，公开方法不变。回忆工具改由 `core/hooks/recall_tools.py` 登记，`CanonTurn` 只遍历注册表。4 处相同的汉字正则合并为 `core/utils/text_utils.py`。
+- 公共接口：`core/api.py` 改为 `core/api/` 包（`memory`、`runtime`、`canon`、`retrieval`），后三个在第一次访问时才导入；`devtools/retrieval.py` 并入 `core/api/retrieval.py`。
+- 删除（经用户逐项批准）：没有任何调用的 24 个函数和类、整个 `core/utils/retry.py`、`core/mixins/` 下 3 个空文件、2 个 `.DS_Store`。
+- 文档：README 新增「代码目录与配置」，新增 `configs/README.md`，`docs/` 与 `web/README.md` 的路径和命令改到新位置；历史验证记录不改。
+- 本地验证：完整 unittest `Ran 474 tests`、`OK (skipped=1)`，与重构前相同；`src/tools/realtime_dev.py --self-test` 直接运行和经 `src/main.py experiments=realtime_replay` 运行都通过；工作区 `verify-event-runtime.py` 44 项、`verify-chat-runtime.py` 16 项、`verify-persona-launch.py` 7 项、`fullflow_test.py --self-test` 4 项通过；`src/main.py` 的 canon 试聊 dry-run 读取本机 v11 全量库通过。未调用真实模型，未在 AstrBot 中加载，WebUI 只做了导入检查。
+
 ## [v1.2.42.sub] — 2026-10-06
 
 ### 每轮便签、未完成约定与「当时的我」

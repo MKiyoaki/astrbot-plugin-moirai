@@ -1,0 +1,1291 @@
+from __future__ import annotations
+import secrets
+import asyncio
+import json
+import logging
+import subprocess
+import sys
+import time
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from aiohttp import web
+
+from core.domain.models import Event, Impression, Persona, MessageRef
+from core.extractor.interaction_taxonomy import interaction_tag_tree
+from core.tags import derive_tag_categories
+from .auth import AuthManager, AuthState, PermLevel
+from .config_schema import (
+    apply_config_update_to_mapping,
+    flatten_conf_schema,
+    merge_config_values,
+    normalize_config_document,
+)
+from .registry import PanelRegistry
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+    from core.repository.base import (
+        EventRepository,
+        ImpressionRepository,
+        PersonaRepository,
+        RawMessageRepository,
+    )
+    from core.managers.base import BaseRecallManager
+
+    TaskRunner = Callable[[str], Awaitable[bool]]
+
+logger = logging.getLogger(__name__)
+
+_STATIC_DIR = Path(__file__).resolve().parents[2] / "pages" / "moirai" / "_app"
+_DEFAULT_PORT = 2655
+_SESSION_COOKIE = "em_session"
+_LEGACY_PERSONA_TOKEN = "__legacy__"
+
+def _ts_to_iso(ts: float) -> str:
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+def _json(data: Any, *, status: int = 200) -> web.Response:
+    return web.Response(
+        text=json.dumps(data, ensure_ascii=False),
+        content_type="application/json",
+        status=status,
+    )
+
+def _persona_query(request: web.Request) -> str | None:
+    value = request.rel_url.query.get("persona") or None
+    if value == _LEGACY_PERSONA_TOKEN:
+        return ""
+    return value
+
+def _persona_body(body: dict) -> str | None:
+    value = body.get("persona")
+    if not isinstance(value, str) or not value:
+        return None
+    return "" if value == _LEGACY_PERSONA_TOKEN else value
+
+def _merge_persona_value(value: Any) -> tuple[bool, str | None]:
+    if not isinstance(value, str):
+        return False, None
+    value = value.strip()
+    if value == _LEGACY_PERSONA_TOKEN:
+        return True, None
+    if not value:
+        return False, None
+    return True, value
+
+def event_to_dict(event: Event, participant_names: dict[str, str] | None = None) -> dict[str, Any]:
+    participants = event.participants if event.participants is not None else []
+    names = participant_names or {}
+    return {
+        "id": event.event_id,
+        "content": event.topic or event.event_id[:8],
+        "topic": event.topic or "",
+        "summary": event.summary or "",
+        "persona_view": [],
+        "start": _ts_to_iso(event.start_time),
+        "end": _ts_to_iso(event.end_time),
+        "start_ts": event.start_time,
+        "end_ts": event.end_time,
+        "group": event.group_id,
+        "salience": round(event.salience, 3) if event.salience is not None else 0.5,
+        "confidence": round(event.confidence, 3) if event.confidence is not None else 0.8,
+        "tags": event.chat_content_tags if event.chat_content_tags is not None else [],
+        "tag_categories": derive_tag_categories(event.chat_content_tags),
+        "interaction_classification": getattr(
+            event, "interaction_classification", {}
+        ) or {},
+        "inherit_from": event.inherit_from if event.inherit_from is not None else [],
+        "participants": participants,
+        "participant_names": {uid: names.get(uid, uid) for uid in participants},
+        "status": event.status or "active",
+        "is_locked": bool(event.is_locked),
+        "bot_persona_name": event.bot_persona_name,
+    }
+
+def persona_to_node(persona: Persona) -> dict[str, Any]:
+    return {
+        "data": {
+            "id": persona.uid,
+            "label": persona.primary_name,
+            "confidence": round(persona.confidence, 3),
+            "attrs": persona.persona_attrs,
+            "bound_identities": [
+                {"platform": p, "physical_id": pid}
+                for p, pid in persona.bound_identities
+            ],
+            "created_at": _ts_to_iso(persona.created_at),
+            "last_active_at": _ts_to_iso(persona.last_active_at),
+            "is_bot": any(p == "internal" for p, _ in persona.bound_identities),
+        }
+    }
+
+def impression_to_edge(imp: Impression) -> dict[str, Any]:
+    return {
+        "data": {
+            "id": f"{imp.observer_uid}--{imp.subject_uid}--{imp.scope}--{imp.bot_persona_name or 'legacy'}",
+            "source": imp.observer_uid,
+            "target": imp.subject_uid,
+            "label": imp.ipc_orientation,
+            "affect": round(imp.benevolence, 3),
+            "intensity": round(imp.affect_intensity, 3),
+            "power": round(imp.power, 3),
+            "r_squared": round(imp.r_squared, 3),
+            "confidence": round(imp.confidence, 3),
+            "scope": imp.scope,
+            "bot_persona_name": imp.bot_persona_name,
+            "evidence_event_ids": imp.evidence_event_ids,
+            "last_reinforced_at": _ts_to_iso(imp.last_reinforced_at),
+        }
+    }
+
+_DEMO_SUMMARY_1 = """# 群组 demo_group_001 活动摘要 — 2026-05-01 08:00 - 12:00
+[主要话题] Alice 和 Bob 进行了早安问候..."""
+_DEMO_SUMMARY_2 = """# 群组 demo_group_001 活动摘要 — 2026-05-02 14:00 - 18:00
+[主要话题] Alice 与 Charlie 确定了周末游戏约定..."""
+
+try:
+    from astrbot.api import logger as astrbot_logger
+except:
+    astrbot_logger = logging.getLogger("moirai")
+
+_PASSWORD_MASK = "(已设置加密密码)"
+
+class WebuiServer:
+    _CONF_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "_conf_schema.json"
+
+    def __init__(
+        self,
+        persona_repo: PersonaRepository,
+        event_repo: EventRepository,
+        impression_repo: ImpressionRepository,
+        data_dir: Path,
+        port: int = _DEFAULT_PORT,
+        auth_enabled: bool = True,
+        registry: PanelRegistry | None = None,
+        task_runner: TaskRunner | None = None,
+        plugin_version: str = "0.1.0",
+        initial_config: dict | None = None,
+        provider_getter: Callable | None = None,
+        all_providers_getter: Callable | None = None,
+        recall_manager: BaseRecallManager | None = None,
+        star: Any = None,
+        llm_manager: Any = None,
+        encoder: Any = None,
+        context_manager: Any = None,
+        summary_trigger_rounds: int = 30,
+        raw_message_repo: RawMessageRepository | None = None,
+        persona_group_repo: Any = None,
+        account_link_manager: Any = None,
+        category_classifier: Any = None,
+    ) -> None:
+        self._persona_repo = persona_repo
+        self._event_repo = event_repo
+        self._impression_repo = impression_repo
+        self._persona_group_repo = persona_group_repo
+        self._account_link_manager = account_link_manager
+        self._category_classifier = category_classifier
+        self._recall_manager = recall_manager
+        self._data_dir = data_dir
+        self._port = port
+        self._auth_enabled = auth_enabled
+        self._star = star
+        self._llm_manager = llm_manager
+        self._encoder = encoder
+        self._context_manager = context_manager
+        self._summary_trigger_rounds = summary_trigger_rounds
+        self._raw_message_repo = raw_message_repo
+
+        self._initial_config = initial_config or {}
+        # 1. 检查是否有持久化哈希文件
+        has_persistent_pw = (data_dir / ".webui_password").exists()
+        
+        # 2. 检查配置面板
+        cfg_password = self._initial_config.get("webui_password")
+        if cfg_password is None and "webui" in self._initial_config:
+            cfg_password = self._initial_config["webui"].get("webui_password")
+        cfg_password = str(cfg_password or "").strip()
+
+        self.token_generated = False
+        secret_token = None
+        
+        # 3. 核心初始化认证状态
+        def on_pw_changed(_: str):
+            # 当密码通过 WebUI (AuthManager) 设置时，同步【掩码】回配置
+            self._sync_password_to_config(_PASSWORD_MASK)
+            self.token_generated = False
+
+        self._auth = AuthManager(
+            data_dir,
+            secret_token=None,
+            is_token_configured=False,
+            on_password_changed=on_pw_changed
+        )
+
+        # 逻辑：
+        # A. 如果配置里是明文（非空且不是掩码），迁移它
+        if cfg_password and cfg_password != _PASSWORD_MASK:
+            try:
+                self._auth.setup_password(cfg_password)
+                self._sync_password_to_config(_PASSWORD_MASK)
+                astrbot_logger.info(f"[Moirai] 检测到明文配置密码，已哈希化并掩码。")
+            except Exception as e:
+                astrbot_logger.warning(f"[Moirai] 迁移明文密码失败: {e}")
+        
+        # B. 决定是否生成临时 Token
+        if not (data_dir / ".webui_password").exists() and auth_enabled:
+            # 只有在完全没有持久化密码的情况下才生成 Token
+            self._secret_token = secrets.token_urlsafe(16)
+            self._auth.update_secret_token(self._secret_token, False)
+            self.token_generated = True
+        else:
+            self._secret_token = None
+        self.registry = registry or PanelRegistry()
+        self._task_runner = task_runner
+        self._provider_getter = provider_getter
+        self._all_providers_getter = all_providers_getter
+        self._plugin_version = plugin_version
+        self._config_path = data_dir / "plugin_config.json"
+        self._relation_enabled = bool(self._initial_config.get("relation_enabled", True))
+        self._recycle_bin: list[dict] = []
+        self._app = self._build_app()
+        self._runner: web.AppRunner | None = None
+
+    def _build_app(self) -> web.Application:
+        app = web.Application()
+        
+        # API Routes
+        app.router.add_get("/api/auth/status", self._wrap("public", self._handle_auth_status))
+        app.router.add_post("/api/auth/setup", self._wrap("public", self._handle_auth_setup))
+        app.router.add_post("/api/auth/login", self._wrap("public", self._handle_auth_login))
+        app.router.add_post("/api/auth/logout", self._wrap("auth", self._handle_auth_logout))
+        app.router.add_post("/api/auth/sudo", self._wrap("auth", self._handle_auth_sudo))
+        app.router.add_post("/api/auth/sudo/exit", self._wrap("auth", self._handle_auth_sudo_exit))
+        app.router.add_post("/api/auth/password", self._wrap("sudo", self._handle_change_password))
+        app.router.add_get("/api/events", self._wrap("auth", self._handle_events))
+        app.router.add_get("/api/graph", self._wrap("auth", self._handle_graph_guarded))
+        app.router.add_get("/api/summaries", self._wrap("auth", self._handle_summaries))
+        app.router.add_get("/api/summary", self._wrap("auth", self._handle_summary))
+        app.router.add_get("/api/stats", self._wrap("auth", self._handle_stats))
+        app.router.add_get("/api/soul/states", self._wrap("auth", self._handle_soul_states))
+        app.router.add_post("/api/admin/run_task", self._wrap("sudo", self._handle_run_task))
+        app.router.add_put("/api/summary", self._wrap("sudo", self._handle_update_summary))
+        app.router.add_post("/api/summary/regenerate", self._wrap("sudo", self._handle_regenerate_summary))
+        app.router.add_post("/api/admin/demo", self._wrap("sudo", self._handle_demo))
+        app.router.add_get("/api/recall", self._wrap("auth", self._handle_recall))
+        app.router.add_post("/api/events", self._wrap("sudo", self._handle_create_event))
+        app.router.add_put("/api/events/{event_id}", self._wrap("sudo", self._handle_update_event))
+        app.router.add_post("/api/events/{event_id}/reextract", self._wrap("sudo", self._handle_reextract_event))
+        app.router.add_delete("/api/events/{event_id}", self._wrap("sudo", self._handle_delete_event))
+        app.router.add_delete("/api/events", self._wrap("sudo", self._handle_clear_events))
+        app.router.add_get("/api/recycle_bin", self._wrap("auth", self._handle_recycle_bin_list))
+        app.router.add_post("/api/recycle_bin/restore", self._wrap("sudo", self._handle_recycle_bin_restore))
+        app.router.add_delete("/api/recycle_bin", self._wrap("sudo", self._handle_recycle_bin_clear))
+        app.router.add_get("/api/archived_events", self._wrap("auth", self._handle_archived_events_list))
+        app.router.add_post("/api/events/{event_id}/archive", self._wrap("sudo", self._handle_archive_event))
+        app.router.add_post("/api/events/{event_id}/unarchive", self._wrap("sudo", self._handle_unarchive_event))
+        app.router.add_get("/api/personas/bots", self._wrap("auth", self._handle_bot_personas_list))
+        app.router.add_get("/api/personas/merge/preview", self._wrap("auth", self._handle_persona_merge_preview))
+        app.router.add_post("/api/personas/merge", self._wrap("sudo", self._handle_persona_merge))
+        app.router.add_post("/api/personas", self._wrap("sudo", self._handle_create_persona))
+        app.router.add_put("/api/personas/{uid}", self._wrap("sudo", self._handle_update_persona))
+        app.router.add_delete("/api/personas/{uid}", self._wrap("sudo", self._handle_delete_persona))
+        app.router.add_get("/api/personas", self._wrap("auth", self._handle_personas_list))
+        app.router.add_get("/api/persona-groups", self._wrap("auth", self._handle_persona_groups_list))
+        app.router.add_post("/api/persona-groups", self._wrap("sudo", self._handle_persona_group_create))
+        app.router.add_put("/api/persona-groups/{group_id}", self._wrap("sudo", self._handle_persona_group_rename))
+        app.router.add_delete("/api/persona-groups/{group_id}", self._wrap("sudo", self._handle_persona_group_dissolve))
+        app.router.add_post("/api/persona-groups/{group_id}/members", self._wrap("sudo", self._handle_persona_group_add_member))
+        app.router.add_delete("/api/persona-groups/{group_id}/members/{uid}", self._wrap("sudo", self._handle_persona_group_remove_member))
+        app.router.add_put("/api/impressions/{observer}/{subject}/{scope}", self._wrap("sudo", self._handle_update_impression_guarded))
+        app.router.add_delete("/api/impressions/{observer}/{subject}/{scope}", self._wrap("sudo", self._handle_delete_impression_guarded))
+        app.router.add_post("/api/impressions/bulk-delete", self._wrap("sudo", self._handle_bulk_delete_impressions_guarded))
+        app.router.add_post("/api/impressions/reanalyze", self._wrap("sudo", self._handle_reanalyze_impressions_guarded))
+        app.router.add_get("/api/tags", self._wrap("auth", self._handle_tags))
+        app.router.add_get("/api/tags/tree", self._wrap("auth", self._handle_tag_tree))
+        app.router.add_get("/api/config", self._wrap("auth", self._handle_get_config))
+        app.router.add_put("/api/config", self._wrap("sudo", self._handle_update_config))
+        app.router.add_get("/api/config/schema", self._wrap("auth", self._handle_get_config_schema))
+        app.router.add_get("/api/config/providers", self._wrap("auth", self._handle_get_providers))
+        app.router.add_get("/api/panels", self._wrap("auth", self._handle_panels_list))
+
+        for route in self.registry.all_routes():
+            app.router.add_route(route.method, route.path, self._wrap(route.permission, route.handler))
+
+        # Static assets — must be registered before the SPA catch-all so aiohttp
+        # serves them directly instead of falling through to the wildcard handler,
+        # which has known issues with paths containing dots (e.g. chunk.abc123.js).
+        _next_dir = _STATIC_DIR / "_next"
+        if _next_dir.exists():
+            app.router.add_static("/_next", _next_dir)
+
+        # SPA Catch-all
+        app.router.add_get("/", self._handle_spa_fallback)
+        app.router.add_get("/{tail:.*}", self._handle_spa_fallback)
+        return app
+
+    async def _handle_spa_fallback(self, request: web.Request) -> web.Response:
+        tail = request.match_info.get("tail", "").strip("/")
+        filename = tail if tail else "index.html"
+        target_file = _STATIC_DIR / filename
+
+        # 1. 直接文件（JS/CSS/fonts/favicon 等）
+        if target_file.is_file():
+            return web.FileResponse(target_file)
+
+        # 2. 目录 → index.html（Next.js trailingSlash: true 生成的结构）
+        if (target_file / "index.html").is_file():
+            return web.FileResponse(target_file / "index.html")
+
+        # 3. 扩展名省略：/events → events.html（兼容 trailingSlash 关闭时）
+        if (_STATIC_DIR / f"{filename}.html").is_file():
+            return web.FileResponse(_STATIC_DIR / f"{filename}.html")
+
+        # 4. SPA fallback：所有未匹配路径返回 index.html（前端路由接管）
+        index_file = _STATIC_DIR / "index.html"
+        if index_file.is_file():
+            return web.FileResponse(index_file)
+
+        return web.Response(status=404, text=f"Frontend missing: {filename}")
+
+    @property
+    def app(self) -> web.Application: return self._app
+    @property
+    def auth(self) -> AuthManager: return self._auth
+
+    async def start(self) -> None:
+        if self._runner: return
+        self._runner = web.AppRunner(self._app)
+        await self._runner.setup()
+        site = web.TCPSite(self._runner, "0.0.0.0", self._port)
+        await site.start()
+        logger.info("[WebUI] listening on http://localhost:%d (Independent Server, NOT AstrBot Panel)", self._port)
+
+    async def stop(self) -> None:
+        if not self._runner: return
+        await self._runner.cleanup()
+        self._runner = None
+
+    def _wrap(self, level: PermLevel, handler: Callable) -> Callable:
+        async def wrapped(request: web.Request) -> web.StreamResponse:
+            try:
+                if not self._auth_enabled or level == "public":
+                    return await handler(request)
+                token = request.cookies.get(_SESSION_COOKIE)
+                state = self._auth.check(token)
+                if not state.is_authenticated: return _json({"error": "unauthorized"}, status=401)
+                if level == "sudo" and not state.is_sudo: return _json({"error": "sudo required"}, status=403)
+                request["auth"] = state
+                return await handler(request)
+            except Exception as exc:
+                logger.exception("[WebUI] Error in %s %s", request.method, request.path)
+                return _json({"error": str(exc)}, status=500)
+        return wrapped
+
+    @property
+    def _persona_iso_enabled(self) -> bool:
+        return bool(self._initial_config.get("persona_isolation_enabled", True))
+
+    @property
+    def _persona_legacy_visible(self) -> bool:
+        return bool(self._initial_config.get("persona_isolation_legacy_visible", True))
+
+    async def _participant_name_map(self, events: list[Event]) -> dict[str, str]:
+        uids = {uid for event in events for uid in (event.participants or [])}
+        if not uids:
+            return {}
+        personas = await self._persona_repo.list_all()
+        return {
+            persona.uid: persona.primary_name
+            for persona in personas
+            if persona.uid in uids and persona.primary_name
+        }
+
+    async def _events_to_dicts(self, events: list[Event]) -> list[dict[str, Any]]:
+        """Serialize an event list without per-segment interaction classification, which no list view reads."""
+        names = await self._participant_name_map(events)
+        items = [event_to_dict(event, names) for event in events]
+        for item in items:
+            item.pop("interaction_classification", None)
+        from core.api import attach_persona_views
+        return await attach_persona_views(items, self._raw_message_repo)
+
+    async def events_data(
+        self, group_id: str | None, limit: int,
+        bot_persona_name: str | None = None,
+    ) -> dict[str, Any]:
+        if not self._persona_iso_enabled:
+            bot_persona_name = None
+        include_legacy = self._persona_legacy_visible
+        if group_id:
+            events = await self._event_repo.list_by_group(
+                group_id, limit=limit,
+                bot_persona_name=bot_persona_name, include_legacy=include_legacy,
+            )
+        else:
+            # Same time-ordered query as the plugin route; the old per-group
+            # quota dropped the newest events from a chronological list.
+            events = await self._event_repo.list_all(
+                limit=limit,
+                bot_persona_name=bot_persona_name, include_legacy=include_legacy,
+            )
+        return {"items": await self._events_to_dicts(events), "total": len(events)}
+
+    async def graph_data(self, bot_persona_name: str | None = None) -> dict[str, Any]:
+        if not self._persona_iso_enabled:
+            bot_persona_name = None
+        include_legacy = self._persona_legacy_visible
+        personas = await self._persona_repo.list_all()
+        uid_msg_counts = await self._event_repo.count_messages_by_uid_bulk()
+
+        # Resolve persona-group collapse: bound accounts render as one node.
+        groups = []
+        if self._persona_group_repo is not None:
+            try:
+                groups = await self._persona_group_repo.list_groups()
+            except Exception:
+                groups = []
+        persona_by_uid = {p.uid: p for p in personas}
+        group_by_gid = {g.group_id: g for g in groups}
+        uid_to_primary: dict[str, str] = {}
+        members_by_primary: dict[str, list[str]] = {}
+        for p in personas:
+            grp = group_by_gid.get(p.group_id) if p.group_id else None
+            if grp is not None:
+                primary = grp.primary_uid if grp.primary_uid in persona_by_uid else p.uid
+                uid_to_primary[p.uid] = primary
+                members_by_primary.setdefault(primary, []).append(p.uid)
+            else:
+                uid_to_primary[p.uid] = p.uid
+
+        nodes = []
+        emitted: set[str] = set()
+        for p in personas:
+            primary = uid_to_primary[p.uid]
+            if primary in emitted:
+                continue
+            emitted.add(primary)
+            rep = persona_by_uid.get(primary, p)
+            node = persona_to_node(rep)
+            members = members_by_primary.get(primary)
+            if members:
+                node["data"]["msg_count"] = sum(uid_msg_counts.get(m, 0) for m in members)
+                node["data"]["group_member_uids"] = sorted(members)
+                grp = group_by_gid.get(rep.group_id)
+                if grp is not None:
+                    node["data"]["label"] = grp.display_name
+                    node["data"]["group_id"] = grp.group_id
+            else:
+                node["data"]["msg_count"] = uid_msg_counts.get(primary, 0)
+            nodes.append(node)
+
+        # Bulk aggregates replace one impression query per persona and one
+        # message-count query per impression. Persona order is preserved so the
+        # confidence tie-break below behaves the same.
+        impressions = await self._impression_repo.list_all(
+            bot_persona_name=bot_persona_name, include_legacy=include_legacy,
+        )
+        imps_by_observer: dict[str, list[Impression]] = {}
+        for imp in impressions:
+            imps_by_observer.setdefault(imp.observer_uid, []).append(imp)
+        scope_msg_counts = await self._event_repo.count_messages_by_uid_scope_bulk()
+
+        def _edge_msg_count(uid1: str, uid2: str, scope: str) -> int:
+            uids = {uid1, uid2}
+            if scope == "global":
+                return sum(uid_msg_counts.get(uid, 0) for uid in uids)
+            return sum(scope_msg_counts.get((scope, uid), 0) for uid in uids)
+
+        edges = []
+        edge_index: dict[tuple[str, str, str], int] = {}
+        for persona in personas:
+            for imp in imps_by_observer.get(persona.uid, ()):
+                src = uid_to_primary.get(imp.observer_uid, imp.observer_uid)
+                tgt = uid_to_primary.get(imp.subject_uid, imp.subject_uid)
+                if src == tgt:
+                    continue
+                edge = impression_to_edge(imp)
+                edge["data"]["source"] = src
+                edge["data"]["target"] = tgt
+                edge["data"]["id"] = f"{src}--{tgt}--{imp.scope}"
+                edge["data"]["msg_count"] = _edge_msg_count(imp.observer_uid, imp.subject_uid, imp.scope)
+                key = (src, tgt, imp.scope)
+                prev = edge_index.get(key)
+                if prev is None:
+                    edge_index[key] = len(edges)
+                    edges.append(edge)
+                elif edge["data"].get("confidence", 0) > edges[prev]["data"].get("confidence", 0):
+                    edges[prev] = edge
+        group_members = await self._event_repo.list_participants_by_group(
+            bot_persona_name=bot_persona_name, include_legacy=include_legacy,
+        )
+        return {"nodes": nodes, "edges": edges, "group_members": group_members}
+
+    async def bot_personas_data(self) -> dict[str, Any]:
+        db = getattr(self._event_repo, "_db", None)
+        if db is not None:
+            async with db.execute(
+                "WITH event_counts AS ("
+                "  SELECT COALESCE(bot_persona_name, '') AS name, COUNT(*) AS n "
+                "  FROM events GROUP BY COALESCE(bot_persona_name, '')"
+                "), persona_names AS ("
+                "  SELECT COALESCE(bot_persona_name, '') AS name FROM events "
+                "  UNION SELECT COALESCE(bot_persona_name, '') AS name FROM impressions "
+                "  UNION SELECT COALESCE(bot_persona_name, '') AS name FROM personas"
+                ") "
+                "SELECT persona_names.name, COALESCE(event_counts.n, 0) AS n "
+                "FROM persona_names LEFT JOIN event_counts ON event_counts.name = persona_names.name "
+                "ORDER BY n DESC, CASE WHEN persona_names.name = '' THEN 0 ELSE 1 END, persona_names.name ASC"
+            ) as cur:
+                rows = await cur.fetchall()
+            return {"items": [{"name": (r[0] or None), "event_count": r[1]} for r in rows]}
+
+        counts: dict[str | None, int] = {}
+        for event in await self._event_repo.list_all(limit=1_000_000):
+            counts[event.bot_persona_name] = counts.get(event.bot_persona_name, 0) + 1
+        for persona in await self._persona_repo.list_all():
+            if persona.bot_persona_name not in counts:
+                counts[persona.bot_persona_name] = 0
+        for impression in getattr(self._impression_repo, "_store", {}).values():
+            if impression.bot_persona_name not in counts:
+                counts[impression.bot_persona_name] = 0
+        items = [
+            {"name": name, "event_count": count}
+            for name, count in sorted(
+                counts.items(),
+                key=lambda item: (-item[1], 0 if item[0] is None else 1, item[0] or ""),
+            )
+        ]
+        return {"items": items}
+
+    async def _known_persona_names(self) -> list[str | None]:
+        try:
+            data = await self.bot_personas_data()
+        except Exception:
+            return []
+        return [item.get("name") for item in data.get("items", [])]
+
+    def summary_path_for(
+        self, group_id: str | None, date: str,
+        peer_uid: str | None = None, persona: str | None = None,
+        persona_dir: str | None = None,
+    ) -> Path:
+        from core.tasks.summary_paths import summary_path
+        return summary_path(
+            self._data_dir, date=date, group_id=group_id,
+            peer_uid=peer_uid, persona=persona, persona_dir=persona_dir,
+        )
+
+    async def summaries_data(self, bot_persona_name: str | None = None) -> list[dict[str, str | None]]:
+        from core.tasks.summary_paths import (
+            KIND_LEGACY_PRIVATE, KIND_PRIVATE, iter_summary_files,
+            persona_dirname, resolve_persona_dirname,
+        )
+        if not self._persona_iso_enabled:
+            bot_persona_name = None
+        known = await self._known_persona_names()
+        try:
+            uid_to_name = {p.uid: p.primary_name for p in await self._persona_repo.list_all()}
+        except Exception:
+            uid_to_name = {}
+        wanted_dir = None if bot_persona_name is None else persona_dirname(bot_persona_name or None)
+        legacy_dir = persona_dirname(None)
+
+        result: list[dict[str, str | None]] = []
+        for ref in iter_summary_files(self._data_dir):
+            if wanted_dir is not None and ref.persona_dir != wanted_dir:
+                if not (self._persona_legacy_visible and ref.persona_dir == legacy_dir):
+                    continue
+            if ref.kind == KIND_PRIVATE:
+                label = uid_to_name.get(ref.peer_uid or "", ref.peer_uid or "")
+            elif ref.kind == KIND_LEGACY_PRIVATE:
+                label = "私聊"
+            else:
+                label = ref.group_id or ""
+            result.append({
+                "group_id": ref.group_id,
+                "peer_uid": ref.peer_uid,
+                "kind": ref.kind,
+                "bot_persona_name": resolve_persona_dirname(ref.persona_dir, known),
+                "persona_dir": ref.persona_dir,
+                "date": ref.date,
+                "label": label,
+            })
+        result.sort(key=lambda r: (r["date"] or "", r["label"] or ""), reverse=True)
+        return result
+
+    def summary_content(
+        self, group_id: str | None, date: str,
+        peer_uid: str | None = None, persona: str | None = None,
+        persona_dir: str | None = None,
+    ) -> str | None:
+        if not date: return None
+        path = self.summary_path_for(group_id, date, peer_uid, persona, persona_dir)
+        return path.read_text(encoding="utf-8") if path.exists() else None
+
+    def _read_config(self) -> dict:
+        raw = json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {}
+        flat_schema = flatten_conf_schema(raw)
+
+        values: dict = {k: v.get("default") for k, v in flat_schema.items()}
+        merge_config_values(values, self._initial_config, flat_schema)
+        if self._config_path.exists():
+            try:
+                merge_config_values(
+                    values,
+                    json.loads(self._config_path.read_text(encoding="utf-8")),
+                    flat_schema,
+                )
+            except Exception:
+                pass
+        if self._star and hasattr(self._star, "config"):
+            star_cfg = self._star.config
+            items = getattr(star_cfg, "items", None)
+            if callable(items):
+                for key, value in items():
+                    if key in flat_schema:
+                        values[key] = value
+                    elif isinstance(value, dict):
+                        for sub_key, sub_value in value.items():
+                            if sub_key in flat_schema:
+                                values[sub_key] = sub_value
+        return values
+
+    async def stats_data(self) -> dict[str, Any]:
+        from core.api import get_stats
+        data = await get_stats(
+            self._persona_repo,
+            self._event_repo,
+            self._impression_repo,
+            self._data_dir,
+            self._plugin_version,
+            llm_manager=self._llm_manager,
+            context_manager=self._context_manager,
+            summary_trigger_rounds=self._summary_trigger_rounds,
+            show_llm_call_details=bool(self._read_config().get("show_llm_call_details", False)),
+        )
+        data["soul_enabled"] = bool(self._initial_config.get("soul_enabled", True))
+        return data
+
+    async def _handle_auth_status(self, request: web.Request) -> web.Response:
+        token = request.cookies.get(_SESSION_COOKIE)
+        state = self._auth.check(token) if self._auth_enabled else AuthState(True, True)
+        return _json({
+            "auth_enabled": self._auth_enabled,
+            "password_set": self._auth.is_password_set(),
+            "authenticated": state.is_authenticated,
+            "sudo": state.is_sudo,
+            "sudo_remaining_seconds": state.sudo_remaining_seconds,
+            "version": self._plugin_version,
+        })
+
+    async def _handle_auth_setup(self, request: web.Request) -> web.Response:
+        if self._auth.is_password_set(): return _json({"error": "password already set"}, status=409)
+        body = await request.json()
+        try: self._auth.setup_password(body.get("password", ""))
+        except ValueError as e: return _json({"error": str(e)}, status=400)
+        token = self._auth.login(body.get("password", ""))
+        resp = _json({"ok": True})
+        if token: resp.set_cookie(_SESSION_COOKIE, token, httponly=True, samesite="Lax", path="/")
+        return resp
+
+    async def _handle_auth_login(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        token = self._auth.login(body.get("password", ""))
+        if token is None: return _json({"error": "invalid password"}, status=401)
+        resp = _json({"ok": True})
+        resp.set_cookie(_SESSION_COOKIE, token, httponly=True, samesite="Lax", path="/")
+        return resp
+
+    async def _handle_auth_logout(self, request: web.Request) -> web.Response:
+        self._auth.logout(request.cookies.get(_SESSION_COOKIE))
+        resp = _json({"ok": True})
+        resp.del_cookie(_SESSION_COOKIE, path="/")
+        return resp
+
+    async def _handle_auth_sudo(self, request: web.Request) -> web.Response:
+        if not self._auth_enabled: return _json({"ok": True, "sudo_remaining_seconds": 3600})
+        body = await request.json()
+        token = request.cookies.get(_SESSION_COOKIE)
+        state = request.get("auth") or self._auth.check(token)
+        if not token or not state.is_authenticated: return _json({"error": "unauthorized"}, status=401)
+        if not self._auth.verify_sudo(token, body.get("password", "")): return _json({"error": "invalid password"}, status=401)
+        state = self._auth.check(token)
+        return _json({"ok": True, "sudo_remaining_seconds": state.sudo_remaining_seconds})
+
+    async def _handle_auth_sudo_exit(self, request: web.Request) -> web.Response:
+        self._auth.exit_sudo(request.cookies.get(_SESSION_COOKIE))
+        return _json({"ok": True})
+
+    async def _handle_change_password(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        if not self._auth.change_password(body.get("old_password", ""), body.get("new_password", "")):
+            return _json({"error": "old password incorrect or weak new password"}, status=400)
+        return _json({"ok": True})
+
+    async def _handle_events(self, request: web.Request) -> web.Response:
+        persona = _persona_query(request)
+        return _json(await self.events_data(
+            request.rel_url.query.get("group_id"),
+            int(request.rel_url.query.get("limit", "100")),
+            bot_persona_name=persona,
+        ))
+
+    async def _handle_graph_guarded(self, request: web.Request) -> web.Response:
+        if not self._relation_enabled: return _json({"enabled": False, "nodes": [], "edges": []})
+        persona = _persona_query(request)
+        return _json(await self.graph_data(bot_persona_name=persona))
+
+    async def _handle_bot_personas_list(self, _: web.Request) -> web.Response:
+        return _json(await self.bot_personas_data())
+
+    async def _handle_summaries(self, request: web.Request) -> web.Response:
+        return _json(await self.summaries_data(bot_persona_name=_persona_query(request)))
+
+    async def _handle_summary(self, request: web.Request) -> web.Response:
+        q = request.rel_url.query
+        group_id = q.get("group_id") or None
+        peer_uid = q.get("peer_uid") or None
+        date = q.get("date", "")
+        if not date: return _json({"error": "date required"}, status=400)
+        path = self.summary_path_for(
+            group_id, date, peer_uid, _persona_query(request), q.get("persona_dir") or None,
+        )
+        if not path.exists(): return _json({"error": "not found"}, status=404)
+        from core.tasks.summary_links import refresh_summary_file_event_links
+        content, links, _ = await refresh_summary_file_event_links(path, self._event_repo)
+        return _json({"content": content, "linked_events": [link.to_dict() for link in links]})
+
+    async def _handle_stats(self, _: web.Request) -> web.Response: return _json(await self.stats_data())
+
+    async def _handle_soul_states(self, _: web.Request) -> web.Response:
+        states = getattr(self._recall_manager, "get_soul_states", lambda: {})() if self._recall_manager else {}
+        return _json({"states": states})
+
+    async def _handle_run_task(self, request: web.Request) -> web.Response:
+        if not self._task_runner: return _json({"error": "no runner"}, status=503)
+        body = await request.json()
+        try: ok = await self._task_runner(body.get("name", ""))
+        except Exception as e: return _json({"error": str(e)}, status=500)
+        return _json({"ok": ok})
+
+    async def _handle_update_summary(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        date, content = body.get("date", ""), body.get("content", "")
+        if not date: return _json({"error": "no date"}, status=400)
+        path = self.summary_path_for(
+            body.get("group_id") or None, date, body.get("peer_uid") or None,
+            _persona_body(body), body.get("persona_dir") or None,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return _json({"ok": True})
+
+    async def _handle_regenerate_summary(self, request: web.Request) -> web.Response:
+        if not self._provider_getter: return _json({"error": "no provider"}, status=503)
+        body = await request.json()
+        date = body.get("date", "")
+        group_id = body.get("group_id") or None
+        peer_uid = body.get("peer_uid") or None
+        persona_dir = body.get("persona_dir") or None
+        persona = _persona_body(body)
+        if persona is None and persona_dir:
+            from core.tasks.summary_paths import PERSONA_DIR_DEFAULT, resolve_persona_dirname
+            persona = "" if persona_dir == PERSONA_DIR_DEFAULT else resolve_persona_dirname(
+                persona_dir, await self._known_persona_names()
+            )
+        try:
+            from core.config import PluginConfig
+            from core.tasks.summary import regenerate_single_summary
+            content = await regenerate_single_summary(
+                event_repo=self._event_repo,
+                data_dir=self._data_dir,
+                provider_getter=self._provider_getter,
+                group_id=group_id,
+                date=date,
+                summary_config=PluginConfig(getattr(self, "_initial_config", {})).get_summary_config(),
+                persona_repo=self._persona_repo,
+                impression_repo=self._impression_repo,
+                peer_uid=peer_uid,
+                bot_persona_name=persona if self._persona_iso_enabled else None,
+                include_legacy=False,
+                persona_dir=persona_dir,
+            )
+        except Exception as e: return _json({"error": str(e)}, status=500)
+        if content is None: return _json({"error": "failed"}, status=503)
+        path = self.summary_path_for(group_id, date, peer_uid, persona, persona_dir)
+        from core.tasks.summary_links import refresh_summary_file_event_links
+        content, links, _ = await refresh_summary_file_event_links(path, self._event_repo)
+        return _json({"content": content, "linked_events": [link.to_dict() for link in links]})
+
+    async def _handle_demo(self, _: web.Request) -> web.Response:
+        # Seeding logic kept as is in original for simplicity, can be expanded if needed
+        return _json({"ok": True, "seeded": {}})
+
+    async def _handle_recall(self, request: web.Request) -> web.Response:
+        q = request.rel_url.query.get("q", "").strip()
+        if not q: return _json({"error": "q required"}, status=400)
+        persona = _persona_query(request)
+        limit = int(request.rel_url.query.get("limit", "5"))
+        fetch = limit * 3 if persona else limit
+        if self._recall_manager:
+            results = await self._recall_manager.recall(q, group_id=request.rel_url.query.get("session_id"))
+            algorithm = "hybrid"
+        else:
+            results = await self._event_repo.search_fts(q, limit=fetch)
+            algorithm = "fts5"
+        if persona:
+            results = [e for e in results if e.bot_persona_name == persona or e.bot_persona_name is None]
+        results = results[:limit]
+        return _json({"items": [event_to_dict(e) for e in results], "algorithm": algorithm, "query": q, "count": len(results)})
+
+    async def _handle_create_event(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        now = time.time()
+        event = Event(event_id=body.get("event_id") or str(uuid.uuid4()), group_id=body.get("group_id"), start_time=float(body.get("start_time", now)), end_time=float(body.get("end_time", now)), participants=body.get("participants", []), interaction_flow=[], topic=body.get("topic", ""), summary=body.get("summary", ""), chat_content_tags=body.get("chat_content_tags", []), salience=float(body.get("salience", 0.5)), confidence=float(body.get("confidence", 0.8)), inherit_from=body.get("inherit_from", []), last_accessed_at=now, is_locked=bool(body.get("is_locked", False)), status=body.get("status", "active"))
+        await self._event_repo.upsert(event)
+        if self._category_classifier is not None:
+            self._category_classifier.schedule([event])
+        return _json({"ok": True, "event": event_to_dict(event)}, status=201)
+
+    async def _handle_update_event(self, request: web.Request) -> web.Response:
+        existing = await self._event_repo.get(request.match_info["event_id"])
+        if not existing: return _json({"error": "not found"}, status=404)
+        body = await request.json()
+        updated = Event(event_id=existing.event_id, group_id=body.get("group_id", existing.group_id), start_time=float(body.get("start_time", existing.start_time)), end_time=float(body.get("end_time", existing.end_time)), participants=body.get("participants", existing.participants), interaction_flow=existing.interaction_flow, topic=body.get("topic", existing.topic), summary=body.get("summary", existing.summary), chat_content_tags=body.get("chat_content_tags", existing.chat_content_tags), salience=float(body.get("salience", existing.salience)), confidence=float(body.get("confidence", existing.confidence)), inherit_from=body.get("inherit_from", existing.inherit_from), last_accessed_at=time.time(), is_locked=bool(body.get("is_locked", existing.is_locked)), status=body.get("status", existing.status))
+        await self._event_repo.upsert(updated)
+        if self._category_classifier is not None:
+            await self._category_classifier.schedule_reclassify(updated)
+        from core.tasks.summary_links import refresh_summary_files_for_event
+        await refresh_summary_files_for_event(self._data_dir, self._event_repo, updated.event_id)
+        return _json({"ok": True, "event": event_to_dict(updated)})
+
+    async def _handle_reextract_event(self, request: web.Request) -> web.Response:
+        from core.config import PluginConfig
+        from core.tasks.reextract import ReextractError, reextract_event
+
+        event_id = request.match_info["event_id"]
+        try:
+            result = await reextract_event(
+                self._event_repo,
+                self._persona_repo,
+                event_id,
+                self._provider_getter,
+                extractor_config=PluginConfig(self._initial_config).get_extractor_config(),
+                llm_manager=self._llm_manager,
+                encoder=self._encoder,
+                raw_message_repo=self._raw_message_repo,
+                category_classifier=self._category_classifier,
+            )
+        except ReextractError as exc:
+            status = 404 if exc.code == "not_found" else 400
+            if exc.code == "provider_none":
+                status = 503
+            return _json({"ok": False, "error": exc.code, "message": exc.message}, status=status)
+        from core.tasks.summary_links import refresh_summary_files_for_event
+        await refresh_summary_files_for_event(self._data_dir, self._event_repo, result.event.event_id)
+        return _json({"ok": True, "event": event_to_dict(result.event), "source_count": result.source_count})
+
+    async def _handle_delete_event(self, request: web.Request) -> web.Response:
+        existing = await self._event_repo.get(request.match_info["event_id"])
+        if not existing: return _json({"error": "not found"}, status=404)
+        self._recycle_bin.append({**event_to_dict(existing), "deleted_at": _ts_to_iso(time.time())})
+        await self._event_repo.delete(request.match_info["event_id"])
+        return _json({"ok": True})
+
+    async def _handle_clear_events(self, _: web.Request) -> web.Response:
+        deleted = 0
+        for gid in await self._event_repo.list_group_ids():
+            for ev in await self._event_repo.list_by_group(gid, limit=10000):
+                self._recycle_bin.append({**event_to_dict(ev), "deleted_at": _ts_to_iso(time.time())})
+                await self._event_repo.delete(ev.event_id); deleted += 1
+        return _json({"ok": True, "deleted": deleted})
+
+    async def _handle_recycle_bin_list(self, _: web.Request) -> web.Response: return _json({"items": list(reversed(self._recycle_bin))})
+
+    async def _handle_recycle_bin_restore(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        item = next((x for x in self._recycle_bin if x["id"] == body.get("event_id")), None)
+        if not item: return _json({"error": "not found"}, status=404)
+        event = Event(event_id=item["id"], group_id=item.get("group"), start_time=item.get("start_ts", time.time()), end_time=item.get("end_ts", time.time()), participants=item.get("participants", []), interaction_flow=[], topic=item.get("topic", item.get("content", "")), summary=item.get("summary", ""), chat_content_tags=item.get("tags", []), salience=item.get("salience", 0.5), confidence=item.get("confidence", 0.8), inherit_from=item.get("inherit_from", []), last_accessed_at=time.time(), status=item.get("status", "active"), is_locked=item.get("is_locked", False))
+        await self._event_repo.upsert(event)
+        self._recycle_bin = [x for x in self._recycle_bin if x["id"] != body.get("event_id")]
+        return _json({"ok": True, "event": event_to_dict(event)})
+
+    async def _handle_recycle_bin_clear(self, _: web.Request) -> web.Response:
+        count = len(self._recycle_bin); self._recycle_bin.clear()
+        return _json({"ok": True, "cleared": count})
+
+    async def _handle_archived_events_list(self, _: web.Request) -> web.Response:
+        from core.api import list_archived_events
+        return _json(await list_archived_events(self._event_repo))
+
+    async def _handle_archive_event(self, request: web.Request) -> web.Response:
+        from core.domain.models import EventStatus
+        event_id = request.match_info["event_id"]
+        existing = await self._event_repo.get(event_id)
+        if not existing:
+            return _json({"error": "not found"}, status=404)
+        await self._event_repo.set_status(event_id, EventStatus.ARCHIVED)
+        return _json({"ok": True})
+
+    async def _handle_unarchive_event(self, request: web.Request) -> web.Response:
+        from core.domain.models import EventStatus
+        event_id = request.match_info["event_id"]
+        existing = await self._event_repo.get(event_id)
+        if not existing:
+            return _json({"error": "not found"}, status=404)
+        await self._event_repo.set_status(event_id, EventStatus.ACTIVE)
+        return _json({"ok": True})
+
+    async def _handle_create_persona(self, request: web.Request) -> web.Response:
+        body = await request.json(); now = time.time()
+        bindings = [(b["platform"], b["physical_id"]) for b in body.get("bound_identities", []) if isinstance(b, dict)]
+        persona = Persona(uid=body.get("uid") or str(uuid.uuid4()), bound_identities=bindings, primary_name=body.get("primary_name", ""), persona_attrs={"description": body.get("description", ""), "content_tags": body.get("content_tags", [])}, confidence=float(body.get("confidence", 0.8)), created_at=now, last_active_at=now)
+        await self._persona_repo.upsert(persona)
+        return _json({"ok": True, "persona": persona_to_node(persona)}, status=201)
+
+    async def _handle_update_persona(self, request: web.Request) -> web.Response:
+        existing = await self._persona_repo.get(request.match_info["uid"])
+        if not existing: return _json({"error": "not found"}, status=404)
+        body = await request.json()
+        bindings = [(b["platform"], b["physical_id"]) for b in body.get("bound_identities", [])] if "bound_identities" in body else existing.bound_identities
+        attrs = {"description": body.get("description", existing.persona_attrs.get("description", "")), "content_tags": body.get("content_tags", existing.persona_attrs.get("content_tags", []))}
+        updated = Persona(uid=existing.uid, bound_identities=bindings, primary_name=body.get("primary_name", existing.primary_name), persona_attrs=attrs, confidence=float(body.get("confidence", existing.confidence)), created_at=existing.created_at, last_active_at=time.time())
+        await self._persona_repo.upsert(updated)
+        return _json({"ok": True, "persona": persona_to_node(updated)})
+
+    async def _handle_delete_persona(self, request: web.Request) -> web.Response:
+        if not await self._persona_repo.delete(request.match_info["uid"]): return _json({"error": "not found"}, status=404)
+        return _json({"ok": True})
+
+    # --- Persona groups (cross-platform account binding) ---
+
+    async def _run_account_link(self, coro_factory, *, ok_key: str | None = None) -> web.Response:
+        if self._account_link_manager is None:
+            return _json({"error": "account binding unavailable"}, status=501)
+        from core.managers.account_link_manager import AccountLinkError
+        try:
+            result = await coro_factory(self._account_link_manager)
+        except AccountLinkError as exc:
+            return _json({"error": str(exc)}, status=400)
+        except Exception as exc:
+            astrbot_logger.exception("Account link operation failed")
+            return _json({"error": str(exc)}, status=500)
+        payload: dict[str, Any] = {"ok": True}
+        if ok_key is not None and result is not None:
+            payload[ok_key] = result.to_dict()
+        return _json(payload)
+
+    async def _handle_personas_list(self, _: web.Request) -> web.Response:
+        if self._account_link_manager is None:
+            return _json({"items": []})
+        return _json({"items": await self._account_link_manager.list_human_personas()})
+
+    async def _handle_persona_groups_list(self, _: web.Request) -> web.Response:
+        if self._account_link_manager is None:
+            return _json({"items": []})
+        return _json({"items": await self._account_link_manager.list_groups()})
+
+    async def _handle_persona_group_create(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        uids = [str(u) for u in (body.get("uids") or []) if u]
+        name = str(body.get("display_name") or "").strip() or None
+        return await self._run_account_link(
+            lambda m: m.bind_accounts(uids, name), ok_key="group"
+        )
+
+    async def _handle_persona_group_rename(self, request: web.Request) -> web.Response:
+        group_id = request.match_info["group_id"]
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        name = str(body.get("display_name") or "")
+        return await self._run_account_link(
+            lambda m: m.rename(group_id, name), ok_key="group"
+        )
+
+    async def _handle_persona_group_dissolve(self, request: web.Request) -> web.Response:
+        group_id = request.match_info["group_id"]
+        return await self._run_account_link(lambda m: m.dissolve(group_id))
+
+    async def _handle_persona_group_add_member(self, request: web.Request) -> web.Response:
+        group_id = request.match_info["group_id"]
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        uid = str(body.get("uid") or "")
+        if not uid:
+            return _json({"error": "uid required"}, status=400)
+        return await self._run_account_link(
+            lambda m: m.add_to_group(group_id, uid), ok_key="group"
+        )
+
+    async def _handle_persona_group_remove_member(self, request: web.Request) -> web.Response:
+        uid = request.match_info["uid"]
+        return await self._run_account_link(lambda m: m.unbind(uid))
+
+    async def _handle_persona_merge_preview(self, request: web.Request) -> web.Response:
+        src_ok, src = _merge_persona_value(request.rel_url.query.get("src"))
+        target_ok, target = _merge_persona_value(request.rel_url.query.get("target"))
+        mode = (request.rel_url.query.get("mode") or "all").strip() or "all"
+        if not src_ok or not target_ok:
+            return _json({"error": "src and target required"}, status=400)
+        if src == target:
+            return _json({"error": "src must differ from target"}, status=400)
+        if mode not in {"all", "impressions_only"}:
+            return _json({"error": "unsupported merge mode"}, status=400)
+        db = getattr(self._event_repo, "_db", None)
+        if db is None:
+            return _json({"error": "merge requires SQLite repository"}, status=501)
+        from core.repository.sqlite import preview_bot_persona_merge
+        try:
+            counts = await preview_bot_persona_merge(db, src, target, mode=mode)
+        except Exception as exc:
+            return _json({"error": str(exc)}, status=500)
+        return _json(counts)
+
+    async def _handle_persona_merge(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        src_ok, src = _merge_persona_value(body.get("src"))
+        target_ok, target = _merge_persona_value(body.get("target"))
+        mode = body.get("mode") or "all"
+        if not src_ok or not target_ok:
+            return _json({"error": "src and target required"}, status=400)
+        if src == target:
+            return _json({"error": "src must differ from target"}, status=400)
+        if mode not in {"all", "impressions_only"}:
+            return _json({"error": "unsupported merge mode"}, status=400)
+        db = getattr(self._event_repo, "_db", None)
+        if db is None:
+            return _json({"error": "merge requires SQLite repository"}, status=501)
+        from core.repository.sqlite import merge_bot_persona
+        try:
+            counts = await merge_bot_persona(db, src, target, mode=mode)
+        except Exception as exc:
+            return _json({"error": str(exc)}, status=500)
+        if bool(self._initial_config.get("persona_merge_audit_enabled", True)):
+            try:
+                audit_path = self._data_dir / "audit" / "persona_merge.jsonl"
+                audit_path.parent.mkdir(parents=True, exist_ok=True)
+                with audit_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "ts": time.time(),
+                        "src": src if src is not None else _LEGACY_PERSONA_TOKEN,
+                        "target": target if target is not None else _LEGACY_PERSONA_TOKEN,
+                        "mode": mode,
+                        **counts,
+                    }, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+        return _json({"ok": True, **counts})
+
+    async def _handle_update_impression_guarded(self, request: web.Request) -> web.Response:
+        if not self._relation_enabled: return _json({"error": "disabled"}, status=403)
+        obs, sub, scope = request.match_info["observer"], request.match_info["subject"], request.match_info["scope"]
+        bot_persona_name = _persona_query(request)
+        existing = await self._impression_repo.get(obs, sub, scope, bot_persona_name=bot_persona_name); body = await request.json()
+        imp = Impression(observer_uid=obs, subject_uid=sub, ipc_orientation=body.get("relation_type", existing.ipc_orientation if existing else "友好"), benevolence=float(body.get("affect", existing.benevolence if existing else 0.0)), power=float(body.get("power", existing.power if existing else 0.0)), affect_intensity=float(body.get("intensity", existing.affect_intensity if existing else 0.5)), r_squared=float(body.get("r_squared", existing.r_squared if existing else 0.7)), confidence=float(body.get("confidence", existing.confidence if existing else 0.7)), scope=scope, evidence_event_ids=body.get("evidence_event_ids", existing.evidence_event_ids if existing else []), last_reinforced_at=time.time(), bot_persona_name=bot_persona_name)
+        await self._impression_repo.upsert(imp)
+        return _json({"ok": True, "impression": impression_to_edge(imp)["data"]})
+
+    async def _handle_delete_impression_guarded(self, request: web.Request) -> web.Response:
+        if not self._relation_enabled: return _json({"error": "disabled"}, status=403)
+        obs, sub, scope = request.match_info["observer"], request.match_info["subject"], request.match_info["scope"]
+        bot_persona_name = _persona_query(request)
+        ok = await self._impression_repo.delete(obs, sub, scope, bot_persona_name=bot_persona_name)
+        if not ok:
+            return _json({"error": "not found"}, status=404)
+        return _json({"ok": True})
+
+    async def _handle_bulk_delete_impressions_guarded(self, request: web.Request) -> web.Response:
+        if not self._relation_enabled: return _json({"error": "disabled"}, status=403)
+        body = await request.json()
+        scope = body.get("scope")
+        if not isinstance(scope, str) or not scope:
+            return _json({"error": "scope required"}, status=400)
+        bot_persona_name = body.get("persona")
+        if bot_persona_name == _LEGACY_PERSONA_TOKEN:
+            bot_persona_name = ""
+        if not isinstance(bot_persona_name, str):
+            bot_persona_name = None
+        deleted = await self._impression_repo.delete_by_scope(scope, bot_persona_name=bot_persona_name)
+        return _json({"ok": True, "deleted": deleted})
+
+    async def _handle_reanalyze_impressions_guarded(self, request: web.Request) -> web.Response:
+        if not self._relation_enabled: return _json({"error": "disabled"}, status=403)
+        body = await request.json()
+        scope = body.get("scope")
+        if not isinstance(scope, str) or not scope:
+            return _json({"error": "scope required"}, status=400)
+        bot_persona_name = body.get("persona")
+        if bot_persona_name == _LEGACY_PERSONA_TOKEN:
+            bot_persona_name = ""
+        if not isinstance(bot_persona_name, str):
+            bot_persona_name = None
+        method = body.get("method", "heuristic")
+        try:
+            if method == "llm":
+                from core.tasks.reanalyze_llm import ReanalyzeError, reanalyze_impressions_llm
+                from core.config import PluginConfig
+                _synthesis_cfg = PluginConfig(self._initial_config).get_synthesis_config()
+                updated = await reanalyze_impressions_llm(
+                    self._event_repo, self._impression_repo,
+                    scope, bot_persona_name,
+                    lambda: self._provider,
+                    language=_synthesis_cfg.language,
+                    system_prompt=_synthesis_cfg.reanalyze_system_prompt,
+                )
+            else:
+                from web.plugin_routes import reanalyze_impressions_for_scope
+                updated = await reanalyze_impressions_for_scope(
+                    self._event_repo, self._impression_repo, scope, bot_persona_name
+                )
+        except Exception as exc:
+            from core.tasks.reanalyze_llm import ReanalyzeError
+            if isinstance(exc, ReanalyzeError):
+                return _json({"error": exc.code, "message": exc.message}, status=400)
+            logger.warning("[WebuiServer] reanalyze_impressions failed: %s", exc, exc_info=True)
+            return _json({"error": str(exc)}, status=500)
+        return _json({"ok": True, "updated": updated})
+
+    async def _handle_tags(self, _: web.Request) -> web.Response:
+        counts = await self._event_repo.count_tags()
+        return _json({"tags": [{"name": k, "count": v} for k, v in counts.items()]})
+
+    async def _handle_tag_tree(self, request: web.Request) -> web.Response:
+        persona = _persona_query(request)
+        if persona is None:
+            custom_tags = await self._event_repo.list_all_custom_interaction_tags()
+        else:
+            custom_tags = await self._event_repo.list_custom_interaction_tags(persona)
+        return _json(interaction_tag_tree(custom_tags))
+
+    async def _handle_get_config(self, _: web.Request) -> web.Response:
+        raw = json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {}
+        
+        # Merge each group into one flat dict
+        flat_schema = flatten_conf_schema(raw)
+
+        # Construct values from flat_schema default
+        values: dict = {k: v.get("default") for k, v in flat_schema.items()}
+        
+        # Priority: 1. Live AstrBot config, 2. Local file, 3. Initial config
+        merge_config_values(values, self._initial_config, flat_schema)
+        if self._config_path.exists():
+            try:
+                merge_config_values(
+                    values,
+                    json.loads(self._config_path.read_text(encoding="utf-8")),
+                    flat_schema,
+                )
+            except: pass
+        
+        if self._star and hasattr(self._star, "config"):
+            # AstrBot config might be nested or flat, handle both
+            star_cfg = self._star.config
+            for k in flat_schema:
+                if k in star_cfg:
+                    values[k] = star_cfg[k]
+                else:
+                    # Check nested
+                    for group_k, group_v in star_cfg.items():
+                        if isinstance(group_v, dict) and k in group_v:
+                            values[k] = group_v[k]
+        
+        return _json({"schema": flat_schema, "values": values})
+
+    async def _handle_get_config_schema(self, _: web.Request) -> web.Response:
+        return _json(json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {})
+
+    def _sync_password_to_config(self, password: str):
+        """Helper to sync password back to AstrBot instance."""
+        try:
+            # Sync to AstrBot
+            if self._star and hasattr(self._star, "config"):
+                # Handle both flat and nested
+                # We NO LONGER clear the password here. We preserve it so AstrBot core knows it's set.
+                if "webui_password" in self._star.config:
+                    self._star.config["webui_password"] = password
+                if "webui" in self._star.config and isinstance(self._star.config["webui"], dict):
+                    self._star.config["webui"]["webui_password"] = password
+                
+                if hasattr(self._star.config, "save_config"):
+                    self._star.config.save_config()
+            
+            logger.info("[WebUI] Password synced to configuration.")
+        except Exception as e:
+            logger.warning("[WebUI] Failed to sync password to config: %s", e)
+
+    async def _handle_update_config(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        raw = json.loads(self._CONF_SCHEMA_PATH.read_text(encoding="utf-8")) if self._CONF_SCHEMA_PATH.exists() else {}
+        
+        flat_schema = flatten_conf_schema(raw)
+        
+        coerced = {}
+        for k, v in body.items():
+            if k not in flat_schema: continue
+            try:
+                t = flat_schema[k].get("type", "string")
+                coerced[k] = bool(v) if t == "bool" else (int(v) if t == "int" else (float(v) if t == "float" else v))
+            except: coerced[k] = v
+        
+        # 核心逻辑：如果修改了密码，哈希化存入文件，并【掩码】配置中的明文
+        if "webui_password" in coerced and coerced["webui_password"]:
+            new_pw = coerced["webui_password"]
+            if new_pw != _PASSWORD_MASK:
+                try:
+                    self._auth.setup_password(new_pw)
+                    coerced["webui_password"] = _PASSWORD_MASK # 存完哈希立刻掩码
+                    logger.info("[WebUI] Password updated, hashed and masked.")
+                except Exception as e:
+                    return _json({"error": f"Failed to set password: {str(e)}"}, status=400)
+            else:
+                # 如果用户只是保存配置而没改掩码，我们就把它从待更新列表中删掉，防止覆盖
+                del coerced["webui_password"]
+
+        if coerced:
+            try:
+                current: dict = {}
+                if self._config_path.exists():
+                    loaded = json.loads(self._config_path.read_text(encoding="utf-8"))
+                    if isinstance(loaded, dict):
+                        current.update(loaded)
+                current = normalize_config_document(current, coerced, raw)
+                self._config_path.parent.mkdir(parents=True, exist_ok=True)
+                self._config_path.write_text(
+                    json.dumps(current, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except Exception as e:
+                logger.warning("[WebUI] Failed to write local config: %s", e)
+
+        # Sync to AstrBot
+        if self._star and hasattr(self._star, "config"):
+            try:
+                apply_config_update_to_mapping(self._star.config, coerced, raw)
+
+                if hasattr(self._star.config, "save_config"):
+                    self._star.config.save_config()
+            except Exception as e:
+                logger.warning("[WebUI] Failed to sync config to AstrBot: %s", e)
+
+        return _json({"ok": True, "saved": list(coerced.keys())})
+
+    async def _handle_get_providers(self, _: web.Request) -> web.Response:
+        if not self._all_providers_getter: return _json({"providers": []})
+        try:
+            data = self._all_providers_getter(); providers = data[1] if isinstance(data, (tuple, list)) and len(data) == 2 else data
+            res = [{"id": str(getattr(p, "id", p)), "name": str(getattr(p, "name", p))} for p in providers] if isinstance(providers, (list, tuple)) else []
+            return _json({"providers": res})
+        except: return _json({"providers": []})
+
+    async def _handle_panels_list(self, _: web.Request) -> web.Response: return _json({"panels": self.registry.list()})

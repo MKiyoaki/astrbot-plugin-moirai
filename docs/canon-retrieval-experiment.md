@@ -15,7 +15,7 @@ baseline. Neither archives nor temporal-fact candidates are indexed in this expe
 
 Knowledge Arch's external embedding adapter, provider-aware text cache, and
 bounded reranking contract are references, not imported runtime dependencies.
-KCL credentials stay in the existing ignored `run_config.py` or environment.
+KCL credentials come only from environment variables named by `api_key_env` in `configs/models/`.
 
 ## Design
 
@@ -83,7 +83,7 @@ What changed, in order of effect:
   names, epithets and quotes that summaries omit are found there, and the one or
   two best-matching lines lead the injected evidence.
 - Lexical recall uses in-memory CJK bigram BM25 over topic, summary, beats and
-  participants (`core/canon/lexical.py`). Trigram FTS could not match two-character
+  participants (`src/core/canon/read/lexical.py`). Trigram FTS could not match two-character
   words such as 失忆, 手术 or 炸楼; lexical stage recall rose from 0.62 to 0.94.
 - Entity recall includes extracted participants (most were missing from
   `event_entities`), ranks linked events by relevance instead of taking the 30
@@ -115,7 +115,7 @@ Tried and not adopted:
 - Rewriting 我/你 into 博士/阿米娅 for the dense query raised dense@1 (0.67 to 0.73)
   but lowered recall slightly and pushed some small talk toward story events.
 - A Qwen-style query instruction lowered dense@5 and raised every small-talk
-  similarity, breaking routing. Both remain off switches in `core/canon/retrieval.py`.
+  similarity, breaking routing. Both remain off switches in `src/core/canon/read/retrieval.py`.
 
 Remaining misses: two questions whose answer is an unnamed rescuer (临光 in 0-9;
 neither summary nor beats say "rescue"), one small-talk shaped question below the
@@ -254,7 +254,7 @@ rules call small talk promotes to canon only when the closest event's cosine
 similarity reaches 0.54 **and** its distinctive mass reaches 2.7. Distinctive
 mass is the summed idf of the probe's CJK bigrams present in this corpus,
 divided by that corpus's maximum idf (`distinctive_mass` in
-`run_canon_chat.py`). The ratio is dimensionless and follows corpus size, where
+`src/tools/canon_chat.py`). The ratio is dimensionless and follows corpus size, where
 the similarity threshold does not. Small talk rides on words the corpus also
 uses everywhere (greetings, weather); story questions carry corpus-rare terms;
 the two separate cleanly at 2.7 on all four builds.
@@ -331,7 +331,7 @@ an independently written holdout remains necessary.
 classifier's 27 phrases were copied from the 20 overview questions (for
 example 是怎样袭击 and 怎么撤离), and that 4 natural paraphrases triggered 0/4.
 The phrase list was replaced by rules for question types, in
-`core/canon/overview.py`:
+`src/core/canon/read/overview.py`:
 
 - account wording (来龙去脉, 从头, 一步步, 经历了什么, 如何发展) qualifies alone;
 - looser wording needs a named topic, and it must mark a series of events:
@@ -423,7 +423,7 @@ delegates to it) assembled evidence with its own copy of the terminal's dispatch
 That copy lacked the terminal's context expansion for reason-intent questions, so
 every earlier bank result measured slightly different evidence from what the
 terminal injected. In v1.2.18.sub the terminal, its tools and the evaluator all
-use `core/canon/assembly.py`'s `EvidenceAssembler`.
+use `src/core/canon/turn/assembly.py`'s `EvidenceAssembler`.
 
 On a 316-question parity set over the V10 full build, evaluator and terminal
 now agree on route, injected events and evidence length for every question; they

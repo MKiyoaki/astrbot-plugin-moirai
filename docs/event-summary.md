@@ -39,7 +39,7 @@ The extraction call is always persona-free. Regardless of `persona_influenced_su
 
 In the normal Core event path, the `before_generation` request snapshot supplies AstrBot's `# Persona Instructions` block to the extractor's bounded in-memory persona-context cache; the following Skills block and Moirai memory block are excluded. This lets deferred Eval use the same active persona rules as the live reply without persisting the host prompt. If that block is unavailable, the fallback persona context includes `description`, `speaking_style` and up to three `style_quotes` from the internal bot persona. A same-named human profile is never selected. The realtime development runner reads the authoritative `A. 人物设定` section from `tests/mock_data/mock_persona.md`, resolves its title as `Gariton`, and explicitly pins fresh test events to that persona when the Y option is selected. The N option does not inject or bind the mock persona and does not run the Eval pass.
 
-Because the pass is deferred, a newly extracted event is briefly visible without its `[Eval]` (typically seconds). `EventExtractor.drain_evals()` forces the queue empty — called by `plugin_initializer.teardown` after `router.flush_all()`, and by `run_realtime_dev.py` once Phase 2 extraction completes — but an unclean crash drops whatever is still queued (recoverable via manual re-extraction). Manual re-extraction (`reextract_event`, the WebUI button) keeps its `[Eval]` inline and immediate: one event, user-triggered. When the switch is off, nothing is enqueued and no `[Eval]` is stored.
+Because the pass is deferred, a newly extracted event is briefly visible without its `[Eval]` (typically seconds). `EventExtractor.drain_evals()` forces the queue empty — called by `plugin_initializer.teardown` after `router.flush_all()`, and by `src/tools/realtime_dev.py` once Phase 2 extraction completes — but an unclean crash drops whatever is still queued (recoverable via manual re-extraction). Manual re-extraction (`reextract_event`, the WebUI button) keeps its `[Eval]` inline and immediate: one event, user-triggered. When the switch is off, nothing is enqueued and no `[Eval]` is stored.
 
 `[Eval]` text is excluded from the retrieval embedding: `_batch_index_vectors`, `_index_vector` and the re-extraction embedding all index `strip_evals(summary)`. The FTS index covers only `topic` and `chat_content_tags`, so it is unaffected.
 
@@ -64,7 +64,7 @@ These are design adaptations, not a reproduction of either paper's system or ben
 Run from the Moirai root using installed dependencies:
 
 ```bash
-.venv/bin/python run_realtime_dev.py --self-test --quiet
+.venv/bin/python src/tools/realtime_dev.py --self-test --quiet
 node tests/event-summary-ui.cjs
 cd web/frontend
 npm run typecheck
@@ -73,7 +73,7 @@ npm run build
 
 The self-test uses deterministic providers and in-memory repositories, and temporary files for the realtime setting. It does not open `.dev_data/realtime_test.db`, call an LLM or download an encoder. UI tests render the real detail components with the reported seven-topic example.
 
-`run_realtime_dev.py` persists its Y/N setting in `.dev_data/realtime_settings.json` and passes the same value to the WebUI re-extraction handler. Resuming old data with no saved setting conservatively disables evaluation for subsequent re-extraction, while leaving existing events visible. A fresh run still calls the configured model and may load/download an encoder; it is a separate quality evaluation, not part of `--self-test`.
+`src/tools/realtime_dev.py` persists its Y/N setting in `.dev_data/realtime_settings.json` and passes the same value to the WebUI re-extraction handler. Resuming old data with no saved setting conservatively disables evaluation for subsequent re-extraction, while leaving existing events visible. A fresh run still calls the configured model and may load/download an encoder; it is a separate quality evaluation, not part of `--self-test`.
 
 The backend serves the built assets under `pages/moirai/_app/`. A successful `npm run build` creates `web/frontend/out/`; sync that output using the existing frontend build workflow before expecting the standalone backend to display source changes. For source preview against the realtime backend, use `BACKEND_PORT=2656 ./node_modules/.bin/next dev` from `web/frontend`.
 

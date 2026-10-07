@@ -1,0 +1,12 @@
+# WSL2 里访问 Windows 主机上的 FreeToken Desktop（OpenAI 兼容接口，端口 1919）。
+# 主机地址由 ${host_gateway:} 解析：环境变量 FREETOKEN_HOST 优先，其次默认路由的网关，最后 localhost。
+id: lmstudio-gemma4-26b
+type: lmstudio
+
+model:
+  model_id: Gemma-4-26B-A4B-NVFP4
+
+backend:
+  base_url: http://${host_gateway:}:1919/v1
+  api_key_env: null
+  timeout_seconds: 330

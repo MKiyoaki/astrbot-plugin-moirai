@@ -1,0 +1,25 @@
+# Moirai 共享的 embedding 与 rerank 入口（普通记忆和 canon 共用）。地址留空时接在 KCL 模型的 base_url 后面，
+# key 留空（api_key_env: null）时用 KCL 模型的 key；环境变量 MOIRAI_RETRIEVAL_API_KEY 优先于两者。
+encoder:
+  enabled: true
+  provider: api
+  model: arc:embedvl
+  api_url: ""
+  api_key_env: null
+  dimensions: 0
+  batch_interval_ms: 50
+  request_interval_ms: 0
+  request_batch_size: 16
+  concurrency: 2
+  timeout_seconds: 60.0
+  retry_max: 1
+  retry_delay_ms: 1000
+
+rerank:
+  enabled: true
+  model: arc:rerankvl
+  api_url: ""
+  api_key_env: null
+  max_candidates: 40
+  timeout_seconds: 60.0
+  retry_max: 1

@@ -1,6 +1,6 @@
 # Local replay with the realtime development tool
 
-Run commands from the `moirai/` repository using its existing `.venv`. `run_realtime_dev.py` owns the standalone development composition: message routing, raw-message writing, event extraction, indexing, recall and the local WebUI. It exercises Moirai directly; the workspace's Core protocol checks are separate.
+Run commands from the `moirai/` repository using its existing `.venv`. `src/tools/realtime_dev.py` owns the standalone development composition: message routing, raw-message writing, event extraction, indexing, recall and the local WebUI. It exercises Moirai directly; the workspace's Core protocol checks are separate.
 
 ## Prepared main-story input
 
@@ -11,7 +11,7 @@ The current local export `tests/mock_data/canon_amiya_main_ch00-17_dialogue.json
 `--check` reads the selected data and effective configuration, validates the sidecar hashes when present, then exits. It makes no model request and does not archive data, create a database or start a server. The normal fresh run performs the same validation before archiving anything.
 
 ```bash
-.venv/bin/python run_realtime_dev.py --check \
+.venv/bin/python src/tools/realtime_dev.py --check \
   --data tests/mock_data/canon_amiya_main_ch00-17_dialogue.json \
   --dev-data .dev_data/canon_realtime/main-ch00-17-dialogue \
   --persona tests/mock_data/amiya_persona.md --bot-id char_002_amiya \
@@ -43,7 +43,7 @@ The persona question remains interactive. Add `--eval-persona` to enable indepen
 
 `--query` changes the memory comparison question; `--group-id` changes its group, defaulting to the first group in the selected input. The fixed legacy group-chat benchmark can be disabled with `--set RECALL_BENCHMARK_ENABLED=False`, as above. No benchmark scoring result is implied by these options.
 
-Runtime overrides leave `run_config.py` unchanged. The new extraction overrides are `EXTRACTION_LLM_SEGMENTATION`, `EXTRACTION_SEGMENTATION_MESSAGES_PER_SEGMENT`, `EXTRACTION_SEGMENTATION_TIMEOUT_SECONDS`, `BOUNDARY_TOPIC_DRIFT_AUTO_CALIBRATION` and `BOUNDARY_TOPIC_DRIFT_PERCENTILE`. Their defaults match the plugin configuration. Existing retrieval overrides retain their names.
+Runtime `--set` overrides change the composed `configs/` settings for one process only. The new extraction overrides are `EXTRACTION_LLM_SEGMENTATION`, `EXTRACTION_SEGMENTATION_MESSAGES_PER_SEGMENT`, `EXTRACTION_SEGMENTATION_TIMEOUT_SECONDS`, `BOUNDARY_TOPIC_DRIFT_AUTO_CALIBRATION` and `BOUNDARY_TOPIC_DRIFT_PERCENTILE`. Their defaults match the plugin configuration. Existing retrieval overrides retain their names.
 
 ## Extraction order
 
@@ -84,16 +84,16 @@ Before `--fresh` archives an existing database, it switches SQLite to DELETE jou
 
 The 2026-10-02 ch0–17 restart failed with `disk I/O error` after the old archive step moved only `realtime_test.db` while a background read-only probe retained the old database and the original `realtime_test.db-shm`. The identified probe was stopped and the user-requested cleanup removed the current database, WAL/SHM files and that run's stale database archive. The source export, persona and runtime settings were preserved.
 
-After this fix, `.venv/bin/python -m unittest discover -s tests -p test_realtime_entry.py -v` passed eight tests, and `.venv/bin/python run_realtime_dev.py --self-test` ran 414 tests with one skip and no failures. Cross-process regressions cover idle and transactional WAL readers, blocked archives, retained committed rows, resume behaviour, orphan sidecars and failed moves. The exact `--check` command above passed again and source hashes matched the pre-cleanup values. These were offline checks, without a live replay.
+After this fix, `.venv/bin/python -m unittest discover -s tests -p test_realtime_entry.py -v` passed eight tests, and `.venv/bin/python src/tools/realtime_dev.py --self-test` ran 414 tests with one skip and no failures. Cross-process regressions cover idle and transactional WAL readers, blocked archives, retained committed rows, resume behaviour, orphan sidecars and failed moves. The exact `--check` command above passed again and source hashes matched the pre-cleanup values. These were offline checks, without a live replay.
 
-`reset_realtime_dev.py` uses the legacy `.dev_data/` destination; it does not select a custom `--dev-data` directory. For a targeted cleanup, first close all users of the chosen directory, then remove only its generated database, sidecars and unwanted archived run data. Preserve the input fixtures and other replay destinations.
+`src/tools/reset_realtime_dev.py` uses the legacy `.dev_data/` destination; it does not select a custom `--dev-data` directory. For a targeted cleanup, first close all users of the chosen directory, then remove only its generated database, sidecars and unwanted archived run data. Preserve the input fixtures and other replay destinations.
 
 ## Offline verification
 
 ```bash
-.venv/bin/python run_realtime_dev.py --self-test
+.venv/bin/python src/tools/realtime_dev.py --self-test
 ```
 
 The local entry regressions also replay the first 120 records of the prepared dataset through the same ingestion helper, real routing, extraction, temporary SQLite/sqlite-vec storage, indexing and prompt injection. Scripted chat responses and a mocked embedding transport replace live services. They verify exactly-once raw-message links, bot roles, shared group scope, segment-vector injection and detector/encoder wiring. These checks establish the local composition and input compatibility; they do not prove live-service availability or final answer quality.
 
-On 2026-10-02, the exact entry command above with `--check` exited zero. `.venv/bin/python run_realtime_dev.py --self-test` ran 411 tests with one skip and no failures; the new local-entry regressions account for five tests. The SQLite-backed suite ran outside the confirmed execution-sandbox SQLite restriction with automatic approval. Both diff checks and the workspace status script exited zero. The input data hash was unchanged and the new runtime directory was not created.
+On 2026-10-02, the exact entry command above with `--check` exited zero. `.venv/bin/python src/tools/realtime_dev.py --self-test` ran 411 tests with one skip and no failures; the new local-entry regressions account for five tests. The SQLite-backed suite ran outside the confirmed execution-sandbox SQLite restriction with automatic approval. Both diff checks and the workspace status script exited zero. The input data hash was unchanged and the new runtime directory was not created.

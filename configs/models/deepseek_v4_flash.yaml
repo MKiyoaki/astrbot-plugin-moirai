@@ -1,0 +1,11 @@
+# DeepSeek 官方接口。key 只从环境变量 DEEPSEEK_API_KEY 读取。
+id: deepseek-v4-flash
+type: deepseek
+
+model:
+  model_id: deepseek-v4-flash
+
+backend:
+  base_url: https://api.deepseek.com
+  api_key_env: DEEPSEEK_API_KEY
+  timeout_seconds: 330

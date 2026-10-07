@@ -1,0 +1,4 @@
+# 用演示数据启动 WebUI 预览（src/tools/webui_dev.py）。
+runner:
+  id: webui-dev
+args: []

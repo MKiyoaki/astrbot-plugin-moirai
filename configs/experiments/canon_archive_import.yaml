@@ -1,0 +1,4 @@
+# 导入 archive_pack（干员档案、NPC 情报、敌人图鉴）；不调用模型。args 例：[--db, <canon.sqlite>]
+runner:
+  id: canon-archive-import
+args: []

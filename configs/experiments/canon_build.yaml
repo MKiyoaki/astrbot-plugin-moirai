@@ -1,0 +1,4 @@
+# 全库续跑 canon 事件与时间事实候选，写出审阅页（src/tools/canon_dev.py build）。
+runner:
+  id: canon-build
+args: [build]

@@ -92,14 +92,14 @@ git diff --check
 The existing offline question bank remains available:
 
 ```bash
-.venv/bin/python run_canon_chat.py --questions \
+.venv/bin/python src/tools/canon_chat.py --questions \
   --retrieval baseline --out .dev_data/canon/eval/retrieval-new.json
 ```
 
 Live dialogue runs are explicit and write local reports containing source text:
 
 ```bash
-.venv/bin/python devtools/canon/dialogue_eval.py \
+.venv/bin/python src/core_eval/canon/dialogue_eval.py \
   --conversations .dev_data/canon/eval/conversations.jsonl \
   --db .dev_data/canon/v10/all/build/canon.sqlite \
   --retrieval hybrid --allow-remote \

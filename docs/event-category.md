@@ -146,10 +146,10 @@ Custom generation and Judge requests use a narrower boundary: event topic, numbe
 | `typesafe_topic_backfill` | `true` | Backfill unseen historical tags. |
 | `typesafe_event_backfill` | `false` | Backfill historical event interactions. |
 
-The AstrBot plugin configuration panel is generated from `_conf_schema.json`. A key alone does not enable the feature. The ignored development `run_config.py` can set `TYPESAFE_ENABLED` and `TYPESAFE_API_KEY`; the plugin must be reloaded after a configuration change. Moirai's hand-written WebUI configuration page does not currently display this group.
+The AstrBot plugin configuration panel is generated from `_conf_schema.json`. A key alone does not enable the feature. For local replays, `configs/realtime/default.yaml` sets `typesafe.enabled` and names the key variable (`TYPESAFE_API_KEY`); the plugin must be reloaded after a configuration change. Moirai's hand-written WebUI configuration page does not currently display this group.
 
 ## Verification boundary
 
-`tests/test_event_category.py` uses `httpx.MockTransport`, simulated providers, in-memory repositories and temporary SQLite databases. It covers mixed Choice/Noul parsing, the static and read-only API tree, bilingual tag mapping, dynamic generation and rejection, two-round limits, static/custom reuse, persona scoping, the 50-tag cap, custom Choice and LLM fallback, persona merges, targeted writes, migrations 018–020, extraction scheduling and re-extraction. `run_realtime_dev.py --self-test --quiet` discovers both event-category and event-summary regressions so the complete local behavior can be checked with one command.
+`tests/test_event_category.py` uses `httpx.MockTransport`, simulated providers, in-memory repositories and temporary SQLite databases. It covers mixed Choice/Noul parsing, the static and read-only API tree, bilingual tag mapping, dynamic generation and rejection, two-round limits, static/custom reuse, persona scoping, the 50-tag cap, custom Choice and LLM fallback, persona merges, targeted writes, migrations 018–020, extraction scheduling and re-extraction. `src/tools/realtime_dev.py --self-test --quiet` discovers both event-category and event-summary regressions so the complete local behavior can be checked with one command.
 
 No real TypeSafe call has been made. Accuracy on Chinese summaries, the default threshold, and the topic boundary between 游戏 and 娱乐 remain uncalibrated. The ignored development database is never opened in place during offline checks.

@@ -1,0 +1,17 @@
+# realtime_dev（本地回放群聊记录）的设置。
+event_mode: llm          # encoder | llm：只决定抽取策略
+mood_source: llm         # impression_db | llm
+recall_benchmark: false  # RAG 冒烟测试之后是否再跑一遍只检索的基准问题
+
+typesafe:
+  enabled: true
+  api_key_env: TYPESAFE_API_KEY
+  base_url: ""           # "" = PluginConfig 的默认地址
+  model: ""              # "" = jev-latest
+  timeout_seconds: 10.0
+  topic_enabled: true
+  event_enabled: true
+  topic_backfill: true
+  event_backfill: false
+  min_confidence: 0.5
+  custom_tag_min_score: 0.7

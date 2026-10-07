@@ -6,7 +6,7 @@
 
 **Three-Axis Long-Term Memory & Data Visualisation Plugin for AstrBot**
 
-[![version](https://img.shields.io/badge/version-v1.0.9-blueviolet)](metadata.yaml)
+[![version](https://img.shields.io/badge/version-v1.2.43.sub-blueviolet)](metadata.yaml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![license](https://img.shields.io/badge/license-APGL-green)](LICENSE)
 [![zh](https://img.shields.io/badge/中文-README.md-red)](README.md)
@@ -233,7 +233,23 @@ The local model is downloaded from HuggingFace on first start and may time out o
 
 ## Technical Architecture (Developers)
 
-Use `run_realtime_dev.py` for local dialogue replay. See [local replay](docs/local-replay.md) for the prepared ch0–17 dataset command, the no-call `--check`, persona options and resume behaviour. Before archiving, `--fresh` checkpoints WAL and requires exclusive database access; close earlier runners and read-only monitoring connections before rebuilding. This tool runs Moirai's standalone development composition; the workspace verifies Core protocols separately.
+Use `src/tools/realtime_dev.py` for local dialogue replay. See [local replay](docs/local-replay.md) for the prepared ch0–17 dataset command, the no-call `--check`, persona options and resume behaviour. Before archiving, `--fresh` checkpoints WAL and requires exclusive database access; close earlier runners and read-only monitoring connections before rebuilding. This tool runs Moirai's standalone development composition; the workspace verifies Core protocols separately.
+
+### Code Layout and Configuration
+
+```
+main.py               # AstrBot entry (must stay at the plugin root); it only puts src/ on sys.path
+configs/              # Hydra configs: base.yaml plus models/ data/ experiments/ retrieval/ canon/ canon_tools/ realtime/
+src/
+├── main.py           # Hydra entry for experiments and tools
+├── core/             # runtime: memory, retrieval, canon, Core adapters; core/api/ is the public interface
+├── core_eval/        # evaluation and benchmarks; runtime code never imports it
+├── tools/            # task tools: dataset processing, terminal chat, local replay, WebUI preview
+├── web/              # WebUI server (Python)
+└── migrations/       # SQLite migrations
+```
+
+`python src/main.py experiments=<task>` composes `configs/` and runs one task, e.g. `experiments=canon_build` or `experiments=realtime_replay 'experiments.args=[--self-test]'`; `python src/main.py --cfg job` only prints the composition. Model keys come only from the environment variable named by `api_key_env` in each model file. Canon hyperparameters live only in `configs/canon/default.yaml` and are read at plugin start; dataset-specific characters, forms of address and time anchors live in `configs/data/`. See [configs/README.md](configs/README.md).
 
 ### Three-Axis Memory Model
 

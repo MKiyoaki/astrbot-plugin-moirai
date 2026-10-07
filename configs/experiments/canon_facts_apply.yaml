@@ -1,0 +1,4 @@
+# 原子导入经人工审阅的时间事实包。args 例：[--db, <canon.sqlite>, --input, <审阅包>]
+runner:
+  id: canon-facts-apply
+args: []

@@ -1,0 +1,189 @@
+"""Concrete MemoryManager implementation.
+
+Owns all memory CRUD, lifecycle management, and statistics.  main.py
+instantiates one instance of this class and passes it to wherever it is
+needed (scheduler tasks, retrieval hook, WebUI API handlers).
+
+Sync guarantees (see BaseMemoryManager docstring for the contract):
+  add_event:    upsert(event) → upsert_vector(event_id, embedding)
+  update_event: upsert(event) → upsert_vector(event_id, embedding)
+  delete_event: delete_vector(event_id) → delete(event_id)
+  FTS5 entries are maintained automatically by DB triggers.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from typing import TYPE_CHECKING
+
+from ..domain.models import Event, EventStatus
+from ..repository.base import EventStatusStats
+from ..tasks.decay import run_salience_decay
+from .base import BaseMemoryManager
+
+if TYPE_CHECKING:
+    from ..config import DecayConfig
+    from ..embedding.encoder import Encoder
+    from ..repository.base import EventRepository
+    from ..retrieval.hybrid import HybridRetriever
+
+logger = logging.getLogger(__name__)
+
+
+class MemoryManager(BaseMemoryManager):
+    """High-level memory façade used by main.py and the WebUI server.
+
+    Parameters
+    ----------
+    event_repo:
+        SQLite-backed (or in-memory) EventRepository.
+    retriever:
+        HybridRetriever used for BM25 + vector search.
+    encoder:
+        Encoder used to produce embeddings for add_event / update_event.
+        Pass NullEncoder() to disable vector indexing.
+    decay_config:
+        DecayConfig controlling λ and archive_threshold for apply_decay().
+    """
+
+    def __init__(
+        self,
+        event_repo: EventRepository,
+        retriever: HybridRetriever,
+        encoder: Encoder,
+        decay_config: DecayConfig | None = None,
+        context_config: ContextConfig | None = None,
+    ) -> None:
+        from ..config import DecayConfig as _DC
+        from ..config import ContextConfig as _CC
+        self._repo = event_repo
+        self._retriever = retriever
+        self._encoder = encoder
+        self._decay_cfg = decay_config or _DC()
+        self._context_cfg = context_config or _CC()
+
+    # ------------------------------------------------------------------
+    # Event CRUD
+    # ------------------------------------------------------------------
+
+    async def add_event(self, event: Event, embedding: list[float] | None = None) -> None:
+        # Step 1: INSERT into DocumentStorage (SQLite); FTS5 trigger fires here.
+        await self._repo.upsert(event)
+        # Step 2: store vector (no-op if NullEncoder or no embedding given).
+        vec = embedding if embedding is not None else await self._encode(event)
+        if vec:
+            await self._repo.upsert_vector(event.event_id, vec)
+        
+        # Step 3: Prune old history for this group if limits exceeded.
+        await self._repo.prune_group_history(
+            group_id=event.group_id,
+            max_messages=self._context_cfg.max_history_messages,
+            batch_size=self._context_cfg.cleanup_batch_size,
+        )
+
+    async def get_event(self, event_id: str) -> Event | None:
+        return await self._repo.get(event_id)
+
+    async def get_event_by_int_id(self, rowid: int) -> Event | None:
+        return await self._repo.get_by_rowid(rowid)
+
+    async def get_event_rowid(self, event_id: str) -> int | None:
+        return await self._repo.get_rowid(event_id)
+
+    async def update_event(
+        self, event: Event, embedding: list[float] | None = None
+    ) -> None:
+        # Step 1: UPSERT into DocumentStorage; FTS5 update trigger fires here.
+        await self._repo.upsert(event)
+        # Step 2: re-index vector only when embedding is explicitly provided.
+        vec = embedding if embedding is not None else await self._encode(event)
+        if vec:
+            await self._repo.upsert_vector(event.event_id, vec)
+
+    async def delete_event(self, event_id: str) -> bool:
+        return await self._repo.delete_with_vector(event_id)
+
+    # ------------------------------------------------------------------
+    # Event lifecycle
+    # ------------------------------------------------------------------
+
+    async def archive_event(self, event_id: str) -> bool:
+        return await self._repo.set_status(event_id, EventStatus.ARCHIVED)
+
+    async def unarchive_event(self, event_id: str) -> bool:
+        return await self._repo.set_status(event_id, EventStatus.ACTIVE)
+
+    async def list_active_events(self, limit: int = 100) -> list[Event]:
+        return await self._repo.list_by_status(EventStatus.ACTIVE, limit=limit)
+
+    async def list_archived_events(self, limit: int = 100) -> list[Event]:
+        return await self._repo.list_by_status(EventStatus.ARCHIVED, limit=limit)
+
+    # ------------------------------------------------------------------
+    # Retrieval / search
+    # ------------------------------------------------------------------
+
+    async def search(
+        self,
+        query: str,
+        limit: int = 10,
+        active_only: bool = True,
+    ) -> list[Event]:
+        results = await self._retriever.search(query, limit=limit)
+        if active_only:
+            results = [e for e in results if e.status == EventStatus.ACTIVE]
+        # Touch last_accessed_at for retrieved events (best-effort, non-blocking).
+        now = time.time()
+        for event in results:
+            try:
+                await self._repo.update_last_accessed(event.event_id, now)
+            except Exception:
+                pass
+        return results
+
+    # ------------------------------------------------------------------
+    # Importance & decay
+    # ------------------------------------------------------------------
+
+    async def apply_decay(self) -> int:
+        return await run_salience_decay(self._repo, self._decay_cfg)
+
+    # ------------------------------------------------------------------
+    # Statistics
+    # ------------------------------------------------------------------
+
+    async def stats(self) -> dict:
+        # Counts and salience summaries both come from one grouped aggregate —
+        # no event rows are loaded, so this stays flat as the dataset grows.
+        status_stats = await self._repo.aggregate_by_status()
+        active = status_stats.get(EventStatus.ACTIVE, EventStatusStats())
+        archived = status_stats.get(EventStatus.ARCHIVED, EventStatusStats())
+
+        return {
+            "active_count": active.total,
+            "archived_count": archived.total,
+            "locked_count": active.locked,
+            "total_count": active.total + archived.total,
+            "avg_salience": round(active.avg_salience, 4),
+            "min_salience": round(active.min_salience, 4),
+            "max_salience": round(active.max_salience, 4),
+        }
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    async def _encode(self, event: Event) -> list[float]:
+        """Produce an embedding for an event's topic + tags. Returns [] on failure."""
+        if self._encoder.dim == 0:
+            return []
+        text = event.topic
+        if event.chat_content_tags:
+            text += " " + " ".join(event.chat_content_tags)
+        if not text.strip():
+            return []
+        try:
+            return await self._encoder.encode(text)
+        except Exception as exc:
+            logger.warning("[MemoryManager] encoding failed: %s", exc)
+            return []

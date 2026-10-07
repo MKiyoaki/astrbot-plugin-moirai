@@ -1,0 +1,11 @@
+# 本机的 KCL hub：对话和 embedding 走同一个队列。key 只从环境变量 KCL_HUB_API_KEY 读取，从不写在这里。
+id: kcl-hub-arc-chat
+type: kcl
+
+model:
+  model_id: hub
+
+backend:
+  base_url: http://127.0.0.1:8899/v1
+  api_key_env: KCL_HUB_API_KEY
+  timeout_seconds: 330

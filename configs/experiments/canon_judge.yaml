@@ -1,0 +1,4 @@
+# 用 LLM 裁判给一次基准运行打分（会把引用的原文行发给裁判接口）。
+runner:
+  id: canon-judge
+args: [judge]

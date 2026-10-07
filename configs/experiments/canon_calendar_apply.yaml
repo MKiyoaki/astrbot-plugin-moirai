@@ -1,0 +1,4 @@
+# 按场景字幕和外部年表给事件定世界时间坐标；不调用模型。args 例：[--db, <canon.sqlite>, --entries, <年表 JSON>]
+runner:
+  id: canon-calendar-apply
+args: []

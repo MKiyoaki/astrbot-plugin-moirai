@@ -6,7 +6,7 @@
 
 **AstrBot 三轴长期记忆与数据可视化插件**
 
-[![version](https://img.shields.io/badge/版本-v1.2.42.sub-blueviolet)](metadata.yaml)
+[![version](https://img.shields.io/badge/版本-v1.2.43.sub-blueviolet)](metadata.yaml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![license](https://img.shields.io/badge/license-APGL-green)](LICENSE)
 [![en](https://img.shields.io/badge/English-README__EN.md-blue)](README_EN.md)
@@ -21,7 +21,7 @@ Made with ♥ by MKiyoaki & Gariton
 
 ## cb5t-loop-wiring 工作分支：Core 事件接入
 
-此工作分支版本为 `v1.2.42.sub`，基于上游 `Oedipus-Sub`，尚未提交或发布。五阶段自动事件消费与注入需要启用支持 Event Protocol v1 的 Core；缺失、停用或不兼容时暂停自动处理，保留数据库和独立管理功能。
+此工作分支版本为 `v1.2.43.sub`，基于上游 `Oedipus-Sub`，尚未提交或发布。v1.2.43.sub 把代码移到 `src/`、配置改为 `configs/` 下的 Hydra 配置，见下方「代码目录与配置」。五阶段自动事件消费与注入需要启用支持 Event Protocol v1 的 Core；缺失、停用或不兼容时暂停自动处理，保留数据库和独立管理功能。
 
 本轮另接可选 Annotation Protocol v1：保存每次回复的便签和 `记下` 约定，在当前窗口给同一个人带入上一轮便签，并在事件详情显示「当时的我」。旧 `[Eval]` 默认关闭，代码及已有摘要保留；视角注入召回仅保留默认关闭的开关，暂未实现。约定默认最多注入 3 条，结清搭在现有抽取调用里。说明与验证见 [每轮回路](docs/cb5t-loop-wiring.md)；Core 对话界面的调试开关是后续工作，当前未接。
 
@@ -31,7 +31,7 @@ Made with ♥ by MKiyoaki & Gariton
 
 Core 的可选只读 `moirai.chat_memory.recall` 能力可按已绑定人格与私聊/群聊范围提供现有聊天事件的历史事实，不依赖 Oedipus；其权限和数据形状见 [Core 记忆上下文读取](docs/core-memory-context.md)。
 
-原作剧情记忆 canon 默认关闭。目前完成了 M1：用命令行把 Arknights-Texts 导出的 story_pack 抽取成独立的 `canon.sqlite`，并提供抽取基准；本地 `moirai canon build` 可增量构建全库事件与待审阅的时间事实候选。抽取默认用 `canon-extract-v10`，`canon-extract-v11` 是可选试验。Bot 路径（v1.2.33.sub）经 Core v0.8.0 的 Generation Protocol v1 接入：模型按需调用 canon 工具，回复生成后逐句核验、必要时定点修补（需要关闭 AstrBot 的流式输出）；打开 `canon_enabled` 并配置 `canon_persona_map` 后才启用，插件里暂时只有词法检索。临时终端试聊 `moirai canon test` 以只读方式预览检索、时间事实判断与回复核验，和 Bot 路径共用同一套回合逻辑。状态、命令和各份文档的分工见 [canon：原作剧情记忆](docs/canon.md)。
+原作剧情记忆 canon 默认关闭。目前完成了 M1：用命令行把 Arknights-Texts 导出的 story_pack 抽取成独立的 `canon.sqlite`，并提供抽取基准；本地 `moirai canon build` 可增量构建全库事件与待审阅的时间事实候选。抽取只保留 `canon-extract-v11` 与事实 prompt `canon-facts-v3`，版本写在 `configs/canon/default.yaml`。Bot 路径（v1.2.33.sub）经 Core v0.8.0 的 Generation Protocol v1 接入：模型按需调用 canon 工具，回复生成后逐句核验、必要时定点修补（需要关闭 AstrBot 的流式输出）；打开 `canon_enabled` 并配置 `canon_persona_map` 后才启用，插件里暂时只有词法检索。临时终端试聊 `moirai canon test` 以只读方式预览检索、时间事实判断与回复核验，和 Bot 路径共用同一套回合逻辑。状态、命令和各份文档的分工见 [canon：原作剧情记忆](docs/canon.md)。
 
 旧 `bot_persona_name_override` 不再决定事件归属，也不会自动迁移为全局覆盖。已有数据桶和记忆会话键保持原样；缺失映射不会退化成所有人格查询。FTS 与向量检索在截取候选前应用人格及会话范围过滤，候选名额仅用于当前作用域。宿主事件对象兼容、文本规范化及 synthetic tool-call 降级移入 Core，Moirai 保留窗口结算、检索、抽取、存储与调试内容生成。
 
@@ -252,7 +252,23 @@ WebUI 采用双层认证：**登录**（密码存于 `data_dir/.webui_password`�
 
 ## 技术架构（开发者）
 
-本地对话回放使用 `run_realtime_dev.py`。第 0–17 章对话数据的启动命令、`--check` 无调用检查、人格开关和恢复方式见 [local replay](docs/local-replay.md)。`--fresh` 归档前会检查数据库独占访问并合并 WAL；旧回放或只读监测脚本仍占用数据库时会停止，重跑前须关闭这些连接。该工具直接运行 Moirai 的开发链路，Core 协议验证使用 workspace 的独立检查。
+本地对话回放使用 `src/tools/realtime_dev.py`。第 0–17 章对话数据的启动命令、`--check` 无调用检查、人格开关和恢复方式见 [local replay](docs/local-replay.md)。`--fresh` 归档前会检查数据库独占访问并合并 WAL；旧回放或只读监测脚本仍占用数据库时会停止，重跑前须关闭这些连接。该工具直接运行 Moirai 的开发链路，Core 协议验证使用 workspace 的独立检查。
+
+### 代码目录与配置
+
+```
+main.py               # AstrBot 入口（必须在插件根目录），只把 src/ 加进 sys.path
+configs/              # Hydra 配置：base.yaml 与 models/ data/ experiments/ retrieval/ canon/ canon_tools/ realtime/
+src/
+├── main.py           # 实验与工具的 Hydra 入口
+├── core/             # 运行时：记忆、检索、canon、Core 适配；core/api/ 是公共接口
+├── core_eval/        # 评测与基准，运行时代码不导入这里
+├── tools/            # 专用工具：数据集处理、终端试聊、本地回放、WebUI 预览
+├── web/              # WebUI 的 Python 服务端
+└── migrations/       # SQLite 迁移
+```
+
+`python src/main.py experiments=<任务>` 按 `configs/` 组合配置后运行一个任务，例如 `experiments=canon_build`、`experiments=realtime_replay 'experiments.args=[--self-test]'`；`python src/main.py --cfg job` 只打印组合结果。模型的 key 只从模型文件 `api_key_env` 指定的环境变量读取。canon 的超参数只写在 `configs/canon/default.yaml`，插件启动时读取；数据集专有的角色、称呼和时间锚点在 `configs/data/`。详见 [configs/README.md](configs/README.md)。
 
 ### 三轴记忆模型
 
