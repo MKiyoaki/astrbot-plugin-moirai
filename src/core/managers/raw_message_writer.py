@@ -104,6 +104,11 @@ class RawMessageWriter:
             return False
         return all(result is True for result in results)
 
+    async def settle(self, timeout: float = 5.0) -> bool:
+        """写完目前排队与正在批处理中的消息；按来源删除记忆前调用，避免删完又被写回。"""
+        await self.flush_once()
+        return await self.ensure_flushed(list(self._pending), timeout)
+
     async def flush_once(self) -> int:
         batch = self._drain_available()
         if not batch:

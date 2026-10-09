@@ -9,12 +9,21 @@ function _getApiUrl(url: string) {
   return url;
 }
 
+/** 宿主（如 Core 面板）可替换请求通道；默认仍用 fetch。 */
+export type RequestTransport = (url: string, init: RequestInit) => Promise<Response>
+let requestTransport: RequestTransport | null = null
+
+export function setRequestTransport(transport: RequestTransport | null) {
+  requestTransport = transport
+}
+
 async function request<T>(url: string, opts: RequestInit = {}): Promise<T> {
-  const res = await fetch(_getApiUrl(url), {
+  const init: RequestInit = {
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...opts.headers },
     ...opts,
-  })
+  }
+  const res = requestTransport ? await requestTransport(url, init) : await fetch(_getApiUrl(url), init)
   if (!res.ok) {
     const raw = await res.text()
     let detail = raw

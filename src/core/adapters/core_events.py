@@ -7,6 +7,7 @@ import logging
 from typing import Callable
 
 from .core_canon import BLOCK as CANON_BLOCK, NO_TURN
+from .core_panels import READ_OPERATION, WRITE_OPERATION, PageRequestError
 from ..turn_annotations import COMMITMENTS_BLOCK, NOTES_BLOCK, validate_annotation
 
 logger = logging.getLogger(__name__)
@@ -41,10 +42,11 @@ class InjectionDraft:
 class MoiraiCoreProvider:
     def __init__(self, handler: Callable, scopes: Callable, version: str,
                  core_available: Callable = lambda: True,
-                 *, recall: Callable = lambda: None, canon: Callable = lambda: None) -> None:
+                 *, recall: Callable = lambda: None, canon: Callable = lambda: None,
+                 pages: Callable = lambda: None) -> None:
         self._handler, self._scopes = handler, scopes
         self.version, self._core_available = version, core_available
-        self._recall, self._canon = recall, canon
+        self._recall, self._canon, self._pages = recall, canon, pages
 
     def _mapping(self) -> dict[str, str]:
         raw = self._scopes()
@@ -58,12 +60,25 @@ class MoiraiCoreProvider:
         return dict(raw)
 
     def manifest_v1(self) -> dict:
+        pages = self._pages()
         return {"extension_id": "moirai", "display_name": "Moirai", "protocol_version": "1",
                 "extension_version": self.version, "capabilities": [
                     {"operation": "moirai.scopes.list", "kind": "query", "required_scopes": []},
                     {"operation": "moirai.chat_memory.recall", "kind": "query",
                      "required_scopes": ["runtime_persona", "extension"]},
+                    *(pages.capabilities() if pages is not None else []),
                 ]}
+
+    def panels_v1(self) -> dict:
+        """Core 侧边栏的 Moirai 分组；挂了页面桥时含 WebUI 各页。"""
+        pages = self._pages()
+        items = [{"panel_id": "moirai.overview", "label": "Overview", "view": "extension-overview",
+                  "icon": "overview", "order": 0, "query_operation": None, "command_operation": None,
+                  "required_permissions": []}]
+        if pages is not None:
+            items.extend(pages.panel_items())
+        return {"extension_id": "moirai", "panel_protocol_version": "1",
+                "group": {"label": "Moirai", "icon": "memory"}, "items": items}
 
     def events_v1(self) -> dict:
         return {"version": "1", "stages": ["message", "before_generation", "after_generation",
@@ -128,6 +143,8 @@ class MoiraiCoreProvider:
         if principal.get("authenticated") is not True:
             return self._error("permission_denied", "需要已认证的身份。")
         operation = request.get("operation")
+        if operation in (READ_OPERATION, WRITE_OPERATION):
+            return await self._page_request(request, context)
         if request.get("kind") != "query":
             return self._error("capability_unsupported", "不支持的操作。")
         if operation == "moirai.chat_memory.recall":
@@ -142,6 +159,31 @@ class MoiraiCoreProvider:
                 "operation": "moirai.scopes.list", "resolved_scope": request["scope"],
                 "data": {"items": [{"id": key, "label": value, "status": "ready"}
                                    for key, value in sorted(mappings.items())]}}
+
+    async def _page_request(self, request: dict, context: dict) -> dict:
+        pages = self._pages()
+        operation = request.get("operation")
+        expected = "query" if operation == READ_OPERATION else "command"
+        if pages is None or request.get("kind") != expected:
+            return self._error("capability_unsupported", "不支持的操作。")
+        scope = request.get("scope")
+        if not isinstance(scope, dict):
+            return self._error("scope_invalid", "页面请求缺少作用域。")
+        bucket = None
+        scope_id = (scope.get("extension_scopes") or {}).get("moirai") if scope.get("runtime_persona_id") else None
+        if scope_id is not None:
+            try:
+                bucket = self._mapping().get(scope_id)
+            except (TypeError, ValueError):
+                return self._error("scope_invalid", "Core 人格映射配置无效。")
+            if bucket is None:
+                return self._error("scope_invalid", "Moirai 人格作用域没有显式映射。")
+        try:
+            data = await pages.dispatch(operation, request.get("payload"), bucket)
+        except PageRequestError as error:
+            return self._error(error.code, error.message)
+        return {"request_id": context["request_id"], "extension_id": "moirai",
+                "operation": operation, "resolved_scope": scope, "data": data}
 
     async def _recall_context(self, request: dict, context: dict) -> dict:
         permissions = context["principal"].get("permissions", [])

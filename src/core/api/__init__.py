@@ -9,6 +9,7 @@ from .memory import (
     attach_persona_views,
     delete_event,
     event_to_dict,
+    forget_session,
     get_event,
     get_stats,
     impression_to_dict,
@@ -22,6 +23,7 @@ __all__ = [
     "attach_persona_views",
     "delete_event",
     "event_to_dict",
+    "forget_session",
     "get_event",
     "get_stats",
     "impression_to_dict",
@@ -35,6 +37,7 @@ _LAZY = {
     **dict.fromkeys((
         "BoundaryConfig", "ContextConfig", "ContextManager", "Event", "EventBoundaryDetector",
         "EventExtractor", "EventHandler", "ExtractorConfig", "IdentityResolver", "InjectionConfig",
+        "BigFiveBuffer", "CorePageBridge", "SocialOrientationAnalyzer",
         "LLMTaskManager", "MessageRouter", "MoiraiCoreProvider", "PluginConfig", "RawMessageWriter",
         "RecallManager", "RetrievalConfig", "SQLiteCommitmentRepository", "SQLiteEventRepository",
         "SQLiteImpressionRepository", "SQLitePersonaGroupRepository", "SQLitePersonaRepository",
@@ -49,6 +52,7 @@ _LAZY = {
         "HybridRetriever", "ProviderBridge", "build_retrieval_providers", "development_config",
         "open_shared_encoder",
     ), "retrieval"),
+    "PluginRoutes": "webui",
 }
 
 

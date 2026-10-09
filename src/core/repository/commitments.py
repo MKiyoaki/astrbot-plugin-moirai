@@ -17,6 +17,11 @@ class SQLiteCommitmentRepository:
         self._db = db
         self._lock = _get_db_lock(db)
 
+    async def delete_session(self, session_id: str) -> int:
+        async with _txn(self._db, self._lock):
+            cursor = await self._db.execute("DELETE FROM commitments WHERE session_id = ?", (session_id,))
+        return cursor.rowcount
+
     async def add(self, *, persona: str, person_uid: str, session_id: str, group_id: str | None,
                   source_message_id: str, created_at: float, texts: list[str]) -> None:
         rows = [(str(uuid.uuid5(uuid.NAMESPACE_URL, f"moirai:{source_message_id}:{index}")),

@@ -131,6 +131,8 @@ class Event(SerializableMixin, ValidationMixin):
     is_locked: bool = field(default=False)
     bot_persona_name: str | None = None
     event_type: str = field(default=EventType.EPISODE)
+    # 抽取该事件的会话窗口；按来源删除记忆时用，旧事件为 None。
+    source_session_id: str | None = None
     # {display_name: "one-line speaking-style description"} — per-speaker style
     # observations captured at extraction time, aggregated later into persona_attrs.
     participant_style: dict = field(default_factory=dict)

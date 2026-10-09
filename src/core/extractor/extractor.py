@@ -517,6 +517,7 @@ class EventExtractor:
                 inherit_from=inherit_from,
                 last_accessed_at=sub_messages[-1].timestamp,
                 participant_style=res.get("participant_style") or {},
+                source_session_id=getattr(window, "session_id", None),
             )
 
             event_persona = window.last_active_persona or _latest_persona_name(sub_messages) or bot_name

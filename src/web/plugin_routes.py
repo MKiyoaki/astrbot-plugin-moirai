@@ -337,16 +337,9 @@ class PluginRoutes:
     # Route registration
     # ------------------------------------------------------------------
 
-    def register(self, context: Any) -> None:
-        """Register all routes via context.register_web_api()."""
-        p = _PLUGIN_NAME
-
-        def adapt(handler: Any) -> Any:
-            async def wrapped(request: Any = None) -> Response:
-                return await handler(request or quart_request)
-            return wrapped
-
-        routes: list[tuple[str, Any, list[str], str]] = [
+    def route_table(self) -> list[tuple[str, Any, list[str], str]]:
+        """所有 WebUI API 路由（路径、处理函数、方法、说明）；AstrBot 注册与 Core 页面桥共用。"""
+        return [
             # Stats
             (f"/api/stats",                    self._handle_stats,                   ["GET"],         "Plugin stats"),
             # Events
@@ -441,6 +434,17 @@ class PluginRoutes:
             # Panels (PanelRegistry)
             (f"/api/panels",                   self._handle_panels_list,             ["GET"],         "Third-party panel list"),
         ]
+
+    def register(self, context: Any) -> None:
+        """Register all routes via context.register_web_api()."""
+        p = _PLUGIN_NAME
+
+        def adapt(handler: Any) -> Any:
+            async def wrapped(request: Any = None) -> Response:
+                return await handler(request or quart_request)
+            return wrapped
+
+        routes = self.route_table()
 
         for route_path, handler, methods, description in routes:
             try:

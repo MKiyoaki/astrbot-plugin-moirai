@@ -290,3 +290,19 @@ async def delete_event(
     return await memory.delete_event(event_id)
 
 
+
+
+async def forget_session(session_id: str, *, event_repo, raw_message_repo=None, commitment_repo=None) -> dict[str, int]:
+    """按来源删除一个会话窗口写下的记忆：其抽取出的事件（连同向量与全文索引）、原始消息与约定。
+
+    只删 ``source_session_id`` 等于该会话的事件；迁移 024 之前抽取的事件没有来源，不会被删。
+    """
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise ValueError("session_id 不能为空")
+    event_ids = await event_repo.event_ids_from_session(session_id)
+    events = 0
+    for event_id in event_ids:
+        events += bool(await event_repo.delete_with_vector(event_id))
+    messages = await raw_message_repo.delete_session(session_id) if raw_message_repo is not None else 0
+    commitments = await commitment_repo.delete_session(session_id) if commitment_repo is not None else 0
+    return {"events": events, "raw_messages": messages, "commitments": commitments}

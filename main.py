@@ -46,6 +46,7 @@ from core.utils.version import get_plugin_version
 from core.plugin_initializer import PluginInitializer
 from core.event_handler import EventHandler
 from core.adapters.core_events import MoiraiCoreProvider
+from core.adapters.core_panels import CorePageBridge
 from core.domain.models import Event
 from core.config import PluginConfig
 from astrbot.api import logger
@@ -76,6 +77,8 @@ class MoiraiPlugin(Star):
         self.config = config or {}
         self._initializer: PluginInitializer | None = None
         self._handler: EventHandler | None = None
+        self._page_bridge = CorePageBridge(
+            lambda: self._initializer.plugin_routes if self._initializer else None)
         self.oedipus_core_extension_v1 = MoiraiCoreProvider(
             lambda: self._handler,
             lambda: self.config.get("core_integration", {}).get("scope_mappings", "{}"),
@@ -83,6 +86,7 @@ class MoiraiPlugin(Star):
             self._core_available,
             recall=lambda: self._initializer.recall if self._initializer else None,
             canon=lambda: self._initializer.canon if self._initializer else None,
+            pages=lambda: self._page_bridge,
         )
 
     @property

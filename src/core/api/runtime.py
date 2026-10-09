@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from ..adapters.astrbot import MessageRouter
 from ..adapters.core_events import MoiraiCoreProvider
+from ..adapters.core_panels import CorePageBridge
 from ..adapters.identity import IdentityResolver
 from ..boundary.detector import BoundaryConfig, EventBoundaryDetector
 from ..config import ContextConfig, ExtractorConfig, InjectionConfig, PluginConfig, RetrievalConfig
@@ -14,6 +15,8 @@ from ..managers.llm_manager import LLMTaskManager
 from ..managers.raw_message_writer import RawMessageWriter
 from ..managers.recall_manager import RecallManager
 from ..repository.commitments import SQLiteCommitmentRepository
+from ..social.big_five_scorer import BigFiveBuffer
+from ..social.orientation_analyzer import SocialOrientationAnalyzer
 from ..repository.sqlite import (
     SQLiteEventRepository,
     SQLiteImpressionRepository,

@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## [v1.2.46.sub] — 2026-10-09
+
+### 记忆来源与按来源删除
+
+- `src/migrations/024_event_source_session.sql`（新）：`events` 增加 `source_session_id` 列与索引，记下抽取该事件的会话窗口（私聊为那段对话，群聊为该群的会话）；旧事件为空。
+- `src/core/domain/models.py`、`src/core/repository/sqlite.py`：`Event.source_session_id` 读写入库；更新已有事件时若新值为空则保留原来源。`src/core/extractor/extractor.py` 抽取时写入窗口的 `session_id`。
+- `src/core/api/memory.py`：新增 `forget_session(session_id, ...)`，删除该会话抽取的事件（连同向量与全文索引）、原始消息与约定，返回各自删除数；没有来源的旧事件不受影响。`SQLiteEventRepository.event_ids_from_session`、`SQLiteRawMessageRepository.delete_session`、`SQLiteCommitmentRepository.delete_session` 为其所用。
+- `src/core/managers/raw_message_writer.py`：新增 `settle()`，写完排队与正在批处理中的消息，避免按来源删除后又被写回。
+- 本地验证：完整 unittest `Ran 481 tests`、`OK (skipped=1)`（新增按来源删除 1 项：只删指定会话、改写事件不丢来源、全文索引同步）；工作区联合检查 26 项通过，其中删除一段对话只删它自己的原始消息与事件；在 Core 聊天宿主里实测删除对话并同时删除记忆，该会话的原始消息被删除。
+
+## [v1.2.45.sub] — 2026-10-09
+
+### WebUI 页面接入 Core 侧边栏
+
+- `src/core/adapters/core_panels.py`（新）：Core Panel Protocol v1 页面桥。声明事件流、关系图、摘要记忆、记忆召回、数据统计、信息库、账号绑定、插件配置 8 个 `custom` 面板，共用只读查询 `moirai.webui.read`（GET）与写入命令 `moirai.webui.write`（POST/PUT/DELETE），把请求转给 `PluginRoutes` 现有的处理函数；登录、密码、sudo、`/api/admin/*` 与 `/api/panels` 不经过这座桥，认证交给 Core。Core 作用域映射到人格桶时，`persona` 参数与请求体里的 `persona` 以该桶为准。
+- `src/core/adapters/core_events.py`：`MoiraiCoreProvider` 新增 `pages` 参数与 `panels_v1()`；挂了页面桥时 manifest 多出上述两个操作，`invoke_v1` 把它们交给页面桥并映射错误码；不挂时行为不变（只有概览）。
+- `src/web/plugin_routes.py`：路由列表抽成 `route_table()`，AstrBot 注册与页面桥共用，注册行为不变。`main.py` 给 Core 提供者挂上页面桥，AstrBot 里的 Core 也能打开这些页面。
+- `src/core/api/`：导出 `CorePageBridge`、`BigFiveBuffer`、`SocialOrientationAnalyzer`，以及按需导入的 `PluginRoutes`（`core/api/webui.py`），工作区宿主只从 `core.api` 组装。
+- `web/frontend`：`lib/api.ts` 新增 `setRequestTransport`，宿主可替换请求通道（默认仍是 fetch）；新增 `core/core-panel.tsx`（Core 构建时编入的入口，8 个页面包在 Moirai 自己的 `AppProvider`、侧边栏上下文、提示条与任务栏里，语言跟随 Core，`/api/auth/status` 在本地回答已登录）、`core/next-navigation.tsx`（替代 `next/navigation`，路由跳转变成切换 Core 面板）与 `core/panel.css`；`package.json` 用 `oedipusCorePanel` 声明源码目录与这条替换。动画样式与图表/调色板颜色从 `app/globals.css` 与 `styles/themes/moirai.css` 拆到 `styles/motion.css`、`styles/charts.css`，独立 WebUI 与 Core 入口共用，内容不变；调色板变量同时作用于 `.moirai-core-panel`。独立 WebUI 与 AstrBot 页面的行为不变。
+- 本地验证：完整 unittest `Ran 480 tests`、`OK (skipped=1)`（新增页面桥 6 项：路由白名单、读写分离、人格桶固定、错误映射、未就绪、提供者声明）；前端 `tsc --noEmit` 通过；Core 带 Moirai 与 Oedipus 两个面板模块构建通过；工作区联合检查 25 项通过；在 Core 聊天宿主里用真实会话数据逐页打开 8 个页面，无页面错误、无失败请求。
+
 ## [v1.2.44.sub] — 2026-10-07
 
 ### 移除 Soul Layer（情绪四维状态）

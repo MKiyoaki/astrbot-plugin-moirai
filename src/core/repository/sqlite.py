@@ -498,6 +498,7 @@ def _row_to_event(row: aiosqlite.Row) -> Event:
         event_type=event_type,
         participant_style=participant_style,
         interaction_classification=interaction_classification,
+        source_session_id=row["source_session_id"] if "source_session_id" in keys else None,
     )
 
 
@@ -659,6 +660,11 @@ class SQLiteRawMessageRepository(RawMessageRepository):
         for row in rows:
             result[row["event_id"]].extend(persona_views([_row_to_raw_message(row)]))
         return result
+
+    async def delete_session(self, session_id: str) -> int:
+        async with _txn(self._db, self._lock):
+            cursor = await self._db.execute("DELETE FROM raw_messages WHERE session_id = ?", (session_id,))
+        return cursor.rowcount
 
     async def delete_older_than(self, cutoff_ts: float) -> int:
         async with _txn(self._db, self._lock):
@@ -855,7 +861,7 @@ _EVENT_COLS = (
     "event_id, group_id, start_time, end_time, participants, "
     "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
     "inherit_from, last_accessed_at, access_count, status, is_locked, bot_persona_name, event_type, "
-    "participant_style, interaction_classification"
+    "participant_style, interaction_classification, source_session_id"
 )
 
 # Search hot-path columns: interaction_flow and participant_style are stubbed.
@@ -1125,8 +1131,9 @@ class SQLiteEventRepository(EventRepository):
                 "INSERT INTO events(event_id, group_id, start_time, end_time, participants, "
                 "interaction_flow, topic, summary, chat_content_tags, salience, confidence, "
                 "inherit_from, last_accessed_at, access_count, status, is_locked, bot_persona_name, event_type, "
-                "participant_style, interaction_classification, search_words, search_chars) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                "participant_style, interaction_classification, search_words, search_chars, "
+                "source_session_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(event_id) DO UPDATE SET "
                 "group_id=excluded.group_id, "
                 "start_time=excluded.start_time, "
@@ -1147,7 +1154,8 @@ class SQLiteEventRepository(EventRepository):
                 "event_type=excluded.event_type, "
                 "participant_style=excluded.participant_style, "
                 "search_words=excluded.search_words, "
-                "search_chars=excluded.search_chars",
+                "search_chars=excluded.search_chars, "
+                "source_session_id=COALESCE(excluded.source_session_id, events.source_session_id)",
                 (
                     event.event_id,
                     event.group_id,
@@ -1171,8 +1179,15 @@ class SQLiteEventRepository(EventRepository):
                     _j(event.interaction_classification) if event.interaction_classification else "",
                     search_words,
                     search_chars,
+                    event.source_session_id,
                 ),
             )
+
+    async def event_ids_from_session(self, session_id: str) -> list[str]:
+        async with self._db.execute(
+            "SELECT event_id FROM events WHERE source_session_id = ?", (session_id,)
+        ) as cur:
+            return [row[0] for row in await cur.fetchall()]
 
     async def delete(self, event_id: str) -> bool:
         async with _txn(self._db, self._lock):
